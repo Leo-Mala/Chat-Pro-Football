@@ -1,1 +1,0 @@
-Upload Pro-Football-v2--main.zip to the repository root. The Import V3 ZIP GitHub Actions workflow will validate, extract, commit, and remove the ZIP automatically.

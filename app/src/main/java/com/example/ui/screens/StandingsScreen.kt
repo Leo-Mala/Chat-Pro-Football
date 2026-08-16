@@ -1,0 +1,727 @@
+package com.example.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.*
+import com.example.ui.components.standings.TopScorersView
+import com.example.ui.theme.*
+import com.example.ui.viewmodel.GameViewModel
+
+class StandingRow(val teamName: String) {
+    var pts = 0
+    var gp = 0
+    var w = 0
+    var d = 0
+    var l = 0
+    var gf = 0
+    var ga = 0
+}
+
+@Composable
+fun StandingsTab(viewModel: GameViewModel) {
+    val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()
+    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
+    val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()
+    val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
+
+    var selectedLeague by remember { mutableStateOf("SERIE_A") }
+    var selectedSubTab by remember { mutableStateOf("grupos") }
+    var selectedGroupLetter by remember { mutableStateOf("A") }
+    var mainViewMode by remember { mutableStateOf("CLASSIFICACAO") }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CardSurfaceDark, RoundedCornerShape(10.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf(
+                Pair("CLASSIFICACAO", "🏆 Classificação"),
+                Pair("ARTILHARIA", "⚽ Artilharia")
+            ).forEach { (mode, title) ->
+                val isActive = mainViewMode == mode
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isActive) TurfDeepGreen else Color.Transparent)
+                        .clickable { mainViewMode = mode }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        title,
+                        fontSize = 12.sp,
+                        color = if (isActive) AccentLime else Color.Gray,
+                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (mainViewMode == "ARTILHARIA") {
+            TopScorersView(allPlayers = allPlayers, allTeams = allTeams)
+        } else {
+            val hierarchy = remember(selectedCountry) { LeagueHierarchyLoader.getHierarchyForCountry(selectedCountry) }
+            val labels = remember(hierarchy, selectedCountry) {
+                val list = mutableListOf<Pair<String, String>>()
+                list.addAll(listOf(
+                    Pair("SERIE_A", hierarchy.divisions.find { it.code == "SERIE_A" }?.name ?: "Série A"),
+                    Pair("SERIE_B", hierarchy.divisions.find { it.code == "SERIE_B" }?.name ?: "Série B"),
+                    Pair("SERIE_C", hierarchy.divisions.find { it.code == "SERIE_C" }?.name ?: "Série C")
+                ))
+                if (selectedCountry == "Brasil") {
+                    list.add(Pair("SERIE_C_PH2_A", "Série C - Gp A"))
+                    list.add(Pair("SERIE_C_PH2_B", "Série C - Gp B"))
+                }
+                list.addAll(listOf(
+                    Pair("SERIE_D", hierarchy.divisions.find { it.code == "SERIE_D" }?.name ?: "Série D"),
+                    Pair("COPA", DefaultData.getCompetitionName("COPA", selectedCountry)),
+                    Pair("CONTINENTAL_T1", DefaultData.getCompetitionName("CONTINENTAL_T1", selectedCountry)),
+                    Pair("CONTINENTAL_T2", DefaultData.getCompetitionName("CONTINENTAL_T2", selectedCountry)),
+                    Pair("CONTINENTAL_T3", DefaultData.getCompetitionName("CONTINENTAL_T3", selectedCountry)),
+                    Pair("WORLD_CUP", DefaultData.getCompetitionName("WORLD_CUP", selectedCountry))
+                ))
+                list
+            }
+
+            // Standings Filter
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .background(CardSurfaceDark, RoundedCornerShape(8.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                labels.forEach { (code, label) ->
+                    val isActive = selectedLeague == code
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isActive) TurfDeepGreen else Color.Transparent)
+                            .clickable { selectedLeague = code }
+                            .padding(vertical = 10.dp, horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 11.sp,
+                            color = if (isActive) Color.White else Color.Gray,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+
+            val isContinentalWithGroups = selectedLeague in listOf("CONTINENTAL_T1", "CONTINENTAL_T2", "WORLD_CUP")
+
+            if (isContinentalWithGroups) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        Pair("grupos", "Fase de Grupos"),
+                        Pair("eliminatoria", "Fase Final")
+                    ).forEach { (subCode, title) ->
+                        val isSubActive = selectedSubTab == subCode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSubActive) TurfDeepGreen else CardSurfaceDark)
+                                .clickable { selectedSubTab = subCode }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(title, color = if (isSubActive) Color.White else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val isKnockout = if (isContinentalWithGroups) {
+                selectedSubTab == "eliminatoria"
+            } else {
+                selectedLeague in listOf("COPA", "CONTINENTAL_T3")
+            }
+
+            if (isContinentalWithGroups && selectedSubTab == "grupos") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ('A'..'H').forEach { char ->
+                        val letter = char.toString()
+                        val isLetterActive = selectedGroupLetter == letter
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isLetterActive) TurfDeepGreen else CardSurfaceDark)
+                                .clickable { selectedGroupLetter = letter }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Grupo $letter", color = if (isLetterActive) Color.White else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                val groupCode = selectedLeague + "_GP_" + selectedGroupLetter
+                val groupFixtures = allFixtures.filter { it.competitionType == groupCode }
+                val groupTeamIds = groupFixtures.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.distinct().filter { it != -1L && it != 0L }
+                val groupTeams = groupTeamIds.map { id ->
+                    allTeams.find { it.id == id } ?: GlobalFootballSystem.getVirtualTeam(id)
+                }
+
+                val groupStandings = remember(groupCode, allFixtures, groupTeams) {
+                    val map = groupTeams.associateWith { StandingRow(it.name) }.toMutableMap()
+                    val playedFixtures = groupFixtures.filter { it.isPlayed }
+
+                    for (f in playedFixtures) {
+                        val homeT = groupTeams.find { it.id == f.homeTeamId }
+                        val awayT = groupTeams.find { it.id == f.awayTeamId }
+                        val hG = f.homeScore ?: 0
+                        val aG = f.awayScore ?: 0
+
+                        if (homeT != null && awayT != null) {
+                            val hRow = map[homeT] ?: continue
+                            val aRow = map[awayT] ?: continue
+
+                            hRow.gf += hG
+                            hRow.ga += aG
+                            aRow.gf += aG
+                            aRow.ga += hG
+
+                            hRow.gp += 1
+                            aRow.gp += 1
+
+                            when {
+                                hG > aG -> {
+                                    hRow.pts += 3
+                                    hRow.w += 1
+                                    aRow.l += 1
+                                }
+                                aG > hG -> {
+                                    aRow.pts += 3
+                                    aRow.w += 1
+                                    hRow.l += 1
+                                }
+                                else -> {
+                                    hRow.pts += 1
+                                    aRow.pts += 1
+                                    hRow.d += 1
+                                    aRow.d += 1
+                                }
+                            }
+                        }
+                    }
+
+                    map.entries.sortedWith(
+                        compareByDescending<Map.Entry<Team, StandingRow>> { it.value.pts }
+                            .thenByDescending { it.value.w }
+                            .thenByDescending { it.value.gf - it.value.ga }
+                            .thenByDescending { it.value.gf }
+                    ).map { it.key to it.value }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("#", modifier = Modifier.width(18.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Clube", modifier = Modifier.weight(1f), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("PTS", modifier = Modifier.width(32.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("J", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("V", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("E", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("D", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("GP", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("GC", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("SG", modifier = Modifier.width(24.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+
+                    items(groupStandings.size) { index ->
+                        val (team, row) = groupStandings[index]
+                        val pos = index + 1
+                        val isPlayer = team.isPlayerControlled
+                        val isQualified = pos <= 2
+                        val posColor = if (isQualified) AccentLime else Color.White
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = if (isPlayer) TurfDeepGreen.copy(alpha = 0.5f) else CardSurfaceDark),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "$pos",
+                                    modifier = Modifier.width(18.dp),
+                                    color = posColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 16.dp)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "${team.name} (${team.country.take(3).uppercase()})",
+                                    modifier = Modifier.weight(1f),
+                                    color = if (isPlayer) AccentLime else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isPlayer) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text("${row.pts}", modifier = Modifier.width(32.dp), color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                                Text("${row.gp}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                                Text("${row.w}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                                Text("${row.d}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                                Text("${row.l}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                                Text("${row.gf}", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                                Text("${row.ga}", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                                Text("${row.gf - row.ga}", modifier = Modifier.width(24.dp), color = if (row.gf - row.ga >= 0) AccentLime else Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            text = "Partidas do Grupo",
+                            color = AccentGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    }
+
+                    items(groupFixtures.size) { matchIdx ->
+                        val f = groupFixtures[matchIdx]
+                        val homeTeam = allTeams.find { it.id == f.homeTeamId } ?: GlobalFootballSystem.getVirtualTeam(f.homeTeamId)
+                        val awayTeam = allTeams.find { it.id == f.awayTeamId } ?: GlobalFootballSystem.getVirtualTeam(f.awayTeamId)
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1.2f)
+                                ) {
+                                    TeamBadge(logoUrl = homeTeam.logoUrl, teamName = homeTeam.name, size = 24.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        homeTeam.name,
+                                        color = if (homeTeam.isPlayerControlled) AccentLime else MaterialTheme.colorScheme.onBackground,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.weight(0.8f)
+                                ) {
+                                    if (f.isPlayed) {
+                                        Text(
+                                            "${f.homeScore} - ${f.awayScore}",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    } else {
+                                        Text(
+                                            "VS (Sem ${f.week})",
+                                            color = Color.Gray,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End,
+                                    modifier = Modifier.weight(1.2f)
+                                ) {
+                                    Text(
+                                        awayTeam.name,
+                                        color = if (awayTeam.isPlayerControlled) AccentLime else MaterialTheme.colorScheme.onBackground,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    TeamBadge(logoUrl = awayTeam.logoUrl, teamName = awayTeam.name, size = 24.dp)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (isKnockout) {
+                val compFixtures = allFixtures.filter { it.competitionType == selectedLeague }
+                if (compFixtures.isEmpty()) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("Nenhuma partida agendada para este torneio.", color = Color.Gray, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val grouped = compFixtures.groupBy { it.week }.toSortedMap()
+                        grouped.forEach { (weekNum, matches) ->
+                            val phaseTitle = when {
+                                selectedLeague.contains("CONTINENTAL_T1") || selectedLeague.contains("CONTINENTAL_T2") || selectedLeague == "LIBERTADORES" || selectedLeague == "SULAMERICANA" -> {
+                                    when (weekNum) {
+                                        in 1..18 -> "Fase de Grupos (Semana $weekNum)"
+                                        21, 22 -> "Play-Offs de Acesso"
+                                        26, 27 -> "Oitavas de Final (${if (weekNum == 26) "Jogo de Ida" else "Jogo de Volta"})"
+                                        30, 31 -> "Quartas de Final (${if (weekNum == 30) "Jogo de Ida" else "Jogo de Volta"})"
+                                        34, 35 -> "Semifinais (${if (weekNum == 34) "Jogo de Ida" else "Jogo de Volta"})"
+                                        36 -> "🏆 GRANDE FINAL (Jogo Único)"
+                                        else -> "Fase Eliminatória (Semana $weekNum)"
+                                    }
+                                }
+                                selectedLeague == "COPA" -> {
+                                    when (weekNum) {
+                                        3 -> "1ª Fase"
+                                        7 -> "2ª Fase"
+                                        11 -> "3ª Fase"
+                                        15 -> "4ª Fase"
+                                        19, 20 -> "Oitavas de Final (${if (weekNum == 19) "Ida" else "Volta"})"
+                                        24, 25 -> "Quartas de Final (${if (weekNum == 24) "Ida" else "Volta"})"
+                                        29, 30 -> "Semifinais (${if (weekNum == 29) "Ida" else "Volta"})"
+                                        34, 35 -> "🏆 GRANDE FINAL (${if (weekNum == 34) "Jogo 1" else "Jogo 2"})"
+                                        else -> "Copa do Brasil (Semana $weekNum)"
+                                    }
+                                }
+                                selectedLeague == "WORLD" || selectedLeague == "WORLD_CUP" -> {
+                                    when (weekNum) {
+                                        37 -> "Oitavas de Final"
+                                        38 -> "Quartas de Final"
+                                        39 -> "Semifinais"
+                                        40 -> "🏆 GRANDE FINAL DO SUPER MUNDIAL DE CLUBES 🌍"
+                                        else -> "Super Mundial de Clubes (Semana $weekNum)"
+                                    }
+                                }
+                                selectedLeague.startsWith("SERIE_D_") -> {
+                                    when (selectedLeague) {
+                                        "SERIE_D_O64" -> "Segunda Fase (64 Avos)"
+                                        "SERIE_D_O32" -> "Terceira Fase (32 Avos)"
+                                        "SERIE_D_O16" -> "Oitavas de Final"
+                                        "SERIE_D_QF" -> "Quartas de Final (Acesso)"
+                                        "SERIE_D_SF" -> "Semifinais"
+                                        "SERIE_D_F" -> "🏆 GRANDE FINAL"
+                                        "SERIE_D_PE" -> "Repescagem de Acesso"
+                                        else -> "Série D - Fase Eliminatória"
+                                    }
+                                }
+                                else -> "Rodada / Fase (Semana $weekNum)"
+                            }
+
+                            item {
+                                Text(
+                                    text = phaseTitle,
+                                    color = AccentGold,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(vertical = 6.dp)
+                                )
+                            }
+                            items(matches.size) { matchIdx ->
+                                val f = matches[matchIdx]
+                                val homeTeam = allTeams.find { it.id == f.homeTeamId } ?: GlobalFootballSystem.getVirtualTeam(f.homeTeamId)
+                                val awayTeam = allTeams.find { it.id == f.awayTeamId } ?: GlobalFootballSystem.getVirtualTeam(f.awayTeamId)
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1.2f)
+                                            ) {
+                                                TeamBadge(logoUrl = homeTeam.logoUrl, teamName = homeTeam.name, size = 24.dp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    homeTeam.name,
+                                                    color = if (homeTeam.isPlayerControlled) AccentLime else MaterialTheme.colorScheme.onBackground,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    fontWeight = if (homeTeam.isPlayerControlled) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center,
+                                                modifier = Modifier.weight(1.0f)
+                                            ) {
+                                                if (f.isPlayed) {
+                                                    val scoreText = if (f.homePenalties != null && f.awayPenalties != null) {
+                                                        "${f.homeScore} - ${f.awayScore} (${f.homePenalties}x${f.awayPenalties} pen)"
+                                                    } else {
+                                                        "${f.homeScore} - ${f.awayScore}"
+                                                    }
+                                                    Text(
+                                                        scoreText,
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        "VS",
+                                                        color = Color.Gray,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.End,
+                                                modifier = Modifier.weight(1.2f)
+                                            ) {
+                                                Text(
+                                                    awayTeam.name,
+                                                    color = if (awayTeam.isPlayerControlled) AccentLime else MaterialTheme.colorScheme.onBackground,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    fontWeight = if (awayTeam.isPlayerControlled) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                TeamBadge(logoUrl = awayTeam.logoUrl, teamName = awayTeam.name, size = 24.dp)
+                                            }
+                                        }
+
+                                        val isFinal = weekNum == 36 || (selectedLeague == "COPA" && weekNum == 35) || (selectedLeague == "WORLD" && weekNum == 38)
+                                        if (f.isPlayed && isFinal && f.homeScore != null && f.awayScore != null) {
+                                            val winnerId = when {
+                                                f.homeScore > f.awayScore -> f.homeTeamId
+                                                f.awayScore > f.homeScore -> f.awayTeamId
+                                                (f.homePenalties ?: 0) > (f.awayPenalties ?: 0) -> f.homeTeamId
+                                                else -> f.awayTeamId
+                                            }
+                                            val champTeam = if (winnerId == homeTeam.id) homeTeam else awayTeam
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Surface(
+                                                color = AccentGold.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(4.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = "🏆 CAMPEÃO: ${champTeam.name.uppercase()}",
+                                                    color = AccentGold,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                val leagueTeams = allTeams.filter {
+                    if (it.id <= 0L) return@filter false
+                    if (selectedLeague == "SERIE_C_PH2_A" || selectedLeague == "SERIE_C_PH2_B") {
+                        val teamIds = allFixtures.filter { it.competitionType == selectedLeague }.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.distinct()
+                        teamIds.contains(it.id)
+                    } else {
+                        it.country == selectedCountry && it.division == when (selectedLeague) {
+                            "SERIE_A" -> 1
+                            "SERIE_B" -> 2
+                            "SERIE_C" -> 3
+                            else -> 4
+                        }
+                    }
+                }
+
+                val standings = remember(selectedLeague, allFixtures, leagueTeams) {
+                    val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()
+                    val playedFixtures = allFixtures.filter { it.competitionType == selectedLeague && it.isPlayed }
+
+                    for (f in playedFixtures) {
+                        val homeT = leagueTeams.find { it.id == f.homeTeamId }
+                        val awayT = leagueTeams.find { it.id == f.awayTeamId }
+                        val hG = f.homeScore ?: 0
+                        val aG = f.awayScore ?: 0
+
+                        if (homeT != null && awayT != null) {
+                            val hRow = map[homeT] ?: continue
+                            val aRow = map[awayT] ?: continue
+
+                            hRow.gf += hG
+                            hRow.ga += aG
+                            aRow.gf += aG
+                            aRow.ga += hG
+
+                            hRow.gp += 1
+                            aRow.gp += 1
+
+                            when {
+                                hG > aG -> {
+                                    hRow.pts += 3
+                                    hRow.w += 1
+                                    aRow.l += 1
+                                }
+                                aG > hG -> {
+                                    aRow.pts += 3
+                                    aRow.w += 1
+                                    hRow.l += 1
+                                }
+                                else -> {
+                                    hRow.pts += 1
+                                    aRow.pts += 1
+                                    hRow.d += 1
+                                    aRow.d += 1
+                                }
+                            }
+                        }
+                    }
+
+                    map.entries.sortedWith(
+                        compareByDescending<Map.Entry<Team, StandingRow>> { it.value.pts }
+                            .thenByDescending { it.value.w }
+                            .thenByDescending { it.value.gf - it.value.ga }
+                            .thenByDescending { it.value.gf }
+                    ).map { Pair(it.key, it.value) }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(CardSurfaceDark, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                        .padding(horizontal = 8.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("#", modifier = Modifier.width(18.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Clube", modifier = Modifier.weight(1f), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("PTS", modifier = Modifier.width(32.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("J", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("V", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("E", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("D", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("GP", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("GC", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("SG", modifier = Modifier.width(24.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                }
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                ) {
+                    items(standings.size) { idx ->
+                        val (team, sRow) = standings[idx]
+                        val rank = idx + 1
+                        val isPlayer = team.isPlayerControlled
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(if (isPlayer) TurfDeepGreen.copy(alpha = 0.5f) else Color.Transparent)
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "$rank",
+                                modifier = Modifier.width(18.dp),
+                                color = when (rank) {
+                                    1 -> AccentGold
+                                    2, 3, 4 -> AccentLime
+                                    else -> Color.White
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 16.dp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                team.name,
+                                modifier = Modifier.weight(1f),
+                                color = if (isPlayer) AccentLime else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = if (isPlayer) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text("${sRow.pts}", modifier = Modifier.width(32.dp), color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                            Text("${sRow.gp}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("${sRow.w}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("${sRow.d}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("${sRow.l}", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("${sRow.gf}", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("${sRow.ga}", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("${sRow.gf - sRow.ga}", modifier = Modifier.width(24.dp), color = if (sRow.gf - sRow.ga >= 0) AccentLime else Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f))
+                    }
+                }
+            }
+        }
+    }
+}

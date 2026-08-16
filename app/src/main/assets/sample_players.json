@@ -1,0 +1,68 @@
+{
+  "players": [
+    {
+      "id": 1001,
+      "team_id": 1,
+      "name": "Neymar Jr",
+      "age": 32,
+      "nationality": "Brasil",
+      "position": "MEI",
+      "force": 89,
+      "energy": 100,
+      "moral": 85,
+      "salary": 150000,
+      "contract_duration_weeks": 104,
+      "attributes": {
+        "finishing": 88,
+        "passing": 90,
+        "pace": 85,
+        "strength": 65,
+        "vision": 92,
+        "defense": 40
+      }
+    },
+    {
+      "id": 1002,
+      "team_id": 1,
+      "name": "Vinícius Júnior",
+      "age": 24,
+      "nationality": "Brasil",
+      "position": "ATA",
+      "force": 91,
+      "energy": 100,
+      "moral": 90,
+      "salary": 200000,
+      "contract_duration_weeks": 156,
+      "attributes": {
+        "finishing": 89,
+        "passing": 84,
+        "pace": 96,
+        "strength": 74,
+        "vision": 85,
+        "defense": 35
+      }
+    },
+    {
+      "id": 1003,
+      "team_id": 1,
+      "name": "Endrick",
+      "age": 18,
+      "nationality": "Brasil",
+      "position": "ATA",
+      "force": 80,
+      "energy": 100,
+      "moral": 95,
+      "is_from_academy": true,
+      "salary": 40000,
+      "contract_duration_weeks": 156,
+      "attributes": {
+        "finishing": 83,
+        "passing": 72,
+        "pace": 88,
+        "strength": 80,
+        "vision": 75,
+        "defense": 30
+      }
+    }
+  ]
+}

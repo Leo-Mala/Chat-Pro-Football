@@ -1,0 +1,180 @@
+package com.example.ui.viewmodel
+
+import androidx.lifecycle.viewModelScope
+import com.example.data.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+fun GameViewModel.ensureSaveActiveForEditor() {
+    viewModelScope.launch(Dispatchers.IO) {
+        if (_currentSaveId.value == null) {
+            _currentSaveId.value = "1"
+        }
+        val currentRepository = getActiveRepository() ?: repo
+
+        var dbTeams = currentRepository.getAllTeams()
+        if (dbTeams.isEmpty()) {
+            val seededTeams = mutableListOf<Team>()
+            for (countryKey in GlobalFootballSystem.keys) {
+                val templates = DefaultData.getTeamsForCountry(countryKey)
+                for (t in templates) {
+                    val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                    seededTeams.add(
+                        Team(
+                            id = globalId,
+                            name = t.name,
+                            city = t.city,
+                            state = t.state,
+                            country = countryKey,
+                            division = t.division,
+                            rating = t.rating,
+                            stadiumName = t.stadium,
+                            logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
+                            isPlayerControlled = (globalId == 1L)
+                        )
+                    )
+                }
+            }
+            currentRepository.saveTeams(seededTeams)
+            dbTeams = seededTeams
+        }
+
+        val allDbPlayers = currentRepository.getAllPlayers()
+        if (allDbPlayers.isEmpty()) {
+            val allPlayersToSave = mutableListOf<Player>()
+            for (t in dbTeams) {
+                val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
+                allPlayersToSave.addAll(roster)
+            }
+            currentRepository.savePlayers(allPlayersToSave)
+        }
+    }
+}
+
+fun GameViewModel.ensureRosterForTeam(teamId: Long) {
+    viewModelScope.launch(Dispatchers.IO) {
+        val players = repo.getPlayersByTeam(teamId)
+        if (players.isEmpty()) {
+            val defaultPlayers = List(18) { idx ->
+                Player(
+                    teamId = teamId,
+                    name = "Jogador ${idx + 1}",
+                    position = if (idx == 0) "GK" else if (idx < 5) "DF" else if (idx < 10) "MF" else "FW",
+                    force = 60 + (idx % 15),
+                    potential = 75,
+                    age = 20 + (idx % 10),
+                    salary = 5000L
+                )
+            }
+            repo.savePlayers(defaultPlayers)
+        }
+    }
+}
+
+fun GameViewModel.saveTeamFromEditor(team: Team) {
+    viewModelScope.launch(Dispatchers.IO) {
+        val finalTeamId = if (team.id == 0L) System.currentTimeMillis() else team.id
+        val teamToSave = team.copy(id = finalTeamId)
+        repo.saveTeams(listOf(teamToSave))
+
+        val existingPlayers = repo.getPlayersByTeam(finalTeamId)
+        if (existingPlayers.isEmpty()) {
+            val roster = DefaultData.generateRosterForTeam(finalTeamId, teamToSave.rating, teamToSave.name, teamToSave.country)
+            repo.savePlayers(roster)
+        } else {
+            val currentAvg = existingPlayers.map { it.force }.average().toInt()
+            val delta = teamToSave.rating - currentAvg
+            if (delta != 0) {
+                val updatedPlayers = existingPlayers.map { p ->
+                    val newForce = (p.force + delta).coerceIn(30, 99)
+                    p.copy(
+                        force = newForce,
+                        potential = maxOf(p.potential, newForce + 3).coerceIn(35, 99)
+                    )
+                }
+                repo.savePlayers(updatedPlayers)
+            }
+        }
+    }
+}
+
+fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int) {
+    viewModelScope.launch(Dispatchers.IO) {
+        val newRating = ((attack + mid + def) / 3).coerceIn(15, 99)
+        val team = repo.getTeam(teamId) ?: return@launch
+        repo.updateTeam(team.copy(rating = newRating))
+
+        // Atualizar também os atributos individuais dos jogadores do time proporcionalmente
+        val players = repo.getPlayersByTeam(teamId)
+        val updatedPlayers = players.map { player ->
+            val currentAttr = player.getAtributosObject()
+            val oldForce = player.force.coerceAtLeast(1)
+            val ratio = newRating.toDouble() / oldForce.toDouble()
+
+            // Escala os atributos mantendo as proporções originais do atleta
+            val scaledAttr = currentAttr.copy(
+                finalizacao = (currentAttr.finalizacao * ratio).roundToInt().coerceIn(10, 99),
+                passe = (currentAttr.passe * ratio).roundToInt().coerceIn(10, 99),
+                velocidade = (currentAttr.velocidade * ratio).roundToInt().coerceIn(10, 99),
+                forca = (currentAttr.forca * ratio).roundToInt().coerceIn(10, 99),
+                visaoJogo = (currentAttr.visaoJogo * ratio).roundToInt().coerceIn(10, 99),
+                desarme = (currentAttr.desarme * ratio).roundToInt().coerceIn(10, 99)
+            )
+
+            val newJson = AtributosConverter.atributosToJson(scaledAttr)
+            player.copy(
+                force = newRating,
+                potential = maxOf(player.potential, newRating + 3).coerceIn(15, 99),
+                atributosJson = newJson,
+                finishing = scaledAttr.finalizacao,
+                passing = scaledAttr.passe,
+                pace = scaledAttr.velocidade,
+                strength = scaledAttr.forca,
+                vision = scaledAttr.visaoJogo,
+                defense = scaledAttr.desarme
+            )
+        }
+        repo.updatePlayers(updatedPlayers)
+    }
+}
+
+fun GameViewModel.deleteTeamFromEditor(teamId: Long) {
+    viewModelScope.launch(Dispatchers.IO) {
+        repo.deleteTeam(teamId)
+    }
+}
+
+fun GameViewModel.savePlayerFromEditor(player: Player) {
+    viewModelScope.launch(Dispatchers.IO) {
+        if (player.id == 0L) {
+            repo.savePlayers(listOf(player))
+        } else {
+            repo.updatePlayer(player)
+        }
+        if (player.teamId != 0L) {
+            val roster = repo.getPlayersByTeam(player.teamId)
+            val calculated = GameEngine.calculateTeamRating(roster)
+            val team = repo.getTeam(player.teamId)
+            if (team != null && team.rating != calculated) {
+                repo.saveTeams(listOf(team.copy(rating = calculated)))
+            }
+        }
+    }
+}
+
+fun GameViewModel.deletePlayerFromEditor(playerId: Long) {
+    viewModelScope.launch(Dispatchers.IO) {
+        repo.deletePlayer(playerId)
+    }
+}
+
+fun GameViewModel.transferPlayerFromEditor(playerId: Long, targetTeamId: Long) {
+    viewModelScope.launch(Dispatchers.IO) {
+        val player = repo.getPlayer(playerId) ?: return@launch
+        val updated = player.copy(teamId = targetTeamId)
+        repo.updatePlayer(updated)
+    }
+}

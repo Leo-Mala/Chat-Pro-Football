@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M0,0h108v108H0z">
+        <gradient
+            android:startX="0"
+            android:startY="0"
+            android:endX="108"
+            android:endY="108"
+            android:type="linear">
+            <item android:color="#040C1E" android:offset="0.0" />
+            <item android:color="#0F2142" android:offset="1.0" />
+        </gradient>
+    </path>
+    <!-- Premium background soccer field subtle watermark -->
+    <path
+        android:pathData="M54,54m-45,0a45,45 0 1,1 90,0a45,45 0 1,1 -90,0"
+        android:strokeColor="#0AFFFFFF"
+        android:strokeWidth="1.0"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54,54m-15,0a15,15 0 1,1 30,0a15,15 0 1,1 -30,0"
+        android:strokeColor="#0AFFFFFF"
+        android:strokeWidth="1.0"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M9,54L99,54"
+        android:strokeColor="#0AFFFFFF"
+        android:strokeWidth="1.0" />
+</vector>
