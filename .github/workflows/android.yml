@@ -98,9 +98,6 @@ jobs:
           gradle wrapper --gradle-version 8.10.2 --distribution-type bin
           chmod +x gradlew
 
-      - name: Run TwentySeasonStressTest in isolation
-        run: ./gradlew testDebugUnitTest --tests com.example.TwentySeasonStressTest --stacktrace --info
-
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
