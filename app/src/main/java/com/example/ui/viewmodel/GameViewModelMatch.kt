@@ -320,7 +320,10 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
         playerEvolutionUseCase.executeMonthlyEvolution(save, "S${save.currentSeason}_W${save.currentWeek}")
     }
 
-    // Progress Super Mundial de Clubes knockouts / champion recording
+    // Progress recurring domestic cup and continental tournaments.
+    SeasonCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+
+    // Progress Super Mundial de Clubes knockouts / champion recording.
     SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
 
     if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
