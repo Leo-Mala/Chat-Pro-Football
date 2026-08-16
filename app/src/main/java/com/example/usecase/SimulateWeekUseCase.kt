@@ -2,9 +2,19 @@ package com.example.usecase
 
 import com.example.data.GameRepository
 import com.example.data.Fixture
-import com.example.data.GameSave
 import kotlin.math.max
 import kotlin.random.Random
+
+internal fun isKnockoutCompetitionType(competitionType: String): Boolean {
+    return competitionType in setOf(
+        "CUP", // legacy alias
+        "COPA",
+        "CONTINENTAL_T1",
+        "CONTINENTAL_T2",
+        "CONTINENTAL_T3",
+        "WORLD_CUP"
+    )
+}
 
 /**
  * UseCase responsável por gerenciar a simulação de rodadas e cálculo de partidas.
@@ -25,7 +35,7 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     fun calculateCpuMatchScore(homeRating: Int, awayRating: Int): Pair<Int, Int> {
         val homeAdvantage = 5
         val adjustedHomeRating = homeRating + homeAdvantage
-        
+
         val ratingDiff = adjustedHomeRating - awayRating
         val baseHomeExp = max(0.5, 1.4 + (ratingDiff / 25.0))
         val baseAwayExp = max(0.3, 1.1 - (ratingDiff / 25.0))
@@ -47,18 +57,34 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     }
 
     /**
-     * Executa a simulação em lote de todas as partidas da CPU para a semana corrente.
+     * Executa a simulação em lote das partidas da CPU para a semana corrente.
+     *
+     * Quando [excludedTeamId] é informado, nenhuma partida desse clube é simulada.
+     * Isso é essencial em semanas com dois ou mais jogos do clube do usuário (liga + copa,
+     * por exemplo): a CPU pode fechar o restante da rodada sem consumir silenciosamente a
+     * próxima partida que ainda precisa ser disputada pelo usuário.
      */
-    suspend fun simulateCpuMatchesForWeek(season: Int, week: Int): List<Fixture> {
-        val unplayedFixtures = repository.getFixturesForWeek(season, week).filter { !it.isPlayed }
+    suspend fun simulateCpuMatchesForWeek(
+        season: Int,
+        week: Int,
+        excludedTeamId: Long? = null
+    ): List<Fixture> {
+        val unplayedFixtures = repository.getFixturesForWeek(season, week)
+            .filter { fixture ->
+                !fixture.isPlayed &&
+                    (excludedTeamId == null ||
+                        (fixture.homeTeamId != excludedTeamId && fixture.awayTeamId != excludedTeamId))
+            }
         val allTeams = repository.getAllTeams()
         val teamMap = allTeams.associateBy { it.id }
 
         val updatedFixtures = mutableListOf<Fixture>()
 
         for (fixture in unplayedFixtures) {
-            val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(id = fixture.homeTeamId, name = "Time A", city = "Cidade", state = "BR", division = 1, rating = 50)
-            val awayTeam = teamMap[fixture.awayTeamId] ?: com.example.data.Team(id = fixture.awayTeamId, name = "Time B", city = "Cidade", state = "BR", division = 1, rating = 50)
+            val homeTeam = teamMap[fixture.homeTeamId]
+                ?: com.example.data.Team(id = fixture.homeTeamId, name = "Time A", city = "Cidade", state = "BR", division = 1, rating = 50)
+            val awayTeam = teamMap[fixture.awayTeamId]
+                ?: com.example.data.Team(id = fixture.awayTeamId, name = "Time B", city = "Cidade", state = "BR", division = 1, rating = 50)
 
             val isRivalry = (homeTeam.rivalTeamId == awayTeam.id)
             val seed = (season * 1000L + week * 100L + fixture.id)
@@ -71,10 +97,13 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
 
             var homePen: Int? = null
             var awayPen: Int? = null
-            if (homeScore == awayScore && (fixture.competitionType == "CUP" || fixture.competitionType == "CONTINENTAL_T1" || fixture.competitionType == "CONTINENTAL_T2" || fixture.competitionType == "WORLD_CUP")) {
-                val hP = Random.nextInt(3, 6)
-                var aP = Random.nextInt(3, 6)
-                if (hP == aP) aP += 1
+            if (homeScore == awayScore && isKnockoutCompetitionType(fixture.competitionType)) {
+                val penaltyRandom = Random(seed xor 0x5DEECE66DL)
+                val hP = penaltyRandom.nextInt(3, 6)
+                var aP = penaltyRandom.nextInt(3, 6)
+                if (hP == aP) {
+                    aP = if (aP < 5) aP + 1 else aP - 1
+                }
                 homePen = hP
                 awayPen = aP
             }
