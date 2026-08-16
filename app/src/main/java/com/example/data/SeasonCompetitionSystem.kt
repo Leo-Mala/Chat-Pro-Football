@@ -73,11 +73,25 @@ object SeasonCompetitionSystem {
         return selected.distinctBy { it.id }
     }
 
+    fun isContinentalTierAvailable(userCountry: String, tier: Int): Boolean {
+        if (confederationForCountry(userCountry) == null) return false
+        val (tier1Code, tier2Code, tier3Code) =
+            GlobalFootballSystem.getContinentalTournamentsForCountry(userCountry)
+
+        return when (tier) {
+            1 -> true
+            2 -> tier2Code != tier1Code
+            3 -> tier3Code != tier1Code && tier3Code != tier2Code
+            else -> false
+        }
+    }
+
     fun selectContinentalTierParticipants(
         teams: List<Team>,
         userCountry: String,
         tier: Int
     ): List<Team> {
+        if (!isContinentalTierAvailable(userCountry, tier)) return emptyList()
         val confederation = confederationForCountry(userCountry) ?: return emptyList()
         val ranked = teams.asSequence()
             .filter { it.division == 1 }
@@ -382,7 +396,13 @@ object SeasonCompetitionSystem {
             )
         }
 
-        return if (homePenalties > awayPenalties) fixture.homeTeamId else fixture.awayTeamId
+        val resolvedHomePenalties = requireNotNull(homePenalties)
+        val resolvedAwayPenalties = requireNotNull(awayPenalties)
+        return if (resolvedHomePenalties > resolvedAwayPenalties) {
+            fixture.homeTeamId
+        } else {
+            fixture.awayTeamId
+        }
     }
 
     private fun pairRound(
