@@ -127,13 +127,10 @@ dependencies {
   ksp(libs.hilt.compiler)
 }
 
-// Fast PR regression mode: run every unit/Robolectric test except deliberately
-// long-horizon classes whose names end in StressTest. The default Gradle task
-// remains unchanged and continues to execute the complete suite.
-tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-  if (providers.gradleProperty("excludeStressTests").orNull == "true") {
-    filter {
-      excludeTestsMatching("*StressTest*")
-    }
+// CI can request the normal regression suite without the intentionally long 20/100-season stress tests.
+// The default local task remains unchanged and still executes the complete suite.
+if (providers.gradleProperty("excludeStressTests").isPresent) {
+  tasks.withType<Test>().configureEach {
+    exclude("**/*StressTest*")
   }
 }
