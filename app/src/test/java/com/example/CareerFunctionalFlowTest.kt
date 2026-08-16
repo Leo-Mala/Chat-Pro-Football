@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import android.os.Looper
 import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GamePreferencesRepository
@@ -14,7 +15,9 @@ import com.example.ui.viewmodel.executeInstantBuy
 import com.example.ui.viewmodel.parseProspects
 import com.example.ui.viewmodel.promoteAcademyProspect
 import com.example.ui.viewmodel.renewContract
+import com.example.ui.viewmodel.repayBankLoan
 import com.example.ui.viewmodel.skipLiveMatch
+import com.example.ui.viewmodel.takeBankLoan
 import com.example.usecase.ProcessTransfersUseCase
 import com.example.usecase.TacticsUseCase
 import com.example.usecase.YouthAcademyUseCase
@@ -30,6 +33,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -48,16 +52,19 @@ class CareerFunctionalFlowTest {
     @Before
     fun setup() = runBlocking {
         application = ApplicationProvider.getApplicationContext()
+        idleMainLooper()
         cleanPersistentState()
     }
 
     @After
     fun tearDown() = runBlocking {
+        idleMainLooper()
         repositoriesToClose.forEach { repository ->
             runCatching { repository.closeAllDatabases() }
         }
         repositoriesToClose.clear()
         cleanPersistentState()
+        idleMainLooper()
     }
 
     @Test
@@ -96,10 +103,14 @@ class CareerFunctionalFlowTest {
         assertTrue(repository.getPlayersByTeam(selectedTeam.id).size >= 18)
         assertTrue(repository.getFixturesForSeason(2026).isNotEmpty())
 
+        // A newly created career must be visible immediately in the saves menu.
         awaitCondition {
-            harness.preferencesRepository.loadSaveSlots()
-                .first { it.id == "1" }
-                .exists
+            val metadata = harness.preferencesRepository.loadSaveSlots().first { it.id == "1" }
+            metadata.exists &&
+                metadata.coachName == "QA Fase 7" &&
+                metadata.teamName == selectedTeam.name &&
+                metadata.season == 2026 &&
+                metadata.week == 1
         }
 
         // Youth academy must be usable immediately in a brand-new career.
@@ -115,10 +126,10 @@ class CareerFunctionalFlowTest {
             repository.getPlayerCountByTeam(selectedTeam.id) == rosterCountBeforePromotion + 1 &&
                 viewModel.parseProspects(save.academyProspects).size == initialProspects.size - 1
         }
-        assertTrue(
-            repository.getPlayersByTeam(selectedTeam.id)
-                .any { it.name == promotedProspect.name && it.teamId == selectedTeam.id }
-        )
+        val promotedPlayer = repository.getPlayersByTeam(selectedTeam.id)
+            .first { it.name == promotedProspect.name }
+        assertTrue(promotedPlayer.isFromAcademy)
+        assertEquals(selectedTeam.country, promotedPlayer.nationality)
 
         // Contract renewal must persist through the same active session.
         val renewalTarget = repository.getPlayersByTeam(selectedTeam.id)
@@ -130,7 +141,7 @@ class CareerFunctionalFlowTest {
         }
 
         // Give the functional test a deliberately large management budget so it tests
-        // transfer behavior instead of depending on the balance of the chosen club.
+        // management actions instead of depending on the balance of the chosen club.
         val financiallyPreparedSave = requireNotNull(repository.getGameSave()).copy(
             bankBalance = 5_000_000_000L,
             coachReputation = 100,
@@ -139,6 +150,23 @@ class CareerFunctionalFlowTest {
             socioTorcedoresCount = 100_000
         )
         repository.saveGameSave(financiallyPreparedSave)
+
+        // Bank loan + partial repayment through the same public actions exposed to the UI.
+        viewModel.takeBankLoan(1_000_000L)
+        awaitCondition {
+            repository.getGameSave()?.loanAmount == 1_000_000L
+        }
+        val balanceAfterLoan = requireNotNull(repository.getGameSave()).bankBalance
+        assertTrue(balanceAfterLoan >= financiallyPreparedSave.bankBalance + 1_000_000L)
+
+        viewModel.repayBankLoan(400_000L)
+        awaitCondition {
+            repository.getGameSave()?.loanAmount == 600_000L
+        }
+        assertEquals(
+            balanceAfterLoan - 400_000L,
+            requireNotNull(repository.getGameSave()).bankBalance
+        )
 
         // Player loan: exercise the production use case used by the management layer.
         val loanTarget = repository.getAllPlayers()
@@ -215,9 +243,15 @@ class CareerFunctionalFlowTest {
         )
         assertEquals(selectedTeam.id, requireNotNull(repository.getPlayer(purchaseTarget.id)).teamId)
         assertTrue(requireNotNull(repository.getPlayer(loanTarget.id)).isOnLoan)
+        assertEquals(600_000L, requireNotNull(repository.getGameSave()).loanAmount)
 
-        // A manual/local backup must use the physical database of the active slot.
-        viewModel.backupCurrentDatabase()
+        // Exercise the same public save action used by the UI and wait for its callback.
+        val saveCompleted = CompletableDeferred<Unit>()
+        viewModel.saveGame(manual = true) {
+            if (!saveCompleted.isCompleted) saveCompleted.complete(Unit)
+        }
+        awaitDeferred(saveCompleted, timeoutMs = 15_000L)
+
         val databaseName = harness.saveRepository.databaseNameForSlot("1")
         val backupFile = application.getDatabasePath("${databaseName}_backup")
         assertTrue(harness.saveRepository.databaseFileForSlot("1").exists())
@@ -230,6 +264,7 @@ class CareerFunctionalFlowTest {
 
         // Simulate closing the career/database and reopening it through a fresh VM/repository.
         viewModel.exitToSavesMenu()
+        idleMainLooper()
         delay(300L)
         harness.saveRepository.closeAllDatabases()
 
@@ -246,12 +281,13 @@ class CareerFunctionalFlowTest {
         assertEquals(progressedSave.currentSeason, reopenedSave.currentSeason)
         assertEquals(progressedSave.currentWeek, reopenedSave.currentWeek)
         assertEquals(progressedSave.playerTeamId, reopenedSave.playerTeamId)
+        assertEquals(600_000L, reopenedSave.loanAmount)
         assertEquals(selectedTeam.id, requireNotNull(reopenedRepository.getPlayer(purchaseTarget.id)).teamId)
         assertTrue(requireNotNull(reopenedRepository.getPlayer(loanTarget.id)).isOnLoan)
-        assertTrue(
-            reopenedRepository.getPlayersByTeam(selectedTeam.id)
-                .any { it.name == promotedProspect.name }
-        )
+        val reopenedAcademyPlayer = reopenedRepository.getPlayersByTeam(selectedTeam.id)
+            .first { it.name == promotedProspect.name }
+        assertTrue(reopenedAcademyPlayer.isFromAcademy)
+        assertEquals(selectedTeam.country, reopenedAcademyPlayer.nationality)
         assertEquals(1, reopenedHarness.viewModel.parseProspects(reopenedSave.academyProspects).size)
     }
 
@@ -330,10 +366,28 @@ class CareerFunctionalFlowTest {
         condition: suspend () -> Boolean
     ) {
         withTimeout(timeoutMs) {
-            while (!condition()) {
+            while (true) {
+                idleMainLooper()
+                if (condition()) break
                 delay(pollMs)
             }
         }
+    }
+
+    private suspend fun <T> awaitDeferred(
+        deferred: CompletableDeferred<T>,
+        timeoutMs: Long
+    ): T = withTimeout(timeoutMs) {
+        while (!deferred.isCompleted) {
+            idleMainLooper()
+            delay(50L)
+        }
+        idleMainLooper()
+        deferred.await()
+    }
+
+    private fun idleMainLooper() {
+        shadowOf(Looper.getMainLooper()).idle()
     }
 
     private suspend fun cleanPersistentState() {
