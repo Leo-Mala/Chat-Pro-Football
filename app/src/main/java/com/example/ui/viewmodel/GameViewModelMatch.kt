@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import com.example.usecase.DatabaseIntegrityUseCase
+import com.example.usecase.isKnockoutCompetitionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -28,6 +29,55 @@ internal fun hasUnplayedUserFixture(fixtures: List<Fixture>, playerTeamId: Long)
         !fixture.isPlayed &&
             (fixture.homeTeamId == playerTeamId || fixture.awayTeamId == playerTeamId)
     }
+}
+
+internal fun applyUserKnockoutShootout(fixture: Fixture): Fixture {
+    if (!isKnockoutCompetitionType(fixture.competitionType)) return fixture
+    val homeScore = fixture.homeScore ?: return fixture
+    val awayScore = fixture.awayScore ?: return fixture
+    if (homeScore != awayScore) return fixture
+
+    val existingHome = fixture.homePenalties
+    val existingAway = fixture.awayPenalties
+    if (existingHome != null && existingAway != null && existingHome != existingAway) {
+        return fixture
+    }
+
+    val seed = fixture.season * 100_003L +
+        fixture.week * 1009L +
+        fixture.id * 31L +
+        fixture.homeTeamId * 17L +
+        fixture.awayTeamId
+    val random = kotlin.random.Random(seed)
+    val homePenalties = random.nextInt(3, 6)
+    var awayPenalties = random.nextInt(3, 6)
+    if (homePenalties == awayPenalties) {
+        awayPenalties = if (awayPenalties < 5) awayPenalties + 1 else awayPenalties - 1
+    }
+
+    return fixture.copy(
+        homePenalties = homePenalties,
+        awayPenalties = awayPenalties
+    )
+}
+
+private fun GameViewModel.publishPenaltyShootoutEvent(fixture: Fixture) {
+    val homePenalties = fixture.homePenalties ?: return
+    val awayPenalties = fixture.awayPenalties ?: return
+    if (homePenalties == awayPenalties) return
+    if (_matchEvents.value.any { it.type == "PENALTY_SHOOTOUT" }) return
+
+    val isHomeWinner = homePenalties > awayPenalties
+    val winnerTeamId = if (isHomeWinner) fixture.homeTeamId else fixture.awayTeamId
+    val event = GameEngine.MatchEventDetail(
+        minute = 90,
+        type = "PENALTY_SHOOTOUT",
+        teamId = winnerTeamId,
+        description = "Disputa de pênaltis: $homePenalties x $awayPenalties",
+        isHomeEvent = isHomeWinner
+    )
+    currentMatchEvents = (currentMatchEvents + event).sortedBy { it.minute }
+    _matchEvents.value = (_matchEvents.value + event).sortedBy { it.minute }
 }
 
 fun GameViewModel.startLiveMatch(fixture: Fixture) {
@@ -112,12 +162,16 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
         _matchState.value = GameViewModel.MatchState.FINISHED
         val fix = liveMatchFixture
         if (fix != null) {
-            val updatedFixture = fix.copy(
+            var updatedFixture = fix.copy(
                 homeScore = _matchHomeScore.value,
                 awayScore = _matchAwayScore.value,
                 isPlayed = true
             )
+            updatedFixture = applyUserKnockoutShootout(updatedFixture)
             repo.updateFixture(updatedFixture)
+            if (updatedFixture.homePenalties != null && updatedFixture.awayPenalties != null) {
+                publishPenaltyShootoutEvent(updatedFixture)
+            }
             processMatchEventsAndStats(updatedFixture, currentMatchEvents)
         }
     }
@@ -174,7 +228,12 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            val updated = simulateSingleUserFixture(targetFixture, save)
+            val simulated = simulateSingleUserFixture(targetFixture, save)
+            val updated = applyUserKnockoutShootout(simulated)
+            if (updated != simulated) {
+                repo.updateFixture(updated)
+                publishPenaltyShootoutEvent(updated)
+            }
             _matchHomeScore.value = updated.homeScore ?: 0
             _matchAwayScore.value = updated.awayScore ?: 0
             _matchMinute.value = 90
@@ -397,7 +456,7 @@ private fun calculateSeasonStandings(teams: List<Team>, fixtures: List<Fixture>,
                 aG > hG -> {
                     aRow.pts += 3
                     aRow.w += 1
-                    hRow.l += 1
+                    homeRow.l += 1
                 }
                 else -> {
                     hRow.pts += 1
