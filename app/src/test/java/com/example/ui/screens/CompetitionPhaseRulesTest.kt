@@ -18,8 +18,11 @@ class CompetitionPhaseRulesTest {
     @Test
     fun continentalAndCupKeepTheirOwnFinalWeeks() {
         assertTrue(isCompetitionFinalWeek("CONTINENTAL_T1", 36))
+        assertTrue(isCompetitionFinalWeek("CONTINENTAL_T2", 36))
+        assertTrue(isCompetitionFinalWeek("CONTINENTAL_T3", 36))
         assertTrue(isCompetitionFinalWeek("LIBERTADORES", 36))
         assertTrue(isCompetitionFinalWeek("COPA", 35))
         assertFalse(isCompetitionFinalWeek("COPA", 36))
+        assertFalse(isCompetitionFinalWeek("CONTINENTAL_T3", 35))
     }
 }
