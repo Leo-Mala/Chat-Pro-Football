@@ -60,14 +60,22 @@ class MatchViewModel @Inject constructor(
     private val saveRepository: GameSaveRepository
 ) : AndroidViewModel(application) {
 
-    private var activeSlotId: String = "1"
+    private var activeSlotId: String? = null
 
     fun setSlotId(slotId: String) {
         activeSlotId = slotId
     }
 
+    fun clearSlot() {
+        activeSlotId = null
+    }
+
     private val repository: GameRepository
-        get() = saveRepository.getRepositoryForSlot(activeSlotId)
+        get() {
+            val slotId = activeSlotId
+                ?: throw IllegalStateException("Nenhum save ativo configurado no MatchViewModel.")
+            return saveRepository.getRepositoryForSlot(slotId)
+        }
 
     private val _matchState = MutableStateFlow(MatchState.IDLE)
     val matchState: StateFlow<MatchState> = _matchState.asStateFlow()
