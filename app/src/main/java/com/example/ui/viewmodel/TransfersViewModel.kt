@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -67,7 +66,6 @@ class TransfersViewModel @Inject constructor(
     val toastMessage = _toastMessage.asSharedFlow()
 
     val allPlayers: StateFlow<List<Player>> = _activeSlotId
-        .distinctUntilChanged()
         .flatMapLatest { slotId ->
             if (slotId == null) {
                 flowOf(emptyList<Player>())
@@ -82,7 +80,6 @@ class TransfersViewModel @Inject constructor(
         )
 
     val transferOrders: StateFlow<List<TransferOrder>> = _activeSlotId
-        .distinctUntilChanged()
         .flatMapLatest { slotId ->
             if (slotId == null) {
                 flowOf(emptyList<TransferOrder>())

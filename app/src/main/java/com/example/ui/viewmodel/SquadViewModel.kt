@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -62,7 +61,6 @@ class SquadViewModel @Inject constructor(
     val toastMessage = _toastMessage.asSharedFlow()
 
     private val activePlayersFlow = _activeSlotId
-        .distinctUntilChanged()
         .flatMapLatest { slotId ->
             if (slotId == null) {
                 flowOf(emptyList<Player>())
