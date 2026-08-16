@@ -34,12 +34,10 @@ class SlotDatabaseFactory @Inject constructor(
 
     @Synchronized
     fun getDatabaseForSlot(slotId: String): AppDatabase {
-        val existing = databases[slotId]
-        if (existing != null && existing.isOpen) {
-            return existing
-        }
-
-        existing?.close()
+        // Room opens SQLite lazily, so isOpen=false does not mean this instance was closed.
+        // Entries are removed from this map before we explicitly close them; therefore any
+        // instance still registered here is the canonical database instance for that slot.
+        databases[slotId]?.let { return it }
 
         val db = Room.databaseBuilder(
             context.applicationContext,
