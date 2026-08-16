@@ -1,5 +1,6 @@
 package com.example.usecase
 
+import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.TransactionRecord
@@ -14,13 +15,7 @@ class FinanceUseCase(private val repository: GameRepository) {
         const val BANK_LOAN_WEEKLY_INTEREST_RATE = 0.002
 
         fun calcNextDueDate(currentSeason: Int, currentWeek: Int, deltaWeeks: Int = 1): Pair<Int, Int> {
-            var w = currentWeek + deltaWeeks
-            var s = currentSeason
-            while (w > 38) {
-                w -= 38
-                s += 1
-            }
-            return Pair(s, w)
+            return GameCalendar.advanceWeeks(currentSeason, currentWeek, deltaWeeks)
         }
     }
 
@@ -480,4 +475,3 @@ class FinanceUseCase(private val repository: GameRepository) {
         )
     }
 }
-
