@@ -57,10 +57,6 @@ import com.example.data.ParsedJsonResult
 import com.example.R
 import com.example.data.*
 import com.example.ui.viewmodel.GameViewModel
-import com.example.ui.viewmodel.MatchViewModel
-import com.example.ui.viewmodel.TransfersViewModel
-import com.example.ui.viewmodel.SquadViewModel
-import com.example.ui.viewmodel.SaveManagerViewModel
 import coil.compose.rememberAsyncImagePainter
 
 fun resolveLogoUrl(url: String?): String? {
@@ -215,11 +211,7 @@ fun TeamBadge(
 
 @Composable
 fun GameApp(
-    viewModel: GameViewModel,
-    matchViewModel: MatchViewModel? = null,
-    transfersViewModel: TransfersViewModel? = null,
-    squadViewModel: SquadViewModel? = null,
-    saveManagerViewModel: SaveManagerViewModel? = null
+    viewModel: GameViewModel
 ) {
     val currentSaveId by viewModel.currentSaveId.collectAsStateWithLifecycle()
     val gameSave by viewModel.gameSave.collectAsStateWithLifecycle()

@@ -60,10 +60,6 @@ import com.example.data.ParsedJsonResult
 import com.example.R
 import com.example.data.*
 import com.example.ui.viewmodel.GameViewModel
-import com.example.ui.viewmodel.MatchViewModel
-import com.example.ui.viewmodel.TransfersViewModel
-import com.example.ui.viewmodel.SquadViewModel
-import com.example.ui.viewmodel.SaveManagerViewModel
 import coil.compose.rememberAsyncImagePainter
 
 
