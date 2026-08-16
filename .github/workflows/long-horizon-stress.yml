@@ -1,0 +1,96 @@
+name: Long-Horizon Stress
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+    paths:
+      - 'app/build.gradle.kts'
+      - 'app/src/test/java/com/example/*StressTest.kt'
+      - '.github/workflows/long-horizon-stress.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '30 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: long-horizon-stress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Create compile-only google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      - name: Setup Debug Keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Run 20 and 100 season stress tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            --tests com.example.TwentySeasonStressTest \
+            --tests com.example.OneHundredSeasonMatchByMatchStressTest \
+            --stacktrace
+
+      - name: Upload stress report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-horizon-stress-report
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore

@@ -126,3 +126,11 @@ dependencies {
   ksp(libs.androidx.room.compiler)
   ksp(libs.hilt.compiler)
 }
+
+// CI can request the normal regression suite without the intentionally long 20/100-season stress tests.
+// The default local task remains unchanged and still executes the complete suite.
+if (providers.gradleProperty("excludeStressTests").isPresent) {
+  tasks.withType<Test>().configureEach {
+    exclude("**/*StressTest*")
+  }
+}
