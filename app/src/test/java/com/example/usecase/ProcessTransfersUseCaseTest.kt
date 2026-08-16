@@ -45,6 +45,12 @@ class ProcessTransfersUseCaseTest {
     fun buyPlayer_succeeds_when_balance_is_sufficient() = runTest {
         val save = GameSave(id = 1, playerTeamId = 1L, bankBalance = 10_000_000L)
         repository.saveGameSave(save)
+        repository.saveTeams(
+            listOf(
+                Team(id = 1L, name = "Time A", city = "São Paulo", state = "SP", division = 1),
+                Team(id = 2L, name = "Time B", city = "Rio de Janeiro", state = "RJ", division = 1)
+            )
+        )
 
         val player = Player(
             id = 10L,
@@ -55,6 +61,7 @@ class ProcessTransfersUseCaseTest {
             force = 80,
             market_value = 3_000_000L
         )
+        repository.savePlayers(listOf(player))
 
         val result = useCase.buyPlayer(save, player, offerPrice = 3_000_000L)
 

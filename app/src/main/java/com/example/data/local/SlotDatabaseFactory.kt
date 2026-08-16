@@ -7,27 +7,42 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Central source of truth for save-slot database names and Room instances.
+ *
+ * Each slot owns an independent AppDatabase instance. Opening one slot must never
+ * close another slot's database because other ViewModels/Flows may still be using it.
+ */
 @Singleton
 class SlotDatabaseFactory @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private var currentDatabase: AppDatabase? = null
-    private var currentSlotId: String? = null
+    companion object {
+        const val LEGACY_SLOT_1_DATABASE_NAME = "brasfut_retro_database"
+
+        fun databaseNameForSlot(slotId: String): String {
+            require(slotId.isNotBlank()) { "slotId não pode ser vazio." }
+            return if (slotId == "1") {
+                LEGACY_SLOT_1_DATABASE_NAME
+            } else {
+                "game_save_slot_$slotId.db"
+            }
+        }
+    }
+
+    private val databases = mutableMapOf<String, AppDatabase>()
 
     @Synchronized
     fun getDatabaseForSlot(slotId: String): AppDatabase {
-        if (currentSlotId == slotId && currentDatabase != null && currentDatabase!!.isOpen) {
-            return currentDatabase!!
-        }
-
-        currentDatabase?.close()
-
-        val dbName = if (slotId == "1") "brasfut_retro_database" else "game_save_slot_$slotId.db"
+        // Room opens SQLite lazily, so isOpen=false does not mean this instance was closed.
+        // Entries are removed from this map before we explicitly close them; therefore any
+        // instance still registered here is the canonical database instance for that slot.
+        databases[slotId]?.let { return it }
 
         val db = Room.databaseBuilder(
-            context,
+            context.applicationContext,
             AppDatabase::class.java,
-            dbName
+            databaseNameForSlot(slotId)
         )
             .addMigrations(
                 com.example.data.migrations.MIGRATION_14_15,
@@ -38,22 +53,31 @@ class SlotDatabaseFactory @Inject constructor(
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
 
-        currentDatabase = db
-        currentSlotId = slotId
+        databases[slotId] = db
         return db
     }
 
     @Synchronized
-    fun closeCurrentDatabase() {
-        currentDatabase?.close()
-        currentDatabase = null
-        currentSlotId = null
+    fun closeAndRemoveSlot(slotId: String) {
+        databases.remove(slotId)?.close()
     }
 
     @Synchronized
-    fun closeAndRemoveSlot(slotId: String) {
-        if (currentSlotId == slotId) {
-            closeCurrentDatabase()
+    fun closeAllDatabases() {
+        databases.values.forEach { db ->
+            if (db.isOpen) {
+                db.close()
+            }
         }
+        databases.clear()
+    }
+
+    /**
+     * Kept for source compatibility with older callers.
+     * The previous implementation tracked only one "current" DB; now all slots are tracked.
+     */
+    @Synchronized
+    fun closeCurrentDatabase() {
+        closeAllDatabases()
     }
 }
