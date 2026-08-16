@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'Pro-Football-v2--main.zip'
+      - '.v3-import-trigger'
   workflow_dispatch:
 
 permissions:
@@ -11,6 +12,7 @@ permissions:
 
 jobs:
   import-project:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'Initialize Chat-Pro-Football V3 from uploaded project ZIP'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Chat-Pro-Football
@@ -35,16 +37,11 @@ jobs:
           shopt -s dotglob nullglob
           for item in .v3-import/Pro-Football-v2--main/*; do
             name="$(basename "$item")"
-            if [ "$name" = ".git" ]; then
+            if [ "$name" = ".git" ] || [ "$name" = ".github" ]; then
               continue
             fi
-            if [ "$name" = ".github" ]; then
-              mkdir -p .github
-              cp -a "$item"/. .github/
-            else
-              rm -rf -- "$name"
-              cp -a "$item" "$name"
-            fi
+            rm -rf -- "$name"
+            cp -a "$item" "$name"
           done
 
           rm -rf .v3-import
