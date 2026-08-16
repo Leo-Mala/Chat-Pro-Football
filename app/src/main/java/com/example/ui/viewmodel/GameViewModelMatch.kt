@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import com.example.usecase.DatabaseIntegrityUseCase
+import com.example.usecase.MultiFixtureFinanceUseCase
 import com.example.usecase.isKnockoutCompetitionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -360,12 +361,16 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
         return
     }
 
-    val isHomeMatch = currentWeekFixtures.any {
+    val homeMatchCount = currentWeekFixtures.count {
         it.isPlayed && it.homeTeamId == save.playerTeamId
     }
 
     val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
-    val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
+    val updatedSave = MultiFixtureFinanceUseCase(repo, financeUseCase).processWeeklyFinances(
+        save = save,
+        homeMatchCount = homeMatchCount,
+        userPlayers = userPlayers
+    )
 
     // Process weekly contracts and loans
     processTransfersUseCase.processWeeklyContractsAndLoans()
