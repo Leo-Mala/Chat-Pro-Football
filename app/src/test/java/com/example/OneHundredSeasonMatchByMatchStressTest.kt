@@ -128,6 +128,7 @@ class OneHundredSeasonMatchByMatchStressTest {
 
         var totalMatchesSimulated = 0
         var totalLeagueMatchesSimulated = 0
+        var totalDomesticCupMatchesSimulated = 0
         var totalWorldGroupMatchesSimulated = 0
         val startSeason = 2026
         val totalSeasons = 100
@@ -182,8 +183,8 @@ class OneHundredSeasonMatchByMatchStressTest {
             }
 
             // The game season reaches week 40. Série A contributes exactly 38 rounds.
-            // Super Mundial group matches are counted separately so adding legitimate
-            // competitions never weakens the 38,000-match league invariant.
+            // Copa is progressed week by week, while Super Mundial group matches are
+            // counted separately. This keeps each invariant explicit as competitions grow.
             for (week in 1..40) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
@@ -218,9 +219,13 @@ class OneHundredSeasonMatchByMatchStressTest {
                     totalMatchesSimulated++
                     when {
                         f.competitionType in setOf("SERIE_A", "DIV_1") -> totalLeagueMatchesSimulated++
+                        f.competitionType == SeasonCompetitionSystem.DOMESTIC_CUP -> totalDomesticCupMatchesSimulated++
                         f.competitionType.startsWith("WORLD_CUP_GP_") -> totalWorldGroupMatchesSimulated++
                     }
                 }
+
+                // Exercise the production cup progression across the full 100-season horizon.
+                SeasonCompetitionSystem.processProgression(currentSeason, week, repository)
 
                 val userPlayers = repository.getPlayersByTeam(cruzeiro.id)
                 playerEvolutionUseCase.processPostMatchRecovery(gameSave, userPlayers, 5)
@@ -280,22 +285,31 @@ class OneHundredSeasonMatchByMatchStressTest {
 
         val records = repository.getAllHistoricalRecords()
         val serieARecords = records.filter { it.competitionName == "Campeonato Brasileiro (Série A)" }
+        val cupName = DefaultData.getCompetitionName(SeasonCompetitionSystem.DOMESTIC_CUP, "Brasil")
+        val cupRecords = records.filter { it.competitionName == cupName }
         val expectedWorldGroupMatches = (startSeason until startSeason + totalSeasons)
             .count { SuperMundialSystem.isSuperMundialSeason(it) } * 48
+        val expectedDomesticCupMatches = totalSeasons * 15 // 16-team bracket = 8 + 4 + 2 + 1
 
         assertEquals("Expected 2126 current season", 2126, finalSave!!.currentSeason)
         assertEquals("Expected 38000 Série A matches across 100 seasons", 38000, totalLeagueMatchesSimulated)
+        assertEquals(
+            "Expected 15 Copa matches per season for the 16-team stress bracket",
+            expectedDomesticCupMatches,
+            totalDomesticCupMatchesSimulated
+        )
         assertEquals(
             "Expected every eligible Super Mundial to contribute 48 group matches",
             expectedWorldGroupMatches,
             totalWorldGroupMatchesSimulated
         )
         assertEquals(
-            "Total matches must equal league plus generated Super Mundial group matches",
-            totalLeagueMatchesSimulated + totalWorldGroupMatchesSimulated,
+            "Total matches must equal league, domestic Cup and generated Super Mundial group matches",
+            totalLeagueMatchesSimulated + totalDomesticCupMatchesSimulated + totalWorldGroupMatchesSimulated,
             totalMatchesSimulated
         )
         assertEquals("Expected one Série A historical record per simulated season", 100, serieARecords.size)
+        assertEquals("Expected one Copa historical record per simulated season", 100, cupRecords.size)
         assertTrue("Bank balance must remain non-negative and non-overflowing", finalSave.bankBalance >= 0L)
 
         val finalPlayers = repository.getAllPlayers()
