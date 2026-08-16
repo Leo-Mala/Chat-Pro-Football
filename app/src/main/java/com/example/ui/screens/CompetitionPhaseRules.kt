@@ -4,8 +4,7 @@ import com.example.data.GameCalendar
 
 internal fun isCompetitionFinalWeek(selectedLeague: String, week: Int): Boolean {
     val isContinental =
-        selectedLeague.contains("CONTINENTAL_T1") ||
-            selectedLeague.contains("CONTINENTAL_T2") ||
+        selectedLeague.startsWith("CONTINENTAL_T") ||
             selectedLeague == "LIBERTADORES" ||
             selectedLeague == "SULAMERICANA"
 
