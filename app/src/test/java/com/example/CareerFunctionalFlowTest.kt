@@ -119,13 +119,18 @@ class CareerFunctionalFlowTest {
         val promotedProspect = initialProspects.first()
         val rosterCountBeforePromotion = repository.getPlayerCountByTeam(selectedTeam.id)
 
-        viewModel.promoteAcademyProspect(promotedProspect)
+        val promotionJob = viewModel.promoteAcademyProspect(promotedProspect)
+        withTimeout(30_000L) { promotionJob.join() }
 
-        awaitCondition {
-            val save = repository.getGameSave() ?: return@awaitCondition false
-            repository.getPlayerCountByTeam(selectedTeam.id) == rosterCountBeforePromotion + 1 &&
-                viewModel.parseProspects(save.academyProspects).size == initialProspects.size - 1
-        }
+        val saveAfterPromotion = requireNotNull(repository.getGameSave())
+        assertEquals(
+            rosterCountBeforePromotion + 1,
+            repository.getPlayerCountByTeam(selectedTeam.id)
+        )
+        assertEquals(
+            initialProspects.size - 1,
+            viewModel.parseProspects(saveAfterPromotion.academyProspects).size
+        )
         val promotedPlayer = repository.getPlayersByTeam(selectedTeam.id)
             .first { it.name == promotedProspect.name }
         assertTrue(promotedPlayer.isFromAcademy)
