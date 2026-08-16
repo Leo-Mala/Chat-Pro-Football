@@ -5,8 +5,8 @@ import kotlin.random.Random
 
 /**
  * UseCase responsável pela transição completa e atômica de temporada.
- * Processa promoção/rebaixamento, envelhecimento de atletas, aposentadorias com substituição collision-safe,
- * reparo de integridade, purga de logs antigos e geração do novo calendário de jogos.
+ * Processa promoção/rebaixamento, envelhecimento de atletas, reparo de integridade,
+ * purga de dados antigos e geração do novo calendário de jogos.
  */
 class SeasonTransitionUseCase(
     private val repository: GameRepository,
@@ -28,27 +28,49 @@ class SeasonTransitionUseCase(
     }
 
     suspend fun advanceToNextSeason(save: GameSave): GameSave = repository.withTransaction {
-        val currentSeason = save.currentSeason
+        val persistedSave = repository.getGameSave() ?: save
+
+        // Idempotência: uma chamada repetida com um snapshot da temporada anterior
+        // nunca deve envelhecer atletas, mover divisões ou apagar fixtures novamente.
+        if (persistedSave.currentSeason != save.currentSeason) {
+            return@withTransaction persistedSave
+        }
+
+        require(persistedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
+            "Transição de temporada permitida somente após a semana ${GameCalendar.WEEKS_PER_SEASON}."
+        }
+
+        val sourceSave = persistedSave
+        val currentSeason = sourceSave.currentSeason
         val nextSeason = currentSeason + 1
 
         val allTeams = repository.getAllTeams()
-        val allPlayers = repository.getAllPlayers().toMutableList()
-        val existingPlayerIds = allPlayers.map { it.id }.toMutableSet()
+        val allPlayers = repository.getAllPlayers()
         val seasonFixtures = repository.getFixturesForSeason(currentSeason)
 
-        // 1. Calcular Promoção e Rebaixamento de forma isolada em memória antes de aplicar no banco
+        // 1. Calcular promoção e rebaixamento em memória antes de aplicar no banco.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
 
-        for ((country, countryTeams) in teamsByCountry) {
+        for ((_, countryTeams) in teamsByCountry) {
             val teamsByDiv = countryTeams.groupBy { it.division }
             for (div in 1..3) {
                 val upperTeams = teamsByDiv[div] ?: emptyList()
                 val lowerTeams = teamsByDiv[div + 1] ?: emptyList()
 
                 if (upperTeams.size >= 4 && lowerTeams.size >= 4) {
-                    val upperCode = when (div) { 1 -> "SERIE_A"; 2 -> "SERIE_B"; 3 -> "SERIE_C"; else -> "SERIE_D" }
-                    val lowerCode = when (div + 1) { 1 -> "SERIE_A"; 2 -> "SERIE_B"; 3 -> "SERIE_C"; else -> "SERIE_D" }
+                    val upperCode = when (div) {
+                        1 -> "SERIE_A"
+                        2 -> "SERIE_B"
+                        3 -> "SERIE_C"
+                        else -> "SERIE_D"
+                    }
+                    val lowerCode = when (div + 1) {
+                        1 -> "SERIE_A"
+                        2 -> "SERIE_B"
+                        3 -> "SERIE_C"
+                        else -> "SERIE_D"
+                    }
 
                     val upperStandings = calculateSeasonStandings(upperTeams, seasonFixtures, upperCode)
                     val lowerStandings = calculateSeasonStandings(lowerTeams, seasonFixtures, lowerCode)
@@ -56,39 +78,27 @@ class SeasonTransitionUseCase(
                     val relegated = upperStandings.takeLast(4).map { it.first }
                     val promoted = lowerStandings.take(4).map { it.first }
 
-                    for (t in relegated) {
-                        val currentT = updatedTeamsMap[t.id] ?: t
-                        updatedTeamsMap[t.id] = currentT.copy(division = div + 1)
+                    for (team in relegated) {
+                        val currentTeam = updatedTeamsMap[team.id] ?: team
+                        updatedTeamsMap[team.id] = currentTeam.copy(division = div + 1)
                     }
-                    for (t in promoted) {
-                        val currentT = updatedTeamsMap[t.id] ?: t
-                        updatedTeamsMap[t.id] = currentT.copy(division = div)
+                    for (team in promoted) {
+                        val currentTeam = updatedTeamsMap[team.id] ?: team
+                        updatedTeamsMap[team.id] = currentTeam.copy(division = div)
                     }
                 }
             }
         }
 
-        // Aplicar alterações de divisão em lote
         updatedTeamsMap.values.forEach { repository.updateTeam(it) }
 
-        // Helper para ID de jogador collision-safe
-        fun getCollisionSafePlayerId(desiredId: Long): Long {
-            var candidate = if (desiredId <= 0L) 100000L else desiredId
-            while (candidate in existingPlayerIds) {
-                candidate++
-            }
-            existingPlayerIds.add(candidate)
-            return candidate
-        }
-
-        // 2. Incrementar idade dos atletas e renovar idades / aposentadorias de forma collision-safe
-        val rand = Random(currentSeason * 31L + save.playerTeamId)
-        val updatedPlayers = allPlayers.map { p ->
-            val newAge = p.age + 1
+        // 2. Envelhecer atletas uma única vez por temporada e renovar aposentadorias.
+        val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
+        val updatedPlayers = allPlayers.map { player ->
+            val newAge = player.age + 1
             if (newAge >= 38) {
-                // Aposentadoria -> renovar como promessa jovem
-                val newForce = if (p.teamId == save.playerTeamId) 95 else rand.nextInt(55, 75)
-                p.copy(
+                val newForce = if (player.teamId == sourceSave.playerTeamId) 95 else rand.nextInt(55, 75)
+                player.copy(
                     age = 18,
                     force = newForce,
                     energy = 100,
@@ -96,13 +106,13 @@ class SeasonTransitionUseCase(
                     injuryWeeksRemaining = 0,
                     suspensionWeeksRemaining = 0,
                     yellowCardsAccumulated = 0,
-                    name = "Novo Prospecto ${p.name.takeLast(6)}"
+                    name = "Novo Prospecto ${player.name.takeLast(6)}"
                 )
             } else {
-                p.copy(
+                player.copy(
                     age = newAge,
                     energy = 100,
-                    moral = 80.coerceAtLeast(p.moral),
+                    moral = 80.coerceAtLeast(player.moral),
                     injuryWeeksRemaining = 0,
                     suspensionWeeksRemaining = 0,
                     yellowCardsAccumulated = 0
@@ -111,35 +121,46 @@ class SeasonTransitionUseCase(
         }
         repository.updatePlayers(updatedPlayers)
 
-        // 3. Executar reparo de integridade no banco de dados ativo
+        // 3. Reparar integridade antes de gerar o novo calendário.
         databaseIntegrityUseCase.repairDatabase()
 
-        // 4. Excluir fixtures antigas e purgar registros legados
+        // 4. Remover fixtures/dados antigos somente depois de todas as regras da semana 40 terem sido processadas.
         repository.purgeOldData(nextSeason)
         repository.deleteFixtures()
 
-        // 5. Gerar novo calendário oficial para a temporada vindoura
+        // 5. Gerar calendário oficial da temporada seguinte.
         val updatedTeamsList = updatedTeamsMap.values.toList()
         val newFixtures = mutableListOf<Fixture>()
 
         val countries = updatedTeamsList.map { it.country }.distinct()
         for (country in countries) {
-            val cTeams = updatedTeamsList.filter { it.country == country }
-            val cDivs = cTeams.map { it.division }.distinct()
-            for (div in cDivs) {
-                val divTeams = cTeams.filter { it.division == div }
-                if (divTeams.size >= 2) {
-                    val compType = when (div) { 1 -> "SERIE_A"; 2 -> "SERIE_B"; 3 -> "SERIE_C"; else -> "SERIE_D" }
-                    val divFixtures = generateCalendarUseCase.generateRoundRobinFixtures(nextSeason, divTeams, compType, 1)
-                    newFixtures.addAll(divFixtures)
+            val countryTeams = updatedTeamsList.filter { it.country == country }
+            val divisions = countryTeams.map { it.division }.distinct()
+            for (division in divisions) {
+                val divisionTeams = countryTeams.filter { it.division == division }
+                if (divisionTeams.size >= 2) {
+                    val competitionType = when (division) {
+                        1 -> "SERIE_A"
+                        2 -> "SERIE_B"
+                        3 -> "SERIE_C"
+                        else -> "SERIE_D"
+                    }
+                    newFixtures.addAll(
+                        generateCalendarUseCase.generateRoundRobinFixtures(
+                            nextSeason,
+                            divisionTeams,
+                            competitionType,
+                            1
+                        )
+                    )
                 }
             }
         }
 
         repository.saveFixtures(newFixtures)
 
-        // 6. Atualizar GameSave com nova temporada e semana 1
-        val updatedSave = save.copy(
+        // 6. Persistir a nova temporada por último. Esse write é o marcador atômico da transição concluída.
+        val updatedSave = sourceSave.copy(
             currentSeason = nextSeason,
             currentWeek = 1
         )
@@ -148,7 +169,11 @@ class SeasonTransitionUseCase(
         updatedSave
     }
 
-    private fun calculateSeasonStandings(teams: List<Team>, fixtures: List<Fixture>, compType: String): List<Pair<Team, SeasonStandingRow>> {
+    private fun calculateSeasonStandings(
+        teams: List<Team>,
+        fixtures: List<Fixture>,
+        compType: String
+    ): List<Pair<Team, SeasonStandingRow>> {
         val map = teams.associateWith { SeasonStandingRow(it.name) }.toMutableMap()
         val altCompType = when (compType) {
             "SERIE_A" -> "DIV_1"
@@ -161,42 +186,43 @@ class SeasonTransitionUseCase(
             "DIV_4" -> "SERIE_D"
             else -> compType
         }
-        val relevantFixtures = fixtures.filter { (it.competitionType == compType || it.competitionType == altCompType) && it.isPlayed }
+        val relevantFixtures = fixtures.filter {
+            (it.competitionType == compType || it.competitionType == altCompType) && it.isPlayed
+        }
 
-        for (f in relevantFixtures) {
-            val homeT = teams.find { it.id == f.homeTeamId }
-            val awayT = teams.find { it.id == f.awayTeamId }
-            val hG = f.homeScore ?: 0
-            val aG = f.awayScore ?: 0
+        for (fixture in relevantFixtures) {
+            val homeTeam = teams.find { it.id == fixture.homeTeamId }
+            val awayTeam = teams.find { it.id == fixture.awayTeamId }
+            val homeGoals = fixture.homeScore ?: 0
+            val awayGoals = fixture.awayScore ?: 0
 
-            if (homeT != null && awayT != null) {
-                val hRow = map[homeT] ?: continue
-                val aRow = map[awayT] ?: continue
+            if (homeTeam != null && awayTeam != null) {
+                val homeRow = map[homeTeam] ?: continue
+                val awayRow = map[awayTeam] ?: continue
 
-                hRow.gf += hG
-                hRow.ga += aG
-                aRow.gf += aG
-                aRow.ga += hG
-
-                hRow.gp += 1
-                aRow.gp += 1
+                homeRow.gf += homeGoals
+                homeRow.ga += awayGoals
+                awayRow.gf += awayGoals
+                awayRow.ga += homeGoals
+                homeRow.gp += 1
+                awayRow.gp += 1
 
                 when {
-                    hG > aG -> {
-                        hRow.pts += 3
-                        hRow.w += 1
-                        aRow.l += 1
+                    homeGoals > awayGoals -> {
+                        homeRow.pts += 3
+                        homeRow.w += 1
+                        awayRow.l += 1
                     }
-                    aG > hG -> {
-                        aRow.pts += 3
-                        aRow.w += 1
-                        hRow.l += 1
+                    awayGoals > homeGoals -> {
+                        awayRow.pts += 3
+                        awayRow.w += 1
+                        homeRow.l += 1
                     }
                     else -> {
-                        hRow.pts += 1
-                        aRow.pts += 1
-                        hRow.d += 1
-                        aRow.d += 1
+                        homeRow.pts += 1
+                        awayRow.pts += 1
+                        homeRow.d += 1
+                        awayRow.d += 1
                     }
                 }
             }
