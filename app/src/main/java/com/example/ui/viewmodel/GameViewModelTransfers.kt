@@ -200,14 +200,17 @@ fun GameViewModel.adjustAcademyInvestment(amount: Long) {
 fun GameViewModel.promoteAcademyProspect(prospect: GameViewModel.AcademyProspect) {
     viewModelScope.launch(Dispatchers.IO) {
         val save = repo.getGameSave() ?: return@launch
+        val teamCountry = repo.getTeam(save.playerTeamId)?.country ?: selectedCountry.value
         val newPlayer = Player(
             teamId = save.playerTeamId,
             name = prospect.name,
+            nationality = teamCountry,
             position = prospect.position,
             force = prospect.force,
             potential = prospect.potential,
             age = prospect.age,
-            salary = prospect.force * 100L
+            salary = prospect.force * 100L,
+            isFromAcademy = true
         )
         repo.savePlayers(listOf(newPlayer))
         dismissAcademyProspect(prospect)
