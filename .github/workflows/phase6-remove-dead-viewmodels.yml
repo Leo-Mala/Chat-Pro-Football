@@ -23,14 +23,16 @@ jobs:
         run: |
           from pathlib import Path
 
-          game_screens = Path("app/src/main/java/com/example/ui/screens/GameScreens.kt")
-          text = game_screens.read_text(encoding="utf-8")
-          for line in [
+          legacy_imports = [
               "import com.example.ui.viewmodel.MatchViewModel\n",
               "import com.example.ui.viewmodel.TransfersViewModel\n",
               "import com.example.ui.viewmodel.SquadViewModel\n",
               "import com.example.ui.viewmodel.SaveManagerViewModel\n",
-          ]:
+          ]
+
+          game_screens = Path("app/src/main/java/com/example/ui/screens/GameScreens.kt")
+          text = game_screens.read_text(encoding="utf-8")
+          for line in legacy_imports:
               if text.count(line) != 1:
                   raise SystemExit(f"GameScreens expected one import {line.strip()}, found {text.count(line)}")
               text = text.replace(line, "")
@@ -51,13 +53,7 @@ jobs:
 
           squad = Path("app/src/main/java/com/example/ui/screens/SquadScreen.kt")
           text = squad.read_text(encoding="utf-8")
-          for line in [
-              "import com.example.ui.viewmodel.MatchViewModel\n",
-              "import com.example.ui.viewmodel.TransfersViewModel\n",
-              "import com.example.ui.viewmodel.SquadViewModel\n",
-              "import com.example.ui.viewmodel.SaveManagerViewModel\n",
-              "import androidx.hilt.navigation.compose.hiltViewModel\n",
-          ]:
+          for line in legacy_imports + ["import androidx.hilt.navigation.compose.hiltViewModel\n"]:
               if text.count(line) != 1:
                   raise SystemExit(f"SquadScreen expected one import {line.strip()}, found {text.count(line)}")
               text = text.replace(line, "")
@@ -83,16 +79,32 @@ jobs:
           text = text[:start_index] + replacement + text[end_index + len(professional_start):]
           squad.write_text(text, encoding="utf-8")
 
+          # These screens already consume only GameViewModel; the four names are stale explicit imports.
+          for screen_name in [
+              "FinancesScreen.kt",
+              "HistoryScreen.kt",
+              "CoachScreen.kt",
+              "MatchSimulationScreen.kt",
+          ]:
+              path = Path("app/src/main/java/com/example/ui/screens") / screen_name
+              contents = path.read_text(encoding="utf-8")
+              for line in legacy_imports:
+                  if contents.count(line) != 1:
+                      raise SystemExit(f"{screen_name} expected one import {line.strip()}, found {contents.count(line)}")
+                  contents = contents.replace(line, "")
+              path.write_text(contents, encoding="utf-8")
+
           dead_files = [
               Path("app/src/main/java/com/example/ui/viewmodel/MatchViewModel.kt"),
               Path("app/src/main/java/com/example/ui/viewmodel/TransfersViewModel.kt"),
               Path("app/src/main/java/com/example/ui/viewmodel/SquadViewModel.kt"),
               Path("app/src/main/java/com/example/ui/viewmodel/SaveManagerViewModel.kt"),
               Path("app/src/main/java/com/example/ui/viewmodel/PlayerViewModel.kt"),
+              Path("app/src/test/java/com/example/ui/viewmodel/MatchViewModelTest.kt"),
           ]
           for path in dead_files:
               if not path.exists():
-                  raise SystemExit(f"Expected legacy ViewModel file missing: {path}")
+                  raise SystemExit(f"Expected legacy file missing: {path}")
               path.unlink()
 
           forbidden = [
@@ -102,6 +114,8 @@ jobs:
               "SaveManagerViewModel",
               "PlayerViewModel",
               "PlayerListUiState",
+              "LiveMatchEvent",
+              "MatchStats",
           ]
           roots = [Path("app/src/main/java"), Path("app/src/test/java")]
           offenders = []
