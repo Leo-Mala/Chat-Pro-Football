@@ -52,6 +52,16 @@ class SaveSlotIsolationTest {
     }
 
     @Test
+    fun sameSlotReusesSameRoomInstanceBeforeFirstQuery() {
+        val first = factory.getDatabaseForSlot("1")
+        val second = factory.getDatabaseForSlot("1")
+
+        // Room is lazy: both can report isOpen=false here, but they still must be
+        // the exact same canonical instance for this slot.
+        assertSame(first, second)
+    }
+
+    @Test
     fun openingAnotherSlotDoesNotCloseThePreviousDatabase() {
         val slot1 = factory.getDatabaseForSlot("1")
         // Room opens the underlying SQLite connection lazily, so force a real open.
