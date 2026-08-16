@@ -208,30 +208,31 @@ private suspend fun GameViewModel.promoteAcademyProspectInternal(
     repository: GameRepository,
     prospect: GameViewModel.AcademyProspect
 ) {
-    repository.withTransaction {
-        val save = repository.getGameSave() ?: return@withTransaction
-        val currentProspects = parseProspects(save.academyProspects).toMutableList()
-        if (!currentProspects.remove(prospect)) return@withTransaction
+    val save = repository.getGameSave() ?: return
+    val currentProspects = parseProspects(save.academyProspects).toMutableList()
+    if (!currentProspects.remove(prospect)) return
 
-        val teamCountry = repository.getTeam(save.playerTeamId)?.country ?: selectedCountry.value
-        val newPlayer = Player(
-            teamId = save.playerTeamId,
-            name = prospect.name,
-            nationality = teamCountry,
-            position = prospect.position,
-            force = prospect.force,
-            potential = prospect.potential,
-            age = prospect.age,
-            salary = prospect.force * 100L,
-            isFromAcademy = true
-        )
+    val teamCountry = repository.getTeam(save.playerTeamId)?.country ?: selectedCountry.value
+    val newPlayer = Player(
+        teamId = save.playerTeamId,
+        name = prospect.name,
+        nationality = teamCountry,
+        position = prospect.position,
+        force = prospect.force,
+        potential = prospect.potential,
+        age = prospect.age,
+        salary = prospect.force * 100L,
+        isFromAcademy = true
+    )
 
-        repository.savePlayers(listOf(newPlayer))
-        repository.saveGameSave(
-            save.copy(
-                academyProspects = youthAcademyUseCase.serializeProspects(currentProspects)
-            )
-        )
+    val committed = repository.promoteAcademyPlayerAtomically(
+        expectedPlayerTeamId = save.playerTeamId,
+        expectedAcademyProspects = save.academyProspects,
+        player = newPlayer,
+        updatedAcademyProspects = youthAcademyUseCase.serializeProspects(currentProspects)
+    )
+    if (!committed) {
+        _toastMessage.tryEmit("A base mudou durante a promoção. Tente novamente.")
     }
 }
 
