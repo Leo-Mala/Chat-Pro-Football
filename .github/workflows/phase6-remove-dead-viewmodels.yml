@@ -22,6 +22,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           legacy_imports = [
               "import com.example.ui.viewmodel.MatchViewModel\n",
@@ -79,7 +80,6 @@ jobs:
           text = text[:start_index] + replacement + text[end_index + len(professional_start):]
           squad.write_text(text, encoding="utf-8")
 
-          # These screens already consume only GameViewModel; the four names are stale explicit imports.
           for screen_name in [
               "FinancesScreen.kt",
               "HistoryScreen.kt",
@@ -123,7 +123,7 @@ jobs:
               for path in root.rglob("*.kt"):
                   contents = path.read_text(encoding="utf-8")
                   for token in forbidden:
-                      if token in contents:
+                      if re.search(rf"\b{re.escape(token)}\b", contents):
                           offenders.append(f"{path}: {token}")
           if offenders:
               raise SystemExit("Legacy references remain:\n" + "\n".join(offenders))
