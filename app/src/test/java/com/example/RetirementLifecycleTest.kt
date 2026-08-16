@@ -146,7 +146,11 @@ class RetirementLifecycleTest {
         assertNull("Retired identity must be removed", repository.getPlayer(retiringPlayer.id))
 
         val replacement = repository.getAllPlayers().single { player ->
-            player.name == "Novo Prospecto stórico"
+            player.id != retiringPlayer.id &&
+                player.teamId == owner.id &&
+                player.name.startsWith("Novo Prospecto ") &&
+                player.age == 18 &&
+                player.position == retiringPlayer.position
         }
         assertNotEquals(retiringPlayer.id, replacement.id)
         assertEquals(owner.id, replacement.teamId)
