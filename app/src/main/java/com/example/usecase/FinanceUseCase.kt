@@ -25,25 +25,43 @@ class FinanceUseCase(private val repository: GameRepository) {
     }
 
     /**
-     * Processa a renda semanal de bilheteria, sócios-torcedores e patrocinadores,
-     * bem como folha salarial, academia, parcelas e empréstimos.
+     * Compatibilidade com os fluxos antigos, que conhecem apenas a existência ou não
+     * de uma partida em casa na semana.
      */
     suspend fun processWeeklyFinances(
         save: GameSave,
         isHomeMatch: Boolean,
         userPlayers: List<com.example.data.Player> = emptyList()
+    ): GameSave = processWeeklyFinances(
+        save = save,
+        homeMatchCount = if (isHomeMatch) 1 else 0,
+        userPlayers = userPlayers
+    )
+
+    /**
+     * Processa a renda semanal de bilheteria, sócios-torcedores e patrocinadores,
+     * bem como folha salarial, academia, parcelas e empréstimos.
+     *
+     * [homeMatchCount] permite contabilizar corretamente semanas com liga + Copa/continental.
+     * Receitas e despesas semanais recorrentes continuam sendo processadas apenas uma vez.
+     */
+    suspend fun processWeeklyFinances(
+        save: GameSave,
+        homeMatchCount: Int,
+        userPlayers: List<com.example.data.Player> = emptyList()
     ): GameSave = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: save
+        val safeHomeMatchCount = homeMatchCount.coerceAtLeast(0)
 
         val effectiveSocios = currentSave.socioTorcedoresCount.toLong().coerceAtLeast(currentSave.coachReputation * 150L)
         val socioRevenue = (effectiveSocios * 30.0).toLong()
-        
+
         // Sponsor processing
         var sponsorName = currentSave.sponsorName
         var sponsorWeekly = currentSave.sponsorWeekly
         var sponsorWeeksRemaining = currentSave.sponsorWeeksRemaining
         val sponsorRevenue: Long
-        
+
         if (sponsorWeeksRemaining > 0) {
             sponsorRevenue = sponsorWeekly
             sponsorWeeksRemaining--
@@ -54,18 +72,19 @@ class FinanceUseCase(private val repository: GameRepository) {
         } else {
             sponsorRevenue = (300000.0 + (currentSave.coachReputation * 15000.0)).toLong()
         }
-        
+
         var ticketRevenue = 0L
-        if (isHomeMatch) {
+        if (safeHomeMatchCount > 0) {
             val baseAttendanceRate = 0.4 + (currentSave.coachReputation / 200.0)
             val priceFactor = (1.5 - ((currentSave.ticketPrice - 30.0) * 0.012)).coerceIn(0.35, 1.5)
             val estimatedAttendance = (currentSave.stadiumCapacity * baseAttendanceRate * priceFactor).toInt()
                 .coerceIn(1000, currentSave.stadiumCapacity)
-            ticketRevenue = (estimatedAttendance * currentSave.ticketPrice).toLong()
+            val ticketRevenuePerMatch = (estimatedAttendance * currentSave.ticketPrice).toLong()
+            ticketRevenue = ticketRevenuePerMatch * safeHomeMatchCount.toLong()
         }
 
         val totalWeeklyIncome = socioRevenue + sponsorRevenue + ticketRevenue
-        
+
         // Folha salarial semanal dos jogadores
         val roster = if (userPlayers.isNotEmpty()) userPlayers else repository.getPlayersByTeam(currentSave.playerTeamId)
         val playerSalaries = roster.sumOf { it.salary }.coerceAtLeast(30000L)
@@ -218,7 +237,6 @@ class FinanceUseCase(private val repository: GameRepository) {
 
         updatedSave
     }
-
 
     /**
      * Solicita um empréstimo bancário.
