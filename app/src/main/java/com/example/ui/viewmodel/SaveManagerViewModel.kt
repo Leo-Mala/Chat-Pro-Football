@@ -244,7 +244,7 @@ class SaveManagerViewModel @Inject constructor(
 
     data class SaveBackupData(
         val backupVersion: Int = 1,
-        val databaseVersion: Int = 17,
+        val databaseVersion: Int = 18,
         val appVersion: String = "1.0",
         val createdAt: Long = System.currentTimeMillis(),
         val save: GameSave,
@@ -279,7 +279,7 @@ class SaveManagerViewModel @Inject constructor(
 
             val backup = SaveBackupData(
                 backupVersion = 1,
-                databaseVersion = 17,
+                databaseVersion = 18,
                 appVersion = "1.0",
                 createdAt = System.currentTimeMillis(),
                 save = save,
