@@ -7,20 +7,161 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
+
+      - name: Setup Gradle cache and diagnostics
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Validate checked-in binary and launcher integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import struct
+          import sys
+          import xml.etree.ElementTree as ET
+          import zipfile
+          import zlib
+
+          errors = []
+          android_ns = "{http://schemas.android.com/apk/res/android}"
+
+          wrapper = Path("gradle/wrapper/gradle-wrapper.jar")
+          expected_wrapper_sha256 = "2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046"
+          wrapper_bytes = wrapper.read_bytes()
+          actual_wrapper_sha256 = hashlib.sha256(wrapper_bytes).hexdigest()
+          if actual_wrapper_sha256 != expected_wrapper_sha256:
+              errors.append(
+                  f"{wrapper}: SHA-256 {actual_wrapper_sha256} != trusted Gradle 8.10.2 wrapper checksum {expected_wrapper_sha256}"
+              )
+          try:
+              with zipfile.ZipFile(wrapper) as archive:
+                  bad_member = archive.testzip()
+                  if bad_member:
+                      errors.append(f"{wrapper}: corrupt ZIP member {bad_member}")
+                  if "org/gradle/wrapper/GradleWrapperMain.class" not in archive.namelist():
+                      errors.append(f"{wrapper}: GradleWrapperMain.class missing")
+          except zipfile.BadZipFile as exc:
+              errors.append(f"{wrapper}: invalid JAR/ZIP ({exc})")
+
+          expected_layers = [
+              "@drawable/ic_launcher_background",
+              "@drawable/ic_launcher_foreground",
+          ]
+          for path in [
+              Path("app/src/main/res/mipmap-anydpi/ic_launcher.xml"),
+              Path("app/src/main/res/mipmap-anydpi/ic_launcher_round.xml"),
+          ]:
+              try:
+                  root = ET.parse(path).getroot()
+                  if not root.tag.endswith("layer-list"):
+                      errors.append(f"{path}: expected layer-list root")
+                      continue
+                  layers = [item.attrib.get(android_ns + "drawable") for item in list(root)]
+                  if layers != expected_layers:
+                      errors.append(f"{path}: unexpected launcher layers {layers}")
+              except (OSError, ET.ParseError) as exc:
+                  errors.append(f"{path}: invalid legacy launcher XML ({exc})")
+
+          for path in [
+              Path("app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"),
+              Path("app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"),
+          ]:
+              try:
+                  root = ET.parse(path).getroot()
+                  if not root.tag.endswith("adaptive-icon"):
+                      errors.append(f"{path}: expected adaptive-icon root")
+                  children = {child.tag.split('}')[-1]: child.attrib.get(android_ns + "drawable") for child in list(root)}
+                  if children.get("background") != "@drawable/ic_launcher_background":
+                      errors.append(f"{path}: unexpected adaptive background")
+                  if children.get("foreground") != "@drawable/ic_launcher_foreground":
+                      errors.append(f"{path}: unexpected adaptive foreground")
+              except (OSError, ET.ParseError) as exc:
+                  errors.append(f"{path}: invalid adaptive launcher XML ({exc})")
+
+          webps = sorted(Path("app/src").rglob("*.webp"))
+          for path in webps:
+              data = path.read_bytes()
+              if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+                  errors.append(f"{path}: invalid WebP RIFF signature")
+                  continue
+              declared_size = int.from_bytes(data[4:8], "little") + 8
+              if declared_size != len(data):
+                  errors.append(f"{path}: RIFF size {declared_size} != file size {len(data)}")
+
+          pngs = sorted(Path("app/src").rglob("*.png"))
+          for path in pngs:
+              png_data = path.read_bytes()
+              if not png_data.startswith(b"\x89PNG\r\n\x1a\n"):
+                  errors.append(f"{path}: invalid PNG signature")
+                  continue
+              offset = 8
+              saw_iend = False
+              try:
+                  while offset < len(png_data):
+                      if offset + 12 > len(png_data):
+                          raise ValueError("truncated chunk header")
+                      length = struct.unpack(">I", png_data[offset:offset + 4])[0]
+                      chunk_type = png_data[offset + 4:offset + 8]
+                      end = offset + 12 + length
+                      if end > len(png_data):
+                          raise ValueError("truncated chunk data")
+                      chunk_data = png_data[offset + 8:offset + 8 + length]
+                      stored_crc = struct.unpack(">I", png_data[offset + 8 + length:end])[0]
+                      actual_crc = zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF
+                      if actual_crc != stored_crc:
+                          raise ValueError(f"CRC mismatch in {chunk_type.decode('ascii', errors='replace')}")
+                      offset = end
+                      if chunk_type == b"IEND":
+                          saw_iend = True
+                          break
+                  if not saw_iend:
+                      raise ValueError("IEND chunk missing")
+                  if offset != len(png_data):
+                      raise ValueError("unexpected bytes after IEND")
+              except ValueError as exc:
+                  errors.append(f"{path}: invalid PNG structure ({exc})")
+
+          jpgs = sorted(list(Path("app/src").rglob("*.jpg")) + list(Path("app/src").rglob("*.jpeg")))
+          for path in jpgs:
+              data = path.read_bytes()
+              if not (data.startswith(b"\xff\xd8") and data.endswith(b"\xff\xd9")):
+                  errors.append(f"{path}: invalid JPEG SOI/EOI markers")
+
+          if errors:
+              print("Project integrity validation failed:", file=sys.stderr)
+              for error in errors:
+                  print(f" - {error}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Wrapper checksum validated: {actual_wrapper_sha256}")
+          print("Legacy and adaptive launcher XML validated.")
+          print(f"Validated binary assets: {len(webps)} WebP, {len(pngs)} PNG, {len(jpgs)} JPEG.")
+          PY
+
+      - name: Validate checked-in Gradle Wrapper execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --version
 
       - name: Setup google-services.json
         env:
@@ -87,16 +228,6 @@ jobs:
 
       - name: Create dummy .env.example
         run: touch .env.example
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.10.2'
-
-      - name: Ensure Gradle Wrapper Integrity
-        run: |
-          gradle wrapper --gradle-version 8.10.2 --distribution-type bin
-          chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
