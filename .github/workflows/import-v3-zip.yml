@@ -1,0 +1,69 @@
+name: Import V3 ZIP
+
+on:
+  push:
+    paths:
+      - 'Pro-Football-v2--main.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-project:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Chat-Pro-Football
+        uses: actions/checkout@v4
+
+      - name: Validate ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Pro-Football-v2--main.zip
+          unzip -t Pro-Football-v2--main.zip >/dev/null
+
+      - name: Extract project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .v3-import
+          mkdir .v3-import
+          unzip -q Pro-Football-v2--main.zip -d .v3-import
+          test -d .v3-import/Pro-Football-v2--main
+
+          # Remove the temporary seed and any previously imported project files,
+          # while preserving the current Git metadata and this importer workflow.
+          rm -f .v3-seed
+
+          shopt -s dotglob nullglob
+          for item in .v3-import/Pro-Football-v2--main/*; do
+            name="$(basename "$item")"
+            if [ "$name" = ".git" ]; then
+              continue
+            fi
+            if [ "$name" = ".github" ]; then
+              mkdir -p .github
+              cp -a "$item"/. .github/
+            else
+              rm -rf -- "$name"
+              cp -a "$item" "$name"
+            fi
+          done
+
+          rm -rf .v3-import
+          rm -f Pro-Football-v2--main.zip
+
+      - name: Commit imported V3 project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Initialize Chat-Pro-Football V3 from uploaded project ZIP"
+          git push origin HEAD:main
