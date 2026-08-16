@@ -1,0 +1,61 @@
+name: Phase5 guarded UI calendar patch
+
+on:
+  push:
+    branches:
+      - agent/v3-game-rule-integrity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v3-game-rule-integrity
+          fetch-depth: 0
+
+      - name: Apply exact UI calendar replacements
+        shell: python
+        run: |
+          from pathlib import Path
+
+          standings = Path("app/src/main/java/com/example/ui/screens/StandingsScreen.kt")
+          text = standings.read_text(encoding="utf-8")
+          old = 'val isFinal = weekNum == 36 || (selectedLeague == "COPA" && weekNum == 35) || (selectedLeague == "WORLD" && weekNum == 38)'
+          new = 'val isFinal = isCompetitionFinalWeek(selectedLeague, weekNum)'
+          if text.count(old) != 1:
+              raise SystemExit(f"Expected exactly one old final-week expression, found {text.count(old)}")
+          standings.write_text(text.replace(old, new), encoding="utf-8")
+
+          finances = Path("app/src/main/java/com/example/ui/screens/FinancesScreen.kt")
+          text = finances.read_text(encoding="utf-8")
+          import_line = "import com.example.data.GameCalendar\n"
+          if import_line not in text:
+              marker = "package com.example.ui.screens\n\n"
+              if text.count(marker) != 1:
+                  raise SystemExit("Could not find FinancesScreen package marker")
+              text = text.replace(marker, marker + import_line, 1)
+
+          replacements = {
+              'Pair((baseSponsor * 0.9).toLong(), 38)': 'Pair((baseSponsor * 0.9).toLong(), GameCalendar.WEEKS_PER_SEASON)',
+              'Pair(baseSponsor, 38)': 'Pair(baseSponsor, GameCalendar.WEEKS_PER_SEASON)',
+              'Pair((baseSponsor * 0.8).toLong(), 38)': 'Pair((baseSponsor * 0.8).toLong(), GameCalendar.WEEKS_PER_SEASON)',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected one sponsor duration expression: {old}; found {text.count(old)}")
+              text = text.replace(old, new)
+          finances.write_text(text, encoding="utf-8")
+
+      - name: Remove bootstrap workflow and commit patch
+        run: |
+          rm .github/workflows/phase5-ui-calendar-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: align competition finals and sponsorships to 40-week calendar [phase5-ui-patched]"
+          git push origin HEAD:agent/v3-game-rule-integrity
