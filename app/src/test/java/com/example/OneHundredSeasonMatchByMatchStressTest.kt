@@ -127,6 +127,8 @@ class OneHundredSeasonMatchByMatchStressTest {
         repository.saveGameSave(gameSave)
 
         var totalMatchesSimulated = 0
+        var totalLeagueMatchesSimulated = 0
+        var totalWorldGroupMatchesSimulated = 0
         val startSeason = 2026
         val totalSeasons = 100
 
@@ -170,13 +172,18 @@ class OneHundredSeasonMatchByMatchStressTest {
 
             val seasonTransitionUseCase = SeasonTransitionUseCase(repository, generateCalendarUseCase, databaseIntegrityUseCase)
             if (repository.getFixturesForSeason(currentSeason).isEmpty()) {
-                val fixtures = generateCalendarUseCase.generateRoundRobinFixtures(currentSeason, teams, "SERIE_A", 1)
+                val fixtures = generateCalendarUseCase.generateSeasonFixtures(
+                    season = currentSeason,
+                    teams = repository.getAllTeams(),
+                    userTeamId = cruzeiro.id,
+                    userCountry = cruzeiro.country
+                )
                 repository.saveFixtures(fixtures)
             }
 
-            // The game season reaches week 40. Série A still contributes 38 rounds,
-            // so the expected match count remains 38,000 while weeks 39–40 exercise
-            // finances, evolution, recovery and integrity at the real season boundary.
+            // The game season reaches week 40. Série A contributes exactly 38 rounds.
+            // Super Mundial group matches are counted separately so adding legitimate
+            // competitions never weakens the 38,000-match league invariant.
             for (week in 1..40) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
@@ -185,8 +192,12 @@ class OneHundredSeasonMatchByMatchStressTest {
                 val unplayed = weekFixtures.filter { !it.isPlayed }
 
                 for (f in unplayed) {
-                    val homeTeam = repository.getTeam(f.homeTeamId) ?: cruzeiro
-                    val awayTeam = repository.getTeam(f.awayTeamId) ?: teams[1]
+                    val homeTeam = repository.getTeam(f.homeTeamId)
+                        ?: GlobalFootballSystem.getVirtualTeam(f.homeTeamId)
+                        ?: cruzeiro
+                    val awayTeam = repository.getTeam(f.awayTeamId)
+                        ?: GlobalFootballSystem.getVirtualTeam(f.awayTeamId)
+                        ?: teams[1]
                     val homePlayers = repository.getPlayersByTeam(homeTeam.id)
                     val awayPlayers = repository.getPlayersByTeam(awayTeam.id)
 
@@ -205,6 +216,10 @@ class OneHundredSeasonMatchByMatchStressTest {
                         )
                     )
                     totalMatchesSimulated++
+                    when {
+                        f.competitionType in setOf("SERIE_A", "DIV_1") -> totalLeagueMatchesSimulated++
+                        f.competitionType.startsWith("WORLD_CUP_GP_") -> totalWorldGroupMatchesSimulated++
+                    }
                 }
 
                 val userPlayers = repository.getPlayersByTeam(cruzeiro.id)
@@ -225,9 +240,12 @@ class OneHundredSeasonMatchByMatchStressTest {
             }
 
             val seasonFixtures = repository.getFixturesForSeason(currentSeason)
+            val leagueFixtures = seasonFixtures.filter {
+                it.competitionType in setOf("SERIE_A", "DIV_1")
+            }
             val standings = teams.map { team ->
-                val homeMatches = seasonFixtures.filter { it.homeTeamId == team.id && it.isPlayed }
-                val awayMatches = seasonFixtures.filter { it.awayTeamId == team.id && it.isPlayed }
+                val homeMatches = leagueFixtures.filter { it.homeTeamId == team.id && it.isPlayed }
+                val awayMatches = leagueFixtures.filter { it.awayTeamId == team.id && it.isPlayed }
                 val wins = homeMatches.count { (it.homeScore ?: 0) > (it.awayScore ?: 0) } +
                     awayMatches.count { (it.awayScore ?: 0) > (it.homeScore ?: 0) }
                 val draws = homeMatches.count { (it.homeScore ?: 0) == (it.awayScore ?: 0) } +
@@ -262,9 +280,21 @@ class OneHundredSeasonMatchByMatchStressTest {
 
         val records = repository.getAllHistoricalRecords()
         val serieARecords = records.filter { it.competitionName == "Campeonato Brasileiro (Série A)" }
+        val expectedWorldGroupMatches = (startSeason until startSeason + totalSeasons)
+            .count { SuperMundialSystem.isSuperMundialSeason(it) } * 48
 
         assertEquals("Expected 2126 current season", 2126, finalSave!!.currentSeason)
-        assertEquals("Expected 38000 total matches simulated in Série A", 38000, totalMatchesSimulated)
+        assertEquals("Expected 38000 Série A matches across 100 seasons", 38000, totalLeagueMatchesSimulated)
+        assertEquals(
+            "Expected every eligible Super Mundial to contribute 48 group matches",
+            expectedWorldGroupMatches,
+            totalWorldGroupMatchesSimulated
+        )
+        assertEquals(
+            "Total matches must equal league plus generated Super Mundial group matches",
+            totalLeagueMatchesSimulated + totalWorldGroupMatchesSimulated,
+            totalMatchesSimulated
+        )
         assertEquals("Expected one Série A historical record per simulated season", 100, serieARecords.size)
         assertTrue("Bank balance must remain non-negative and non-overflowing", finalSave.bankBalance >= 0L)
 
