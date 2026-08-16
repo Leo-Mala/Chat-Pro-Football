@@ -456,7 +456,7 @@ private fun calculateSeasonStandings(teams: List<Team>, fixtures: List<Fixture>,
                 aG > hG -> {
                     aRow.pts += 3
                     aRow.w += 1
-                    homeRow.l += 1
+                    hRow.l += 1
                 }
                 else -> {
                     hRow.pts += 1
