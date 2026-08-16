@@ -1,0 +1,81 @@
+name: Phase7 New Game Metadata Fix
+
+on:
+  push:
+    branches:
+      - agent/v3-functional-validation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v3-functional-validation
+          fetch-depth: 0
+
+      - name: Persist slot metadata when a career is created
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt")
+          text = path.read_text(encoding="utf-8")
+
+          start_marker = '''    private suspend fun performStartNewGameInternal(coachName: String, teamId: Long) {
+              val activeCountry = _selectedCountry.value ?: "BRASIL"
+              val season = 2026
+          '''
+          replacement_start = '''    private suspend fun performStartNewGameInternal(coachName: String, teamId: Long) {
+              val saveId = _activeSaveSession.value?.slotId ?: return
+              val activeCountry = _selectedCountry.value ?: "BRASIL"
+              val season = 2026
+          '''
+          if text.count(start_marker) != 1:
+              raise SystemExit(f"Expected one new-game function header, found {text.count(start_marker)}")
+          text = text.replace(start_marker, replacement_start)
+
+          end_marker = '''        _selectedTeamId.value = teamId
+              }
+          
+          
+              fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {'''
+          replacement_end = '''        _selectedTeamId.value = teamId
+          
+                  // A newly created career must immediately be visible in the saves menu.
+                  // Do not rely on a later autosave/UI callback to mark the slot as occupied.
+                  preferencesRepo.updateSlotMetadata(
+                      saveId = saveId,
+                      coachName = save.coachName,
+                      teamName = playerSelectedTeam?.name ?: "Sem Clube",
+                      season = save.currentSeason,
+                      week = save.currentWeek,
+                      balance = save.bankBalance
+                  )
+                  saveSlots.value = preferencesRepo.loadSaveSlots()
+              }
+          
+          
+              fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {'''
+          if text.count(end_marker) != 1:
+              raise SystemExit(f"Expected one new-game function tail, found {text.count(end_marker)}")
+          text = text.replace(end_marker, replacement_end)
+
+          if text.count("preferencesRepo.updateSlotMetadata(") < 2:
+              raise SystemExit("New-game metadata persistence was not inserted")
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Remove bootstrap workflow and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/phase7-new-game-metadata-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: mark newly created career slot as occupied [phase7-metadata]"
+          git push origin HEAD:agent/v3-functional-validation
