@@ -262,7 +262,7 @@ data class Player(
 data class Fixture(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val season: Int,
-    val week: Int, // 1 to 38
+    val week: Int, // 1 to 40 (GameCalendar.WEEKS_PER_SEASON)
     val homeTeamId: Long,
     val awayTeamId: Long,
     val homeScore: Int? = null,
