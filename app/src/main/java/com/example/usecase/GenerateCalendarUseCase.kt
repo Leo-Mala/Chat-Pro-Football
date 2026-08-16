@@ -1,5 +1,6 @@
 package com.example.usecase
 
+import com.example.data.CupCompetitionSystem
 import com.example.data.Fixture
 import com.example.data.GameRepository
 import com.example.data.GlobalFootballSystem
@@ -59,7 +60,6 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         }
 
         // Returno (inverted home/away)
-        val returnoStartWeek = startWeek + totalRounds
         val turnoFixtures = fixtures.toList()
         for (f in turnoFixtures) {
             val returnoWeek = f.week + totalRounds
@@ -89,8 +89,10 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
 
     /**
      * Gera os jogos da temporada escopados ao país do time do usuário.
-     * Limita a geração das 38 rodadas de liga de pontos corridos para o país do time do usuário,
-     * gerando para os demais países apenas os participantes dos torneios continentais e mundial.
+     *
+     * A liga de pontos corridos continua restrita ao país do usuário. A Copa nacional usa
+     * clubes desse mesmo país; os torneios continentais usam clubes da confederação correta;
+     * e o Super Mundial continua seguindo sua regra própria de temporadas elegíveis.
      */
     fun generateSeasonFixtures(
         season: Int,
@@ -102,7 +104,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         val userTeam = teams.find { it.id == userTeamId }
         val targetCountry = userTeam?.country ?: userCountry
 
-        // Geração da liga de pontos corridos (38 rodadas) apenas para o país do time do usuário
+        // Geração da liga de pontos corridos apenas para o país do time do usuário.
         val groupedTeams = teams.groupBy { Pair(it.country, it.division) }
         for ((key, teamGroup) in groupedTeams) {
             val (country, div) = key
@@ -118,7 +120,18 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
             }
         }
 
-        // Torneios continentais e mundial para times elegíveis de todos os países
+        // Copa nacional e continentais. Somente a fase inicial é criada aqui;
+        // as fases seguintes são geradas após os resultados pelo CupCompetitionSystem.
+        allFixtures.addAll(
+            CupCompetitionSystem.generateSeasonOpeningFixtures(
+                season = season,
+                teams = teams,
+                userTeamId = userTeamId,
+                userCountry = targetCountry
+            )
+        )
+
+        // Super Mundial permanece independente e só existe nas temporadas elegíveis.
         val worldCupFixtures = SuperMundialSystem.generateGroupStageFixtures(season, teams, userTeamId)
         allFixtures.addAll(worldCupFixtures)
 
@@ -197,6 +210,8 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
 
     /**
      * Seleciona os times classificados para a Libertadores garantindo vagas únicas e sem conflitos.
+     * Mantido para compatibilidade com chamadas legadas; o calendário novo usa o seletor genérico
+     * do CupCompetitionSystem para todas as confederações.
      */
     fun selectLibertadoresTeams(
         brasilSerieATeams: List<Team>,
@@ -205,7 +220,6 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
     ): List<Team> {
         val topSerieA = brasilSerieATeams.sortedByDescending { it.rating }.take(6)
 
-        // Garante que o slot da Copa não seja ocupado por um time que já está na Libertadores via Série A
         val topCopa = brasilCopaTeams
             .filter { it !in topSerieA }
             .maxByOrNull { it.rating }
@@ -216,17 +230,15 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         val selectedTeams = libBrasil.toMutableList()
         val targetCount = 32
 
-        // Padrão corrigido e protegido contra loop infinito
         while (selectedTeams.size < targetCount) {
             val candidate = remainingCandidates.firstOrNull { it !in selectedTeams }
             if (candidate != null) {
                 selectedTeams.add(candidate)
             } else {
-                break // Interrompe o laço imediatamente se não houver mais candidatos!
+                break
             }
         }
 
-        // Preenchimento de segurança se a lista ainda não tiver atingido a meta
         var dummyCounter = 1
         while (selectedTeams.size < targetCount) {
             val virtualTeam = GlobalFootballSystem.getVirtualTeam(900_000L + dummyCounter)
