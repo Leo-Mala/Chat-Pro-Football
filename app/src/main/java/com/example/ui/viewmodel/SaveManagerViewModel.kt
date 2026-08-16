@@ -99,9 +99,12 @@ class SaveManagerViewModel @Inject constructor(
             try {
                 val repo = gameSaveRepository.getRepositoryForSlot(slotId)
                 val save = repo.getGameSave()
-                _gameSave.value = save
-
                 val teams = repo.getAllTeams()
+
+                // Ignore a stale load if the user selected another slot meanwhile.
+                if (_currentSaveId.value != slotId) return@launch
+
+                _gameSave.value = save
                 _availableTeams.value = teams
             } catch (e: Exception) {
                 Log.e("SaveManagerViewModel", "Erro ao selecionar slot de salvamento $slotId", e)
@@ -193,6 +196,14 @@ class SaveManagerViewModel @Inject constructor(
 
                 _currentSaveId.value = slotId
                 _gameSave.value = newSave
+                preferencesRepository.updateSlotMetadata(
+                    saveId = slotId,
+                    coachName = newSave.coachName,
+                    teamName = selectedTeam.name,
+                    season = newSave.currentSeason,
+                    week = newSave.currentWeek,
+                    balance = newSave.bankBalance
+                )
 
                 _toastMessage.emit("Carreira iniciada com o ${selectedTeam.name}!")
                 loadSaveSlots()
@@ -206,27 +217,15 @@ class SaveManagerViewModel @Inject constructor(
     fun deleteSaveSlot(slotId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val repo = gameSaveRepository.getRepositoryForSlot(slotId)
-
-                repo.deleteSave()
-                repo.deleteTeams()
-                repo.deletePlayers()
-                repo.deleteFixtures()
-                repo.deleteTransactions()
-                repo.deleteOrders()
-                repo.deleteLegends()
-                repo.deleteRecords()
-                repo.deleteOffers()
-                repo.deleteAllHistorico()
-                repo.deleteInstallments()
-                repo.deleteLoans()
-
-                gameSaveRepository.closeAndRemoveSlot(slotId)
-
                 if (_currentSaveId.value == slotId) {
                     _currentSaveId.value = null
                     _gameSave.value = null
+                    _availableTeams.value = emptyList()
                 }
+
+                // Delete the actual database file using the same naming source used to create it.
+                gameSaveRepository.deleteSlotDatabase(slotId)
+                preferencesRepository.removeSlotMetadata(slotId)
 
                 _toastMessage.emit("Save deletado com sucesso.")
                 loadSaveSlots()
@@ -409,6 +408,15 @@ class SaveManagerViewModel @Inject constructor(
                 }
             }
 
+            val restoredTeamName = backup.teams.firstOrNull { it.id == backup.save.playerTeamId }?.name ?: "Sem Clube"
+            preferencesRepository.updateSlotMetadata(
+                saveId = slotId,
+                coachName = backup.save.coachName,
+                teamName = restoredTeamName,
+                season = backup.save.currentSeason,
+                week = backup.save.currentWeek,
+                balance = backup.save.bankBalance
+            )
             loadSaveSlots()
             _toastMessage.emit("Save restaurado com sucesso!")
             true
