@@ -145,8 +145,10 @@ class TwentySeasonStressTest {
 
             repository.updateTeam(cruzeiro.copy(trainingCenterLevel = 5))
 
-            val seasonFixtures = generateCalendarUseCase.generateRoundRobinFixtures(currentSeason, teams, "SERIE_A", 1)
-            repository.saveFixtures(seasonFixtures)
+            if (repository.getFixturesForSeason(currentSeason).isEmpty()) {
+                val seasonFixtures = generateCalendarUseCase.generateRoundRobinFixtures(currentSeason, teams, "SERIE_A", 1)
+                repository.saveFixtures(seasonFixtures)
+            }
 
             val seasonTransitionUseCase = SeasonTransitionUseCase(repository, generateCalendarUseCase, databaseIntegrityUseCase)
 
