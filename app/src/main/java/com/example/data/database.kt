@@ -6,6 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.data.local.SlotDatabaseFactory
+import com.example.data.migrations.MIGRATION_14_15
+import com.example.data.migrations.MIGRATION_15_16
+import com.example.data.migrations.MIGRATION_16_17
+import com.example.data.migrations.MIGRATION_17_18
 
 @Database(
     entities = [
@@ -22,7 +26,7 @@ import com.example.data.local.SlotDatabaseFactory
         TransferInstallment::class,
         PlayerLoan::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 @TypeConverters(AtributosConverter::class)
@@ -41,20 +45,23 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playerLoanDao(): PlayerLoanDao
 
     companion object {
+        val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_14_15,
+            MIGRATION_15_16,
+            MIGRATION_16_17,
+            MIGRATION_17_18
+        )
+
         fun buildDatabaseWithName(context: Context, name: String): AppDatabase {
             return Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 name
             )
-            .addMigrations(
-                com.example.data.migrations.MIGRATION_14_15,
-                com.example.data.migrations.MIGRATION_15_16,
-                com.example.data.migrations.MIGRATION_16_17
-            )
-            .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
-            .fallbackToDestructiveMigrationOnDowngrade()
-            .build()
+                .addMigrations(*ALL_MIGRATIONS)
+                // Intencionalmente sem fallback destrutivo: uma versão desconhecida deve
+                // falhar ao abrir em vez de apagar silenciosamente uma carreira.
+                .build()
         }
 
         fun getDatabaseWithName(context: Context, name: String): AppDatabase {
