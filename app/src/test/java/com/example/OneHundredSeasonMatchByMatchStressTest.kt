@@ -174,7 +174,10 @@ class OneHundredSeasonMatchByMatchStressTest {
                 repository.saveFixtures(fixtures)
             }
 
-            for (week in 1..38) {
+            // The game season reaches week 40. Série A still contributes 38 rounds,
+            // so the expected match count remains 38,000 while weeks 39–40 exercise
+            // finances, evolution, recovery and integrity at the real season boundary.
+            for (week in 1..40) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
 
