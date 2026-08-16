@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.data.GameCalendar
 import com.example.ui.components.FinancialEvolutionChart
 import com.example.ui.components.finances.*
 import com.example.ui.viewmodel.*
@@ -203,9 +204,9 @@ fun FinanceTab(viewModel: GameViewModel) {
 
                     val baseSponsor = (300000.0 + (s.coachReputation * 15000.0)).toLong()
                     val offers = listOf(
-                        Triple("Cervejaria \"Pilsen\"", Pair((baseSponsor * 0.9).toLong(), 38), 600000L),
-                        Triple("Banco \"Econômico\"", Pair(baseSponsor, 38), 400000L),
-                        Triple("Aero-Linhas \"Regional\"", Pair((baseSponsor * 0.8).toLong(), 38), 1000000L)
+                        Triple("Cervejaria \"Pilsen\"", Pair((baseSponsor * 0.9).toLong(), GameCalendar.WEEKS_PER_SEASON), 600000L),
+                        Triple("Banco \"Econômico\"", Pair(baseSponsor, GameCalendar.WEEKS_PER_SEASON), 400000L),
+                        Triple("Aero-Linhas \"Regional\"", Pair((baseSponsor * 0.8).toLong(), GameCalendar.WEEKS_PER_SEASON), 1000000L)
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

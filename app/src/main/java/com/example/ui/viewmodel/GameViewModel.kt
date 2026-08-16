@@ -965,7 +965,7 @@ class GameViewModel @Inject constructor(
                             processWeekEndEconomicAndEvolution()
                             
                             val updatedSave = repo.getGameSave() ?: break
-                            if (updatedSave.currentWeek == 1 && currentWeekNum >= 38) {
+                            if (updatedSave.currentWeek == 1 && currentWeekNum >= GameCalendar.WEEKS_PER_SEASON) {
                                 val nextLog = "🏆 Temporada ${save.currentSeason} finalizada com sucesso! Iniciando Temporada ${updatedSave.currentSeason}..."
                                 _simulationLogs.value = (listOf(nextLog) + _simulationLogs.value).take(25)
                                 delay(1500)

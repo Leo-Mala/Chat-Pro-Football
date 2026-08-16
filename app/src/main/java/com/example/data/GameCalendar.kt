@@ -3,6 +3,25 @@ package com.example.data
 import java.util.Calendar
 
 object GameCalendar {
+    const val WEEKS_PER_SEASON = 40
+
+    /**
+     * Avança uma quantidade de semanas usando o calendário canônico da temporada.
+     * A temporada do jogo possui 40 semanas; semanas 39 e 40 são reservadas para
+     * o fechamento da temporada e para fases finais de competições como o Super Mundial.
+     */
+    fun advanceWeeks(season: Int, week: Int, deltaWeeks: Int = 1): Pair<Int, Int> {
+        require(week in 1..WEEKS_PER_SEASON) {
+            "Semana inválida: $week. Esperado 1..$WEEKS_PER_SEASON."
+        }
+        require(deltaWeeks >= 0) { "deltaWeeks deve ser >= 0." }
+
+        val zeroBasedWeek = (week - 1) + deltaWeeks
+        val seasonOffset = zeroBasedWeek / WEEKS_PER_SEASON
+        val normalizedWeek = (zeroBasedWeek % WEEKS_PER_SEASON) + 1
+        return Pair(season + seasonOffset, normalizedWeek)
+    }
+
     private fun getCalendarForWeek(season: Int, week: Int): Calendar {
         val cal = Calendar.getInstance()
         cal.set(season, Calendar.JANUARY, 10, 0, 0, 0)
