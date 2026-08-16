@@ -1,0 +1,129 @@
+name: Phase6 guarded ViewModel cleanup
+
+on:
+  push:
+    branches:
+      - agent/v3-architecture-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout architecture branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v3-architecture-cleanup
+          fetch-depth: 0
+
+      - name: Apply guarded architecture replacements
+        shell: python
+        run: |
+          from pathlib import Path
+
+          game_screens = Path("app/src/main/java/com/example/ui/screens/GameScreens.kt")
+          text = game_screens.read_text(encoding="utf-8")
+          for line in [
+              "import com.example.ui.viewmodel.MatchViewModel\n",
+              "import com.example.ui.viewmodel.TransfersViewModel\n",
+              "import com.example.ui.viewmodel.SquadViewModel\n",
+              "import com.example.ui.viewmodel.SaveManagerViewModel\n",
+          ]:
+              if text.count(line) != 1:
+                  raise SystemExit(f"GameScreens expected one import {line.strip()}, found {text.count(line)}")
+              text = text.replace(line, "")
+
+          old_signature = '''fun GameApp(
+              viewModel: GameViewModel,
+              matchViewModel: MatchViewModel? = null,
+              transfersViewModel: TransfersViewModel? = null,
+              squadViewModel: SquadViewModel? = null,
+              saveManagerViewModel: SaveManagerViewModel? = null
+          ) {'''
+          new_signature = '''fun GameApp(
+              viewModel: GameViewModel
+          ) {'''
+          if text.count(old_signature) != 1:
+              raise SystemExit(f"GameApp legacy signature count={text.count(old_signature)}")
+          game_screens.write_text(text.replace(old_signature, new_signature), encoding="utf-8")
+
+          squad = Path("app/src/main/java/com/example/ui/screens/SquadScreen.kt")
+          text = squad.read_text(encoding="utf-8")
+          for line in [
+              "import com.example.ui.viewmodel.MatchViewModel\n",
+              "import com.example.ui.viewmodel.TransfersViewModel\n",
+              "import com.example.ui.viewmodel.SquadViewModel\n",
+              "import com.example.ui.viewmodel.SaveManagerViewModel\n",
+              "import androidx.hilt.navigation.compose.hiltViewModel\n",
+          ]:
+              if text.count(line) != 1:
+                  raise SystemExit(f"SquadScreen expected one import {line.strip()}, found {text.count(line)}")
+              text = text.replace(line, "")
+
+          current_save_line = "    val currentSaveId by viewModel.currentSaveId.collectAsStateWithLifecycle()\n"
+          if text.count(current_save_line) != 1:
+              raise SystemExit(f"SquadScreen currentSaveId line count={text.count(current_save_line)}")
+          text = text.replace(current_save_line, "")
+
+          old_cards = '''        if (activeSubTab == "CARDS_RETRO") {
+              val playerViewModel: com.example.ui.viewmodel.PlayerViewModel = hiltViewModel()
+              LaunchedEffect(currentSaveId) {
+                  val slotId = currentSaveId
+                  if (slotId != null) {
+                      playerViewModel.setSlotId(slotId)
+                  } else {
+                      playerViewModel.clearSlot()
+                  }
+              }
+              PlayerListScreen(
+                  viewModel = playerViewModel
+              )
+          } else if (activeSubTab == "PROFISSIONAL") {'''
+          new_cards = '''        if (activeSubTab == "CARDS_RETRO") {
+              PlayerListScreen(viewModel = viewModel)
+          } else if (activeSubTab == "PROFISSIONAL") {'''
+          if text.count(old_cards) != 1:
+              raise SystemExit(f"SquadScreen Cards Retrô legacy block count={text.count(old_cards)}")
+          squad.write_text(text.replace(old_cards, new_cards), encoding="utf-8")
+
+          dead_files = [
+              Path("app/src/main/java/com/example/ui/viewmodel/MatchViewModel.kt"),
+              Path("app/src/main/java/com/example/ui/viewmodel/TransfersViewModel.kt"),
+              Path("app/src/main/java/com/example/ui/viewmodel/SquadViewModel.kt"),
+              Path("app/src/main/java/com/example/ui/viewmodel/SaveManagerViewModel.kt"),
+              Path("app/src/main/java/com/example/ui/viewmodel/PlayerViewModel.kt"),
+          ]
+          for path in dead_files:
+              if not path.exists():
+                  raise SystemExit(f"Expected legacy ViewModel file missing: {path}")
+              path.unlink()
+
+          forbidden = [
+              "MatchViewModel",
+              "TransfersViewModel",
+              "SquadViewModel",
+              "SaveManagerViewModel",
+              "PlayerViewModel",
+              "PlayerListUiState",
+          ]
+          roots = [Path("app/src/main/java"), Path("app/src/test/java")]
+          offenders = []
+          for root in roots:
+              for path in root.rglob("*.kt"):
+                  contents = path.read_text(encoding="utf-8")
+                  for token in forbidden:
+                      if token in contents:
+                          offenders.append(f"{path}: {token}")
+          if offenders:
+              raise SystemExit("Legacy references remain:\n" + "\n".join(offenders))
+
+      - name: Remove bootstrap workflow and commit cleanup
+        run: |
+          rm .github/workflows/phase6-remove-dead-viewmodels.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: remove duplicate legacy ViewModels [phase6-cleanup]"
+          git push origin HEAD:agent/v3-architecture-cleanup
