@@ -3,6 +3,12 @@ name: Long-Horizon Stress
 on:
   push:
     branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+    paths:
+      - 'app/build.gradle.kts'
+      - 'app/src/test/java/com/example/*StressTest.kt'
+      - '.github/workflows/long-horizon-stress.yml'
   workflow_dispatch:
   schedule:
     - cron: '30 3 * * 1'
