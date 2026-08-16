@@ -1497,6 +1497,7 @@ class GameViewModel @Inject constructor(
     }
 
     private suspend fun performStartNewGameInternal(coachName: String, teamId: Long) {
+        val saveId = _activeSaveSession.value?.slotId ?: return
         val activeCountry = _selectedCountry.value ?: "BRASIL"
         val season = 2026
 
@@ -1578,8 +1579,19 @@ class GameViewModel @Inject constructor(
         }
 
         _selectedTeamId.value = teamId
-    }
 
+    // A newly created career must immediately be visible in the saves menu.
+    // Do not rely on a later autosave/UI callback to mark the slot as occupied.
+    preferencesRepo.updateSlotMetadata(
+        saveId = saveId,
+        coachName = save.coachName,
+        teamName = playerSelectedTeam?.name ?: "Sem Clube",
+        season = save.currentSeason,
+        week = save.currentWeek,
+        balance = save.bankBalance
+    )
+    saveSlots.value = preferencesRepo.loadSaveSlots()
+}
 
     fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {
         viewModelScope.launch(Dispatchers.IO) {
