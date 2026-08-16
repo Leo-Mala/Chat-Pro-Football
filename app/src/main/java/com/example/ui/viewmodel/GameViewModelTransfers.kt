@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -196,8 +197,8 @@ fun GameViewModel.adjustAcademyInvestment(amount: Long) {
     }
 }
 
-fun GameViewModel.promoteAcademyProspect(prospect: GameViewModel.AcademyProspect) {
-    viewModelScope.launch(Dispatchers.IO) {
+fun GameViewModel.promoteAcademyProspect(prospect: GameViewModel.AcademyProspect): Job {
+    return viewModelScope.launch(Dispatchers.IO) {
         val repository = getActiveRepository() ?: return@launch
         promoteAcademyProspectInternal(repository, prospect)
     }
