@@ -10,6 +10,7 @@ import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -66,5 +67,65 @@ class SimulateWeekUseCaseTest {
         assertTrue(played[0].isPlayed)
         assertNotNull(played[0].homeScore)
         assertNotNull(played[0].awayScore)
+    }
+
+    @Test
+    fun simulateCpuMatchesForWeek_does_not_consume_excluded_team_fixture() = runTest {
+        val userLeague = Fixture(
+            id = 10L,
+            season = 2026,
+            week = 31,
+            homeTeamId = 1L,
+            awayTeamId = 2L,
+            competitionType = "SERIE_A"
+        )
+        val userCup = Fixture(
+            id = 11L,
+            season = 2026,
+            week = 31,
+            homeTeamId = 3L,
+            awayTeamId = 1L,
+            competitionType = "COPA"
+        )
+        val cpuMatch = Fixture(
+            id = 12L,
+            season = 2026,
+            week = 31,
+            homeTeamId = 3L,
+            awayTeamId = 4L,
+            competitionType = "SERIE_A"
+        )
+        repository.saveFixtures(listOf(userLeague, userCup, cpuMatch))
+        repository.saveTeams(
+            listOf(
+                Team(id = 1L, name = "Usuário", city = "A", state = "SP", division = 1, rating = 75),
+                Team(id = 2L, name = "CPU 2", city = "B", state = "SP", division = 1, rating = 70),
+                Team(id = 3L, name = "CPU 3", city = "C", state = "SP", division = 1, rating = 68),
+                Team(id = 4L, name = "CPU 4", city = "D", state = "SP", division = 1, rating = 66)
+            )
+        )
+
+        val played = useCase.simulateCpuMatchesForWeek(
+            season = 2026,
+            week = 31,
+            excludedTeamId = 1L
+        )
+
+        assertEquals(listOf(12L), played.map { it.id })
+        val persisted = repository.getFixturesForWeek(2026, 31).associateBy { it.id }
+        assertFalse(requireNotNull(persisted[10L]).isPlayed)
+        assertFalse(requireNotNull(persisted[11L]).isPlayed)
+        assertTrue(requireNotNull(persisted[12L]).isPlayed)
+    }
+
+    @Test
+    fun knockoutCompetitionTypes_include_current_generic_codes() {
+        assertTrue(isKnockoutCompetitionType("COPA"))
+        assertTrue(isKnockoutCompetitionType("CONTINENTAL_T1"))
+        assertTrue(isKnockoutCompetitionType("CONTINENTAL_T2"))
+        assertTrue(isKnockoutCompetitionType("CONTINENTAL_T3"))
+        assertTrue(isKnockoutCompetitionType("WORLD_CUP"))
+        assertFalse(isKnockoutCompetitionType("CONTINENTAL_T1_GP_A"))
+        assertFalse(isKnockoutCompetitionType("SERIE_A"))
     }
 }
