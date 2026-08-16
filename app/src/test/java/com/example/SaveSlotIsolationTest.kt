@@ -54,7 +54,12 @@ class SaveSlotIsolationTest {
     @Test
     fun openingAnotherSlotDoesNotCloseThePreviousDatabase() {
         val slot1 = factory.getDatabaseForSlot("1")
+        // Room opens the underlying SQLite connection lazily, so force a real open.
+        slot1.openHelper.writableDatabase
+        assertTrue(slot1.isOpen)
+
         val slot2 = factory.getDatabaseForSlot("2")
+        slot2.openHelper.writableDatabase
 
         assertNotSame(slot1, slot2)
         assertTrue(slot1.isOpen)
