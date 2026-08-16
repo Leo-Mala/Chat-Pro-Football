@@ -2,11 +2,15 @@ package com.example.usecase
 
 import com.example.data.DefaultData
 import com.example.ui.viewmodel.GameViewModel.AcademyProspect
-import org.json.JSONArray
-import org.json.JSONObject
+import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
+import com.google.gson.reflect.TypeToken
 import kotlin.random.Random
 
 class YouthAcademyUseCase {
+
+    private val gson = Gson()
+    private val prospectListType = object : TypeToken<List<AcademyProspect>>() {}.type
 
     fun generateInitialProspects(country: String): String {
         val prospects = try {
@@ -55,38 +59,23 @@ class YouthAcademyUseCase {
     }
 
     fun serializeProspects(prospects: List<AcademyProspect>): String {
-        val array = JSONArray()
-        prospects.forEach { prospect ->
-            array.put(
-                JSONObject()
-                    .put("name", prospect.name)
-                    .put("age", prospect.age)
-                    .put("position", prospect.position)
-                    .put("force", prospect.force)
-                    .put("potential", prospect.potential)
-            )
-        }
-        return array.toString()
+        return gson.toJson(prospects, prospectListType)
     }
 
     private fun parseJsonProspects(rawString: String): List<AcademyProspect> {
         return try {
-            val array = JSONArray(rawString)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val obj = array.optJSONObject(index) ?: continue
-                    add(
-                        AcademyProspect(
-                            name = obj.optString("name", "Jovem"),
-                            age = obj.optInt("age", 16),
-                            position = obj.optString("position", "MEI"),
-                            force = obj.optInt("force", 40),
-                            potential = obj.optInt("potential", 70)
-                        )
-                    )
+            gson.fromJson<List<AcademyProspect>>(rawString, prospectListType)
+                ?.filter { prospect ->
+                    prospect.name.isNotBlank() &&
+                        prospect.position.isNotBlank() &&
+                        prospect.age > 0 &&
+                        prospect.force > 0 &&
+                        prospect.potential > 0
                 }
-            }
-        } catch (_: Exception) {
+                ?: emptyList()
+        } catch (_: JsonSyntaxException) {
+            emptyList()
+        } catch (_: RuntimeException) {
             emptyList()
         }
     }
@@ -103,6 +92,8 @@ class YouthAcademyUseCase {
                 force = parts[3].toIntOrNull() ?: 40,
                 potential = parts[4].toIntOrNull() ?: 70
             )
+        }.filter { prospect ->
+            prospect.name.isNotBlank() && prospect.position.isNotBlank()
         }
     }
 }
