@@ -44,13 +44,8 @@ class SlotDatabaseFactory @Inject constructor(
             AppDatabase::class.java,
             databaseNameForSlot(slotId)
         )
-            .addMigrations(
-                com.example.data.migrations.MIGRATION_14_15,
-                com.example.data.migrations.MIGRATION_15_16,
-                com.example.data.migrations.MIGRATION_16_17
-            )
-            .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
-            .fallbackToDestructiveMigrationOnDowngrade()
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+            // Never destroy a save because its schema version is unknown or newer.
             .build()
 
         databases[slotId] = db
