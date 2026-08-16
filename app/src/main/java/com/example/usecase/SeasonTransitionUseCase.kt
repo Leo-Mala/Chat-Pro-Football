@@ -110,24 +110,58 @@ class SeasonTransitionUseCase(
 
         updatedTeamsMap.values.forEach { repository.updateTeam(it) }
 
-        // 2. Envelhecer atletas uma única vez por temporada e renovar aposentadorias.
+        // 2. Envelhecer atletas uma única vez por temporada. Aposentadoria cria uma
+        // identidade nova de verdade: o atleta antigo é removido e o substituto recebe
+        // novo ID, contrato/estatísticas zerados e nenhum vínculo de empréstimo herdado.
         val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
-        val updatedPlayers = allPlayers.map { player ->
+        val playersToUpdate = mutableListOf<Player>()
+        val replacementPlayers = mutableListOf<Player>()
+
+        for (player in allPlayers) {
             val newAge = player.age + 1
             if (newAge >= 38) {
-                val newForce = if (player.teamId == sourceSave.playerTeamId) 95 else rand.nextInt(55, 75)
-                player.copy(
+                val activeLoan = repository.getActiveLoanForPlayer(player.id)
+                if (activeLoan != null) {
+                    repository.updateLoan(
+                        activeLoan.copy(
+                            remainingWeeks = 0,
+                            status = "COMPLETED"
+                        )
+                    )
+                }
+
+                val replacementTeamId = when {
+                    activeLoan != null -> activeLoan.ownerTeamId
+                    player.isOnLoan && player.originalTeamId != 0L -> player.originalTeamId
+                    else -> player.teamId
+                }
+                val newForce = if (replacementTeamId == sourceSave.playerTeamId) {
+                    95
+                } else {
+                    rand.nextInt(55, 75)
+                }
+
+                repository.deletePlayer(player.id)
+                replacementPlayers += Player(
+                    teamId = replacementTeamId,
+                    name = "Novo Prospecto ${player.name.takeLast(6)}",
                     age = 18,
+                    nationality = player.nationality,
+                    position = player.position,
                     force = newForce,
                     energy = 100,
                     moral = 80,
-                    injuryWeeksRemaining = 0,
-                    suspensionWeeksRemaining = 0,
-                    yellowCardsAccumulated = 0,
-                    name = "Novo Prospecto ${player.name.takeLast(6)}"
+                    salary = 10_000L,
+                    contractDurationWeeks = 52,
+                    isFromAcademy = false,
+                    isStarter = false,
+                    isOnLoan = false,
+                    loanWeeksRemaining = 0,
+                    originalTeamId = 0L,
+                    potential = maxOf(80, newForce)
                 )
             } else {
-                player.copy(
+                playersToUpdate += player.copy(
                     age = newAge,
                     energy = 100,
                     moral = 80.coerceAtLeast(player.moral),
@@ -137,7 +171,13 @@ class SeasonTransitionUseCase(
                 )
             }
         }
-        repository.updatePlayers(updatedPlayers)
+
+        if (playersToUpdate.isNotEmpty()) {
+            repository.updatePlayers(playersToUpdate)
+        }
+        if (replacementPlayers.isNotEmpty()) {
+            repository.savePlayers(replacementPlayers)
+        }
 
         // 3. Reparar integridade antes de gerar o novo calendário.
         databaseIntegrityUseCase.repairDatabase()
