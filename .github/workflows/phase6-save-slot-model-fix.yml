@@ -21,6 +21,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           path = Path("app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt")
           text = path.read_text(encoding="utf-8")
@@ -43,8 +44,15 @@ jobs:
               + text[end_index:]
           )
 
-          if "SaveSlot(" in text or "List<SaveSlot>" in text:
-              raise SystemExit("Legacy SaveSlot usage still remains in GameViewModel")
+          legacy_lines = [
+              f"{line_no}: {line}"
+              for line_no, line in enumerate(text.splitlines(), start=1)
+              if re.search(r"\bSaveSlot\b", line)
+          ]
+          if legacy_lines:
+              raise SystemExit(
+                  "Exact legacy SaveSlot symbol still remains:\n" + "\n".join(legacy_lines)
+              )
 
           path.write_text(text, encoding="utf-8")
 
