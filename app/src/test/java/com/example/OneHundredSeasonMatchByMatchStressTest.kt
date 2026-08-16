@@ -169,8 +169,10 @@ class OneHundredSeasonMatchByMatchStressTest {
             }
 
             val seasonTransitionUseCase = SeasonTransitionUseCase(repository, generateCalendarUseCase, databaseIntegrityUseCase)
-            val fixtures = generateCalendarUseCase.generateRoundRobinFixtures(currentSeason, teams, "SERIE_A", 1)
-            repository.saveFixtures(fixtures)
+            if (repository.getFixturesForSeason(currentSeason).isEmpty()) {
+                val fixtures = generateCalendarUseCase.generateRoundRobinFixtures(currentSeason, teams, "SERIE_A", 1)
+                repository.saveFixtures(fixtures)
+            }
 
             for (week in 1..38) {
                 gameSave = gameSave.copy(currentWeek = week)
