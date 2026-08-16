@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,14 +38,22 @@ class SquadViewModel @Inject constructor(
     private val saveRepository: GameSaveRepository
 ) : AndroidViewModel(application) {
 
-    private var activeSlotId: String = "1"
+    private val _activeSlotId = MutableStateFlow<String?>(null)
 
     fun setSlotId(slotId: String) {
-        activeSlotId = slotId
+        _activeSlotId.value = slotId
+    }
+
+    fun clearSlot() {
+        _activeSlotId.value = null
     }
 
     private val repository: GameRepository
-        get() = saveRepository.getRepositoryForSlot(activeSlotId)
+        get() {
+            val slotId = _activeSlotId.value
+                ?: throw IllegalStateException("Nenhum save ativo configurado no SquadViewModel.")
+            return saveRepository.getRepositoryForSlot(slotId)
+        }
 
     private val _tactics = MutableStateFlow(SquadTactics())
     val tactics: StateFlow<SquadTactics> = _tactics.asStateFlow()
@@ -50,13 +61,23 @@ class SquadViewModel @Inject constructor(
     private val _toastMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val toastMessage = _toastMessage.asSharedFlow()
 
-    val allPlayers: StateFlow<List<Player>> = repository.allPlayersFlow.stateIn(
+    private val activePlayersFlow = _activeSlotId
+        .distinctUntilChanged()
+        .flatMapLatest { slotId ->
+            if (slotId == null) {
+                flowOf(emptyList<Player>())
+            } else {
+                saveRepository.getRepositoryForSlot(slotId).allPlayersFlow
+            }
+        }
+
+    val allPlayers: StateFlow<List<Player>> = activePlayersFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
 
-    val injuredPlayers: StateFlow<List<Player>> = repository.allPlayersFlow.map { players ->
+    val injuredPlayers: StateFlow<List<Player>> = activePlayersFlow.map { players ->
         players.filter { it.injuryWeeksRemaining > 0 }
     }.stateIn(
         scope = viewModelScope,
