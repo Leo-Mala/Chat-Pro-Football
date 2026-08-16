@@ -126,3 +126,14 @@ dependencies {
   ksp(libs.androidx.room.compiler)
   ksp(libs.hilt.compiler)
 }
+
+// Fast PR regression mode: run every unit/Robolectric test except deliberately
+// long-horizon classes whose names end in StressTest. The default Gradle task
+// remains unchanged and continues to execute the complete suite.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  if (providers.gradleProperty("excludeStressTests").orNull == "true") {
+    filter {
+      excludeTestsMatching("*StressTest*")
+    }
+  }
+}
