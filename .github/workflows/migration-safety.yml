@@ -93,5 +93,5 @@ jobs:
           ./gradlew testDebugUnitTest \
             --tests com.example.SaveSlotIsolationTest \
             --tests com.example.migrations.MigrationSafetyTest \
-            --tests com.example.migrations.MigrationTest \
+            --tests com.example.migrations.MigrationCompatibilityTest \
             --stacktrace
