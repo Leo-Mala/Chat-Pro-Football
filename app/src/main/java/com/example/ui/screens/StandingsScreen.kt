@@ -554,7 +554,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                             }
                                         }
 
-                                        val isFinal = weekNum == 36 || (selectedLeague == "COPA" && weekNum == 35) || (selectedLeague == "WORLD" && weekNum == 38)
+                                        val isFinal = isCompetitionFinalWeek(selectedLeague, weekNum)
                                         if (f.isPlayed && isFinal && f.homeScore != null && f.awayScore != null) {
                                             val winnerId = when {
                                                 f.homeScore > f.awayScore -> f.homeTeamId
