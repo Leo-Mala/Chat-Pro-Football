@@ -23,6 +23,14 @@ internal fun collectAppearancePlayerIds(
     )
 }
 
+internal fun hasPendingUserFixtures(
+    fixtures: List<Fixture>,
+    userTeamId: Long
+): Boolean = fixtures.any { fixture ->
+    !fixture.isPlayed &&
+        (fixture.homeTeamId == userTeamId || fixture.awayTeamId == userTeamId)
+}
+
 fun GameViewModel.startLiveMatch(fixture: Fixture) {
     liveMatchJob?.cancel()
     liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
@@ -105,9 +113,18 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
         _matchState.value = GameViewModel.MatchState.FINISHED
         val fix = liveMatchFixture
         if (fix != null) {
+            val homeScore = _matchHomeScore.value
+            val awayScore = _matchAwayScore.value
+            val (homePenalties, awayPenalties) = CompetitionRules.resolvePenaltiesIfNeeded(
+                fixture = fix,
+                homeScore = homeScore,
+                awayScore = awayScore
+            )
             val updatedFixture = fix.copy(
-                homeScore = _matchHomeScore.value,
-                awayScore = _matchAwayScore.value,
+                homeScore = homeScore,
+                awayScore = awayScore,
+                homePenalties = homePenalties,
+                awayPenalties = awayPenalties,
                 isPlayed = true
             )
             repo.updateFixture(updatedFixture)
@@ -167,7 +184,12 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            val updated = simulateSingleUserFixture(targetFixture, save)
+            var updated = simulateSingleUserFixture(targetFixture, save)
+            val decided = CompetitionRules.ensureKnockoutDecision(updated)
+            if (decided != updated) {
+                repo.updateFixture(decided)
+                updated = decided
+            }
             _matchHomeScore.value = updated.homeScore ?: 0
             _matchAwayScore.value = updated.awayScore ?: 0
             _matchMinute.value = 90
@@ -177,7 +199,11 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         simulateCpuMatchesForCurrentWeek()
-        processWeekEndEconomicAndEvolution()
+
+        val refreshedWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+        if (!hasPendingUserFixtures(refreshedWeekFixtures, save.playerTeamId)) {
+            processWeekEndEconomicAndEvolution()
+        }
     }
 }
 
@@ -243,7 +269,11 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
 
 suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
     val save = repo.getGameSave() ?: return
-    simulateWeekUseCase.simulateCpuMatchesForWeek(save.currentSeason, save.currentWeek)
+    simulateWeekUseCase.simulateCpuMatchesForWeek(
+        season = save.currentSeason,
+        week = save.currentWeek,
+        excludedTeamId = save.playerTeamId
+    )
 }
 
 suspend fun GameViewModel.generateWeeklyIncomingOffers() {
@@ -284,10 +314,11 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
 
 suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     val save = repo.getGameSave() ?: return
-    
+
     val currentWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
-    val userFixture = currentWeekFixtures.find { it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId }
-    val isHomeMatch = userFixture != null && userFixture.homeTeamId == save.playerTeamId
+    val isHomeMatch = currentWeekFixtures.any {
+        it.isPlayed && it.homeTeamId == save.playerTeamId
+    }
 
     val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
     val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
@@ -303,7 +334,10 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
         playerEvolutionUseCase.executeMonthlyEvolution(save, "S${save.currentSeason}_W${save.currentWeek}")
     }
 
-    // Progress Super Mundial de Clubes knockouts / champion recording
+    // Progress domestic/continental cups only after every match of the week is complete.
+    CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+
+    // Progress Super Mundial de Clubes knockouts / champion recording.
     SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
 
     if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
