@@ -48,44 +48,62 @@ class SeasonTransitionUseCase(
         val allPlayers = repository.getAllPlayers()
         val seasonFixtures = repository.getFixturesForSeason(currentSeason)
 
-        // 1. Calcular promoção e rebaixamento em memória antes de aplicar no banco.
+        // 1. Promoção/rebaixamento só é aplicado em fronteiras de divisões que realmente
+        // disputaram e concluíram suas ligas. Isso impede movimentação arbitrária em países
+        // cujo campeonato não foi simulado no calendário da carreira atual.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
 
-        for ((_, countryTeams) in teamsByCountry) {
-            val teamsByDiv = countryTeams.groupBy { it.division }
-            for (div in 1..3) {
-                val upperTeams = teamsByDiv[div] ?: emptyList()
-                val lowerTeams = teamsByDiv[div + 1] ?: emptyList()
+        for ((country, countryTeams) in teamsByCountry) {
+            val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry(country)
+            val divisions = hierarchy.divisions.sortedBy { it.divisionLevel }
 
-                if (upperTeams.size >= 4 && lowerTeams.size >= 4) {
-                    val upperCode = when (div) {
-                        1 -> "SERIE_A"
-                        2 -> "SERIE_B"
-                        3 -> "SERIE_C"
-                        else -> "SERIE_D"
-                    }
-                    val lowerCode = when (div + 1) {
-                        1 -> "SERIE_A"
-                        2 -> "SERIE_B"
-                        3 -> "SERIE_C"
-                        else -> "SERIE_D"
-                    }
+            for ((upperRule, lowerRule) in divisions.zipWithNext()) {
+                val upperTeams = countryTeams.filter { it.division == upperRule.divisionLevel }
+                val lowerTeams = countryTeams.filter { it.division == lowerRule.divisionLevel }
+                val movementSpots = hierarchy.movementSpotsBetween(
+                    upperRule.divisionLevel,
+                    lowerRule.divisionLevel
+                )
 
-                    val upperStandings = calculateSeasonStandings(upperTeams, seasonFixtures, upperCode)
-                    val lowerStandings = calculateSeasonStandings(lowerTeams, seasonFixtures, lowerCode)
+                if (movementSpots <= 0 ||
+                    upperTeams.size < movementSpots ||
+                    lowerTeams.size < movementSpots
+                ) {
+                    continue
+                }
 
-                    val relegated = upperStandings.takeLast(4).map { it.first }
-                    val promoted = lowerStandings.take(4).map { it.first }
+                if (!hasCompletedLeagueSeason(upperTeams, seasonFixtures, upperRule.code) ||
+                    !hasCompletedLeagueSeason(lowerTeams, seasonFixtures, lowerRule.code)
+                ) {
+                    continue
+                }
 
-                    for (team in relegated) {
-                        val currentTeam = updatedTeamsMap[team.id] ?: team
-                        updatedTeamsMap[team.id] = currentTeam.copy(division = div + 1)
-                    }
-                    for (team in promoted) {
-                        val currentTeam = updatedTeamsMap[team.id] ?: team
-                        updatedTeamsMap[team.id] = currentTeam.copy(division = div)
-                    }
+                val upperStandings = calculateSeasonStandings(
+                    upperTeams,
+                    seasonFixtures,
+                    upperRule.code
+                )
+                val lowerStandings = calculateSeasonStandings(
+                    lowerTeams,
+                    seasonFixtures,
+                    lowerRule.code
+                )
+
+                val relegated = upperStandings.takeLast(movementSpots).map { it.first }
+                val promoted = lowerStandings.take(movementSpots).map { it.first }
+
+                for (team in relegated) {
+                    val currentTeam = updatedTeamsMap[team.id] ?: team
+                    updatedTeamsMap[team.id] = currentTeam.copy(
+                        division = lowerRule.divisionLevel
+                    )
+                }
+                for (team in promoted) {
+                    val currentTeam = updatedTeamsMap[team.id] ?: team
+                    updatedTeamsMap[team.id] = currentTeam.copy(
+                        division = upperRule.divisionLevel
+                    )
                 }
             }
         }
@@ -128,35 +146,21 @@ class SeasonTransitionUseCase(
         repository.purgeOldData(nextSeason)
         repository.deleteFixtures()
 
-        // 5. Gerar calendário oficial da temporada seguinte.
+        // 5. A primeira temporada e todas as seguintes usam exatamente o mesmo gerador.
+        // Isso mantém o escopo da liga no país do usuário e regenera o Super Mundial em
+        // toda temporada elegível, sem criar ligas CPU globais que não existiam no ano 1.
         val updatedTeamsList = updatedTeamsMap.values.toList()
-        val newFixtures = mutableListOf<Fixture>()
+        val playerTeam = updatedTeamsMap[sourceSave.playerTeamId]
+        val userCountry = playerTeam?.country
+            ?: allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
+            ?: "Brasil"
 
-        val countries = updatedTeamsList.map { it.country }.distinct()
-        for (country in countries) {
-            val countryTeams = updatedTeamsList.filter { it.country == country }
-            val divisions = countryTeams.map { it.division }.distinct()
-            for (division in divisions) {
-                val divisionTeams = countryTeams.filter { it.division == division }
-                if (divisionTeams.size >= 2) {
-                    val competitionType = when (division) {
-                        1 -> "SERIE_A"
-                        2 -> "SERIE_B"
-                        3 -> "SERIE_C"
-                        else -> "SERIE_D"
-                    }
-                    newFixtures.addAll(
-                        generateCalendarUseCase.generateRoundRobinFixtures(
-                            nextSeason,
-                            divisionTeams,
-                            competitionType,
-                            1
-                        )
-                    )
-                }
-            }
-        }
-
+        val newFixtures = generateCalendarUseCase.generateSeasonFixtures(
+            season = nextSeason,
+            teams = updatedTeamsList,
+            userTeamId = sourceSave.playerTeamId,
+            userCountry = userCountry
+        )
         repository.saveFixtures(newFixtures)
 
         // 6. Persistir a nova temporada por último. Esse write é o marcador atômico da transição concluída.
@@ -169,25 +173,35 @@ class SeasonTransitionUseCase(
         updatedSave
     }
 
+    private fun hasCompletedLeagueSeason(
+        teams: List<Team>,
+        fixtures: List<Fixture>,
+        compType: String
+    ): Boolean {
+        if (teams.size < 2) return false
+        val teamIds = teams.map { it.id }.toSet()
+        val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
+        val relevantFixtures = fixtures.filter { fixture ->
+            fixture.competitionType in acceptedTypes &&
+                fixture.homeTeamId in teamIds &&
+                fixture.awayTeamId in teamIds
+        }
+        return relevantFixtures.isNotEmpty() && relevantFixtures.all { it.isPlayed }
+    }
+
     private fun calculateSeasonStandings(
         teams: List<Team>,
         fixtures: List<Fixture>,
         compType: String
     ): List<Pair<Team, SeasonStandingRow>> {
         val map = teams.associateWith { SeasonStandingRow(it.name) }.toMutableMap()
-        val altCompType = when (compType) {
-            "SERIE_A" -> "DIV_1"
-            "SERIE_B" -> "DIV_2"
-            "SERIE_C" -> "DIV_3"
-            "SERIE_D" -> "DIV_4"
-            "DIV_1" -> "SERIE_A"
-            "DIV_2" -> "SERIE_B"
-            "DIV_3" -> "SERIE_C"
-            "DIV_4" -> "SERIE_D"
-            else -> compType
-        }
+        val teamIds = teams.map { it.id }.toSet()
+        val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
         val relevantFixtures = fixtures.filter {
-            (it.competitionType == compType || it.competitionType == altCompType) && it.isPlayed
+            it.competitionType in acceptedTypes &&
+                it.isPlayed &&
+                it.homeTeamId in teamIds &&
+                it.awayTeamId in teamIds
         }
 
         for (fixture in relevantFixtures) {
@@ -234,5 +248,19 @@ class SeasonTransitionUseCase(
                 .thenByDescending { it.second.gd }
                 .thenByDescending { it.second.gf }
         )
+    }
+
+    private fun alternateCompetitionType(compType: String): String {
+        return when (compType) {
+            "SERIE_A" -> "DIV_1"
+            "SERIE_B" -> "DIV_2"
+            "SERIE_C" -> "DIV_3"
+            "SERIE_D" -> "DIV_4"
+            "DIV_1" -> "SERIE_A"
+            "DIV_2" -> "SERIE_B"
+            "DIV_3" -> "SERIE_C"
+            "DIV_4" -> "SERIE_D"
+            else -> compType
+        }
     }
 }
