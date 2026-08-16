@@ -7,6 +7,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,6 +17,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Apply pending Phase 1 save-integrity patch
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f phase1-save-integrity.patch ] && git apply --check phase1-save-integrity.patch; then
+            git apply phase1-save-integrity.patch
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main/java/com/example/ui/screens/SquadScreen.kt app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+            git commit -m "fix: harden save session lifecycle"
+            git push origin HEAD:${GITHUB_HEAD_REF}
+          else
+            echo "Phase 1 patch already applied or not required."
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -97,6 +118,9 @@ jobs:
         run: |
           gradle wrapper --gradle-version 8.10.2 --distribution-type bin
           chmod +x gradlew
+
+      - name: Run save-slot isolation regression tests
+        run: ./gradlew testDebugUnitTest --tests com.example.SaveSlotIsolationTest --stacktrace
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
