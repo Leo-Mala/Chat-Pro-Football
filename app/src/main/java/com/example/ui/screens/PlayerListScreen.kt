@@ -31,6 +31,7 @@ fun PlayerListScreen(
     viewModel: GameViewModel,
     modifier: Modifier = Modifier
 ) {
+    // Read-only projection of the active SaveSession; this screen never seeds or switches databases.
     val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedPosition by rememberSaveable { mutableStateOf<String?>(null) }
