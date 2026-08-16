@@ -23,6 +23,35 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun getGameSave(): GameSave? = db.gameSaveDao().getGameSave()
     suspend fun saveGameSave(save: GameSave) = db.gameSaveDao().insertOrUpdate(save)
     suspend fun deleteSave() = db.gameSaveDao().deleteSave()
+
+    /**
+     * Persists an academy promotion using exactly one Room transaction.
+     *
+     * The expected save fields act as an optimistic concurrency guard: if the active team
+     * or the academy list changed after the caller prepared the promotion, nothing is
+     * written. Using the DAOs directly here avoids opening a nested `withTransaction`
+     * through `savePlayers()` while a transaction is already active.
+     */
+    suspend fun promoteAcademyPlayerAtomically(
+        expectedPlayerTeamId: Long,
+        expectedAcademyProspects: String,
+        player: Player,
+        updatedAcademyProspects: String
+    ): Boolean = db.withTransaction {
+        val currentSave = db.gameSaveDao().getGameSave() ?: return@withTransaction false
+        if (currentSave.playerTeamId != expectedPlayerTeamId ||
+            currentSave.academyProspects != expectedAcademyProspects ||
+            player.teamId != expectedPlayerTeamId
+        ) {
+            return@withTransaction false
+        }
+
+        db.playerDao().insertPlayersReplace(listOf(player))
+        db.gameSaveDao().insertOrUpdate(
+            currentSave.copy(academyProspects = updatedAcademyProspects)
+        )
+        true
+    }
     
     suspend fun saveTransaction(record: TransactionRecord) = db.transactionRecordDao().insertTransaction(record)
     suspend fun getAllTransactions(): List<TransactionRecord> = db.transactionRecordDao().getAllTransactions()
