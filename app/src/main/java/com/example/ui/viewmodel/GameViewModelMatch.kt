@@ -8,6 +8,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+internal fun collectAppearancePlayerIds(
+    homeStarters: List<Player>,
+    awayStarters: List<Player>,
+    events: List<GameEngine.MatchEventDetail>
+): Set<Long> = buildSet {
+    addAll(homeStarters.map { it.id })
+    addAll(awayStarters.map { it.id })
+    addAll(
+        events.asSequence()
+            .filter { it.type == "SUBSTITUTION" }
+            .mapNotNull { it.playerId }
+            .toList()
+    )
+}
+
 fun GameViewModel.startLiveMatch(fixture: Fixture) {
     liveMatchJob?.cancel()
     liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
@@ -119,7 +134,8 @@ fun GameViewModel.substitutePlayer(playerOut: Player, playerIn: Player) {
                     isHomeEvent = true,
                     playerId = playerIn.id
                 )
-                _matchEvents.value = _matchEvents.value + newEvent
+                currentMatchEvents = (currentMatchEvents + newEvent).sortedBy { it.minute }
+                _matchEvents.value = (_matchEvents.value + newEvent).sortedBy { it.minute }
                 liveTacticalFeedback.value = "Substituição realizada: ${playerIn.name} em campo!"
             }
         }
@@ -168,7 +184,19 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
 suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: List<Any>) {
     @Suppress("UNCHECKED_CAST")
     val detailEvents = events as? List<GameEngine.MatchEventDetail> ?: return
-    val playerIds = detailEvents.mapNotNull { it.playerId }.distinct()
+
+    val home = repo.getTeam(fixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.homeTeamId)
+    val away = repo.getTeam(fixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.awayTeamId)
+    val homePlayers = repo.getPlayersByTeam(fixture.homeTeamId)
+    val awayPlayers = repo.getPlayersByTeam(fixture.awayTeamId)
+    val homeStarters = getStartingXIForTeam(homePlayers, home.id, home.rating, home.name, home.country)
+    val awayStarters = getStartingXIForTeam(awayPlayers, away.id, away.rating, away.name, away.country)
+
+    val appearancePlayerIds = collectAppearancePlayerIds(homeStarters, awayStarters, detailEvents)
+    val eventPlayerIds = detailEvents.flatMap { event ->
+        listOfNotNull(event.playerId, event.scorerId)
+    }
+    val playerIds = (appearancePlayerIds + eventPlayerIds).distinct()
     if (playerIds.isEmpty()) return
 
     val playersToUpdate = mutableListOf<Player>()
@@ -201,7 +229,7 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
         playersToUpdate.add(
             p.copy(
                 careerGoals = goals,
-                careerApps = p.careerApps + 1,
+                careerApps = p.careerApps + if (pid in appearancePlayerIds) 1 else 0,
                 yellowCardsAccumulated = yellow,
                 suspensionWeeksRemaining = isSuspended,
                 injuryWeeksRemaining = injury
@@ -270,7 +298,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     // Generate incoming transfer offers for user players
     generateWeeklyIncomingOffers()
 
-    // Execute monthly evolution only every 4 weeks (weeks 4, 8, 12, 16, 20, 24, 28, 32, 36, 40)
+    // Execute monthly evolution every 4 weeks, including the canonical final week (40).
     if (save.currentWeek % 4 == 0) {
         playerEvolutionUseCase.executeMonthlyEvolution(save, "S${save.currentSeason}_W${save.currentWeek}")
     }
@@ -278,7 +306,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     // Progress Super Mundial de Clubes knockouts / champion recording
     SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
 
-    if (updatedSave.currentWeek >= 40) {
+    if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
         advanceToNextSeason(updatedSave)
     } else {
         val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
