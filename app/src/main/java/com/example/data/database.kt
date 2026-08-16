@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.example.data.local.SlotDatabaseFactory
 
 @Database(
     entities = [
@@ -61,7 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         fun getDatabase(context: Context): AppDatabase {
-            return buildDatabaseWithName(context, "brasfut_retro_database")
+            return buildDatabaseWithName(context, SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME)
         }
     }
 }
