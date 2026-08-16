@@ -150,7 +150,7 @@ object GlobalFootballSystem {
     // Comprehensive real-world competition definitions
     val competitions = listOf(
         // World
-        Competition("WORLD_CUP", "FIFA Club World Cup 🌍", "WORLD", 1, null, 37, 38),
+        Competition("WORLD_CUP", "FIFA Club World Cup 🌍", "WORLD", 1, null, 34, GameCalendar.WEEKS_PER_SEASON),
         Competition("WORLD_INTERCONTINENTAL", "FIFA Intercontinental Cup 🏆", "WORLD", 2, null, 37, 38),
 
         // UEFA (Europe)
