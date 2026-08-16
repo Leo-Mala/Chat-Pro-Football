@@ -287,7 +287,7 @@ object CupCompetitionSystem {
         val winners = decidedFixtures.mapNotNull { CompetitionRules.winnerOf(it) }
         if (winners.size != decidedFixtures.size) return
 
-        if (decidedFixtures.size == 1 || currentWeek >= finalWeek) {
+        if (decidedFixtures.size == 1) {
             recordChampion(
                 season = season,
                 competitionType = competitionType,
@@ -296,6 +296,11 @@ object CupCompetitionSystem {
             )
             return
         }
+
+        // A semana reservada para a final deve conter exatamente uma partida. Se um save
+        // estiver malformado e chegar aqui com múltiplos confrontos, não inventamos um campeão
+        // nem lançamos uma exceção; a integridade pode ser reparada sem derrubar a carreira.
+        if (currentWeek >= finalWeek) return
 
         val nextWeek = currentWeek + 1
         val refreshed = repository.getFixturesForSeason(season)
@@ -311,10 +316,11 @@ object CupCompetitionSystem {
         )
     }
 
-    private fun calculateGroupQualifiers(fixtures: List<Fixture>): List<Long> {
+    internal fun calculateGroupQualifiers(fixtures: List<Fixture>): List<Long> {
         data class Row(
             val teamId: Long,
             var points: Int = 0,
+            var wins: Int = 0,
             var goalDifference: Int = 0,
             var goalsFor: Int = 0
         )
@@ -334,8 +340,14 @@ object CupCompetitionSystem {
             away.goalDifference += awayGoals - homeGoals
 
             when {
-                homeGoals > awayGoals -> home.points += 3
-                awayGoals > homeGoals -> away.points += 3
+                homeGoals > awayGoals -> {
+                    home.points += 3
+                    home.wins += 1
+                }
+                awayGoals > homeGoals -> {
+                    away.points += 3
+                    away.wins += 1
+                }
                 else -> {
                     home.points += 1
                     away.points += 1
@@ -346,6 +358,7 @@ object CupCompetitionSystem {
         return table.values
             .sortedWith(
                 compareByDescending<Row> { it.points }
+                    .thenByDescending { it.wins }
                     .thenByDescending { it.goalDifference }
                     .thenByDescending { it.goalsFor }
                     .thenBy { it.teamId }
