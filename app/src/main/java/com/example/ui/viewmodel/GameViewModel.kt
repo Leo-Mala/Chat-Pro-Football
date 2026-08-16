@@ -82,7 +82,7 @@ class GameViewModel @Inject constructor(
     internal val _toastMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val toastMessage = _toastMessage.asSharedFlow()
 
-    val saveSlots = MutableStateFlow<List<SaveSlot>>(emptyList())
+    val saveSlots = MutableStateFlow<List<SaveSlotMetadata>>(emptyList())
 
     // Active repository flow
     internal val activeRepositoryFlow: Flow<GameRepository?> = _currentSaveId.map { saveId ->
@@ -1223,17 +1223,7 @@ class GameViewModel @Inject constructor(
 
     fun loadSaveSlots() {
         viewModelScope.launch(Dispatchers.IO) {
-            saveSlots.value = preferencesRepo.loadSaveSlots().map { metadata ->
-                SaveSlot(
-                    id = metadata.id,
-                    exists = metadata.exists,
-                    coachName = metadata.coachName,
-                    teamName = metadata.teamName,
-                    season = metadata.season,
-                    week = metadata.week,
-                    balance = metadata.balance
-                )
-            }
+            saveSlots.value = preferencesRepo.loadSaveSlots()
         }
     }
 

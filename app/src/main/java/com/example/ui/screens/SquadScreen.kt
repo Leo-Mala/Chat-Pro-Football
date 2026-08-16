@@ -50,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -60,10 +59,6 @@ import com.example.data.ParsedJsonResult
 import com.example.R
 import com.example.data.*
 import com.example.ui.viewmodel.GameViewModel
-import com.example.ui.viewmodel.MatchViewModel
-import com.example.ui.viewmodel.TransfersViewModel
-import com.example.ui.viewmodel.SquadViewModel
-import com.example.ui.viewmodel.SaveManagerViewModel
 import coil.compose.rememberAsyncImagePainter
 
 
@@ -71,7 +66,6 @@ import coil.compose.rememberAsyncImagePainter
 fun SquadTab(viewModel: GameViewModel) {
     val roster by viewModel.playerRoster.collectAsStateWithLifecycle()
     val saveState by viewModel.gameSave.collectAsStateWithLifecycle()
-    val currentSaveId by viewModel.currentSaveId.collectAsStateWithLifecycle()
 
     var activeSubTab by remember { mutableStateOf("PROFISSIONAL") }
     var selectedPlayerForDialog by remember { mutableStateOf<Player?>(null) }
@@ -132,18 +126,7 @@ fun SquadTab(viewModel: GameViewModel) {
         Spacer(modifier = Modifier.height(12.dp))
 
         if (activeSubTab == "CARDS_RETRO") {
-            val playerViewModel: com.example.ui.viewmodel.PlayerViewModel = hiltViewModel()
-            LaunchedEffect(currentSaveId) {
-                val slotId = currentSaveId
-                if (slotId != null) {
-                    playerViewModel.setSlotId(slotId)
-                } else {
-                    playerViewModel.clearSlot()
-                }
-            }
-            PlayerListScreen(
-                viewModel = playerViewModel
-            )
+            PlayerListScreen(viewModel = viewModel)
         } else if (activeSubTab == "PROFISSIONAL") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
