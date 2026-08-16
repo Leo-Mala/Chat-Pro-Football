@@ -1,0 +1,74 @@
+name: Phase7 Academy parser consolidation
+
+on:
+  push:
+    branches:
+      - agent/v3-functional-validation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v3-functional-validation
+          fetch-depth: 0
+
+      - name: Consolidate academy parsing on YouthAcademyUseCase
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/example/ui/viewmodel/GameViewModelTransfers.kt")
+          text = path.read_text(encoding="utf-8")
+
+          text = text.replace("import org.json.JSONArray\n", "")
+          text = text.replace("import org.json.JSONObject\n", "")
+
+          start_marker = "fun GameViewModel.parseProspects(jsonStr: String): List<GameViewModel.AcademyProspect> {"
+          end_marker = "\nfun GameViewModel.upgradeAcademyLevel()"
+          if text.count(start_marker) != 1:
+              raise SystemExit(f"Expected one parseProspects method, found {text.count(start_marker)}")
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = '''fun GameViewModel.parseProspects(rawString: String): List<GameViewModel.AcademyProspect> {
+              return youthAcademyUseCase.parseProspects(rawString)
+          }
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          dismiss_marker = "fun GameViewModel.dismissAcademyProspect(prospect: GameViewModel.AcademyProspect) {"
+          if text.count(dismiss_marker) != 1:
+              raise SystemExit(f"Expected one dismissAcademyProspect method, found {text.count(dismiss_marker)}")
+          dismiss_start = text.index(dismiss_marker)
+          replacement_dismiss = '''fun GameViewModel.dismissAcademyProspect(prospect: GameViewModel.AcademyProspect) {
+              viewModelScope.launch(Dispatchers.IO) {
+                  val save = repo.getGameSave() ?: return@launch
+                  val currentList = parseProspects(save.academyProspects).toMutableList()
+                  currentList.remove(prospect)
+                  repo.saveGameSave(
+                      save.copy(academyProspects = youthAcademyUseCase.serializeProspects(currentList))
+                  )
+              }
+          }
+          '''
+          text = text[:dismiss_start] + replacement_dismiss
+
+          if "JSONArray" in text or "JSONObject" in text:
+              raise SystemExit("Legacy JSON parsing still remains in GameViewModelTransfers")
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Remove bootstrap workflow and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/phase7-academy-parser-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: centralize youth academy serialization [phase7-academy]"
+          git push origin HEAD:agent/v3-functional-validation
