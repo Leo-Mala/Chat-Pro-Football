@@ -186,7 +186,7 @@ class MigrationSafetyTest {
         assertTrue("Room deve recusar versão sem migration em vez de destruir o save", failedAsExpected)
         assertTrue(context.getDatabasePath(name).exists())
 
-        val verifier = createLegacyDatabase(name, version) { }
+        val verifier = openExistingDatabase(name, version)
         verifier.writableDatabase.query("SELECT `value` FROM `migration_guard`").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("PRESERVE_ME", cursor.getString(0))
@@ -201,6 +201,19 @@ class MigrationSafetyTest {
     ): SupportSQLiteOpenHelper {
         context.deleteDatabase(name)
         createdDatabases += name
+        return newHelper(name, version, onCreate)
+    }
+
+    private fun openExistingDatabase(name: String, version: Int): SupportSQLiteOpenHelper {
+        createdDatabases += name
+        return newHelper(name, version) { }
+    }
+
+    private fun newHelper(
+        name: String,
+        version: Int,
+        onCreate: (SupportSQLiteDatabase) -> Unit
+    ): SupportSQLiteOpenHelper {
         val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name(name)
             .callback(object : SupportSQLiteOpenHelper.Callback(version) {
