@@ -15,6 +15,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -36,14 +40,22 @@ class TransfersViewModel @Inject constructor(
     private val saveRepository: GameSaveRepository
 ) : AndroidViewModel(application) {
 
-    private var activeSlotId: String = "1"
+    private val _activeSlotId = MutableStateFlow<String?>(null)
 
     fun setSlotId(slotId: String) {
-        activeSlotId = slotId
+        _activeSlotId.value = slotId
+    }
+
+    fun clearSlot() {
+        _activeSlotId.value = null
     }
 
     private val repository: GameRepository
-        get() = saveRepository.getRepositoryForSlot(activeSlotId)
+        get() {
+            val slotId = _activeSlotId.value
+                ?: throw IllegalStateException("Nenhum save ativo configurado no TransfersViewModel.")
+            return saveRepository.getRepositoryForSlot(slotId)
+        }
 
     private val _filter = MutableStateFlow(TransferFilter())
     val filter: StateFlow<TransferFilter> = _filter.asStateFlow()
@@ -54,20 +66,40 @@ class TransfersViewModel @Inject constructor(
     private val _toastMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val toastMessage = _toastMessage.asSharedFlow()
 
-    val allPlayers: StateFlow<List<Player>> = repository.allPlayersFlow.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val allPlayers: StateFlow<List<Player>> = _activeSlotId
+        .distinctUntilChanged()
+        .flatMapLatest { slotId ->
+            if (slotId == null) {
+                flowOf(emptyList<Player>())
+            } else {
+                saveRepository.getRepositoryForSlot(slotId).allPlayersFlow
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
-    val transferOrders: StateFlow<List<TransferOrder>> = repository.allOrdersFlow.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val transferOrders: StateFlow<List<TransferOrder>> = _activeSlotId
+        .distinctUntilChanged()
+        .flatMapLatest { slotId ->
+            if (slotId == null) {
+                flowOf(emptyList<TransferOrder>())
+            } else {
+                saveRepository.getRepositoryForSlot(slotId).allOrdersFlow
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
-    val availableMarketPlayers: StateFlow<List<Player>> = repository.allPlayersFlow.map { players ->
-        val currentFilter = _filter.value
+    val availableMarketPlayers: StateFlow<List<Player>> = combine(
+        allPlayers,
+        _filter
+    ) { players, currentFilter ->
         players.filter { player ->
             val playerVal = player.calculateMarketValue()
             val matchesQuery = currentFilter.query.isBlank() || player.name.contains(currentFilter.query, ignoreCase = true)
