@@ -419,54 +419,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                     ) {
                         val grouped = compFixtures.groupBy { it.week }.toSortedMap()
                         grouped.forEach { (weekNum, matches) ->
-                            val phaseTitle = when {
-                                selectedLeague.contains("CONTINENTAL_T1") || selectedLeague.contains("CONTINENTAL_T2") || selectedLeague == "LIBERTADORES" || selectedLeague == "SULAMERICANA" -> {
-                                    when (weekNum) {
-                                        in 1..18 -> "Fase de Grupos (Semana $weekNum)"
-                                        21, 22 -> "Play-Offs de Acesso"
-                                        26, 27 -> "Oitavas de Final (${if (weekNum == 26) "Jogo de Ida" else "Jogo de Volta"})"
-                                        30, 31 -> "Quartas de Final (${if (weekNum == 30) "Jogo de Ida" else "Jogo de Volta"})"
-                                        34, 35 -> "Semifinais (${if (weekNum == 34) "Jogo de Ida" else "Jogo de Volta"})"
-                                        36 -> "🏆 GRANDE FINAL (Jogo Único)"
-                                        else -> "Fase Eliminatória (Semana $weekNum)"
-                                    }
-                                }
-                                selectedLeague == "COPA" -> {
-                                    when (weekNum) {
-                                        3 -> "1ª Fase"
-                                        7 -> "2ª Fase"
-                                        11 -> "3ª Fase"
-                                        15 -> "4ª Fase"
-                                        19, 20 -> "Oitavas de Final (${if (weekNum == 19) "Ida" else "Volta"})"
-                                        24, 25 -> "Quartas de Final (${if (weekNum == 24) "Ida" else "Volta"})"
-                                        29, 30 -> "Semifinais (${if (weekNum == 29) "Ida" else "Volta"})"
-                                        34, 35 -> "🏆 GRANDE FINAL (${if (weekNum == 34) "Jogo 1" else "Jogo 2"})"
-                                        else -> "Copa do Brasil (Semana $weekNum)"
-                                    }
-                                }
-                                selectedLeague == "WORLD" || selectedLeague == "WORLD_CUP" -> {
-                                    when (weekNum) {
-                                        37 -> "Oitavas de Final"
-                                        38 -> "Quartas de Final"
-                                        39 -> "Semifinais"
-                                        40 -> "🏆 GRANDE FINAL DO SUPER MUNDIAL DE CLUBES 🌍"
-                                        else -> "Super Mundial de Clubes (Semana $weekNum)"
-                                    }
-                                }
-                                selectedLeague.startsWith("SERIE_D_") -> {
-                                    when (selectedLeague) {
-                                        "SERIE_D_O64" -> "Segunda Fase (64 Avos)"
-                                        "SERIE_D_O32" -> "Terceira Fase (32 Avos)"
-                                        "SERIE_D_O16" -> "Oitavas de Final"
-                                        "SERIE_D_QF" -> "Quartas de Final (Acesso)"
-                                        "SERIE_D_SF" -> "Semifinais"
-                                        "SERIE_D_F" -> "🏆 GRANDE FINAL"
-                                        "SERIE_D_PE" -> "Repescagem de Acesso"
-                                        else -> "Série D - Fase Eliminatória"
-                                    }
-                                }
-                                else -> "Rodada / Fase (Semana $weekNum)"
-                            }
+                            val phaseTitle = competitionPhaseTitle(selectedLeague, weekNum)
 
                             item {
                                 Text(
