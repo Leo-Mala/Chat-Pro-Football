@@ -152,7 +152,9 @@ class TwentySeasonStressTest {
 
             val seasonTransitionUseCase = SeasonTransitionUseCase(repository, generateCalendarUseCase, databaseIntegrityUseCase)
 
-            for (week in 1..38) {
+            // The game season runs through week 40. Weeks 39–40 must be covered too,
+            // even when there are no Série A round-robin fixtures in those slots.
+            for (week in 1..40) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
 
