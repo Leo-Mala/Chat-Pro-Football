@@ -31,21 +31,17 @@ jobs:
               raise SystemExit(f"Expected one SaveSlot flow declaration, found {text.count(old_type)}")
           text = text.replace(old_type, new_type)
 
-          old_loader = '''            saveSlots.value = preferencesRepo.loadSaveSlots().map { metadata ->
-                SaveSlot(
-                    id = metadata.id,
-                    exists = metadata.exists,
-                    coachName = metadata.coachName,
-                    teamName = metadata.teamName,
-                    season = metadata.season,
-                    week = metadata.week,
-                    balance = metadata.balance
-                )
-            }'''
-          new_loader = '''            saveSlots.value = preferencesRepo.loadSaveSlots()'''
-          if text.count(old_loader) != 1:
-              raise SystemExit(f"Expected one SaveSlot mapping block, found {text.count(old_loader)}")
-          text = text.replace(old_loader, new_loader)
+          loader_start = "            saveSlots.value = preferencesRepo.loadSaveSlots().map { metadata ->"
+          next_function = "\n        }\n    }\n\n    fun updateSlotMetadata"
+          if text.count(loader_start) != 1:
+              raise SystemExit(f"Expected one SaveSlot loader start, found {text.count(loader_start)}")
+          start_index = text.index(loader_start)
+          end_index = text.index(next_function, start_index)
+          text = (
+              text[:start_index]
+              + "            saveSlots.value = preferencesRepo.loadSaveSlots()"
+              + text[end_index:]
+          )
 
           if "SaveSlot(" in text or "List<SaveSlot>" in text:
               raise SystemExit("Legacy SaveSlot usage still remains in GameViewModel")
