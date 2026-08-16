@@ -23,6 +23,13 @@ internal fun collectAppearancePlayerIds(
     )
 }
 
+internal fun hasUnplayedUserFixture(fixtures: List<Fixture>, playerTeamId: Long): Boolean {
+    return fixtures.any { fixture ->
+        !fixture.isPlayed &&
+            (fixture.homeTeamId == playerTeamId || fixture.awayTeamId == playerTeamId)
+    }
+}
+
 fun GameViewModel.startLiveMatch(fixture: Fixture) {
     liveMatchJob?.cancel()
     liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
@@ -243,7 +250,11 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
 
 suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
     val save = repo.getGameSave() ?: return
-    simulateWeekUseCase.simulateCpuMatchesForWeek(save.currentSeason, save.currentWeek)
+    simulateWeekUseCase.simulateCpuMatchesForWeek(
+        season = save.currentSeason,
+        week = save.currentWeek,
+        excludedTeamId = save.playerTeamId
+    )
 }
 
 suspend fun GameViewModel.generateWeeklyIncomingOffers() {
@@ -284,9 +295,15 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
 
 suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     val save = repo.getGameSave() ?: return
-    
+
     val currentWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
-    val userFixture = currentWeekFixtures.find { it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId }
+    if (hasUnplayedUserFixture(currentWeekFixtures, save.playerTeamId)) {
+        return
+    }
+
+    val userFixture = currentWeekFixtures.find {
+        it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId)
+    }
     val isHomeMatch = userFixture != null && userFixture.homeTeamId == save.playerTeamId
 
     val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
