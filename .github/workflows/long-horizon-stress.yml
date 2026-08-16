@@ -7,7 +7,14 @@ on:
     branches: [ "main", "master" ]
     paths:
       - 'app/build.gradle.kts'
+      - 'app/src/main/java/com/example/data/GameCalendar.kt'
+      - 'app/src/main/java/com/example/data/GameEngine.kt'
+      - 'app/src/main/java/com/example/data/GlobalFootballSystem.kt'
+      - 'app/src/main/java/com/example/data/SuperMundialSystem.kt'
+      - 'app/src/main/java/com/example/usecase/**'
+      - 'app/src/main/java/com/example/ui/viewmodel/GameViewModel*.kt'
       - 'app/src/test/java/com/example/*StressTest.kt'
+      - 'app/src/test/java/com/example/CareerFunctionalFlowTest.kt'
       - '.github/workflows/long-horizon-stress.yml'
   workflow_dispatch:
   schedule:

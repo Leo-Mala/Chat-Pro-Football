@@ -5,8 +5,6 @@ import com.example.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 
 fun GameViewModel.acceptCoachOffer(offer: CoachOffer) {
     viewModelScope.launch(Dispatchers.IO) {
@@ -164,35 +162,15 @@ fun GameViewModel.sellPlayer(
 
 fun GameViewModel.promoteYouthAcademy() {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        val prospects = parseProspects(save.academyProspects)
-        if (prospects.isNotEmpty()) {
-            promoteAcademyProspect(prospects.first())
-        }
+        val repository = getActiveRepository() ?: return@launch
+        val save = repository.getGameSave() ?: return@launch
+        val prospect = parseProspects(save.academyProspects).firstOrNull() ?: return@launch
+        promoteAcademyProspectInternal(repository, prospect)
     }
 }
 
-fun GameViewModel.parseProspects(jsonStr: String): List<GameViewModel.AcademyProspect> {
-    if (jsonStr.isBlank()) return emptyList()
-    return try {
-        val arr = JSONArray(jsonStr)
-        val list = mutableListOf<GameViewModel.AcademyProspect>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            list.add(
-                GameViewModel.AcademyProspect(
-                    name = obj.optString("name", "Jovem"),
-                    age = obj.optInt("age", 17),
-                    position = obj.optString("position", "MC"),
-                    force = obj.optInt("force", 50),
-                    potential = obj.optInt("potential", 75)
-                )
-            )
-        }
-        list
-    } catch (e: Exception) {
-        emptyList()
-    }
+fun GameViewModel.parseProspects(rawString: String): List<GameViewModel.AcademyProspect> {
+    return youthAcademyUseCase.parseProspects(rawString)
 }
 
 fun GameViewModel.upgradeAcademyLevel() {
@@ -220,37 +198,52 @@ fun GameViewModel.adjustAcademyInvestment(amount: Long) {
 
 fun GameViewModel.promoteAcademyProspect(prospect: GameViewModel.AcademyProspect) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val repository = getActiveRepository() ?: return@launch
+        promoteAcademyProspectInternal(repository, prospect)
+    }
+}
+
+private suspend fun GameViewModel.promoteAcademyProspectInternal(
+    repository: GameRepository,
+    prospect: GameViewModel.AcademyProspect
+) {
+    repository.withTransaction {
+        val save = repository.getGameSave() ?: return@withTransaction
+        val currentProspects = parseProspects(save.academyProspects).toMutableList()
+        if (!currentProspects.remove(prospect)) return@withTransaction
+
+        val teamCountry = repository.getTeam(save.playerTeamId)?.country ?: selectedCountry.value
         val newPlayer = Player(
             teamId = save.playerTeamId,
             name = prospect.name,
+            nationality = teamCountry,
             position = prospect.position,
             force = prospect.force,
             potential = prospect.potential,
             age = prospect.age,
-            salary = prospect.force * 100L
+            salary = prospect.force * 100L,
+            isFromAcademy = true
         )
-        repo.savePlayers(listOf(newPlayer))
-        dismissAcademyProspect(prospect)
+
+        repository.savePlayers(listOf(newPlayer))
+        repository.saveGameSave(
+            save.copy(
+                academyProspects = youthAcademyUseCase.serializeProspects(currentProspects)
+            )
+        )
     }
 }
 
 fun GameViewModel.dismissAcademyProspect(prospect: GameViewModel.AcademyProspect) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        val currentList = parseProspects(save.academyProspects).toMutableList()
-        currentList.remove(prospect)
-        val arr = JSONArray()
-        for (p in currentList) {
-            val obj = JSONObject()
-            obj.put("name", p.name)
-            obj.put("age", p.age)
-            obj.put("position", p.position)
-            obj.put("force", p.force)
-            obj.put("potential", p.potential)
-            arr.put(obj)
+        val repository = getActiveRepository() ?: return@launch
+        repository.withTransaction {
+            val save = repository.getGameSave() ?: return@withTransaction
+            val currentList = parseProspects(save.academyProspects).toMutableList()
+            if (!currentList.remove(prospect)) return@withTransaction
+            repository.saveGameSave(
+                save.copy(academyProspects = youthAcademyUseCase.serializeProspects(currentList))
+            )
         }
-        val updatedSave = save.copy(academyProspects = arr.toString())
-        repo.saveGameSave(updatedSave)
     }
 }
