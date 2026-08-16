@@ -1002,38 +1002,50 @@ class GameViewModel @Inject constructor(
     }
 
     fun backupCurrentDatabase() {
-        val saveId = _currentSaveId.value ?: return
+        val session = _activeSaveSession.value ?: return
+        backupDatabaseForSession(session)
+    }
+
+    private fun backupDatabaseForSession(session: SaveSession) {
+        val saveId = session.slotId
         val context = getApplication<Application>().applicationContext
-        val dbName = if (saveId == "1") "brasfut_retro_database" else "brasfut_retro_database_$saveId"
-        val dbFile = context.getDatabasePath(dbName)
-        if (dbFile.exists()) {
-            val backupFile = context.getDatabasePath("${dbName}_backup")
-            try {
-                dbFile.inputStream().use { input ->
-                    backupFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+        val dbName = saveRepository.databaseNameForSlot(saveId)
+        val dbFile = saveRepository.databaseFileForSlot(saveId)
+        if (!dbFile.exists()) return
+
+        val backupFile = context.getDatabasePath("${dbName}_backup")
+        try {
+            // Flush committed WAL pages before copying the main database file.
+            saveRepository.checkpointSlot(saveId)
+            dbFile.inputStream().use { input ->
+                backupFile.outputStream().use { output ->
+                    input.copyTo(output)
                 }
-            } catch (e: Exception) {
-                Log.e("GameViewModel", "Erro ao fazer backup local do banco", e)
             }
+        } catch (e: Exception) {
+            Log.e("GameViewModel", "Erro ao fazer backup local do banco do slot $saveId", e)
         }
     }
 
     private suspend fun performSaveGameInternal(manual: Boolean, onComplete: (() -> Unit)? = null) {
+        val session = _activeSaveSession.value ?: return
+        val targetRepo = session.repository
+        val saveId = session.slotId
+
         try {
-            backupCurrentDatabase()
-            val save = repo.getGameSave()
+            backupDatabaseForSession(session)
+            val save = targetRepo.getGameSave()
             if (save != null) {
-                val team = repo.getTeam(save.playerTeamId)
-                updateSlotMetadata(
-                    saveId = _currentSaveId.value ?: "1",
+                val team = targetRepo.getTeam(save.playerTeamId)
+                preferencesRepo.updateSlotMetadata(
+                    saveId = saveId,
                     coachName = save.coachName,
                     teamName = team?.name ?: "Sem Clube",
                     season = save.currentSeason,
                     week = save.currentWeek,
                     balance = save.bankBalance
                 )
+                loadSaveSlots()
                 withContext(Dispatchers.Main) {
                     _saveStatus.value = if (manual) "Jogo salvo manualmente com sucesso!" else "Jogo salvo automaticamente..."
                 }
@@ -1180,11 +1192,11 @@ class GameViewModel @Inject constructor(
         val context = application.applicationContext
         val legacyPrefs = application.getSharedPreferences("brasfut_retro_saves", android.content.Context.MODE_PRIVATE)
         val slot1Exists = legacyPrefs.getBoolean("slot_1_exists", false)
-        val dbFile = context.getDatabasePath("brasfut_retro_database")
+        val dbFile = context.getDatabasePath(com.example.data.local.SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME)
         if (!slot1Exists && dbFile.exists()) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val dbTemp = AppDatabase.getDatabaseWithName(context, "brasfut_retro_database")
+                    val dbTemp = AppDatabase.getDatabaseWithName(context, com.example.data.local.SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME)
                     val tempRepo = GameRepository(dbTemp)
                     val save = tempRepo.getGameSave()
                     if (save != null) {
@@ -1246,12 +1258,11 @@ class GameViewModel @Inject constructor(
         }
     }
 
-    internal suspend fun seedAllDefaultTeams() {
-        val existingTeams = repo.getAllTeams()
+    internal suspend fun seedAllDefaultTeams(targetRepo: GameRepository = repo, activeCountry: String = _selectedCountry.value) {
+        val existingTeams = targetRepo.getAllTeams()
         val existingGlobalIds = existingTeams.map { it.id }.toSet()
         val newTeamsToSeed = mutableListOf<Team>()
         val newPlayersToSeed = mutableListOf<Player>()
-        val activeCountry = _selectedCountry.value
 
         for (countryKey in GlobalFootballSystem.keys) {
             val templates = DefaultData.getTeamsForCountry(countryKey)
@@ -1275,12 +1286,12 @@ class GameViewModel @Inject constructor(
             }
         }
         if (newTeamsToSeed.isNotEmpty()) {
-            repo.saveTeams(newTeamsToSeed)
+            targetRepo.saveTeams(newTeamsToSeed)
         }
 
         // Ensure rosters exist for teams in active country
-        val allPlayers = repo.getAllPlayers()
-        val activeTeams = repo.getAllTeams().filter { it.country == activeCountry }
+        val allPlayers = targetRepo.getAllPlayers()
+        val activeTeams = targetRepo.getAllTeams().filter { it.country == activeCountry }
         for (team in activeTeams) {
             val hasPlayers = allPlayers.any { it.teamId == team.id }
             if (!hasPlayers) {
@@ -1289,7 +1300,7 @@ class GameViewModel @Inject constructor(
             }
         }
         if (newPlayersToSeed.isNotEmpty()) {
-            repo.savePlayers(newPlayersToSeed)
+            targetRepo.savePlayers(newPlayersToSeed)
         }
     }
 
@@ -1305,7 +1316,7 @@ class GameViewModel @Inject constructor(
             if (session.generation != sessionGeneration.get()) return@launch
             val targetRepo = session.repository
 
-            seedAllDefaultTeams()
+            seedAllDefaultTeams(targetRepo, _selectedCountry.value)
             if (session.generation != sessionGeneration.get()) return@launch
 
             val teams = targetRepo.getAllTeams()
@@ -1384,17 +1395,30 @@ class GameViewModel @Inject constructor(
     }
 
     fun exitToSavesMenu() {
+        _isSimulatingSeason.value = false
+        sessionGeneration.incrementAndGet()
+        _activeSaveSession.value = null
         _currentSaveId.value = null
         _selectedTeamId.value = null
         _matchState.value = MatchState.IDLE
     }
 
     fun deleteSaveSlot(saveId: String) {
-        removeSlotMetadata(saveId)
+        _isSimulatingSeason.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            saveRepository.closeAndRemoveSlot(saveId)
-            val dbName = if (saveId == "1") "brasfut_retro_database" else "brasfut_retro_database_$saveId"
-            getApplication<Application>().deleteDatabase(dbName)
+            simulationMutex.withLock {
+                if (_currentSaveId.value == saveId) {
+                    sessionGeneration.incrementAndGet()
+                    _activeSaveSession.value = null
+                    _currentSaveId.value = null
+                    _selectedTeamId.value = null
+                    _matchState.value = MatchState.IDLE
+                }
+
+                preferencesRepo.removeSlotMetadata(saveId)
+                saveRepository.deleteSlotDatabase(saveId)
+                loadSaveSlots()
+            }
         }
     }
 
@@ -1433,14 +1457,20 @@ class GameViewModel @Inject constructor(
     }
 
     fun selectCountry(country: String) {
+        val session = _activeSaveSession.value ?: return
+        val targetRepo = session.repository
+        val generation = session.generation
         _selectedCountry.value = country
+
         viewModelScope.launch(Dispatchers.IO) {
-            repo.deleteSave()
-            repo.deleteFixtures()
-            repo.deleteOffers()
+            if (generation != sessionGeneration.get()) return@launch
+
+            targetRepo.deleteSave()
+            targetRepo.deleteFixtures()
+            targetRepo.deleteOffers()
             _selectedTeamId.value = null
 
-            seedAllDefaultTeams()
+            seedAllDefaultTeams(targetRepo, country)
         }
     }
 

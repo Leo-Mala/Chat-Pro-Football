@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +71,8 @@ import coil.compose.rememberAsyncImagePainter
 fun SquadTab(viewModel: GameViewModel) {
     val roster by viewModel.playerRoster.collectAsStateWithLifecycle()
     val saveState by viewModel.gameSave.collectAsStateWithLifecycle()
-    
+    val currentSaveId by viewModel.currentSaveId.collectAsStateWithLifecycle()
+
     var activeSubTab by remember { mutableStateOf("PROFISSIONAL") }
     var selectedPlayerForDialog by remember { mutableStateOf<Player?>(null) }
     var showAcademyDialog by remember { mutableStateOf(false) }
@@ -130,7 +132,15 @@ fun SquadTab(viewModel: GameViewModel) {
         Spacer(modifier = Modifier.height(12.dp))
 
         if (activeSubTab == "CARDS_RETRO") {
-            val playerViewModel: com.example.ui.viewmodel.PlayerViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+            val playerViewModel: com.example.ui.viewmodel.PlayerViewModel = hiltViewModel()
+            LaunchedEffect(currentSaveId) {
+                val slotId = currentSaveId
+                if (slotId != null) {
+                    playerViewModel.setSlotId(slotId)
+                } else {
+                    playerViewModel.clearSlot()
+                }
+            }
             PlayerListScreen(
                 viewModel = playerViewModel
             )
