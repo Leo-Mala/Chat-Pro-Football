@@ -90,6 +90,27 @@ class CupCompetitionSystemTest {
     }
 
     @Test
+    fun `continental qualifier uses wins before goal difference on equal points`() {
+        // Team 3 dominates the synthetic table. Teams 1 and 2 both finish with 3 points,
+        // but Team 1 has one win while Team 2 has only draws. Team 2 deliberately owns the
+        // better goal difference so this test fails if the backend skips the UI's wins tiebreak.
+        val fixtures = listOf(
+            played(home = 3L, away = 1L, homeGoals = 5, awayGoals = 0),
+            played(home = 3L, away = 2L, homeGoals = 1, awayGoals = 0),
+            played(home = 3L, away = 4L, homeGoals = 1, awayGoals = 0),
+            played(home = 1L, away = 4L, homeGoals = 1, awayGoals = 0),
+            played(home = 3L, away = 1L, homeGoals = 5, awayGoals = 0),
+            played(home = 2L, away = 4L, homeGoals = 0, awayGoals = 0),
+            played(home = 2L, away = 4L, homeGoals = 1, awayGoals = 1),
+            played(home = 2L, away = 4L, homeGoals = 2, awayGoals = 2)
+        )
+
+        val qualifiers = CupCompetitionSystem.calculateGroupQualifiers(fixtures)
+
+        assertEquals(listOf(3L, 1L), qualifiers)
+    }
+
+    @Test
     fun `tier three progresses idempotently to a recorded champion`() = runBlocking {
         val teams = conmebolUniverse()
         repository.saveTeams(teams)
@@ -155,6 +176,22 @@ class CupCompetitionSystemTest {
         assertEquals(CompetitionRules.winnerOf(first), CompetitionRules.winnerOf(second))
         assertNotNull(CompetitionRules.winnerOf(first))
     }
+
+    private fun played(
+        home: Long,
+        away: Long,
+        homeGoals: Int,
+        awayGoals: Int
+    ): Fixture = Fixture(
+        season = 2026,
+        week = 31,
+        homeTeamId = home,
+        awayTeamId = away,
+        homeScore = homeGoals,
+        awayScore = awayGoals,
+        competitionType = "CONTINENTAL_T1_GP_A",
+        isPlayed = true
+    )
 
     private suspend fun completeRound(
         week: Int,
