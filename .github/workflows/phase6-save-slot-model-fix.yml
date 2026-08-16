@@ -1,0 +1,62 @@
+name: Phase6 SaveSlot metadata consolidation
+
+on:
+  push:
+    branches:
+      - agent/v3-architecture-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/v3-architecture-cleanup
+          fetch-depth: 0
+
+      - name: Consolidate save slot model
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt")
+          text = path.read_text(encoding="utf-8")
+
+          old_type = "val saveSlots = MutableStateFlow<List<SaveSlot>>(emptyList())"
+          new_type = "val saveSlots = MutableStateFlow<List<SaveSlotMetadata>>(emptyList())"
+          if text.count(old_type) != 1:
+              raise SystemExit(f"Expected one SaveSlot flow declaration, found {text.count(old_type)}")
+          text = text.replace(old_type, new_type)
+
+          old_loader = '''            saveSlots.value = preferencesRepo.loadSaveSlots().map { metadata ->
+                SaveSlot(
+                    id = metadata.id,
+                    exists = metadata.exists,
+                    coachName = metadata.coachName,
+                    teamName = metadata.teamName,
+                    season = metadata.season,
+                    week = metadata.week,
+                    balance = metadata.balance
+                )
+            }'''
+          new_loader = '''            saveSlots.value = preferencesRepo.loadSaveSlots()'''
+          if text.count(old_loader) != 1:
+              raise SystemExit(f"Expected one SaveSlot mapping block, found {text.count(old_loader)}")
+          text = text.replace(old_loader, new_loader)
+
+          if "SaveSlot(" in text or "List<SaveSlot>" in text:
+              raise SystemExit("Legacy SaveSlot usage still remains in GameViewModel")
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Remove bootstrap workflow and commit
+        run: |
+          rm .github/workflows/phase6-save-slot-model-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: use SaveSlotMetadata as save-slot UI model [phase6-slot-model]"
+          git push origin HEAD:agent/v3-architecture-cleanup
