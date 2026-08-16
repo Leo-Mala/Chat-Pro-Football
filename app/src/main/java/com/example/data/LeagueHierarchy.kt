@@ -4,8 +4,8 @@ data class LeagueDivision(
     val code: String,            // "SERIE_A", "SERIE_B", "SERIE_C", "SERIE_D"
     val name: String,            // e.g. "Série A"
     val divisionLevel: Int,      // 1, 2, 3, 4
-    val promotionSpots: Int,     // e.g., 2
-    val relegationSpots: Int      // e.g., 2
+    val promotionSpots: Int,
+    val relegationSpots: Int
 )
 
 data class LeagueHierarchy(
@@ -21,6 +21,24 @@ data class LeagueHierarchy(
     fun getDivisionByCode(code: String): LeagueDivision? {
         return divisions.find { it.code == code }
     }
+
+    /**
+     * Returns the number of clubs that can safely exchange places across an
+     * adjacent division boundary while preserving both division sizes.
+     */
+    fun movementSpotsBetween(upperLevel: Int, lowerLevel: Int = upperLevel + 1): Int {
+        val upper = getDivisionByLevel(upperLevel) ?: return 0
+        val lower = getDivisionByLevel(lowerLevel) ?: return 0
+        if (upper.relegationSpots <= 0 || lower.promotionSpots <= 0) return 0
+        return minOf(upper.relegationSpots, lower.promotionSpots)
+    }
+
+    fun hasBalancedAdjacentMovementRules(): Boolean {
+        val ordered = divisions.sortedBy { it.divisionLevel }
+        return ordered.zipWithNext().all { (upper, lower) ->
+            upper.relegationSpots == lower.promotionSpots
+        }
+    }
 }
 
 object LeagueHierarchyLoader {
@@ -28,8 +46,8 @@ object LeagueHierarchyLoader {
         "Brasil" to listOf(
             LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 4),
             LeagueDivision("SERIE_B", "", 2, promotionSpots = 4, relegationSpots = 4),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 4, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 6, relegationSpots = 0)
+            LeagueDivision("SERIE_C", "", 3, promotionSpots = 4, relegationSpots = 4),
+            LeagueDivision("SERIE_D", "", 4, promotionSpots = 4, relegationSpots = 0)
         ),
         "Inglaterra" to listOf(
             LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
@@ -86,6 +104,9 @@ object LeagueHierarchyLoader {
             LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
         )
     )
+
+    val supportedCountries: Set<String>
+        get() = staticHierarchies.keys
 
     fun getHierarchyForCountry(country: String): LeagueHierarchy {
         val staticDivs = staticHierarchies[country] ?: staticHierarchies["Brasil"]!!
