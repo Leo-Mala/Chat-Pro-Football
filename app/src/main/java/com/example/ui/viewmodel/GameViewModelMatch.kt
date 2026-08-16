@@ -301,10 +301,9 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
         return
     }
 
-    val userFixture = currentWeekFixtures.find {
-        it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId)
+    val isHomeMatch = currentWeekFixtures.any {
+        it.isPlayed && it.homeTeamId == save.playerTeamId
     }
-    val isHomeMatch = userFixture != null && userFixture.homeTeamId == save.playerTeamId
 
     val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
     val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
