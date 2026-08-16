@@ -98,6 +98,9 @@ jobs:
           gradle wrapper --gradle-version 8.10.2 --distribution-type bin
           chmod +x gradlew
 
+      - name: Run full unit and Robolectric regression suite
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
