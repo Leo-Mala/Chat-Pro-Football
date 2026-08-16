@@ -5,8 +5,6 @@ import com.example.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 
 fun GameViewModel.acceptCoachOffer(offer: CoachOffer) {
     viewModelScope.launch(Dispatchers.IO) {
@@ -172,27 +170,8 @@ fun GameViewModel.promoteYouthAcademy() {
     }
 }
 
-fun GameViewModel.parseProspects(jsonStr: String): List<GameViewModel.AcademyProspect> {
-    if (jsonStr.isBlank()) return emptyList()
-    return try {
-        val arr = JSONArray(jsonStr)
-        val list = mutableListOf<GameViewModel.AcademyProspect>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            list.add(
-                GameViewModel.AcademyProspect(
-                    name = obj.optString("name", "Jovem"),
-                    age = obj.optInt("age", 17),
-                    position = obj.optString("position", "MC"),
-                    force = obj.optInt("force", 50),
-                    potential = obj.optInt("potential", 75)
-                )
-            )
-        }
-        list
-    } catch (e: Exception) {
-        emptyList()
-    }
+fun GameViewModel.parseProspects(rawString: String): List<GameViewModel.AcademyProspect> {
+    return youthAcademyUseCase.parseProspects(rawString)
 }
 
 fun GameViewModel.upgradeAcademyLevel() {
@@ -240,17 +219,8 @@ fun GameViewModel.dismissAcademyProspect(prospect: GameViewModel.AcademyProspect
         val save = repo.getGameSave() ?: return@launch
         val currentList = parseProspects(save.academyProspects).toMutableList()
         currentList.remove(prospect)
-        val arr = JSONArray()
-        for (p in currentList) {
-            val obj = JSONObject()
-            obj.put("name", p.name)
-            obj.put("age", p.age)
-            obj.put("position", p.position)
-            obj.put("force", p.force)
-            obj.put("potential", p.potential)
-            arr.put(obj)
-        }
-        val updatedSave = save.copy(academyProspects = arr.toString())
-        repo.saveGameSave(updatedSave)
+        repo.saveGameSave(
+            save.copy(academyProspects = youthAcademyUseCase.serializeProspects(currentList))
+        )
     }
 }
