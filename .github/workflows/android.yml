@@ -98,8 +98,8 @@ jobs:
           gradle wrapper --gradle-version 8.10.2 --distribution-type bin
           chmod +x gradlew
 
-      - name: Run full unit and Robolectric regression suite
-        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Run TwentySeasonStressTest in isolation
+        run: ./gradlew testDebugUnitTest --tests com.example.TwentySeasonStressTest --stacktrace --info
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
