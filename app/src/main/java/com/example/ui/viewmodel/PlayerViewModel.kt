@@ -14,7 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,14 +41,21 @@ class PlayerViewModel @Inject constructor(
     private val saveRepository: GameSaveRepository
 ) : AndroidViewModel(application) {
 
-    private var activeSlotId: String = "1"
+    private val _activeSlotId = MutableStateFlow<String?>(null)
 
     fun setSlotId(slotId: String) {
-        activeSlotId = slotId
+        _activeSlotId.value = slotId
     }
 
-    private val gameRepository: GameRepository
-        get() = saveRepository.getRepositoryForSlot(activeSlotId)
+    fun clearSlot() {
+        _activeSlotId.value = null
+        _uiState.value = PlayerListUiState.Loading
+    }
+
+    private fun activeRepositoryOrNull(): GameRepository? {
+        val slotId = _activeSlotId.value ?: return null
+        return saveRepository.getRepositoryForSlot(slotId)
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
@@ -65,48 +75,57 @@ class PlayerViewModel @Inject constructor(
 
     private fun loadAndObservePlayers() {
         viewModelScope.launch {
-            combine(
-                gameRepository.allPlayersFlow,
-                _searchQuery,
-                _selectedPosition,
-                _selectedTeamId
-            ) { players, query, posFilter, teamFilter ->
-                if (players.isEmpty()) {
-                    // Seed initial data if database is empty
-                    seedInitialPlayers()
-                    PlayerListUiState.Loading
-                } else {
-                    val filtered = players.filter { player ->
-                        val matchesQuery = query.isBlank() || 
-                            player.name.contains(query, ignoreCase = true) ||
-                            player.nationality.contains(query, ignoreCase = true)
-                        
-                        val matchesPos = posFilter == null || player.position.equals(posFilter, ignoreCase = true)
-                        val matchesTeam = teamFilter == null || player.teamId == teamFilter
+            _activeSlotId
+                .distinctUntilChanged()
+                .flatMapLatest { slotId ->
+                    if (slotId == null) {
+                        flowOf(PlayerListUiState.Loading)
+                    } else {
+                        val repository = saveRepository.getRepositoryForSlot(slotId)
+                        combine(
+                            repository.allPlayersFlow,
+                            _searchQuery,
+                            _selectedPosition,
+                            _selectedTeamId
+                        ) { players, query, posFilter, teamFilter ->
+                            if (players.isEmpty()) {
+                                // Seed only the explicitly selected slot; never fall back to slot 1.
+                                seedInitialPlayers(repository)
+                                PlayerListUiState.Loading
+                            } else {
+                                val filtered = players.filter { player ->
+                                    val matchesQuery = query.isBlank() ||
+                                        player.name.contains(query, ignoreCase = true) ||
+                                        player.nationality.contains(query, ignoreCase = true)
 
-                        matchesQuery && matchesPos && matchesTeam
+                                    val matchesPos = posFilter == null || player.position.equals(posFilter, ignoreCase = true)
+                                    val matchesTeam = teamFilter == null || player.teamId == teamFilter
+
+                                    matchesQuery && matchesPos && matchesTeam
+                                }
+
+                                PlayerListUiState.Success(
+                                    allPlayers = players,
+                                    filteredPlayers = filtered,
+                                    searchQuery = query,
+                                    selectedPosition = posFilter,
+                                    selectedTeamId = teamFilter
+                                )
+                            }
+                        }
                     }
-
-                    PlayerListUiState.Success(
-                        allPlayers = players,
-                        filteredPlayers = filtered,
-                        searchQuery = query,
-                        selectedPosition = posFilter,
-                        selectedTeamId = teamFilter
-                    )
                 }
-            }
-            .flowOn(Dispatchers.Default)
-            .catch { e ->
-                _uiState.value = PlayerListUiState.Error(e.message ?: "Erro desconhecido ao carregar jogadores")
-            }
-            .collect { state ->
-                _uiState.value = state
-            }
+                .flowOn(Dispatchers.Default)
+                .catch { e ->
+                    _uiState.value = PlayerListUiState.Error(e.message ?: "Erro desconhecido ao carregar jogadores")
+                }
+                .collect { state ->
+                    _uiState.value = state
+                }
         }
     }
 
-    private suspend fun seedInitialPlayers() {
+    private suspend fun seedInitialPlayers(repository: GameRepository) {
         val initialPlayers = listOf(
             Player(
                 id = 252371L,
@@ -259,7 +278,7 @@ class PlayerViewModel @Inject constructor(
                 defense = 30
             )
         )
-        gameRepository.savePlayers(initialPlayers)
+        repository.savePlayers(initialPlayers)
     }
 
     fun onSearchQueryChanged(query: String) {
@@ -275,20 +294,23 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun addPlayer(player: Player) {
+        val repository = activeRepositoryOrNull() ?: return
         viewModelScope.launch {
-            gameRepository.savePlayers(listOf(player))
+            repository.savePlayers(listOf(player))
         }
     }
 
     fun updatePlayer(player: Player) {
+        val repository = activeRepositoryOrNull() ?: return
         viewModelScope.launch {
-            gameRepository.updatePlayer(player)
+            repository.updatePlayer(player)
         }
     }
 
     fun deletePlayer(playerId: Long) {
+        val repository = activeRepositoryOrNull() ?: return
         viewModelScope.launch {
-            gameRepository.deletePlayer(playerId)
+            repository.deletePlayer(playerId)
         }
     }
 }
