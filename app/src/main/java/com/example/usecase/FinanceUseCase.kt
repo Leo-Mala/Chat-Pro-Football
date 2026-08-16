@@ -26,17 +26,32 @@ class FinanceUseCase(private val repository: GameRepository) {
 
     /**
      * Compatibilidade com os fluxos antigos, que conhecem apenas a existência ou não
-     * de uma partida em casa na semana.
+     * de uma partida em casa na semana. Quando há ao menos uma, consulta os fixtures já
+     * concluídos da semana para preservar corretamente semanas com dois jogos em casa.
      */
     suspend fun processWeeklyFinances(
         save: GameSave,
         isHomeMatch: Boolean,
         userPlayers: List<com.example.data.Player> = emptyList()
-    ): GameSave = processWeeklyFinances(
-        save = save,
-        homeMatchCount = if (isHomeMatch) 1 else 0,
-        userPlayers = userPlayers
-    )
+    ): GameSave {
+        if (!isHomeMatch) {
+            return processWeeklyFinances(save, homeMatchCount = 0, userPlayers = userPlayers)
+        }
+
+        val persistedSave = repository.getGameSave() ?: save
+        val playedHomeMatches = repository.getFixturesForWeek(
+            persistedSave.currentSeason,
+            persistedSave.currentWeek
+        ).count { fixture ->
+            fixture.isPlayed && fixture.homeTeamId == persistedSave.playerTeamId
+        }
+
+        return processWeeklyFinances(
+            save = save,
+            homeMatchCount = playedHomeMatches.coerceAtLeast(1),
+            userPlayers = userPlayers
+        )
+    }
 
     /**
      * Processa a renda semanal de bilheteria, sócios-torcedores e patrocinadores,
