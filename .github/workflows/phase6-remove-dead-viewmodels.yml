@@ -35,16 +35,16 @@ jobs:
                   raise SystemExit(f"GameScreens expected one import {line.strip()}, found {text.count(line)}")
               text = text.replace(line, "")
 
-          old_signature = '''fun GameApp(
-              viewModel: GameViewModel,
-              matchViewModel: MatchViewModel? = null,
-              transfersViewModel: TransfersViewModel? = null,
-              squadViewModel: SquadViewModel? = null,
-              saveManagerViewModel: SaveManagerViewModel? = null
-          ) {'''
-          new_signature = '''fun GameApp(
-              viewModel: GameViewModel
-          ) {'''
+          old_signature = (
+              "fun GameApp(\n"
+              "    viewModel: GameViewModel,\n"
+              "    matchViewModel: MatchViewModel? = null,\n"
+              "    transfersViewModel: TransfersViewModel? = null,\n"
+              "    squadViewModel: SquadViewModel? = null,\n"
+              "    saveManagerViewModel: SaveManagerViewModel? = null\n"
+              ") {"
+          )
+          new_signature = "fun GameApp(\n    viewModel: GameViewModel\n) {"
           if text.count(old_signature) != 1:
               raise SystemExit(f"GameApp legacy signature count={text.count(old_signature)}")
           game_screens.write_text(text.replace(old_signature, new_signature), encoding="utf-8")
@@ -67,26 +67,21 @@ jobs:
               raise SystemExit(f"SquadScreen currentSaveId line count={text.count(current_save_line)}")
           text = text.replace(current_save_line, "")
 
-          old_cards = '''        if (activeSubTab == "CARDS_RETRO") {
-              val playerViewModel: com.example.ui.viewmodel.PlayerViewModel = hiltViewModel()
-              LaunchedEffect(currentSaveId) {
-                  val slotId = currentSaveId
-                  if (slotId != null) {
-                      playerViewModel.setSlotId(slotId)
-                  } else {
-                      playerViewModel.clearSlot()
-                  }
-              }
-              PlayerListScreen(
-                  viewModel = playerViewModel
+          cards_start = '        if (activeSubTab == "CARDS_RETRO") {'
+          professional_start = '        } else if (activeSubTab == "PROFISSIONAL") {'
+          if text.count(cards_start) != 1 or text.count(professional_start) != 1:
+              raise SystemExit(
+                  f"Unexpected Cards Retrô markers: start={text.count(cards_start)}, end={text.count(professional_start)}"
               )
-          } else if (activeSubTab == "PROFISSIONAL") {'''
-          new_cards = '''        if (activeSubTab == "CARDS_RETRO") {
-              PlayerListScreen(viewModel = viewModel)
-          } else if (activeSubTab == "PROFISSIONAL") {'''
-          if text.count(old_cards) != 1:
-              raise SystemExit(f"SquadScreen Cards Retrô legacy block count={text.count(old_cards)}")
-          squad.write_text(text.replace(old_cards, new_cards), encoding="utf-8")
+          start_index = text.index(cards_start)
+          end_index = text.index(professional_start, start_index)
+          replacement = (
+              '        if (activeSubTab == "CARDS_RETRO") {\n'
+              '            PlayerListScreen(viewModel = viewModel)\n'
+              '        } else if (activeSubTab == "PROFISSIONAL") {'
+          )
+          text = text[:start_index] + replacement + text[end_index + len(professional_start):]
+          squad.write_text(text, encoding="utf-8")
 
           dead_files = [
               Path("app/src/main/java/com/example/ui/viewmodel/MatchViewModel.kt"),
