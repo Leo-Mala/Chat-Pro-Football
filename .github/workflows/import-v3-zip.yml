@@ -32,10 +32,6 @@ jobs:
           unzip -q Pro-Football-v2--main.zip -d .v3-import
           test -d .v3-import/Pro-Football-v2--main
 
-          # Remove the temporary seed and any previously imported project files,
-          # while preserving the current Git metadata and this importer workflow.
-          rm -f .v3-seed
-
           shopt -s dotglob nullglob
           for item in .v3-import/Pro-Football-v2--main/*; do
             name="$(basename "$item")"
@@ -53,6 +49,7 @@ jobs:
 
           rm -rf .v3-import
           rm -f Pro-Football-v2--main.zip
+          rm -f .v3-seed .v3-import-ready IMPORT_V3_INSTRUCTIONS.txt
 
       - name: Commit imported V3 project
         shell: bash
