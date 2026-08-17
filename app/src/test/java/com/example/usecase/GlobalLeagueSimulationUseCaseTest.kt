@@ -108,6 +108,40 @@ class GlobalLeagueSimulationUseCaseTest {
         assertEquals(standings.sumOf { it.wins }, standings.sumOf { it.losses })
     }
 
+    @Test
+    fun countCorrectButDuplicatedPairingsFallBackToSafeSimulation() {
+        val teams = listOf(
+            team(30, "A", "Brasil", 91),
+            team(31, "B", "Brasil", 82),
+            team(32, "C", "Brasil", 73)
+        )
+        val safeFallback = useCase.buildSeasonStandings(
+            season = 2026,
+            teams = teams,
+            detailedFixtures = emptyList(),
+            detailedCountry = "Brasil"
+        )
+
+        // A quantidade total é a correta (6), mas B x C aparece duas vezes e C x B não existe.
+        val malformed = listOf(
+            playedFixture(30, 30, 31, 7, 0),
+            playedFixture(31, 31, 30, 7, 0),
+            playedFixture(32, 30, 32, 7, 0),
+            playedFixture(33, 32, 30, 7, 0),
+            playedFixture(34, 31, 32, 7, 0),
+            playedFixture(35, 31, 32, 7, 0)
+        )
+
+        val result = useCase.buildSeasonStandings(
+            season = 2026,
+            teams = teams,
+            detailedFixtures = malformed,
+            detailedCountry = "Brasil"
+        )
+
+        assertEquals(safeFallback, result)
+    }
+
     private fun team(
         id: Long,
         name: String,
