@@ -1,5 +1,6 @@
 package com.example.usecase
 
+import com.example.data.DetailedGroupTopology
 import com.example.data.Fixture
 import com.example.data.GlobalLeagueStanding
 import com.example.data.LeagueSeasonFormat
@@ -104,7 +105,25 @@ class GlobalLeagueSimulationUseCase {
             applyResult(home, away, hg, ag)
         }
 
-        return toStandings(season, teams, stats)
+        val teamsById = teams.associateBy { it.id }
+        val sportingComparator = compareByDescending<Long> { stats[it]?.points ?: 0 }
+            .thenByDescending { stats[it]?.wins ?: 0 }
+            .thenByDescending { stats[it]?.goalDifference ?: 0 }
+            .thenByDescending { stats[it]?.goalsFor ?: 0 }
+            .thenByDescending { teamsById[it]?.rating ?: Int.MIN_VALUE }
+            .thenBy { it }
+        val groupedOrder = DetailedGroupTopology.rankByGroupPosition(
+            teamIds = teamIds,
+            fixtures = relevant,
+            sportingComparator = sportingComparator
+        )
+
+        return toStandings(
+            season = season,
+            teams = teams,
+            stats = stats,
+            preferredOrder = groupedOrder
+        )
     }
 
     private fun simulateCompactLeague(
@@ -232,10 +251,14 @@ class GlobalLeagueSimulationUseCase {
     private fun toStandings(
         season: Int,
         teams: List<Team>,
-        stats: Map<Long, MutableStats>
+        stats: Map<Long, MutableStats>,
+        preferredOrder: List<Long>? = null
     ): List<GlobalLeagueStanding> {
-        return teams
-            .sortedWith(
+        val teamsById = teams.associateBy { it.id }
+        val orderedTeams = preferredOrder
+            ?.takeIf { ids -> ids.size == teams.size && ids.toSet() == teamsById.keys }
+            ?.mapNotNull { teamId -> teamsById[teamId] }
+            ?: teams.sortedWith(
                 compareByDescending<Team> { stats[it.id]?.points ?: 0 }
                     .thenByDescending { stats[it.id]?.wins ?: 0 }
                     .thenByDescending { stats[it.id]?.goalDifference ?: 0 }
@@ -243,9 +266,10 @@ class GlobalLeagueSimulationUseCase {
                     .thenByDescending { it.rating }
                     .thenBy { it.id }
             )
-            .mapIndexed { index, team ->
-                stats.getValue(team.id).toStanding(season, team, index + 1)
-            }
+
+        return orderedTeams.mapIndexed { index, team ->
+            stats.getValue(team.id).toStanding(season, team, index + 1)
+        }
     }
 
     private fun MutableStats.toStanding(

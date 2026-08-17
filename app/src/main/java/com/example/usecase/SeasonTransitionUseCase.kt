@@ -407,6 +407,32 @@ class SeasonTransitionUseCase(
             }
         }
 
+        val teamsById = teams.associateBy { it.id }
+        val sportingComparator = compareByDescending<Long> { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.pts } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.w } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.gd } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.gf } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.rating ?: Int.MIN_VALUE
+        }.thenBy { it }
+
+        val groupedOrder = DetailedGroupTopology.rankByGroupPosition(
+            teamIds = teamIds,
+            fixtures = relevantFixtures,
+            sportingComparator = sportingComparator
+        )
+        if (groupedOrder != null) {
+            return groupedOrder.mapNotNull { teamId ->
+                val team = teamsById[teamId] ?: return@mapNotNull null
+                val row = map[team] ?: return@mapNotNull null
+                team to row
+            }
+        }
+
         return map.toList().sortedWith(
             compareByDescending<Pair<Team, SeasonStandingRow>> { it.second.pts }
                 .thenByDescending { it.second.w }
