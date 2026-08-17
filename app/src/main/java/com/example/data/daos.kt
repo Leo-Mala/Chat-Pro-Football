@@ -58,13 +58,13 @@ interface PlayerDao {
     suspend fun getAllPlayers(): List<Player>
 
     @Query("SELECT * FROM players WHERE teamId = :teamId ORDER BY position DESC, force DESC")
-    fun getPlayersByTeamFlow(teamId: Long): Flow<List<Player>>
+    fun getPlayersByTeamFlow(teamId: Long?): Flow<List<Player>>
 
     @Query("SELECT * FROM players WHERE teamId = :teamId ORDER BY position DESC, force DESC")
-    suspend fun getPlayersByTeam(teamId: Long): List<Player>
+    suspend fun getPlayersByTeam(teamId: Long?): List<Player>
 
     @Query("SELECT COUNT(*) FROM players WHERE teamId = :teamId")
-    suspend fun getPlayerCountByTeam(teamId: Long): Int
+    suspend fun getPlayerCountByTeam(teamId: Long?): Int
 
     @Query("SELECT * FROM players WHERE teamId IS NULL ORDER BY position DESC, force DESC, id ASC")
     suspend fun getFreeAgents(): List<Player>
@@ -87,7 +87,7 @@ interface PlayerDao {
     suspend fun updatePlayers(players: List<Player>)
 
     @Query("SELECT * FROM players WHERE teamId = :teamId ORDER BY mediaNotas DESC")
-    fun getJogadoresPorNota(teamId: Long): Flow<List<Player>>
+    fun getJogadoresPorNota(teamId: Long?): Flow<List<Player>>
 
     @Query("UPDATE players SET condicao = :condicao WHERE id = :id")
     suspend fun atualizarCondicao(id: Long, condicao: Int)
