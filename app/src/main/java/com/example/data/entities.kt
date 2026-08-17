@@ -259,8 +259,6 @@ data class Fixture(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val season: Int,
     val week: Int,
-    @ColumnInfo(defaultValue = "'WEEKEND'")
-    val matchSlot: MatchSlot = MatchSlot.WEEKEND,
     val homeTeamId: Long,
     val awayTeamId: Long,
     val homeScore: Int? = null,
@@ -269,7 +267,9 @@ data class Fixture(
     val awayPenalties: Int? = null,
     val competitionType: String,
     val isPlayed: Boolean = false,
-    val matchEventsJson: String? = null
+    val matchEventsJson: String? = null,
+    @ColumnInfo(defaultValue = "'WEEKEND'")
+    val matchSlot: MatchSlot = MatchSlot.WEEKEND
 )
 
 @Entity(tableName = "club_legends")
