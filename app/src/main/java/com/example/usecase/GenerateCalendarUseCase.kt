@@ -120,26 +120,39 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         val targetCountry = userTeam?.country ?: userCountry
 
         // Geração da liga de pontos corridos apenas para o país do time do usuário.
-        // A quantidade de turnos é reduzida para 1 quando o returno ultrapassaria as 40 semanas.
+        // Formatos comuns usam o round-robin adaptativo; gigantes divisíveis em grupos iguais
+        // jogam turno + returno dentro do grupo, em paralelo, sem ultrapassar 40 semanas.
         val groupedTeams = teams.groupBy { Pair(it.country, it.division) }
         for ((key, teamGroup) in groupedTeams) {
             val (country, div) = key
             if (country == targetCountry && teamGroup.size >= 2) {
-                val divCode = when (div) {
-                    1 -> "SERIE_A"
-                    2 -> "SERIE_B"
-                    3 -> "SERIE_C"
-                    else -> "SERIE_D"
+                val divCode = LeagueSeasonFormat.detailedCompetitionTypeForDivision(div)
+                val groupPlan = LeagueSeasonFormat.detailedGroupPlan(teamGroup.size)
+
+                if (groupPlan != null) {
+                    LeagueSeasonFormat.buildDetailedGroups(teamGroup).forEach { detailedGroup ->
+                        allFixtures.addAll(
+                            generateRoundRobinFixtures(
+                                season = season,
+                                teams = detailedGroup,
+                                competitionType = divCode,
+                                startWeek = 1,
+                                legs = groupPlan.legs
+                            )
+                        )
+                    }
+                } else {
+                    val legs = LeagueSeasonFormat.legsForDetailedLeague(teamGroup.size)
+                    allFixtures.addAll(
+                        generateRoundRobinFixtures(
+                            season = season,
+                            teams = teamGroup,
+                            competitionType = divCode,
+                            startWeek = 1,
+                            legs = legs
+                        )
+                    )
                 }
-                val legs = LeagueSeasonFormat.legsForDetailedLeague(teamGroup.size)
-                val groupFixtures = generateRoundRobinFixtures(
-                    season = season,
-                    teams = teamGroup,
-                    competitionType = divCode,
-                    startWeek = 1,
-                    legs = legs
-                )
-                allFixtures.addAll(groupFixtures)
             }
         }
 
