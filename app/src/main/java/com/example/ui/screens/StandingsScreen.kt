@@ -89,7 +89,10 @@ fun StandingsTab(viewModel: GameViewModel) {
             TopScorersView(allPlayers = allPlayers, allTeams = allTeams)
         } else {
             val hierarchy = remember(selectedCountry) { LeagueHierarchyLoader.getHierarchyForCountry(selectedCountry) }
-            val labels = remember(hierarchy, selectedCountry) {
+            val confederation = remember(selectedCountry) {
+                GlobalFootballSystem.getConfederationForCountry(selectedCountry)
+            }
+            val labels = remember(hierarchy, selectedCountry, confederation) {
                 val list = mutableListOf<Pair<String, String>>()
                 LeagueDivisionUi.tabsForHierarchy(hierarchy).forEach { tab ->
                     list.add(tab.key to tab.label)
@@ -98,15 +101,24 @@ fun StandingsTab(viewModel: GameViewModel) {
                         list.add(Pair("SERIE_C_PH2_B", "Série C - Gp B"))
                     }
                 }
-                list.addAll(
-                    listOf(
-                        Pair("COPA", DefaultData.getCompetitionName("COPA", selectedCountry)),
-                        Pair("CONTINENTAL_T1", DefaultData.getCompetitionName("CONTINENTAL_T1", selectedCountry)),
-                        Pair("CONTINENTAL_T2", DefaultData.getCompetitionName("CONTINENTAL_T2", selectedCountry)),
-                        Pair("CONTINENTAL_T3", DefaultData.getCompetitionName("CONTINENTAL_T3", selectedCountry)),
-                        Pair("WORLD_CUP", DefaultData.getCompetitionName("WORLD_CUP", selectedCountry))
-                    )
-                )
+
+                list.add(Pair("COPA", DefaultData.getCompetitionName("COPA", selectedCountry)))
+                listOf("CONTINENTAL_T1", "CONTINENTAL_T2", "CONTINENTAL_T3")
+                    .filter { competitionType ->
+                        ContinentalQualificationQuotaPolicy.isTierEnabled(
+                            confederation = confederation,
+                            competitionType = competitionType
+                        )
+                    }
+                    .forEach { competitionType ->
+                        list.add(
+                            Pair(
+                                competitionType,
+                                DefaultData.getCompetitionName(competitionType, selectedCountry)
+                            )
+                        )
+                    }
+                list.add(Pair("WORLD_CUP", DefaultData.getCompetitionName("WORLD_CUP", selectedCountry)))
                 list
             }
 
