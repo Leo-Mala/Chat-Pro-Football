@@ -1,0 +1,96 @@
+name: Fix PR16 Review Feedback
+
+on:
+  push:
+    branches: [ "agent/v3-global-standings-qualification" ]
+    paths:
+      - '.github/workflows/fix-pr16-review.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v3-global-standings-qualification
+          fetch-depth: 0
+
+      - name: Apply review fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # P1: regeneration/recovery must reuse prior-season standings.
+          match_file = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt')
+          text = match_file.read_text()
+          old = '''fun GameViewModel.generateFixturesForSeason(season: Int, teams: List<Team>, userTeamId: Long): List<Fixture> {
+              val userCountry = _selectedCountry.value ?: "BRASIL"
+              return generateCalendarUseCase.generateSeasonFixtures(season, teams, userTeamId, userCountry)
+          }'''
+          new = '''suspend fun GameViewModel.generateFixturesForSeason(season: Int, teams: List<Team>, userTeamId: Long): List<Fixture> {
+              val userCountry = _selectedCountry.value ?: "BRASIL"
+              val qualificationStandings = if (season > 2026) {
+                  repo.getGlobalStandingsForSeason(season - 1)
+              } else {
+                  emptyList()
+              }
+              return generateCalendarUseCase.generateSeasonFixtures(
+                  season = season,
+                  teams = teams,
+                  userTeamId = userTeamId,
+                  userCountry = userCountry,
+                  qualificationStandings = qualificationStandings
+              )
+          }'''
+          if text.count(old) != 1:
+              raise SystemExit('Expected exactly one legacy generateFixturesForSeason helper')
+          match_file.write_text(text.replace(old, new))
+
+          # P2: replacing a career in the same slot must clear global snapshots.
+          vm_file = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          text = vm_file.read_text()
+          old = '''            repo.deleteInstallments()
+              repo.deleteLoans()
+
+              repo.saveTeams(dbTeams)'''
+          new = '''            repo.deleteInstallments()
+              repo.deleteLoans()
+              repo.deleteGlobalStandings()
+
+              repo.saveTeams(dbTeams)'''
+          if text.count(old) != 1:
+              raise SystemExit('Expected exactly one new-career cleanup block')
+          vm_file.write_text(text.replace(old, new))
+
+          # P2 CI: gradle.properties can change compiler/JVM/build behavior.
+          ci_file = Path('.github/workflows/android.yml')
+          text = ci_file.read_text()
+          needle = "      - 'settings.gradle.kts'\n"
+          if text.count(needle) != 1:
+              raise SystemExit('Expected one settings.gradle.kts path entry')
+          if "      - 'gradle.properties'\n" not in text:
+              text = text.replace(needle, needle + "      - 'gradle.properties'\n")
+          ci_file.write_text(text)
+          PY
+
+      - name: Commit fixes and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-pr16-review.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
+                  app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt \
+                  .github/workflows/android.yml \
+                  .github/workflows/fix-pr16-review.yml
+          git diff --cached --check
+          git commit -m "fix: preserve global qualification and reset snapshots"
+          git push origin HEAD:agent/v3-global-standings-qualification
