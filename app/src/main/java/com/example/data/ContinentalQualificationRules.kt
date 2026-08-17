@@ -28,7 +28,7 @@ object ContinentalQualificationRules {
         return teams.map { team ->
             val row = rowByTeamId[team.id]
             when {
-                row != null -> team.copy(
+                row != null && team.division == 1 -> team.copy(
                     rating = (101 - row.position).coerceIn(1, 100)
                 )
 
@@ -38,6 +38,8 @@ object ContinentalQualificationRules {
                     team.copy(rating = 1)
                 }
 
+                // Rebaixados e demais divisões mantêm o rating real. Isso impede que a
+                // prioridade continental altere indiretamente o corte da Copa nacional.
                 else -> team
             }
         }
