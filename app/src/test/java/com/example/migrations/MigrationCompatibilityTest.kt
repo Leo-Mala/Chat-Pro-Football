@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.migrations.MIGRATION_14_15
 import com.example.data.migrations.MIGRATION_16_17
 import com.example.data.migrations.MIGRATION_18_19
+import com.example.data.migrations.MIGRATION_19_20
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -122,6 +123,56 @@ class MigrationCompatibilityTest {
         db.query("SELECT `value` FROM `migration_sentinel`").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("KEEP_ME", cursor.getString(0))
+        }
+
+        db.close()
+        helper.close()
+    }
+
+    @Test
+    fun migration19To20PreservesFixturesAndAssignsCanonicalSlots() {
+        val helper = createDatabase("migration-19-20.db", 19) { db ->
+            db.execSQL(
+                """
+                CREATE TABLE `fixtures` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `season` INTEGER NOT NULL,
+                    `week` INTEGER NOT NULL,
+                    `homeTeamId` INTEGER NOT NULL,
+                    `awayTeamId` INTEGER NOT NULL,
+                    `homeScore` INTEGER,
+                    `awayScore` INTEGER,
+                    `homePenalties` INTEGER,
+                    `awayPenalties` INTEGER,
+                    `competitionType` TEXT NOT NULL,
+                    `isPlayed` INTEGER NOT NULL,
+                    `matchEventsJson` TEXT
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "INSERT INTO `fixtures` (`season`,`week`,`homeTeamId`,`awayTeamId`,`competitionType`,`isPlayed`) " +
+                    "VALUES (2026,12,1,2,'SERIE_A',0)"
+            )
+            db.execSQL(
+                "INSERT INTO `fixtures` (`season`,`week`,`homeTeamId`,`awayTeamId`,`competitionType`,`isPlayed`) " +
+                    "VALUES (2026,12,1,3,'COPA',0)"
+            )
+        }
+        val db = helper.writableDatabase
+
+        MIGRATION_19_20.migrate(db)
+
+        assertTrue("matchSlot" in columns(db, "fixtures"))
+        assertTrue("index_fixtures_season_week_matchSlot" in indexes(db, "fixtures"))
+
+        db.query("SELECT `competitionType`,`matchSlot` FROM `fixtures` ORDER BY `id`").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("SERIE_A", cursor.getString(0))
+            assertEquals("WEEKEND", cursor.getString(1))
+            assertTrue(cursor.moveToNext())
+            assertEquals("COPA", cursor.getString(0))
+            assertEquals("MIDWEEK", cursor.getString(1))
         }
 
         db.close()
