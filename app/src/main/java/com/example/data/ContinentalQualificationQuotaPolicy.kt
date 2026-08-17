@@ -9,14 +9,12 @@ package com.example.data
  *
  * CONMEBOL 2026, traduzida para o formato atual do jogo:
  * - T1 (Libertadores): 26 vagas nacionais-base + 6 suplementares = 32 na fase de grupos.
- *   As suplementares representam, no modelo atual, as 2 vagas dos campeões continentais e as
- *   4 vagas provenientes da Fase 3.
  * - T2 (Sudamericana): 28 vagas nacionais-base + 4 suplementares = 32 na fase de grupos.
- *   As suplementares representam os quatro clubes transferidos da Fase 3 da Libertadores.
  * - T3: desativado na CONMEBOL; a confederação é representada por T1 e T2.
  *
- * As vagas suplementares são preenchidas pela prioridade esportiva transitória já calculada em
- * [ContinentalQualificationRules], sem alterar rating persistido nem criar schema Room.
+ * Uma política explícita nunca encolhe artificialmente a competição oficial para satisfazer um
+ * dataset parcial. Se não houver elegíveis suficientes para o campo integral, nenhum torneio
+ * reduzido é criado; testes continentais devem fornecer o universo esportivo necessário.
  */
 object ContinentalQualificationQuotaPolicy {
 
@@ -113,28 +111,9 @@ object ContinentalQualificationQuotaPolicy {
     fun hasExplicitPolicy(confederation: String): Boolean =
         confederation.equals("CONMEBOL", ignoreCase = true)
 
-    /**
-     * A UI e o gerador consultam a mesma disponibilidade. Confederações ainda não normalizadas
-     * continuam com todos os tiers legados visíveis/ativos; uma política explícita pode desligar
-     * somente o tier que não existe naquela confederação.
-     */
     fun isTierEnabled(confederation: String, competitionType: String): Boolean =
         planFor(confederation, competitionType)?.enabled ?: true
 
-    /**
-     * Seleciona um campo preservando as quotas mínimas de cada país quando há clubes elegíveis.
-     *
-     * A lista [candidates] já deve estar em prioridade esportiva decrescente. Primeiro são
-     * consumidas as quotas nacionais-base; depois as vagas suplementares e eventuais faltas de
-     * uma associação são redistribuídas aos melhores clubes ainda disponíveis. [excludedTeamIds]
-     * garante campos continentais disjuntos.
-     *
-     * Em universos completos o alvo do plano é preservado (32 para T1/T2 da CONMEBOL). Em testes,
-     * saves antigos ou datasets parciais com menos elegíveis, o campo degrada somente para 16 ou
-     * 8 participantes. Esses tamanhos continuam compatíveis com os grupos de quatro e produzem
-     * uma chave de mata-mata potência de dois; quantidades intermediárias como 20 não podem ser
-     * persistidas porque formariam uma fase de grupos que o motor atual não consegue concluir.
-     */
     fun selectField(
         candidates: List<Team>,
         plan: TierPlan,
@@ -150,11 +129,7 @@ object ContinentalQualificationQuotaPolicy {
             .distinctBy { it.id }
             .toList()
 
-        val effectiveFieldSize = supportedFieldSize(
-            available = eligible.size,
-            target = plan.targetFieldSize
-        )
-        if (effectiveFieldSize == 0) {
+        if (eligible.size < plan.targetFieldSize) {
             return SelectionResult(emptyList(), emptyMap(), emptySet())
         }
 
@@ -163,9 +138,9 @@ object ContinentalQualificationQuotaPolicy {
         val directCounts = linkedMapOf<String, Int>()
 
         for ((country, quota) in plan.directCountryQuotas) {
-            if (quota == 0 || selected.size >= effectiveFieldSize) continue
+            if (quota == 0 || selected.size >= plan.targetFieldSize) continue
 
-            val remainingDirectCapacity = effectiveFieldSize - selected.size
+            val remainingDirectCapacity = plan.targetFieldSize - selected.size
             val countrySelected = eligible
                 .asSequence()
                 .filter { it.country.equals(country, ignoreCase = true) }
@@ -178,13 +153,17 @@ object ContinentalQualificationQuotaPolicy {
         }
 
         val directSelectedIds = selectedIds.toSet()
-        val remainingSlots = (effectiveFieldSize - selected.size).coerceAtLeast(0)
+        val remainingSlots = (plan.targetFieldSize - selected.size).coerceAtLeast(0)
         if (remainingSlots > 0) {
             eligible
                 .asSequence()
                 .filter { selectedIds.add(it.id) }
                 .take(remainingSlots)
                 .forEach(selected::add)
+        }
+
+        if (selected.size != plan.targetFieldSize) {
+            return SelectionResult(emptyList(), directCounts, emptySet())
         }
 
         val supplementalIds = selected
@@ -194,16 +173,9 @@ object ContinentalQualificationQuotaPolicy {
             .toSet()
 
         return SelectionResult(
-            teams = selected.take(effectiveFieldSize),
+            teams = selected,
             directSelectedByCountry = directCounts,
             supplementalTeamIds = supplementalIds
         )
-    }
-
-    private fun supportedFieldSize(available: Int, target: Int): Int = when {
-        target >= 32 && available >= 32 -> 32
-        target >= 16 && available >= 16 -> 16
-        target >= 8 && available >= 8 -> 8
-        else -> 0
     }
 }
