@@ -49,7 +49,10 @@ class LeagueSeasonFormatTest {
     }
 
     @Test
-    fun everyCurrentDefaultDataGiantLeagueHasEqualGroupsInsideFortyWeeks() {
+    fun everyCurrentDefaultDataGiantLeagueKeepsPhase95FormatInsideDomesticFortyRoundLimit() {
+        assertEquals(48, GameCalendar.WEEKS_PER_SEASON)
+        assertEquals(40, GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS)
+
         val expectedGroupSizes = mapOf(
             48 to 16,
             56 to 14,
@@ -72,7 +75,7 @@ class LeagueSeasonFormatTest {
 
             assertEquals(expectedGroupSize, plan.groupSize)
             assertEquals(teamCount / expectedGroupSize, plan.groupCount)
-            assertTrue(plan.rounds <= GameCalendar.WEEKS_PER_SEASON)
+            assertTrue(plan.rounds <= GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS)
             assertTrue(LeagueSeasonFormat.supportsDetailedFormat(teamCount))
             assertFalse(LeagueSeasonFormat.fitsCurrentSeason(teamCount))
         }
@@ -86,9 +89,10 @@ class LeagueSeasonFormatTest {
     }
 
     @Test
-    fun irregularGiantSizeStaysOnFallbackUntilEqualGroupsAreDefined() {
+    fun fortyOneTeamLeagueDoesNotBecomeFortyOneRoundDetailedLeagueJustBecauseSeasonHasFortyEightWeeks() {
         assertNull(LeagueSeasonFormat.detailedGroupPlan(41))
         assertFalse(LeagueSeasonFormat.supportsDetailedFormat(41))
+        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(41))
     }
 
     @Test
