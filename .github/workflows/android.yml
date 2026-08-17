@@ -85,7 +85,7 @@ jobs:
                 "services": { "appinvite_service": { "status": 1 } }
               }
             ],
-            "configuration_version": 1
+            "configuration_version": "1"
           }
           EOF
           fi
