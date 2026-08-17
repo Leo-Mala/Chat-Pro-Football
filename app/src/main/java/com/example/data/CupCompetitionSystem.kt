@@ -5,20 +5,17 @@ import kotlin.random.Random
 /**
  * Geração e progressão das copas da carreira.
  *
- * Formatos usados nesta subfase:
  * - Copa nacional: mata-mata em jogo único, MIDWEEK, com final na semana 27;
- * - Continental T1/T2: fase de grupos nas semanas 29, 30 e 31, MIDWEEK;
+ * - CONMEBOL: delegada ao [ConmebolCompetitionSystem], com Libertadores/Sudamericana completas;
+ * - outras confederações: preservam o formato continental legado desta fase do projeto;
  * - Continental T3: mata-mata em jogo único até a semana 36, quando habilitado.
- *
- * A Fase 9.6B substituirá o formato continental simplificado pelo calendário completo de
- * Libertadores/Sul-Americana. Aqui o objetivo é garantir uma fundação temporal sem conflitos.
  */
 object CupCompetitionSystem {
     const val NATIONAL_CUP_FINAL_WEEK = 27
     const val CONTINENTAL_FINAL_WEEK = 36
-    private const val GROUP_WEEK_1 = 29
-    private const val GROUP_WEEK_2 = 30
-    private const val GROUP_WEEK_3 = 31
+    private const val LEGACY_GROUP_WEEK_1 = 29
+    private const val LEGACY_GROUP_WEEK_2 = 30
+    private const val LEGACY_GROUP_WEEK_3 = 31
 
     private val continentalGroupTypes = listOf("CONTINENTAL_T1", "CONTINENTAL_T2")
 
@@ -76,20 +73,29 @@ object CupCompetitionSystem {
             confederation = userConfederation
         )
 
-        if (fields.tier1.size >= 8 && fields.tier1.size % 4 == 0) {
-            fixtures += generateGroupStage(
+        if (userConfederation.equals("CONMEBOL", ignoreCase = true)) {
+            fixtures += ConmebolCompetitionSystem.generateOpeningFixtures(
                 season = season,
-                teams = fields.tier1.shuffled(Random(stableSeed(season, "CONTINENTAL_T1"))),
-                competitionType = "CONTINENTAL_T1"
+                libertadoresTeams = fields.tier1,
+                sudamericanaTeams = fields.tier2
             )
+        } else {
+            if (fields.tier1.size >= 8 && fields.tier1.size % 4 == 0) {
+                fixtures += generateLegacyGroupStage(
+                    season = season,
+                    teams = fields.tier1.shuffled(Random(stableSeed(season, "CONTINENTAL_T1"))),
+                    competitionType = "CONTINENTAL_T1"
+                )
+            }
+            if (fields.tier2.size >= 8 && fields.tier2.size % 4 == 0) {
+                fixtures += generateLegacyGroupStage(
+                    season = season,
+                    teams = fields.tier2.shuffled(Random(stableSeed(season, "CONTINENTAL_T2"))),
+                    competitionType = "CONTINENTAL_T2"
+                )
+            }
         }
-        if (fields.tier2.size >= 8 && fields.tier2.size % 4 == 0) {
-            fixtures += generateGroupStage(
-                season = season,
-                teams = fields.tier2.shuffled(Random(stableSeed(season, "CONTINENTAL_T2"))),
-                competitionType = "CONTINENTAL_T2"
-            )
-        }
+
         if (fields.tier3.size >= 2) {
             val selected = fields.tier3.shuffled(Random(stableSeed(season, "CONTINENTAL_T3")))
             val startWeek = CONTINENTAL_FINAL_WEEK - roundsToChampion(selected.size) + 1
@@ -192,7 +198,29 @@ object CupCompetitionSystem {
             repository = repository
         )
 
-        if (currentWeek == GROUP_WEEK_3) {
+        // Uma temporada nova CONMEBOL usa ida/volta e transferência Libertadores -> Sudamericana.
+        // O processador legado jamais deve enxergar esses T1/T2, pois trataria uma perna isolada
+        // como rodada eliminatória completa e criaria fixtures incorretos.
+        if (ConmebolCompetitionSystem.isConmebolSeason(seasonFixtures)) {
+            ConmebolCompetitionSystem.processProgression(
+                season = season,
+                currentWeek = currentWeek,
+                repository = repository
+            )
+
+            // Compatibilidade: se um save antigo ainda trouxer T3, permita que ele termine.
+            processKnockoutRoundIfPresent(
+                season = season,
+                currentWeek = currentWeek,
+                competitionType = "CONTINENTAL_T3",
+                finalWeek = CONTINENTAL_FINAL_WEEK,
+                seasonFixtures = repository.getFixturesForSeason(season),
+                repository = repository
+            )
+            return
+        }
+
+        if (currentWeek == LEGACY_GROUP_WEEK_3) {
             for (competitionType in continentalGroupTypes) {
                 progressContinentalGroupsToKnockout(
                     season = season,
@@ -240,7 +268,7 @@ object CupCompetitionSystem {
         return selected.distinctBy { it.id }
     }
 
-    private fun generateGroupStage(
+    private fun generateLegacyGroupStage(
         season: Int,
         teams: List<Team>,
         competitionType: String
@@ -261,12 +289,12 @@ object CupCompetitionSystem {
             val t3 = groupTeams[2].id
             val t4 = groupTeams[3].id
 
-            fixtures += Fixture(season = season, week = GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t4, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t3, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t3, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t4, awayTeamId = t2, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t1, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t3, awayTeamId = t4, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = LEGACY_GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t4, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = LEGACY_GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t3, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = LEGACY_GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t3, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = LEGACY_GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t4, awayTeamId = t2, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = LEGACY_GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t1, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = LEGACY_GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t3, awayTeamId = t4, competitionType = groupCode)
         }
 
         return fixtures
