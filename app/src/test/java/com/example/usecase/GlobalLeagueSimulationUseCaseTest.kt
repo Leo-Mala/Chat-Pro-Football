@@ -12,7 +12,7 @@ class GlobalLeagueSimulationUseCaseTest {
     private val useCase = GlobalLeagueSimulationUseCase()
 
     @Test
-    fun compactCpuSimulationIsDeterministicAndInternallyConsistent() {
+    fun compactCpuSimulationIsDeterministicAndLeagueWideConsistent() {
         val teams = listOf(
             team(1, "River", "Argentina", 88),
             team(2, "Boca", "Argentina", 86),
@@ -40,24 +40,34 @@ class GlobalLeagueSimulationUseCaseTest {
         assertFalse(first.any { it.teamId == 5L })
 
         first.forEach { row ->
+            assertEquals(6, row.played)
             assertEquals(row.played, row.wins + row.draws + row.losses)
             assertEquals(row.points, row.wins * 3 + row.draws)
             assertEquals(row.goalDifference, row.goalsFor - row.goalsAgainst)
-            assertTrue(row.played > 0)
         }
+
+        // Invariantes que só uma liga baseada em confrontos reais consegue garantir.
+        assertEquals(first.sumOf { it.wins }, first.sumOf { it.losses })
+        assertEquals(first.sumOf { it.goalsFor }, first.sumOf { it.goalsAgainst })
+        assertEquals(0, first.sumOf { it.draws } % 2)
     }
 
     @Test
-    fun detailedCountryUsesActualPlayedFixturesInsteadOfSyntheticRatingOrder() {
+    fun detailedCountryUsesCompleteActualFixturesInsteadOfSyntheticRatingOrder() {
         val strongestByRating = team(10, "Rating FC", "Brasil", 99)
         val actualChampion = team(11, "Resultado FC", "Brasil", 70)
         val third = team(12, "Terceiro", "Brasil", 80)
         val teams = listOf(strongestByRating, actualChampion, third)
 
+        // 3 clubes em turno + returno = 6 partidas. O campeão real tem rating menor,
+        // provando que o snapshot detalhado vem dos resultados e não do rating.
         val fixtures = listOf(
             playedFixture(1, actualChampion.id, strongestByRating.id, 2, 0),
             playedFixture(2, actualChampion.id, third.id, 1, 0),
-            playedFixture(3, strongestByRating.id, third.id, 3, 0)
+            playedFixture(3, strongestByRating.id, third.id, 3, 0),
+            playedFixture(4, strongestByRating.id, actualChampion.id, 0, 1),
+            playedFixture(5, third.id, actualChampion.id, 0, 2),
+            playedFixture(6, third.id, strongestByRating.id, 1, 1)
         )
 
         val standings = useCase.buildSeasonStandings(
@@ -68,9 +78,34 @@ class GlobalLeagueSimulationUseCaseTest {
         )
 
         assertEquals(actualChampion.id, standings.first().teamId)
-        assertEquals(6, standings.first().points)
-        assertEquals(2, standings.first().wins)
-        assertEquals(2, standings.first().played)
+        assertEquals(12, standings.first().points)
+        assertEquals(4, standings.first().wins)
+        assertEquals(4, standings.first().played)
+    }
+
+    @Test
+    fun incompleteDetailedLeagueFallsBackInsteadOfPersistingPartialTruth() {
+        val teams = listOf(
+            team(20, "A", "Brasil", 80),
+            team(21, "B", "Brasil", 75),
+            team(22, "C", "Brasil", 70)
+        )
+        val incomplete = listOf(
+            playedFixture(20, 20, 21, 1, 0),
+            playedFixture(21, 20, 22, 1, 0),
+            playedFixture(22, 21, 22, 1, 0)
+        )
+
+        val standings = useCase.buildSeasonStandings(
+            season = 2026,
+            teams = teams,
+            detailedFixtures = incomplete,
+            detailedCountry = "Brasil"
+        )
+
+        // O fallback compacto para 3 clubes é turno + returno: 4 jogos por clube.
+        assertTrue(standings.all { it.played == 4 })
+        assertEquals(standings.sumOf { it.wins }, standings.sumOf { it.losses })
     }
 
     private fun team(
