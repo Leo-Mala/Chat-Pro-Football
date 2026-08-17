@@ -61,7 +61,8 @@ class CupCompetitionSystemTest {
 
         val cup = fixtures.filter { it.competitionType == "COPA" }
         assertEquals(16, cup.size)
-        assertEquals(31, cup.single { it.homeTeamId == userTeam.id || it.awayTeamId == userTeam.id }.week)
+        assertEquals(23, cup.single { it.homeTeamId == userTeam.id || it.awayTeamId == userTeam.id }.week)
+        assertTrue(cup.all { it.matchSlot == MatchSlot.MIDWEEK })
 
         val tier1Groups = fixtures.filter { it.competitionType.startsWith("CONTINENTAL_T1_GP_") }
         val tier2Groups = fixtures.filter { it.competitionType.startsWith("CONTINENTAL_T2_GP_") }
@@ -79,8 +80,9 @@ class CupCompetitionSystemTest {
         assertEquals(32, tier2Participants.size)
         assertTrue(tier2Participants.values.all { it == 3 })
         assertTrue(tier1Participants.keys.intersect(tier2Participants.keys).isEmpty())
-        assertTrue(tier1Groups.all { it.week in 29..31 })
-        assertTrue(tier2Groups.all { it.week in 29..31 })
+        assertTrue(tier1Groups.all { it.week in 29..31 && it.matchSlot == MatchSlot.MIDWEEK })
+        assertTrue(tier2Groups.all { it.week in 29..31 && it.matchSlot == MatchSlot.MIDWEEK })
+        FixtureScheduleValidator.requireValid(fixtures)
     }
 
     @Test
@@ -115,7 +117,6 @@ class CupCompetitionSystemTest {
         )
 
         val qualifiers = CupCompetitionSystem.calculateGroupQualifiers(fixtures)
-
         assertEquals(listOf(3L, 1L), qualifiers)
     }
 
@@ -155,6 +156,7 @@ class CupCompetitionSystemTest {
         assertNotNull(finalFixture.homePenalties)
         assertNotNull(finalFixture.awayPenalties)
         assertFalse(finalFixture.homePenalties == finalFixture.awayPenalties)
+        assertEquals(MatchSlot.MIDWEEK, finalFixture.matchSlot)
 
         val records = repository.getAllHistoricalRecords()
         assertEquals(1, records.size)
@@ -168,7 +170,8 @@ class CupCompetitionSystemTest {
         val fixture = Fixture(
             id = 77L,
             season = 2026,
-            week = 35,
+            week = 25,
+            matchSlot = MatchSlot.MIDWEEK,
             homeTeamId = 10L,
             awayTeamId = 20L,
             competitionType = "COPA",
@@ -194,6 +197,7 @@ class CupCompetitionSystemTest {
     ): Fixture = Fixture(
         season = 2026,
         week = 31,
+        matchSlot = MatchSlot.MIDWEEK,
         homeTeamId = home,
         awayTeamId = away,
         homeScore = homeGoals,
