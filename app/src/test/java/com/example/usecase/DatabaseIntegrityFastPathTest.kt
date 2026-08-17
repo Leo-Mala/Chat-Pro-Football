@@ -65,6 +65,7 @@ class DatabaseIntegrityFastPathTest {
         val beforeCount = repository.getAllPlayers().size
         val report = DatabaseIntegrityUseCase(repository).repairDatabase()
         val afterPlayers = repository.getAllPlayers()
+        val validTeamIds = teams.map { it.id }.toSet()
 
         assertTrue("O fixture precisa representar um banco não trivial", beforeCount > 1_900)
         assertEquals(teams.size, report.totalTeamsChecked)
@@ -74,5 +75,6 @@ class DatabaseIntegrityFastPathTest {
         assertTrue(report.issuesFound.isEmpty())
         assertEquals(beforeCount, afterPlayers.size)
         assertEquals(afterPlayers.size, afterPlayers.map { it.id }.toSet().size)
+        assertTrue(afterPlayers.all { it.teamId in validTeamIds })
     }
 }
