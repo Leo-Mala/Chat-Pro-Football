@@ -5,6 +5,7 @@ on:
     branches: [ "main", "master" ]
     paths:
       - 'app/**'
+      - '!app/schemas/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle/**'
@@ -16,6 +17,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'app/**'
+      - '!app/schemas/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle/**'
@@ -63,7 +65,7 @@ jobs:
               echo "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
             fi
           else
-            cat << 'EOF' > app/google-services.json
+            cat << 'EOF'
           {
             "project_info": {
               "project_number": "1234567890",
@@ -86,7 +88,7 @@ jobs:
             "configuration_version": "1"
           }
           EOF
-          fi
+          fi > app/google-services.json
 
       - name: Setup Debug Keystore
         shell: bash
@@ -111,6 +113,34 @@ jobs:
           chmod +x gradlew
           ./gradlew --version
           ./gradlew assembleDebug --stacktrace
+
+      - name: Verify exported Room schema
+        id: room_schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          db_version=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('app/src/main/java/com/example/data/database.kt').read_text()
+          match = re.search(r'\bversion\s*=\s*(\d+)', source)
+          if not match:
+              raise SystemExit('Could not resolve Room database version')
+          print(match.group(1))
+          PY
+          )
+          schema_file="app/schemas/com.example.data.AppDatabase/${db_version}.json"
+          test -f "$schema_file"
+          echo "schema_file=$schema_file" >> "$GITHUB_OUTPUT"
+          echo "Room schema validated: $schema_file"
+
+      - name: Upload Room schema artifact
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schema-${{ github.sha }}
+          path: ${{ steps.room_schema.outputs.schema_file }}
+          if-no-files-found: error
 
       - name: Upload APK Artifact
         if: github.event_name != 'pull_request'
