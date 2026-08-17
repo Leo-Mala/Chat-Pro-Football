@@ -3,6 +3,7 @@ package com.example
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.*
+import com.example.support.RelationalIntegrityAssertions
 import com.example.usecase.*
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -82,8 +83,6 @@ class OneHundredSeasonMatchByMatchStressTest {
             )
         }
 
-        // Clubes de apoio tornam a rotação de sedes verificável no próprio stress longo sem
-        // alterar a liga detalhada do usuário, que continua restrita aos 20 clubes brasileiros.
         val hostSupportTeams = listOf(
             Team(301L, "Argentina Host", "Buenos Aires", "AR", "Argentina", 1, rating = 84),
             Team(302L, "Espanha Host", "Madrid", "ES", "Espanha", 1, rating = 88),
@@ -307,8 +306,8 @@ class OneHundredSeasonMatchByMatchStressTest {
 
                 val allPlayers = repository.getAllPlayers()
                 assertEquals(allPlayers.size, allPlayers.map { it.id }.toSet().size)
-                val validTeamIds = repository.getAllTeams().map { it.id }.toSet() + 0L
-                assertTrue(allPlayers.all { it.teamId in validTeamIds })
+                val validTeamIds = repository.getAllTeams().map { it.id }.toSet()
+                assertTrue(allPlayers.all { it.teamId == null || it.teamId in validTeamIds })
                 assertTrue(allPlayers.all { it.contractDurationWeeks >= 0 })
                 assertTrue(gameSave.bankBalance >= 0L)
                 assertTrue(cpuReport.minimumRosterSize >= 16)
@@ -319,6 +318,11 @@ class OneHundredSeasonMatchByMatchStressTest {
 
             val seasonFixtures = repository.getFixturesForSeason(currentSeason)
             FixtureScheduleValidator.requireValid(seasonFixtures)
+            RelationalIntegrityAssertions.assertRepositoryReferences(repository)
+            // PRAGMAs em checkpoints estratégicos para não multiplicar 4.800 verificações SQLite.
+            if (seasonOffset % 5 == 0 || seasonOffset == totalSeasons - 1) {
+                RelationalIntegrityAssertions.assertDatabasePragmas(db)
+            }
             val leagueFixtures = seasonFixtures.filter {
                 it.competitionType in setOf("SERIE_A", "DIV_1")
             }
@@ -402,13 +406,14 @@ class OneHundredSeasonMatchByMatchStressTest {
 
         val finalPlayers = repository.getAllPlayers()
         assertEquals(finalPlayers.size, finalPlayers.map { it.id }.toSet().size)
-        val validTeamIds = repository.getAllTeams().map { it.id }.toSet() + 0L
-        assertTrue(finalPlayers.all { it.teamId in validTeamIds })
+        val validTeamIds = repository.getAllTeams().map { it.id }.toSet()
+        assertTrue(finalPlayers.all { it.teamId == null || it.teamId in validTeamIds })
 
         cpuTeamIds.forEach { teamId ->
             val roster = repository.getPlayersByTeam(teamId)
             assertTrue(roster.size in 16..35)
             assertTrue(roster.any { it.position == "GOL" })
         }
+        RelationalIntegrityAssertions.assertDatabasePragmas(db)
     }
 }
