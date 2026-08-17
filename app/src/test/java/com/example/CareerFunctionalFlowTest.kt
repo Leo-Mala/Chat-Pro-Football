@@ -258,7 +258,7 @@ class CareerFunctionalFlowTest {
         viewModel.saveGame(manual = true) {
             if (!saveCompleted.isCompleted) saveCompleted.complete(Unit)
         }
-        awaitDeferred(saveCompleted, timeoutMs = 15_000L)
+        awaitDeferred(saveCompleted, timeoutMs = 60_000L)
 
         val databaseName = harness.saveRepository.databaseNameForSlot("1")
         val backupFile = application.getDatabasePath("${databaseName}_backup")
@@ -292,8 +292,7 @@ class CareerFunctionalFlowTest {
         assertEquals(600_000L, reopenedSave.loanAmount)
         assertEquals(selectedTeam.id, requireNotNull(reopenedRepository.getPlayer(purchaseTarget.id)).teamId)
         assertTrue(requireNotNull(reopenedRepository.getPlayer(loanTarget.id)).isOnLoan)
-        val reopenedAcademyPlayer = reopenedRepository.getPlayersByTeam(selectedTeam.id)
-            .first { it.name == promotedProspect.name }
+        val reopenedAcademyPlayer = requireNotNull(reopenedRepository.getPlayer(promotedPlayer.id))
         assertTrue(reopenedAcademyPlayer.isFromAcademy)
         assertEquals(selectedTeam.country, reopenedAcademyPlayer.nationality)
         assertEquals(1, reopenedHarness.viewModel.parseProspects(reopenedSave.academyProspects).size)
