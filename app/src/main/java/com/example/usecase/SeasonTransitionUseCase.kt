@@ -82,33 +82,29 @@ class SeasonTransitionUseCase(
                 val promotedIds: List<Long>
 
                 if (isDetailedCountry) {
-                    if (!hasCompletedLeagueSeason(
-                            teams = upperTeams,
-                            fixtures = seasonFixtures,
-                            division = upperRule.divisionLevel
-                        ) ||
-                        !hasCompletedLeagueSeason(
-                            teams = lowerTeams,
-                            fixtures = seasonFixtures,
-                            division = lowerRule.divisionLevel
-                        )
-                    ) {
-                        continue
-                    }
-
-                    val upperStandings = calculateSeasonStandings(
+                    val upperRanking = resolveDetailedCountryMovementRanking(
+                        season = currentSeason,
+                        country = country,
+                        division = upperRule.divisionLevel,
                         teams = upperTeams,
                         fixtures = seasonFixtures,
-                        division = upperRule.divisionLevel
-                    )
-                    val lowerStandings = calculateSeasonStandings(
+                        snapshotRows = snapshotRowsByCountryDivision[
+                            country to upperRule.divisionLevel
+                        ].orEmpty()
+                    ) ?: continue
+                    val lowerRanking = resolveDetailedCountryMovementRanking(
+                        season = currentSeason,
+                        country = country,
+                        division = lowerRule.divisionLevel,
                         teams = lowerTeams,
                         fixtures = seasonFixtures,
-                        division = lowerRule.divisionLevel
-                    )
+                        snapshotRows = snapshotRowsByCountryDivision[
+                            country to lowerRule.divisionLevel
+                        ].orEmpty()
+                    ) ?: continue
 
-                    relegatedIds = upperStandings.takeLast(movementSpots).map { it.first.id }
-                    promotedIds = lowerStandings.take(movementSpots).map { it.first.id }
+                    relegatedIds = upperRanking.takeLast(movementSpots)
+                    promotedIds = lowerRanking.take(movementSpots)
                 } else {
                     val upperSnapshot = snapshotRowsByCountryDivision[
                         country to upperRule.divisionLevel
@@ -253,6 +249,51 @@ class SeasonTransitionUseCase(
         repository.saveGameSave(updatedSave)
 
         updatedSave
+    }
+
+    /**
+     * Resolve a ordem esportiva usada em uma fronteira do país detalhado.
+     *
+     * Ligas que cabem nas 40 semanas continuam estritamente dependentes dos resultados reais:
+     * se o calendário estiver parcial ou corrompido, não há movimentação. Para uma divisão cujo
+     * formato atual é estruturalmente impossível de concluir dentro das 40 semanas, usamos o
+     * snapshot compacto validado como fallback temporário até a subfase de grupos/estágios.
+     */
+    private fun resolveDetailedCountryMovementRanking(
+        season: Int,
+        country: String,
+        division: Int,
+        teams: List<Team>,
+        fixtures: List<Fixture>,
+        snapshotRows: List<GlobalLeagueStanding>
+    ): List<Long>? {
+        if (LeagueSeasonFormat.fitsCurrentSeason(teams.size)) {
+            if (!hasCompletedLeagueSeason(
+                    teams = teams,
+                    fixtures = fixtures,
+                    division = division
+                )
+            ) {
+                return null
+            }
+            return calculateSeasonStandings(
+                teams = teams,
+                fixtures = fixtures,
+                division = division
+            ).map { it.first.id }
+        }
+
+        if (!hasCompleteSnapshot(
+                season = season,
+                country = country,
+                division = division,
+                teams = teams,
+                rows = snapshotRows
+            )
+        ) {
+            return null
+        }
+        return snapshotRows.sortedBy { it.position }.map { it.teamId }
     }
 
     private fun hasCompleteSnapshot(
