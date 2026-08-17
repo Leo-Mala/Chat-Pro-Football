@@ -5,17 +5,16 @@ import kotlin.random.Random
 /**
  * Geração e progressão das copas da carreira.
  *
- * Formatos usados pelo jogo:
- * - Copa nacional: mata-mata em jogo único com final na semana 35.
- * - Continental T1/T2: fase de grupos nas semanas 29, 30 e 31; mata-mata termina na semana 36.
- * - Continental T3: mata-mata em jogo único com final na semana 36, quando habilitado pela
- *   política da confederação ou pelo comportamento legado.
+ * Formatos usados nesta subfase:
+ * - Copa nacional: mata-mata em jogo único, MIDWEEK, com final na semana 27;
+ * - Continental T1/T2: fase de grupos nas semanas 29, 30 e 31, MIDWEEK;
+ * - Continental T3: mata-mata em jogo único até a semana 36, quando habilitado.
  *
- * A seleção continental usa quotas explícitas quando a confederação já possui política própria;
- * confederações ainda não normalizadas permanecem no comportamento legado determinístico.
+ * A Fase 9.6B substituirá o formato continental simplificado pelo calendário completo de
+ * Libertadores/Sul-Americana. Aqui o objetivo é garantir uma fundação temporal sem conflitos.
  */
 object CupCompetitionSystem {
-    const val NATIONAL_CUP_FINAL_WEEK = 35
+    const val NATIONAL_CUP_FINAL_WEEK = 27
     const val CONTINENTAL_FINAL_WEEK = 36
     private const val GROUP_WEEK_1 = 29
     private const val GROUP_WEEK_2 = 30
@@ -32,13 +31,6 @@ object CupCompetitionSystem {
             get() = (tier1 + tier2 + tier3).map { it.id }.toSet()
     }
 
-    /**
-     * Gera a abertura de Copa nacional e torneios continentais.
-     *
-     * [teams] é sempre a fonte canônica para a Copa nacional. [continentalTeams] pode ser uma
-     * visão transitória dos mesmos clubes com prioridade de qualificação aplicada, sem permitir
-     * que essa prioridade altere o corte ou a ordenação da Copa nacional.
-     */
     fun generateSeasonOpeningFixtures(
         season: Int,
         teams: List<Team>,
@@ -109,6 +101,7 @@ object CupCompetitionSystem {
             )
         }
 
+        FixtureScheduleValidator.requireValid(fixtures)
         return fixtures
     }
 
@@ -268,12 +261,12 @@ object CupCompetitionSystem {
             val t3 = groupTeams[2].id
             val t4 = groupTeams[3].id
 
-            fixtures += Fixture(season = season, week = GROUP_WEEK_1, homeTeamId = t1, awayTeamId = t4, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_1, homeTeamId = t2, awayTeamId = t3, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_2, homeTeamId = t1, awayTeamId = t3, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_2, homeTeamId = t4, awayTeamId = t2, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_3, homeTeamId = t2, awayTeamId = t1, competitionType = groupCode)
-            fixtures += Fixture(season = season, week = GROUP_WEEK_3, homeTeamId = t3, awayTeamId = t4, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t4, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t3, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t3, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t4, awayTeamId = t2, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t1, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t3, awayTeamId = t4, competitionType = groupCode)
         }
 
         return fixtures
@@ -432,6 +425,7 @@ object CupCompetitionSystem {
             Fixture(
                 season = season,
                 week = week,
+                matchSlot = MatchSlot.MIDWEEK,
                 homeTeamId = pair[0],
                 awayTeamId = pair[1],
                 competitionType = competitionType
