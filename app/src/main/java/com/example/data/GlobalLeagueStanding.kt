@@ -12,7 +12,11 @@ import androidx.room.Query
  *
  * Diferente de [Fixture], esta entidade não guarda cada partida das ligas CPU globais.
  * Ela preserva somente o resultado agregado necessário para histórico, qualificação
- * continental e futuras regras de promoção/rebaixamento sem inflar o save.
+ * continental e promoção/rebaixamento sem inflar o save.
+ *
+ * A primeira divisão pode permanecer como histórico de longo prazo. Divisões inferiores
+ * são mantidas numa janela curta, suficiente para a movimentação global, e podem ser podadas
+ * em temporadas seguintes para limitar o crescimento do banco.
  */
 @Entity(
     tableName = "global_league_standings",
@@ -62,6 +66,12 @@ interface GlobalLeagueStandingDao {
 
     @Query("DELETE FROM global_league_standings WHERE season = :season")
     suspend fun deleteForSeason(season: Int)
+
+    @Query(
+        "DELETE FROM global_league_standings " +
+            "WHERE division > 1 AND season < :keepFromSeason"
+    )
+    suspend fun deleteLowerDivisionsBeforeSeason(keepFromSeason: Int)
 
     @Query("DELETE FROM global_league_standings")
     suspend fun deleteAll()

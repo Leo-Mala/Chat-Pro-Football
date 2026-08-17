@@ -62,18 +62,21 @@ class FootballRulesIntegrityTest {
         }
 
         val brazil = LeagueHierarchyLoader.getHierarchyForCountry("Brasil")
+        assertEquals(listOf(1, 2, 3, 4, 5), brazil.divisions.map { it.divisionLevel })
         assertEquals(4, brazil.movementSpotsBetween(1, 2))
         assertEquals(4, brazil.movementSpotsBetween(2, 3))
         assertEquals(4, brazil.movementSpotsBetween(3, 4))
+        assertEquals(4, brazil.movementSpotsBetween(4, 5))
 
         val england = LeagueHierarchyLoader.getHierarchyForCountry("Inglaterra")
+        assertEquals(listOf(1, 2, 3), england.divisions.map { it.divisionLevel })
         assertEquals(2, england.movementSpotsBetween(1, 2))
         assertEquals(2, england.movementSpotsBetween(2, 3))
-        assertEquals(2, england.movementSpotsBetween(3, 4))
+        assertEquals(0, england.movementSpotsBetween(3, 4))
     }
 
     @Test
-    fun `season transition moves only clubs from completed leagues and uses hierarchy spots`() = runBlocking {
+    fun `season transition uses real results for user country and compact standings for CPU country`() = runBlocking {
         val englandA = teams("Inglaterra", division = 1, firstId = 100L, count = 4)
         val englandB = teams("Inglaterra", division = 2, firstId = 200L, count = 4)
         val spainA = teams("Espanha", division = 1, firstId = 300L, count = 4)
@@ -88,8 +91,9 @@ class FootballRulesIntegrityTest {
             ).mapIndexed { index, fixture -> completedFixture(fixture, index) }
         repository.saveFixtures(englandFixtures)
 
-        // Espanha deliberately has no league fixtures. The old transition logic still
-        // moved clubs there because it built a zeroed standings table for every country.
+        // Inglaterra é o país detalhado do usuário e precisa usar os resultados persistidos.
+        // Espanha não possui fixtures detalhados, mas na Fase 9.4 passa a evoluir pelo snapshot
+        // compacto determinístico da CPU em vez de permanecer congelada.
         val save = GameSave(
             coachName = "Rules QA",
             currentSeason = season,
@@ -112,14 +116,19 @@ class FootballRulesIntegrityTest {
             afterTeams.getValue(id).division != oldDivision
         }
 
-        // Inglaterra hierarchy = 2 down + 2 up across A/B.
+        // Ambas as fronteiras A/B preservam tamanho: 2 descem e 2 sobem.
         assertEquals(4, englandChanged)
-        assertEquals(0, spainChanged)
+        assertEquals(4, spainChanged)
         assertEquals(4, afterTeams.values.count { it.country == "Inglaterra" && it.division == 1 })
         assertEquals(4, afterTeams.values.count { it.country == "Inglaterra" && it.division == 2 })
+        assertEquals(4, afterTeams.values.count { it.country == "Espanha" && it.division == 1 })
+        assertEquals(4, afterTeams.values.count { it.country == "Espanha" && it.division == 2 })
 
-        // Calendar scope after the transition must match season 1: league fixtures only
-        // for the user's country, not arbitrary CPU leagues from every country.
+        val snapshot = repository.getGlobalStandingsForSeason(season)
+        assertEquals(4, snapshot.count { it.country == "Espanha" && it.division == 1 })
+        assertEquals(4, snapshot.count { it.country == "Espanha" && it.division == 2 })
+
+        // O calendário detalhado da temporada seguinte continua restrito ao país do usuário.
         val nextFixtures = repository.getFixturesForSeason(2027)
         val leagueFixtures = nextFixtures.filter {
             it.competitionType in setOf("SERIE_A", "SERIE_B", "SERIE_C", "SERIE_D")

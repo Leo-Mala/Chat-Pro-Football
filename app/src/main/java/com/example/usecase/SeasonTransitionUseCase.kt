@@ -31,8 +31,6 @@ class SeasonTransitionUseCase(
     suspend fun advanceToNextSeason(save: GameSave): GameSave = repository.withTransaction {
         val persistedSave = repository.getGameSave() ?: save
 
-        // Idempotência: uma chamada repetida com um snapshot da temporada anterior
-        // nunca deve envelhecer atletas, mover divisões ou apagar fixtures novamente.
         if (persistedSave.currentSeason != save.currentSeason) {
             return@withTransaction persistedSave
         }
@@ -51,10 +49,6 @@ class SeasonTransitionUseCase(
         val currentUserCountry = allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
             ?: "Brasil"
 
-        // 1. Persistir primeiro o retrato global da temporada que terminou.
-        // O país do usuário usa os fixtures reais; os demais países recebem uma classificação
-        // agregada determinística. Como esta função já está dentro da transação de temporada,
-        // delete + insert permanecem atômicos sem abrir um segundo withTransaction.
         val globalStandings = globalLeagueSimulationUseCase.buildSeasonStandings(
             season = currentSeason,
             teams = allTeams,
@@ -63,60 +57,99 @@ class SeasonTransitionUseCase(
         )
         repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
 
-        // 2. Promoção/rebaixamento só é aplicado em fronteiras de divisões que realmente
-        // disputaram e concluíram suas ligas. Isso impede movimentação arbitrária em países
-        // cujo campeonato detalhado ainda não foi simulado no calendário da carreira atual.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
+        val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
 
         for ((country, countryTeams) in teamsByCountry) {
+            val isDetailedCountry = country.equals(currentUserCountry, ignoreCase = true)
             val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry(country)
             val divisions = hierarchy.divisions.sortedBy { it.divisionLevel }
 
             for ((upperRule, lowerRule) in divisions.zipWithNext()) {
                 val upperTeams = countryTeams.filter { it.division == upperRule.divisionLevel }
                 val lowerTeams = countryTeams.filter { it.division == lowerRule.divisionLevel }
-                val movementSpots = hierarchy.movementSpotsBetween(
-                    upperRule.divisionLevel,
-                    lowerRule.divisionLevel
+                val movementSpots = hierarchy.safeMovementSpotsBetween(
+                    upperLevel = upperRule.divisionLevel,
+                    lowerLevel = lowerRule.divisionLevel,
+                    upperTeamCount = upperTeams.size,
+                    lowerTeamCount = lowerTeams.size
                 )
 
-                if (movementSpots <= 0 ||
-                    upperTeams.size < movementSpots ||
-                    lowerTeams.size < movementSpots
-                ) {
-                    continue
+                if (movementSpots <= 0) continue
+
+                val relegatedIds: List<Long>
+                val promotedIds: List<Long>
+
+                if (isDetailedCountry) {
+                    val upperRanking = resolveDetailedCountryMovementRanking(
+                        season = currentSeason,
+                        country = country,
+                        division = upperRule.divisionLevel,
+                        teams = upperTeams,
+                        fixtures = seasonFixtures,
+                        snapshotRows = snapshotRowsByCountryDivision[
+                            country to upperRule.divisionLevel
+                        ].orEmpty()
+                    ) ?: continue
+                    val lowerRanking = resolveDetailedCountryMovementRanking(
+                        season = currentSeason,
+                        country = country,
+                        division = lowerRule.divisionLevel,
+                        teams = lowerTeams,
+                        fixtures = seasonFixtures,
+                        snapshotRows = snapshotRowsByCountryDivision[
+                            country to lowerRule.divisionLevel
+                        ].orEmpty()
+                    ) ?: continue
+
+                    relegatedIds = upperRanking.takeLast(movementSpots)
+                    promotedIds = lowerRanking.take(movementSpots)
+                } else {
+                    val upperSnapshot = snapshotRowsByCountryDivision[
+                        country to upperRule.divisionLevel
+                    ].orEmpty()
+                    val lowerSnapshot = snapshotRowsByCountryDivision[
+                        country to lowerRule.divisionLevel
+                    ].orEmpty()
+
+                    if (!hasCompleteSnapshot(
+                            season = currentSeason,
+                            country = country,
+                            division = upperRule.divisionLevel,
+                            teams = upperTeams,
+                            rows = upperSnapshot
+                        ) ||
+                        !hasCompleteSnapshot(
+                            season = currentSeason,
+                            country = country,
+                            division = lowerRule.divisionLevel,
+                            teams = lowerTeams,
+                            rows = lowerSnapshot
+                        )
+                    ) {
+                        continue
+                    }
+
+                    relegatedIds = upperSnapshot
+                        .sortedBy { it.position }
+                        .takeLast(movementSpots)
+                        .map { it.teamId }
+                    promotedIds = lowerSnapshot
+                        .sortedBy { it.position }
+                        .take(movementSpots)
+                        .map { it.teamId }
                 }
 
-                if (!hasCompletedLeagueSeason(upperTeams, seasonFixtures, upperRule.code) ||
-                    !hasCompletedLeagueSeason(lowerTeams, seasonFixtures, lowerRule.code)
-                ) {
-                    continue
-                }
-
-                val upperStandings = calculateSeasonStandings(
-                    upperTeams,
-                    seasonFixtures,
-                    upperRule.code
-                )
-                val lowerStandings = calculateSeasonStandings(
-                    lowerTeams,
-                    seasonFixtures,
-                    lowerRule.code
-                )
-
-                val relegated = upperStandings.takeLast(movementSpots).map { it.first }
-                val promoted = lowerStandings.take(movementSpots).map { it.first }
-
-                for (team in relegated) {
-                    val currentTeam = updatedTeamsMap[team.id] ?: team
-                    updatedTeamsMap[team.id] = currentTeam.copy(
+                for (teamId in relegatedIds) {
+                    val currentTeam = updatedTeamsMap[teamId] ?: continue
+                    updatedTeamsMap[teamId] = currentTeam.copy(
                         division = lowerRule.divisionLevel
                     )
                 }
-                for (team in promoted) {
-                    val currentTeam = updatedTeamsMap[team.id] ?: team
-                    updatedTeamsMap[team.id] = currentTeam.copy(
+                for (teamId in promotedIds) {
+                    val currentTeam = updatedTeamsMap[teamId] ?: continue
+                    updatedTeamsMap[teamId] = currentTeam.copy(
                         division = upperRule.divisionLevel
                     )
                 }
@@ -125,9 +158,6 @@ class SeasonTransitionUseCase(
 
         updatedTeamsMap.values.forEach { repository.updateTeam(it) }
 
-        // 3. Envelhecer atletas uma única vez por temporada. Aposentadoria cria uma
-        // identidade nova de verdade: o atleta antigo é removido e o substituto recebe
-        // novo ID, contrato/estatísticas zerados e nenhum vínculo de empréstimo herdado.
         val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
         val playersToUpdate = mutableListOf<Player>()
         val replacementPlayers = mutableListOf<Player>()
@@ -194,21 +224,14 @@ class SeasonTransitionUseCase(
             repository.savePlayers(replacementPlayers)
         }
 
-        // 4. Reparar integridade antes de gerar o novo calendário.
         databaseIntegrityUseCase.repairDatabase()
 
-        // 5. Remover fixtures/dados antigos somente depois de todas as regras da semana 40
-        // e do snapshot global terem sido processados.
         repository.purgeOldData(nextSeason)
         repository.deleteFixtures()
 
-        // 6. A primeira temporada e todas as seguintes usam exatamente o mesmo gerador.
-        // A liga detalhada permanece no país do usuário; a classificação global da temporada
-        // encerrada passa a ordenar a qualificação continental da nova temporada.
         val updatedTeamsList = updatedTeamsMap.values.toList()
         val playerTeam = updatedTeamsMap[sourceSave.playerTeamId]
-        val userCountry = playerTeam?.country
-            ?: currentUserCountry
+        val userCountry = playerTeam?.country ?: currentUserCountry
 
         val newFixtures = generateCalendarUseCase.generateSeasonFixtures(
             season = nextSeason,
@@ -219,7 +242,6 @@ class SeasonTransitionUseCase(
         )
         repository.saveFixtures(newFixtures)
 
-        // 7. Persistir a nova temporada por último. Esse write é o marcador atômico da transição concluída.
         val updatedSave = sourceSave.copy(
             currentSeason = nextSeason,
             currentWeek = 1
@@ -229,16 +251,88 @@ class SeasonTransitionUseCase(
         updatedSave
     }
 
+    /**
+     * Resolve a ordem esportiva usada em uma fronteira do país detalhado.
+     *
+     * Ligas que cabem nas 40 semanas continuam estritamente dependentes dos resultados reais:
+     * se o calendário estiver parcial ou corrompido, não há movimentação. Para uma divisão cujo
+     * formato atual é estruturalmente impossível de concluir dentro das 40 semanas, usamos o
+     * snapshot compacto validado como fallback temporário até a subfase de grupos/estágios.
+     */
+    private fun resolveDetailedCountryMovementRanking(
+        season: Int,
+        country: String,
+        division: Int,
+        teams: List<Team>,
+        fixtures: List<Fixture>,
+        snapshotRows: List<GlobalLeagueStanding>
+    ): List<Long>? {
+        if (LeagueSeasonFormat.fitsCurrentSeason(teams.size)) {
+            if (!hasCompletedLeagueSeason(
+                    teams = teams,
+                    fixtures = fixtures,
+                    division = division
+                )
+            ) {
+                return null
+            }
+            return calculateSeasonStandings(
+                teams = teams,
+                fixtures = fixtures,
+                division = division
+            ).map { it.first.id }
+        }
+
+        if (!hasCompleteSnapshot(
+                season = season,
+                country = country,
+                division = division,
+                teams = teams,
+                rows = snapshotRows
+            )
+        ) {
+            return null
+        }
+        return snapshotRows.sortedBy { it.position }.map { it.teamId }
+    }
+
+    private fun hasCompleteSnapshot(
+        season: Int,
+        country: String,
+        division: Int,
+        teams: List<Team>,
+        rows: List<GlobalLeagueStanding>
+    ): Boolean {
+        if (teams.isEmpty() || rows.size != teams.size) return false
+
+        val expectedTeamIds = teams.map { it.id }.toSet()
+        val rowTeamIds = rows.map { it.teamId }
+        if (rowTeamIds.toSet() != expectedTeamIds || rowTeamIds.size != rowTeamIds.toSet().size) {
+            return false
+        }
+
+        if (rows.any {
+                it.season != season ||
+                    !it.country.equals(country, ignoreCase = true) ||
+                    it.division != division
+            }
+        ) {
+            return false
+        }
+
+        return rows.map { it.position }.sorted() == (1..teams.size).toList()
+    }
+
     private fun hasCompletedLeagueSeason(
         teams: List<Team>,
         fixtures: List<Fixture>,
-        compType: String
+        division: Int
     ): Boolean {
         if (teams.size < 2) return false
         val teamIds = teams.map { it.id }.toSet()
         if (teamIds.size != teams.size) return false
 
-        val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
+        val acceptedTypes = LeagueSeasonFormat.acceptedDetailedCompetitionTypes(division)
         val relevantFixtures = fixtures.filter { fixture ->
             fixture.competitionType in acceptedTypes &&
                 fixture.homeTeamId in teamIds &&
@@ -247,9 +341,6 @@ class SeasonTransitionUseCase(
         val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
         val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
 
-        // Uma temporada só pode gerar promoção/rebaixamento quando todos os confrontos do
-        // formato vigente estão concluídos e com placar. Para 2 turnos, cada direção do par
-        // deve existir uma vez; para turno único, cada par não ordenado deve existir uma vez.
         if (relevantFixtures.size != expectedFixtureCount || relevantFixtures.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
             }
@@ -283,11 +374,11 @@ class SeasonTransitionUseCase(
     private fun calculateSeasonStandings(
         teams: List<Team>,
         fixtures: List<Fixture>,
-        compType: String
+        division: Int
     ): List<Pair<Team, SeasonStandingRow>> {
         val map = teams.associateWith { SeasonStandingRow(it.name) }.toMutableMap()
         val teamIds = teams.map { it.id }.toSet()
-        val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
+        val acceptedTypes = LeagueSeasonFormat.acceptedDetailedCompetitionTypes(division)
         val relevantFixtures = fixtures.filter {
             it.competitionType in acceptedTypes &&
                 it.isPlayed &&
@@ -339,19 +430,5 @@ class SeasonTransitionUseCase(
                 .thenByDescending { it.second.gd }
                 .thenByDescending { it.second.gf }
         )
-    }
-
-    private fun alternateCompetitionType(compType: String): String {
-        return when (compType) {
-            "SERIE_A" -> "DIV_1"
-            "SERIE_B" -> "DIV_2"
-            "SERIE_C" -> "DIV_3"
-            "SERIE_D" -> "DIV_4"
-            "DIV_1" -> "SERIE_A"
-            "DIV_2" -> "SERIE_B"
-            "DIV_3" -> "SERIE_C"
-            "DIV_4" -> "SERIE_D"
-            else -> compType
-        }
     }
 }

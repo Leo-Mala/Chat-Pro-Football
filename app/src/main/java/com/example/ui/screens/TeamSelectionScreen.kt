@@ -27,6 +27,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.rememberAsyncImagePainter
 import com.example.data.*
+import com.example.ui.state.LeagueDivisionUi
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
 
@@ -42,7 +43,7 @@ fun TeamSelectionScreen(
     val selectedTeamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
     val isStartingNewGame by viewModel.isStartingNewGame.collectAsStateWithLifecycle()
 
-    var activeTab by remember { mutableIntStateOf(1) } // 1: Serie A, 2: Serie B, 3: Serie C, 4: Serie D / Regional
+    var activeTab by remember { mutableIntStateOf(1) }
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
     var selectedContinent by remember { mutableStateOf("América do Sul") }
 
@@ -264,46 +265,41 @@ fun TeamSelectionScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             val hierarchy = remember(selectedCountry) { LeagueHierarchyLoader.getHierarchyForCountry(selectedCountry) }
-            val divTabs = remember(hierarchy) {
-                listOf(
-                    Triple(1, hierarchy.divisions.find { it.divisionLevel == 1 }?.name ?: "Série A", Icons.Default.Shield),
-                    Triple(2, hierarchy.divisions.find { it.divisionLevel == 2 }?.name ?: "Série B", Icons.Default.Shield),
-                    Triple(3, hierarchy.divisions.find { it.divisionLevel == 3 }?.name ?: "Série C", Icons.Default.Shield),
-                    Triple(4, hierarchy.divisions.find { it.divisionLevel == 4 }?.name ?: "Série D", Icons.Default.Shield)
-                )
-            }
+            val divTabs = remember(hierarchy) { LeagueDivisionUi.tabsForHierarchy(hierarchy) }
 
-            // Tab rows for division filter
-            Row(
+            // A lista é horizontal para continuar acessível quando o país possuir 5+ níveis.
+            LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(CardSurfaceDark, RoundedCornerShape(8.dp))
                     .padding(4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                divTabs.forEach { (div, label, icon) ->
-                    val isActive = activeTab == div
+                items(divTabs, key = { it.division }) { tab ->
+                    val isActive = activeTab == tab.division
                     Box(
                         modifier = Modifier
-                            .weight(1f)
+                            .widthIn(min = 92.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (isActive) TurfDeepGreen else Color.Transparent)
-                            .clickable { activeTab = div }
-                            .padding(vertical = 10.dp),
+                            .clickable { activeTab = tab.division }
+                            .testTag("division_tab_${tab.division}")
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
-                                imageVector = icon,
+                                imageVector = Icons.Default.Shield,
                                 contentDescription = null,
                                 tint = if (isActive) AccentLime else Color.Gray,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                label,
+                                tab.label,
                                 fontSize = 11.sp,
                                 color = if (isActive) Color.White else Color.Gray,
-                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1
                             )
                         }
                     }

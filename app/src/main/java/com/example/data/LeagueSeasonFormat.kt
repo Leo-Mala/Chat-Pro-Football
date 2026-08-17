@@ -5,8 +5,10 @@ package com.example.data
  *
  * - se turno + returno couberem, usamos 2 turnos;
  * - se apenas um turno couber, usamos turno único;
- * - divisões grandes demais até para um turno mantêm 2 turnos por compatibilidade legada e
- *   continuam fora do escopo desta fase; elas exigirão formato próprio por grupos/estágios.
+ * - divisões grandes demais até para um turno mantêm 2 turnos por compatibilidade legada no
+ *   calendário detalhado e continuam exigindo formato próprio por grupos/estágios;
+ * - a simulação global compacta não depende das 40 semanas: usa 2 turnos até 20 clubes e
+ *   turno único acima disso para manter custo previsível sem persistir fixtures CPU.
  */
 object LeagueSeasonFormat {
 
@@ -24,6 +26,59 @@ object LeagueSeasonFormat {
             rounds <= GameCalendar.WEEKS_PER_SEASON -> 1
             else -> 2 // Formatos gigantes serão tratados em subfase dedicada.
         }
+    }
+
+    /** Código canônico hoje persistido pelo calendário detalhado para cada nível. */
+    fun detailedCompetitionTypeForDivision(division: Int): String {
+        require(division > 0) { "Divisão deve ser positiva: $division" }
+        return when (division) {
+            1 -> "SERIE_A"
+            2 -> "SERIE_B"
+            3 -> "SERIE_C"
+            else -> "SERIE_D"
+        }
+    }
+
+    /**
+     * Códigos aceitos ao ler fixtures detalhados.
+     *
+     * Mantém compatibilidade tanto com o código legado SERIE_* gravado pelo calendário quanto
+     * com aliases division-aware `DIV_n`. Para níveis 5+, isso significa `SERIE_D` + `DIV_5`,
+     * `SERIE_D` + `DIV_6` etc., evitando que snapshot e promoção usem regras divergentes.
+     */
+    fun acceptedDetailedCompetitionTypes(division: Int): Set<String> {
+        return setOf(detailedCompetitionTypeForDivision(division), "DIV_$division")
+    }
+
+    /**
+     * Política exclusiva da simulação CPU em memória.
+     *
+     * Como essas partidas não ocupam semanas e nunca são persistidas, não precisamos forçar
+     * o calendário detalhado de 40 semanas. Mesmo assim, ligas muito grandes ficam em turno
+     * único para evitar duplicar milhares de confrontos sem benefício proporcional.
+     */
+    fun legsForCompactSimulation(teamCount: Int): Int {
+        if (teamCount < 2) return 0
+        return if (teamCount <= 20) 2 else 1
+    }
+
+    /**
+     * Decide o mando em ligas compactas de turno único sem favorecer IDs baixos ou altos.
+     *
+     * Para um campeonato completo, a paridade dos índices distribui os mandos de modo que a
+     * diferença entre quaisquer clubes seja no máximo um jogo. Temporada e divisão entram na
+     * paridade para inverter a orientação ao longo dos anos sem introduzir aleatoriedade.
+     */
+    fun firstTeamHostsCompactSingleLeg(
+        firstIndex: Int,
+        secondIndex: Int,
+        season: Int,
+        division: Int
+    ): Boolean {
+        require(firstIndex >= 0 && secondIndex > firstIndex) {
+            "Índices de confronto inválidos: $firstIndex x $secondIndex"
+        }
+        return (firstIndex + secondIndex + season + division) % 2 == 0
     }
 
     fun expectedFixtureCount(teamCount: Int): Int {

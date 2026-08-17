@@ -9,9 +9,10 @@ import kotlin.random.Random
 /**
  * Produz classificações globais compactas sem persistir milhares de partidas CPU.
  *
- * A liga do país do usuário usa os resultados detalhados já existentes em [Fixture].
- * As demais primeiras divisões são simuladas partida a partida apenas em memória, com
- * resultados determinísticos por temporada/país/confronto. Somente a tabela final é salva.
+ * O país do usuário aproveita resultados detalhados reais sempre que a divisão estiver
+ * completa e estruturalmente válida. Todas as demais divisões são simuladas partida a partida
+ * apenas em memória, com resultados determinísticos por temporada/país/divisão/confronto.
+ * Somente a tabela final é salva, permitindo promoção/rebaixamento global sem explodir o banco.
  */
 class GlobalLeagueSimulationUseCase {
 
@@ -22,21 +23,35 @@ class GlobalLeagueSimulationUseCase {
         detailedCountry: String
     ): List<GlobalLeagueStanding> {
         return teams
-            .filter { it.division == 1 }
             .groupBy { it.country }
             .toSortedMap()
             .flatMap { (country, countryTeams) ->
-                val actualRows = if (country.equals(detailedCountry, ignoreCase = true)) {
-                    buildFromDetailedFixtures(season, countryTeams, detailedFixtures)
-                } else {
-                    emptyList()
-                }
+                countryTeams
+                    .groupBy { it.division }
+                    .toSortedMap()
+                    .flatMap { (division, divisionTeams) ->
+                        val actualRows = if (country.equals(detailedCountry, ignoreCase = true)) {
+                            buildFromDetailedFixtures(
+                                season = season,
+                                division = division,
+                                teams = divisionTeams,
+                                fixtures = detailedFixtures
+                            )
+                        } else {
+                            emptyList()
+                        }
 
-                if (actualRows.isNotEmpty()) {
-                    actualRows
-                } else {
-                    simulateCompactLeague(season, country, countryTeams)
-                }
+                        if (actualRows.isNotEmpty()) {
+                            actualRows
+                        } else {
+                            simulateCompactLeague(
+                                season = season,
+                                country = country,
+                                division = division,
+                                teams = divisionTeams
+                            )
+                        }
+                    }
             }
     }
 
@@ -54,6 +69,7 @@ class GlobalLeagueSimulationUseCase {
 
     private fun buildFromDetailedFixtures(
         season: Int,
+        division: Int,
         teams: List<Team>,
         fixtures: List<Fixture>
     ): List<GlobalLeagueStanding> {
@@ -62,18 +78,16 @@ class GlobalLeagueSimulationUseCase {
         val teamIds = teams.map { it.id }.toSet()
         if (teamIds.size != teams.size) return emptyList()
 
+        val acceptedTypes = LeagueSeasonFormat.acceptedDetailedCompetitionTypes(division)
         val relevant = fixtures.filter {
             it.season == season &&
-                it.competitionType in setOf("SERIE_A", "DIV_1") &&
+                it.competitionType in acceptedTypes &&
                 it.homeTeamId in teamIds &&
                 it.awayTeamId in teamIds
         }
         val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
         val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
 
-        // Nunca transforma uma tabela parcial ou estruturalmente corrompida em verdade
-        // histórica. O calendário pode ser turno único ou turno + returno, conforme o número
-        // de clubes que cabe nas 40 semanas, e todos os pareamentos esperados precisam existir.
         if (relevant.size != expectedFixtureCount || relevant.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
             } || !hasExpectedPairings(teamIds, relevant, legs)
@@ -126,16 +140,18 @@ class GlobalLeagueSimulationUseCase {
     private fun simulateCompactLeague(
         season: Int,
         country: String,
+        division: Int,
         teams: List<Team>
     ): List<GlobalLeagueStanding> {
         if (teams.isEmpty()) return emptyList()
         if (teams.size == 1) {
+            val team = teams.single()
             return listOf(
                 GlobalLeagueStanding(
                     season = season,
                     country = country,
-                    division = 1,
-                    teamId = teams.single().id,
+                    division = division,
+                    teamId = team.id,
                     position = 1,
                     points = 0,
                     played = 0,
@@ -151,16 +167,27 @@ class GlobalLeagueSimulationUseCase {
 
         val orderedTeams = teams.sortedBy { it.id }
         val stats = orderedTeams.associate { it.id to MutableStats() }.toMutableMap()
-        val legs = LeagueSeasonFormat.legsForDetailedLeague(orderedTeams.size)
+        val legs = LeagueSeasonFormat.legsForCompactSimulation(orderedTeams.size)
 
         for (i in 0 until orderedTeams.lastIndex) {
             for (j in i + 1 until orderedTeams.size) {
                 for (leg in 0 until legs) {
-                    val homeTeam = if (leg == 0) orderedTeams[i] else orderedTeams[j]
-                    val awayTeam = if (leg == 0) orderedTeams[j] else orderedTeams[i]
+                    val firstTeamAtHome = if (legs == 1) {
+                        LeagueSeasonFormat.firstTeamHostsCompactSingleLeg(
+                            firstIndex = i,
+                            secondIndex = j,
+                            season = season,
+                            division = division
+                        )
+                    } else {
+                        leg == 0
+                    }
+                    val homeTeam = if (firstTeamAtHome) orderedTeams[i] else orderedTeams[j]
+                    val awayTeam = if (firstTeamAtHome) orderedTeams[j] else orderedTeams[i]
                     val (homeGoals, awayGoals) = simulateScore(
                         season = season,
                         country = country,
+                        division = division,
                         homeTeam = homeTeam,
                         awayTeam = awayTeam,
                         leg = leg
@@ -178,13 +205,14 @@ class GlobalLeagueSimulationUseCase {
     private fun simulateScore(
         season: Int,
         country: String,
+        division: Int,
         homeTeam: Team,
         awayTeam: Team,
         leg: Int
     ): Pair<Int, Int> {
         val random = Random(
             stableSeed(
-                "$season|$country|${homeTeam.id}|${awayTeam.id}|$leg"
+                "$season|$country|$division|${homeTeam.id}|${awayTeam.id}|$leg"
             )
         )
         val ratingDiff = (homeTeam.rating + 5) - awayTeam.rating
