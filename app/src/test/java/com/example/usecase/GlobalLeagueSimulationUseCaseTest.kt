@@ -25,20 +25,43 @@ class GlobalLeagueSimulationUseCaseTest {
         val second = useCase.buildSeasonStandings(2026, teams, emptyList(), "Brasil")
 
         assertEquals(first, second)
-        assertEquals(4, first.size)
-        assertEquals(listOf(1, 2, 3, 4), first.map { it.position })
-        assertFalse(first.any { it.teamId == 5L })
+        assertEquals(5, first.size)
 
-        first.forEach { row ->
+        val topDivision = first.filter { it.division == 1 }
+        assertEquals(4, topDivision.size)
+        assertEquals(listOf(1, 2, 3, 4), topDivision.map { it.position })
+        assertFalse(topDivision.any { it.teamId == 5L })
+
+        topDivision.forEach { row ->
             assertEquals(6, row.played)
             assertEquals(row.played, row.wins + row.draws + row.losses)
             assertEquals(row.points, row.wins * 3 + row.draws)
             assertEquals(row.goalDifference, row.goalsFor - row.goalsAgainst)
         }
 
-        assertEquals(first.sumOf { it.wins }, first.sumOf { it.losses })
-        assertEquals(first.sumOf { it.goalsFor }, first.sumOf { it.goalsAgainst })
-        assertEquals(0, first.sumOf { it.draws } % 2)
+        assertEquals(topDivision.sumOf { it.wins }, topDivision.sumOf { it.losses })
+        assertEquals(topDivision.sumOf { it.goalsFor }, topDivision.sumOf { it.goalsAgainst })
+        assertEquals(0, topDivision.sumOf { it.draws } % 2)
+
+        val secondDivision = first.single { it.division == 2 }
+        assertEquals(5L, secondDivision.teamId)
+        assertEquals(1, secondDivision.position)
+        assertEquals(0, secondDivision.played)
+    }
+
+    @Test
+    fun largeCompactDivisionUsesSingleRoundRobinToBoundCpuCost() {
+        val teams = (1L..24L).map { id ->
+            team(id, "Div2 $id", "Argentina", 50 + (id % 30).toInt(), division = 2)
+        }
+
+        val standings = useCase.buildSeasonStandings(2026, teams, emptyList(), "Brasil")
+
+        assertEquals(24, standings.size)
+        assertTrue(standings.all { it.division == 2 })
+        assertTrue(standings.all { it.played == 23 })
+        assertEquals(standings.sumOf { it.wins }, standings.sumOf { it.losses })
+        assertEquals(standings.sumOf { it.goalsFor }, standings.sumOf { it.goalsAgainst })
     }
 
     @Test
@@ -63,6 +86,24 @@ class GlobalLeagueSimulationUseCaseTest {
         assertEquals(12, standings.first().points)
         assertEquals(4, standings.first().wins)
         assertEquals(4, standings.first().played)
+    }
+
+    @Test
+    fun detailedLowerDivisionAlsoUsesItsRealCompletedResults() {
+        val favorite = team(40, "Favorito B", "Brasil", 99, division = 2)
+        val champion = team(41, "Campeao B", "Brasil", 60, division = 2)
+        val teams = listOf(favorite, champion)
+        val fixtures = listOf(
+            playedFixture(40, champion.id, favorite.id, 1, 0, competitionType = "SERIE_B"),
+            playedFixture(41, favorite.id, champion.id, 0, 2, competitionType = "SERIE_B")
+        )
+
+        val standings = useCase.buildSeasonStandings(2026, teams, fixtures, "Brasil")
+
+        assertEquals(2, standings.size)
+        assertTrue(standings.all { it.division == 2 })
+        assertEquals(champion.id, standings.first().teamId)
+        assertEquals(6, standings.first().points)
     }
 
     @Test
@@ -174,7 +215,8 @@ class GlobalLeagueSimulationUseCaseTest {
         awayId: Long,
         homeScore: Int,
         awayScore: Int,
-        countrySeasonWeek: Int = id.toInt()
+        countrySeasonWeek: Int = id.toInt(),
+        competitionType: String = "SERIE_A"
     ) = Fixture(
         id = id,
         season = 2026,
@@ -183,7 +225,7 @@ class GlobalLeagueSimulationUseCaseTest {
         awayTeamId = awayId,
         homeScore = homeScore,
         awayScore = awayScore,
-        competitionType = "SERIE_A",
+        competitionType = competitionType,
         isPlayed = true
     )
 }
