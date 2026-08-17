@@ -1,39 +1,17 @@
 name: Core Regression
 
+# Diagnóstico manual. A validação normal de PR executa esta mesma suíte dentro de android.yml
+# para reaproveitar o mesmo runner do build e economizar minutos de Actions.
 on:
-  push:
-    branches: [ "main", "master" ]
-    paths:
-      - 'app/**'
-      - '!app/schemas/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle/**'
-      - '.github/workflows/core-regression.yml'
-  pull_request:
-    branches: [ "main", "master" ]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'app/**'
-      - '!app/schemas/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle/**'
-      - '.github/workflows/core-regression.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: core-regression-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   core-regression:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
