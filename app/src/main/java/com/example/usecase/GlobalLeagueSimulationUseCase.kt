@@ -2,6 +2,7 @@ package com.example.usecase
 
 import com.example.data.Fixture
 import com.example.data.GlobalLeagueStanding
+import com.example.data.LeagueSeasonFormat
 import com.example.data.Team
 import kotlin.random.Random
 
@@ -67,14 +68,15 @@ class GlobalLeagueSimulationUseCase {
                 it.homeTeamId in teamIds &&
                 it.awayTeamId in teamIds
         }
-        val expectedFixtureCount = teams.size * (teams.size - 1)
+        val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
+        val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
 
         // Nunca transforma uma tabela parcial ou estruturalmente corrompida em verdade
-        // histórica. O calendário detalhado é turno + returno: além de N*(N-1) partidas,
-        // cada par ordenado casa -> fora deve existir exatamente uma vez.
+        // histórica. O calendário pode ser turno único ou turno + returno, conforme o número
+        // de clubes que cabe nas 40 semanas, e todos os pareamentos esperados precisam existir.
         if (relevant.size != expectedFixtureCount || relevant.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
-            } || !hasEveryDirectedPairExactlyOnce(teamIds, relevant)
+            } || !hasExpectedPairings(teamIds, relevant, legs)
         ) {
             return emptyList()
         }
@@ -91,19 +93,34 @@ class GlobalLeagueSimulationUseCase {
         return toStandings(season, teams, stats)
     }
 
-    private fun hasEveryDirectedPairExactlyOnce(
+    private fun hasExpectedPairings(
         teamIds: Set<Long>,
-        fixtures: List<Fixture>
+        fixtures: List<Fixture>,
+        legs: Int
     ): Boolean {
-        val directedPairCounts = fixtures
-            .groupingBy { it.homeTeamId to it.awayTeamId }
-            .eachCount()
+        val ids = teamIds.sorted()
+        if (legs == 2) {
+            val directedPairCounts = fixtures
+                .groupingBy { it.homeTeamId to it.awayTeamId }
+                .eachCount()
 
-        return teamIds.all { homeId ->
-            teamIds.all { awayId ->
-                homeId == awayId || directedPairCounts[homeId to awayId] == 1
+            return ids.all { homeId ->
+                ids.all { awayId ->
+                    homeId == awayId || directedPairCounts[homeId to awayId] == 1
+                }
             }
         }
+
+        val unorderedPairCounts = fixtures
+            .groupingBy { minOf(it.homeTeamId, it.awayTeamId) to maxOf(it.homeTeamId, it.awayTeamId) }
+            .eachCount()
+
+        for (i in 0 until ids.lastIndex) {
+            for (j in i + 1 until ids.size) {
+                if (unorderedPairCounts[ids[i] to ids[j]] != 1) return false
+            }
+        }
+        return true
     }
 
     private fun simulateCompactLeague(
@@ -134,11 +151,7 @@ class GlobalLeagueSimulationUseCase {
 
         val orderedTeams = teams.sortedBy { it.id }
         val stats = orderedTeams.associate { it.id to MutableStats() }.toMutableMap()
-
-        // Até 20 clubes: turno e returno (máximo 38 jogos por clube).
-        // Acima de 20: turno único. Nas primeiras divisões atualmente cadastradas isso chega
-        // no máximo a 29 jogos por clube, mantendo o horizonte de 40 semanas.
-        val legs = if ((orderedTeams.size - 1) * 2 <= 38) 2 else 1
+        val legs = LeagueSeasonFormat.legsForDetailedLeague(orderedTeams.size)
 
         for (i in 0 until orderedTeams.lastIndex) {
             for (j in i + 1 until orderedTeams.size) {
