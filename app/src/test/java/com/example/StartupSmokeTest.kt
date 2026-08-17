@@ -1,13 +1,11 @@
 package com.example
 
-import android.os.Looper
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -22,11 +20,11 @@ class StartupSmokeTest {
             assertNotNull(activity)
             assertFalse(activity.isFinishing)
         } finally {
-            // Compose owns a lifecycle-aware Recomposer. Leaving the Activity in RESUMED
-            // state after this smoke assertion keeps frame callbacks alive in Robolectric,
-            // consumes the test JVM heap and can starve later coroutine-based tests.
+            // Compose owns a lifecycle-aware Recomposer. Destroy the Activity explicitly so
+            // its frame callbacks are cancelled, but do not drain the main looper afterwards:
+            // forcing Robolectric to process queued Choreographer frames can keep scheduling
+            // additional Compose frames and exhaust the shared unit-test JVM heap.
             controller.pause().stop().destroy()
-            shadowOf(Looper.getMainLooper()).idle()
         }
     }
 }
