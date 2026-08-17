@@ -86,8 +86,8 @@ class Phase98CpuSquadSeasonIntegrationTest {
                     if (team.id == userTeam.id) {
                         player.copy(contractDurationWeeks = 200)
                     } else {
-                        // Força churn contratual já no primeiro mês: alguns serão renovados,
-                        // outros virarão agentes livres e precisarão ser repostos pela CPU.
+                        // Força churn contratual já no primeiro mês: a CPU precisa decidir de
+                        // forma determinística quais atletas renovar sem perder integridade.
                         player.copy(
                             age = if (index % 3 == 0) 35 else 25 + (index % 5),
                             force = if (index % 4 == 0) 50 else player.force,
@@ -121,8 +121,7 @@ class Phase98CpuSquadSeasonIntegrationTest {
 
         var minimumObserved = Int.MAX_VALUE
         var maximumObserved = 0
-        var freeAgentReuseEvents = 0
-        var emergencyGenerationEvents = 0
+        var renewedContracts = 0
 
         for (week in 1..GameCalendar.WEEKS_PER_SEASON) {
             save = requireNotNull(repository.getGameSave()).copy(currentWeek = week)
@@ -137,13 +136,11 @@ class Phase98CpuSquadSeasonIntegrationTest {
                 userPlayers = repository.getPlayersByTeam(userTeam.id)
             )
 
-            cpuSquads.renewCpuContractsBeforeWeeklyTick()
+            renewedContracts += cpuSquads.renewCpuContractsBeforeWeeklyTick()
             transfers.processWeeklyContractsAndLoans()
             val report = cpuSquads.ensureCpuSquadIntegrity()
             minimumObserved = minOf(minimumObserved, report.minimumRosterSize)
             maximumObserved = maxOf(maximumObserved, report.maximumRosterSize)
-            freeAgentReuseEvents += report.freeAgentsSigned
-            emergencyGenerationEvents += report.emergencyPlayersGenerated
 
             if (week % 4 == 0) {
                 evolution.executeMonthlyEvolution(save, "PHASE98_CPU_W$week")
@@ -164,10 +161,7 @@ class Phase98CpuSquadSeasonIntegrationTest {
 
         assertTrue(minimumObserved >= 16)
         assertTrue(maximumObserved <= 35)
-        assertTrue(
-            "O cenário agressivo deve exercitar reaproveitamento ou geração de reposição",
-            freeAgentReuseEvents + emergencyGenerationEvents > 0
-        )
+        assertTrue("O cenário agressivo deve exercer renovações automáticas da CPU", renewedContracts > 0)
 
         val transition = SeasonTransitionUseCase(
             repository,
