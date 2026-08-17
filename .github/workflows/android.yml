@@ -1,20 +1,9 @@
 name: Android CI Build
 
 on:
-  push:
-    branches: [ "main", "master" ]
-    paths:
-      - 'app/**'
-      - '!app/schemas/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - '.github/workflows/android.yml'
   pull_request:
     branches: [ "main", "master" ]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     paths:
       - 'app/**'
       - '!app/schemas/**'
@@ -35,8 +24,8 @@ concurrency:
 
 jobs:
   validation:
-    # Enquanto o PR é draft nenhum runner é alocado. Ao ficar pronto, um único runner
-    # executa build, regressão, migração/save e stress em sequência.
+    # Drafts não alocam runner. O checkpoint consolidado pode ser disparado manualmente
+    # via workflow_dispatch; PRs não-draft só executam em novos commits/reaberturas.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
