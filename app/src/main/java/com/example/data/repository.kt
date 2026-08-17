@@ -145,10 +145,15 @@ class GameRepository(private val db: AppDatabase) {
     ): List<GlobalLeagueStanding> =
         db.globalLeagueStandingDao().getForLeague(season, country, division)
 
+    /**
+     * Substitui o snapshot de uma temporada usando operações DAO diretas.
+     * O chamador que precisar de atomicidade deve envolver esta chamada na transação maior.
+     * SeasonTransitionUseCase já faz isso, evitando o padrão de withTransaction aninhado.
+     */
     suspend fun saveGlobalStandingsForSeason(
         season: Int,
         rows: List<GlobalLeagueStanding>
-    ) = db.withTransaction {
+    ) {
         db.globalLeagueStandingDao().deleteForSeason(season)
         if (rows.size > 100) {
             rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(it) }
