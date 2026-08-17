@@ -51,23 +51,21 @@ jobs:
           }'''
           if text.count(old) != 1:
               raise SystemExit('Expected exactly one legacy generateFixturesForSeason helper')
-          match_file.write_text(text.replace(old, new))
+          match_file.write_text(text.replace(old, new, 1))
 
           # P2: replacing a career in the same slot must clear global snapshots.
           vm_file = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           text = vm_file.read_text()
-          old = '''            repo.deleteInstallments()
-              repo.deleteLoans()
-
-              repo.saveTeams(dbTeams)'''
-          new = '''            repo.deleteInstallments()
-              repo.deleteLoans()
-              repo.deleteGlobalStandings()
-
-              repo.saveTeams(dbTeams)'''
-          if text.count(old) != 1:
-              raise SystemExit('Expected exactly one new-career cleanup block')
-          vm_file.write_text(text.replace(old, new))
+          needle = "            repo.deleteLoans()\n"
+          if text.count(needle) != 1:
+              raise SystemExit('Expected exactly one deleteLoans in new-career cleanup')
+          if "            repo.deleteGlobalStandings()\n" not in text:
+              text = text.replace(
+                  needle,
+                  needle + "            repo.deleteGlobalStandings()\n",
+                  1
+              )
+          vm_file.write_text(text)
 
           # P2 CI: gradle.properties can change compiler/JVM/build behavior.
           ci_file = Path('.github/workflows/android.yml')
@@ -76,7 +74,7 @@ jobs:
           if text.count(needle) != 1:
               raise SystemExit('Expected one settings.gradle.kts path entry')
           if "      - 'gradle.properties'\n" not in text:
-              text = text.replace(needle, needle + "      - 'gradle.properties'\n")
+              text = text.replace(needle, needle + "      - 'gradle.properties'\n", 1)
           ci_file.write_text(text)
           PY
 
