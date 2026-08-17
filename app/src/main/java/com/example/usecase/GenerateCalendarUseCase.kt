@@ -3,10 +3,13 @@ package com.example.usecase
 import com.example.data.ContinentalQualificationRules
 import com.example.data.CupCompetitionSystem
 import com.example.data.Fixture
+import com.example.data.FixtureScheduleValidator
+import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GlobalFootballSystem
 import com.example.data.GlobalLeagueStanding
 import com.example.data.LeagueSeasonFormat
+import com.example.data.MatchSlot
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
 
@@ -18,13 +21,15 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
     /**
      * Gera partidas de pontos corridos para uma lista de times.
      * [legs] = 1 gera turno único; [legs] = 2 gera turno + returno.
+     * Ligas usam WEEKEND por padrão; copas podem informar outro [matchSlot].
      */
     fun generateRoundRobinFixtures(
         season: Int,
         teams: List<Team>,
         competitionType: String,
         startWeek: Int = 1,
-        legs: Int = 2
+        legs: Int = 2,
+        matchSlot: MatchSlot = MatchSlot.WEEKEND
     ): List<Fixture> {
         val fixtures = mutableListOf<Fixture>()
         if (teams.size < 2 || legs <= 0) return fixtures
@@ -33,15 +38,15 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         val n = if (teams.size % 2 == 0) teams.size else teams.size + 1
         val teamList = teams.map { it.id }.toMutableList()
         if (teams.size % 2 != 0) {
-            teamList.add(-1L) // Bye team placeholder
+            teamList.add(-1L)
         }
 
         val totalRounds = n - 1
         val matchesPerRound = n / 2
 
-        // Turno
         for (round in 0 until totalRounds) {
             val weekNum = startWeek + round
+            GameCalendar.requireValidWeek(weekNum)
             for (i in 0 until matchesPerRound) {
                 val home = teamList[i]
                 val away = teamList[n - 1 - i]
@@ -52,6 +57,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                         Fixture(
                             season = season,
                             week = weekNum,
+                            matchSlot = matchSlot,
                             homeTeamId = h,
                             awayTeamId = a,
                             competitionType = competitionType,
@@ -60,20 +66,20 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                     )
                 }
             }
-            // Rotate list elements excluding index 0
             val last = teamList.removeAt(teamList.size - 1)
             teamList.add(1, last)
         }
 
-        // Returno (inverted home/away), somente quando o formato de 2 turnos cabe na temporada.
         if (legs == 2) {
             val turnoFixtures = fixtures.toList()
             for (f in turnoFixtures) {
                 val returnoWeek = f.week + totalRounds
+                GameCalendar.requireValidWeek(returnoWeek)
                 fixtures.add(
                     Fixture(
                         season = season,
                         week = returnoWeek,
+                        matchSlot = matchSlot,
                         homeTeamId = f.awayTeamId,
                         awayTeamId = f.homeTeamId,
                         competitionType = competitionType,
@@ -83,31 +89,14 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
             }
         }
 
+        FixtureScheduleValidator.requireValid(fixtures)
         return fixtures
     }
 
-    /**
-     * Salva em lote a lista de partidas no repositório.
-     */
     suspend fun saveCalendarFixtures(fixtures: List<Fixture>) {
-        if (fixtures.isNotEmpty()) {
-            repository.saveFixtures(fixtures)
-        }
+        if (fixtures.isNotEmpty()) repository.saveFixtures(fixtures)
     }
 
-    /**
-     * Gera os jogos da temporada escopados ao país do time do usuário.
-     *
-     * A liga de pontos corridos continua restrita ao país do usuário. A Copa nacional usa
-     * clubes desse mesmo país; os torneios continentais usam clubes da confederação correta;
-     * e o Super Mundial continua seguindo sua regra própria de temporadas elegíveis.
-     *
-     * [qualificationStandings] contém o snapshot da temporada anterior. Quando presente,
-     * ele ajusta somente a lista transitória usada nos torneios continentais; a Copa nacional
-     * e o Super Mundial continuam usando os [Team] reais, e nenhum rating persistido é alterado.
-     * Na primeira temporada a lista é vazia e o comportamento legado por rating continua como
-     * fallback dos continentais.
-     */
     fun generateSeasonFixtures(
         season: Int,
         teams: List<Team>,
@@ -119,11 +108,8 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         val userTeam = teams.find { it.id == userTeamId }
         val targetCountry = userTeam?.country ?: userCountry
 
-        // Geração da liga de pontos corridos apenas para o país do time do usuário.
-        // Formatos comuns usam o round-robin adaptativo; gigantes divisíveis em grupos iguais
-        // jogam turno + returno dentro do grupo, em paralelo, sem ultrapassar 40 semanas.
-        // Tamanhos gigantes ainda sem formato balanceado não persistem um calendário impossível:
-        // ficam no fallback compacto até uma regra detalhada própria ser definida.
+        // A liga detalhada ocupa apenas WEEKEND e continua limitada a 40 rodadas, mesmo que a
+        // temporada total possua 48 semanas. As datas excedentes são reservadas às copas.
         val groupedTeams = teams.groupBy { Pair(it.country, it.division) }
         for ((key, teamGroup) in groupedTeams) {
             val (country, div) = key
@@ -139,7 +125,8 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                                 teams = detailedGroup,
                                 competitionType = divCode,
                                 startWeek = 1,
-                                legs = groupPlan.legs
+                                legs = groupPlan.legs,
+                                matchSlot = MatchSlot.WEEKEND
                             )
                         )
                     }
@@ -151,15 +138,14 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                             teams = teamGroup,
                             competitionType = divCode,
                             startWeek = 1,
-                            legs = legs
+                            legs = legs,
+                            matchSlot = MatchSlot.WEEKEND
                         )
                     )
                 }
             }
         }
 
-        // Copa nacional usa sempre os times/ratings reais. Apenas os continentais recebem a
-        // prioridade transitória derivada da temporada anterior.
         val qualificationAwareTeams = ContinentalQualificationRules.applyPreviousSeasonStandings(
             teams = teams,
             standings = qualificationStandings
@@ -174,24 +160,23 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
             )
         )
 
-        // Super Mundial permanece independente, usa ratings reais e só existe nas temporadas elegíveis.
-        val worldCupFixtures = SuperMundialSystem.generateGroupStageFixtures(season, teams, userTeamId)
-        allFixtures.addAll(worldCupFixtures)
+        allFixtures.addAll(
+            SuperMundialSystem.generateGroupStageFixtures(season, teams, userTeamId)
+        )
 
-        return allFixtures
+        FixtureScheduleValidator.requireValid(allFixtures)
+        return allFixtures.sortedWith(FixtureScheduleValidator.chronologicalComparator())
     }
 
-    /**
-     * Gera os confrontos para uma rodada de mata-mata (Copas / torneios de chaveamento).
-     * Trata listas ímpares adicionando um time bye/virtual antes de parear os confrontos.
-     */
     fun generateKnockoutFixtures(
         season: Int,
         week: Int,
         teams: List<Team>,
-        competitionType: String
+        competitionType: String,
+        matchSlot: MatchSlot = MatchSlot.MIDWEEK
     ): List<Fixture> {
         if (teams.isEmpty()) return emptyList()
+        GameCalendar.requireValidWeek(week)
 
         val teamList = teams.toMutableList()
         if (teamList.size % 2 != 0) {
@@ -207,6 +192,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                 Fixture(
                     season = season,
                     week = week,
+                    matchSlot = matchSlot,
                     homeTeamId = home.id,
                     awayTeamId = away.id,
                     competitionType = competitionType,
@@ -214,20 +200,19 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                 )
             )
         }
+        FixtureScheduleValidator.requireValid(fixtures)
         return fixtures
     }
 
-    /**
-     * Overload para parear chaves de mata-mata a partir de lista de IDs de times.
-     * Trata listas ímpares adicionando ID de time virtual antes de parear.
-     */
     fun generateKnockoutFixturesFromIds(
         season: Int,
         week: Int,
         teamIds: List<Long>,
-        competitionType: String
+        competitionType: String,
+        matchSlot: MatchSlot = MatchSlot.MIDWEEK
     ): List<Fixture> {
         if (teamIds.isEmpty()) return emptyList()
+        GameCalendar.requireValidWeek(week)
 
         val idList = teamIds.toMutableList()
         if (idList.size % 2 != 0) {
@@ -241,6 +226,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                 Fixture(
                     season = season,
                     week = week,
+                    matchSlot = matchSlot,
                     homeTeamId = idList[i * 2],
                     awayTeamId = idList[i * 2 + 1],
                     competitionType = competitionType,
@@ -248,6 +234,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                 )
             )
         }
+        FixtureScheduleValidator.requireValid(fixtures)
         return fixtures
     }
 
@@ -275,19 +262,13 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
 
         while (selectedTeams.size < targetCount) {
             val candidate = remainingCandidates.firstOrNull { it !in selectedTeams }
-            if (candidate != null) {
-                selectedTeams.add(candidate)
-            } else {
-                break
-            }
+            if (candidate != null) selectedTeams.add(candidate) else break
         }
 
         var dummyCounter = 1
         while (selectedTeams.size < targetCount) {
             val virtualTeam = GlobalFootballSystem.getVirtualTeam(900_000L + dummyCounter)
-            if (selectedTeams.none { it.id == virtualTeam.id }) {
-                selectedTeams.add(virtualTeam)
-            }
+            if (selectedTeams.none { it.id == virtualTeam.id }) selectedTeams.add(virtualTeam)
             dummyCounter++
         }
 
