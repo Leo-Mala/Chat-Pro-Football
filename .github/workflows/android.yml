@@ -34,10 +34,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  validation:
+    # Enquanto o PR é draft nenhum runner é alocado. Ao ficar pronto, um único runner
+    # executa build, regressão, migração/save e stress em sequência.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -106,13 +108,28 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
-      - name: Validate Gradle wrapper and build Debug APK
+      - name: Build Debug APK
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --version
           ./gradlew assembleDebug --stacktrace
+
+      - name: Run core regression and migration-save safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+
+      - name: Run 20 and 100 season stress tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            --tests com.example.TwentySeasonStressTest \
+            --tests com.example.OneHundredSeasonMatchByMatchStressTest \
+            --stacktrace
 
       - name: Verify exported Room schema
         id: room_schema
@@ -141,6 +158,14 @@ jobs:
           name: room-schema-${{ github.sha }}
           path: ${{ steps.room_schema.outputs.schema_file }}
           if-no-files-found: error
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-test-report
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
 
       - name: Upload APK Artifact
         if: github.event_name != 'pull_request'
