@@ -52,11 +52,10 @@ class SimulateWeekUseCaseTest {
 
     @Test
     fun simulateCpuMatchesForWeek_updates_unplayed_fixtures() = runTest {
+        repository.saveTeams(defaultTeams())
         val f1 = Fixture(id = 1L, season = 2026, week = 1, homeTeamId = 1L, awayTeamId = 2L, competitionType = "SERIE_A", isPlayed = false)
         val f2 = Fixture(id = 2L, season = 2026, week = 1, homeTeamId = 3L, awayTeamId = 4L, competitionType = "SERIE_A", isPlayed = false)
         repository.saveFixtures(listOf(f1, f2))
-
-        repository.saveTeams(defaultTeams())
 
         val played = useCase.simulateCpuMatchesForWeek(season = 2026, week = 1)
 
@@ -120,6 +119,7 @@ class SimulateWeekUseCaseTest {
 
     @Test
     fun weekQuery_orders_midweek_user_fixture_before_weekend_one() = runTest {
+        repository.saveTeams(defaultTeams())
         repository.saveFixtures(
             listOf(
                 Fixture(
