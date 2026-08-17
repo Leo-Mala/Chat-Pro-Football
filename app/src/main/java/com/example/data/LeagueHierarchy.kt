@@ -36,18 +36,16 @@ data class LeagueHierarchy(
     /**
      * Applies the configured movement rule to the actual division sizes.
      *
-     * A division only needs to reserve clubs for the opposite movement boundary when that
-     * adjacent division is really populated in the current country. This avoids treating an
-     * empty generic level as active while still guaranteeing that promoted and relegated groups
-     * cannot overlap in a small middle division.
+     * Middle divisions participate in two boundaries in the same season. Reserving at least
+     * half of their clubs for the opposite boundary guarantees that promoted and relegated
+     * groups cannot overlap. Empty hierarchy levels do not count as active: the decision is
+     * derived from the country's configured/generated division levels.
      */
     fun safeMovementSpotsBetween(
         upperLevel: Int,
         lowerLevel: Int = upperLevel + 1,
         upperTeamCount: Int,
-        lowerTeamCount: Int,
-        upperHasHigherActiveDivision: Boolean = false,
-        lowerHasLowerActiveDivision: Boolean = false
+        lowerTeamCount: Int
     ): Int {
         if (lowerLevel != upperLevel + 1) return 0
 
@@ -58,15 +56,38 @@ data class LeagueHierarchy(
         )
         if (spots <= 0) return 0
 
-        // A divisão superior desta fronteira também pode promover clubes para uma divisão acima.
+        val activeLevels = configuredActiveDivisionLevels()
+        val upperHasHigherActiveDivision =
+            (upperLevel - 1) in activeLevels && getDivisionByLevel(upperLevel - 1) != null
+        val lowerHasLowerActiveDivision =
+            (lowerLevel + 1) in activeLevels && getDivisionByLevel(lowerLevel + 1) != null
+
         if (upperHasHigherActiveDivision) {
             spots = minOf(spots, upperTeamCount / 2)
         }
-        // A divisão inferior desta fronteira também pode rebaixar clubes para uma divisão abaixo.
         if (lowerHasLowerActiveDivision) {
             spots = minOf(spots, lowerTeamCount / 2)
         }
         return spots
+    }
+
+    private fun configuredActiveDivisionLevels(): Set<Int> {
+        val configuredSizes = DefaultData.countryDivisionSizes[country]
+        if (configuredSizes != null) {
+            return (1..configuredSizes.size).toSet()
+        }
+
+        val originalLevels = DefaultData.originalMap[country]
+            ?.teams
+            ?.map { it.division }
+            ?.filter { it > 0 }
+            ?.toSet()
+            .orEmpty()
+        if (originalLevels.isNotEmpty()) return originalLevels
+
+        // País não catalogado: só considera níveis que tenham regra explícita. Na prática a
+        // transição ainda exige times reais dos dois lados da fronteira antes de movimentar.
+        return divisions.map { it.divisionLevel }.toSet()
     }
 
     fun hasBalancedAdjacentMovementRules(): Boolean {
