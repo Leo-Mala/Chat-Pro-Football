@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
 import com.example.ui.components.standings.TopScorersView
+import com.example.ui.state.LeagueDivisionUi
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
 
@@ -41,10 +42,14 @@ fun StandingsTab(viewModel: GameViewModel) {
     val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
 
-    var selectedLeague by remember { mutableStateOf("SERIE_A") }
+    var selectedLeague by remember { mutableStateOf(LeagueDivisionUi.keyForDivision(1)) }
     var selectedSubTab by remember { mutableStateOf("grupos") }
     var selectedGroupLetter by remember { mutableStateOf("A") }
     var mainViewMode by remember { mutableStateOf("CLASSIFICACAO") }
+
+    LaunchedEffect(selectedCountry) {
+        selectedLeague = LeagueDivisionUi.keyForDivision(1)
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -86,23 +91,22 @@ fun StandingsTab(viewModel: GameViewModel) {
             val hierarchy = remember(selectedCountry) { LeagueHierarchyLoader.getHierarchyForCountry(selectedCountry) }
             val labels = remember(hierarchy, selectedCountry) {
                 val list = mutableListOf<Pair<String, String>>()
-                list.addAll(listOf(
-                    Pair("SERIE_A", hierarchy.divisions.find { it.code == "SERIE_A" }?.name ?: "Série A"),
-                    Pair("SERIE_B", hierarchy.divisions.find { it.code == "SERIE_B" }?.name ?: "Série B"),
-                    Pair("SERIE_C", hierarchy.divisions.find { it.code == "SERIE_C" }?.name ?: "Série C")
-                ))
-                if (selectedCountry == "Brasil") {
-                    list.add(Pair("SERIE_C_PH2_A", "Série C - Gp A"))
-                    list.add(Pair("SERIE_C_PH2_B", "Série C - Gp B"))
+                LeagueDivisionUi.tabsForHierarchy(hierarchy).forEach { tab ->
+                    list.add(tab.key to tab.label)
+                    if (selectedCountry == "Brasil" && tab.division == 3) {
+                        list.add(Pair("SERIE_C_PH2_A", "Série C - Gp A"))
+                        list.add(Pair("SERIE_C_PH2_B", "Série C - Gp B"))
+                    }
                 }
-                list.addAll(listOf(
-                    Pair("SERIE_D", hierarchy.divisions.find { it.code == "SERIE_D" }?.name ?: "Série D"),
-                    Pair("COPA", DefaultData.getCompetitionName("COPA", selectedCountry)),
-                    Pair("CONTINENTAL_T1", DefaultData.getCompetitionName("CONTINENTAL_T1", selectedCountry)),
-                    Pair("CONTINENTAL_T2", DefaultData.getCompetitionName("CONTINENTAL_T2", selectedCountry)),
-                    Pair("CONTINENTAL_T3", DefaultData.getCompetitionName("CONTINENTAL_T3", selectedCountry)),
-                    Pair("WORLD_CUP", DefaultData.getCompetitionName("WORLD_CUP", selectedCountry))
-                ))
+                list.addAll(
+                    listOf(
+                        Pair("COPA", DefaultData.getCompetitionName("COPA", selectedCountry)),
+                        Pair("CONTINENTAL_T1", DefaultData.getCompetitionName("CONTINENTAL_T1", selectedCountry)),
+                        Pair("CONTINENTAL_T2", DefaultData.getCompetitionName("CONTINENTAL_T2", selectedCountry)),
+                        Pair("CONTINENTAL_T3", DefaultData.getCompetitionName("CONTINENTAL_T3", selectedCountry)),
+                        Pair("WORLD_CUP", DefaultData.getCompetitionName("WORLD_CUP", selectedCountry))
+                    )
+                )
                 list
             }
 
@@ -586,24 +590,42 @@ fun StandingsTab(viewModel: GameViewModel) {
                     }
                 }
             } else {
+                val selectedDivision = LeagueDivisionUi.divisionFromKey(selectedLeague)
+                val specialTeamIds = if (
+                    selectedLeague == "SERIE_C_PH2_A" || selectedLeague == "SERIE_C_PH2_B"
+                ) {
+                    allFixtures
+                        .filter { it.competitionType == selectedLeague }
+                        .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+                        .distinct()
+                        .toSet()
+                } else {
+                    emptySet()
+                }
+
                 val leagueTeams = allTeams.filter {
                     if (it.id <= 0L) return@filter false
-                    if (selectedLeague == "SERIE_C_PH2_A" || selectedLeague == "SERIE_C_PH2_B") {
-                        val teamIds = allFixtures.filter { it.competitionType == selectedLeague }.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.distinct()
-                        teamIds.contains(it.id)
+                    if (specialTeamIds.isNotEmpty()) {
+                        it.id in specialTeamIds
                     } else {
-                        it.country == selectedCountry && it.division == when (selectedLeague) {
-                            "SERIE_A" -> 1
-                            "SERIE_B" -> 2
-                            "SERIE_C" -> 3
-                            else -> 4
-                        }
+                        selectedDivision != null &&
+                            it.country == selectedCountry &&
+                            it.division == selectedDivision
                     }
                 }
 
-                val standings = remember(selectedLeague, allFixtures, leagueTeams) {
+                val standings = remember(selectedLeague, selectedDivision, allFixtures, leagueTeams) {
                     val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()
-                    val playedFixtures = allFixtures.filter { it.competitionType == selectedLeague && it.isPlayed }
+                    val leagueTeamIds = leagueTeams.map { it.id }.toSet()
+                    val acceptedCompetitionTypes = selectedDivision
+                        ?.let { LeagueSeasonFormat.acceptedDetailedCompetitionTypes(it) }
+                        ?: setOf(selectedLeague)
+                    val playedFixtures = allFixtures.filter {
+                        it.competitionType in acceptedCompetitionTypes &&
+                            it.isPlayed &&
+                            it.homeTeamId in leagueTeamIds &&
+                            it.awayTeamId in leagueTeamIds
+                    }
 
                     for (f in playedFixtures) {
                         val homeT = leagueTeams.find { it.id == f.homeTeamId }
