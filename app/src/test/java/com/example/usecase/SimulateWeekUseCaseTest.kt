@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.AppDatabase
 import com.example.data.Fixture
 import com.example.data.GameRepository
+import com.example.data.MatchSlot
 import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -85,7 +86,8 @@ class SimulateWeekUseCaseTest {
                     week = 31,
                     homeTeamId = 3L,
                     awayTeamId = userTeamId,
-                    competitionType = "COPA"
+                    competitionType = "COPA",
+                    matchSlot = MatchSlot.MIDWEEK
                 ),
                 Fixture(
                     id = 12L,
@@ -117,7 +119,7 @@ class SimulateWeekUseCaseTest {
     }
 
     @Test
-    fun weekQuery_orders_unplayed_user_fixture_before_already_played_one() = runTest {
+    fun weekQuery_orders_midweek_user_fixture_before_weekend_one() = runTest {
         repository.saveFixtures(
             listOf(
                 Fixture(
@@ -138,7 +140,8 @@ class SimulateWeekUseCaseTest {
                     homeTeamId = 1L,
                     awayTeamId = 3L,
                     competitionType = "COPA",
-                    isPlayed = false
+                    isPlayed = false,
+                    matchSlot = MatchSlot.MIDWEEK
                 )
             )
         )
@@ -146,6 +149,7 @@ class SimulateWeekUseCaseTest {
         val fixtures = repository.getFixturesForWeek(2026, 31)
 
         assertEquals(21L, fixtures.first().id)
+        assertEquals(MatchSlot.MIDWEEK, fixtures.first().matchSlot)
         assertFalse(fixtures.first().isPlayed)
         assertTrue(fixtures.last().isPlayed)
     }
