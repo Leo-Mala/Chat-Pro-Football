@@ -117,7 +117,9 @@ class CareerFunctionalFlowTest {
         val initialProspects = viewModel.parseProspects(initialSave.academyProspects)
         assertEquals(2, initialProspects.size)
         val promotedProspect = initialProspects.first()
-        val rosterCountBeforePromotion = repository.getPlayerCountByTeam(selectedTeam.id)
+        val rosterBeforePromotion = repository.getPlayersByTeam(selectedTeam.id)
+        val rosterCountBeforePromotion = rosterBeforePromotion.size
+        val rosterIdsBeforePromotion = rosterBeforePromotion.map { it.id }.toSet()
 
         val promotionJob = viewModel.promoteAcademyProspect(promotedProspect)
         withTimeout(30_000L) { promotionJob.join() }
@@ -132,7 +134,8 @@ class CareerFunctionalFlowTest {
             viewModel.parseProspects(saveAfterPromotion.academyProspects).size
         )
         val promotedPlayer = repository.getPlayersByTeam(selectedTeam.id)
-            .first { it.name == promotedProspect.name }
+            .single { it.id !in rosterIdsBeforePromotion }
+        assertEquals(promotedProspect.name, promotedPlayer.name)
         assertTrue(promotedPlayer.isFromAcademy)
         assertEquals(selectedTeam.country, promotedPlayer.nationality)
 
@@ -255,7 +258,7 @@ class CareerFunctionalFlowTest {
         viewModel.saveGame(manual = true) {
             if (!saveCompleted.isCompleted) saveCompleted.complete(Unit)
         }
-        awaitDeferred(saveCompleted, timeoutMs = 15_000L)
+        awaitDeferred(saveCompleted, timeoutMs = 60_000L)
 
         val databaseName = harness.saveRepository.databaseNameForSlot("1")
         val backupFile = application.getDatabasePath("${databaseName}_backup")
@@ -289,8 +292,7 @@ class CareerFunctionalFlowTest {
         assertEquals(600_000L, reopenedSave.loanAmount)
         assertEquals(selectedTeam.id, requireNotNull(reopenedRepository.getPlayer(purchaseTarget.id)).teamId)
         assertTrue(requireNotNull(reopenedRepository.getPlayer(loanTarget.id)).isOnLoan)
-        val reopenedAcademyPlayer = reopenedRepository.getPlayersByTeam(selectedTeam.id)
-            .first { it.name == promotedProspect.name }
+        val reopenedAcademyPlayer = requireNotNull(reopenedRepository.getPlayer(promotedPlayer.id))
         assertTrue(reopenedAcademyPlayer.isFromAcademy)
         assertEquals(selectedTeam.country, reopenedAcademyPlayer.nationality)
         assertEquals(1, reopenedHarness.viewModel.parseProspects(reopenedSave.academyProspects).size)

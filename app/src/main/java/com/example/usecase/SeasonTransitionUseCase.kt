@@ -5,13 +5,14 @@ import kotlin.random.Random
 
 /**
  * UseCase responsável pela transição completa e atômica de temporada.
- * Processa promoção/rebaixamento, envelhecimento de atletas, reparo de integridade,
+ * Processa promoção/rebaixamento, envelhecimento de atletas, classificação global,
  * purga de dados antigos e geração do novo calendário de jogos.
  */
 class SeasonTransitionUseCase(
     private val repository: GameRepository,
     private val generateCalendarUseCase: GenerateCalendarUseCase,
-    private val databaseIntegrityUseCase: DatabaseIntegrityUseCase
+    private val databaseIntegrityUseCase: DatabaseIntegrityUseCase,
+    private val globalLeagueSimulationUseCase: GlobalLeagueSimulationUseCase = GlobalLeagueSimulationUseCase()
 ) {
 
     data class SeasonStandingRow(
@@ -47,10 +48,24 @@ class SeasonTransitionUseCase(
         val allTeams = repository.getAllTeams()
         val allPlayers = repository.getAllPlayers()
         val seasonFixtures = repository.getFixturesForSeason(currentSeason)
+        val currentUserCountry = allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
+            ?: "Brasil"
 
-        // 1. Promoção/rebaixamento só é aplicado em fronteiras de divisões que realmente
+        // 1. Persistir primeiro o retrato global da temporada que terminou.
+        // O país do usuário usa os fixtures reais; os demais países recebem uma classificação
+        // agregada determinística. Como esta função já está dentro da transação de temporada,
+        // delete + insert permanecem atômicos sem abrir um segundo withTransaction.
+        val globalStandings = globalLeagueSimulationUseCase.buildSeasonStandings(
+            season = currentSeason,
+            teams = allTeams,
+            detailedFixtures = seasonFixtures,
+            detailedCountry = currentUserCountry
+        )
+        repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
+
+        // 2. Promoção/rebaixamento só é aplicado em fronteiras de divisões que realmente
         // disputaram e concluíram suas ligas. Isso impede movimentação arbitrária em países
-        // cujo campeonato não foi simulado no calendário da carreira atual.
+        // cujo campeonato detalhado ainda não foi simulado no calendário da carreira atual.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
 
@@ -110,7 +125,7 @@ class SeasonTransitionUseCase(
 
         updatedTeamsMap.values.forEach { repository.updateTeam(it) }
 
-        // 2. Envelhecer atletas uma única vez por temporada. Aposentadoria cria uma
+        // 3. Envelhecer atletas uma única vez por temporada. Aposentadoria cria uma
         // identidade nova de verdade: o atleta antigo é removido e o substituto recebe
         // novo ID, contrato/estatísticas zerados e nenhum vínculo de empréstimo herdado.
         val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
@@ -179,31 +194,32 @@ class SeasonTransitionUseCase(
             repository.savePlayers(replacementPlayers)
         }
 
-        // 3. Reparar integridade antes de gerar o novo calendário.
+        // 4. Reparar integridade antes de gerar o novo calendário.
         databaseIntegrityUseCase.repairDatabase()
 
-        // 4. Remover fixtures/dados antigos somente depois de todas as regras da semana 40 terem sido processadas.
+        // 5. Remover fixtures/dados antigos somente depois de todas as regras da semana 40
+        // e do snapshot global terem sido processados.
         repository.purgeOldData(nextSeason)
         repository.deleteFixtures()
 
-        // 5. A primeira temporada e todas as seguintes usam exatamente o mesmo gerador.
-        // Isso mantém o escopo da liga no país do usuário e regenera o Super Mundial em
-        // toda temporada elegível, sem criar ligas CPU globais que não existiam no ano 1.
+        // 6. A primeira temporada e todas as seguintes usam exatamente o mesmo gerador.
+        // A liga detalhada permanece no país do usuário; a classificação global da temporada
+        // encerrada passa a ordenar a qualificação continental da nova temporada.
         val updatedTeamsList = updatedTeamsMap.values.toList()
         val playerTeam = updatedTeamsMap[sourceSave.playerTeamId]
         val userCountry = playerTeam?.country
-            ?: allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
-            ?: "Brasil"
+            ?: currentUserCountry
 
         val newFixtures = generateCalendarUseCase.generateSeasonFixtures(
             season = nextSeason,
             teams = updatedTeamsList,
             userTeamId = sourceSave.playerTeamId,
-            userCountry = userCountry
+            userCountry = userCountry,
+            qualificationStandings = globalStandings
         )
         repository.saveFixtures(newFixtures)
 
-        // 6. Persistir a nova temporada por último. Esse write é o marcador atômico da transição concluída.
+        // 7. Persistir a nova temporada por último. Esse write é o marcador atômico da transição concluída.
         val updatedSave = sourceSave.copy(
             currentSeason = nextSeason,
             currentWeek = 1
@@ -220,13 +236,48 @@ class SeasonTransitionUseCase(
     ): Boolean {
         if (teams.size < 2) return false
         val teamIds = teams.map { it.id }.toSet()
+        if (teamIds.size != teams.size) return false
+
         val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
         val relevantFixtures = fixtures.filter { fixture ->
             fixture.competitionType in acceptedTypes &&
                 fixture.homeTeamId in teamIds &&
                 fixture.awayTeamId in teamIds
         }
-        return relevantFixtures.isNotEmpty() && relevantFixtures.all { it.isPlayed }
+        val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
+        val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
+
+        // Uma temporada só pode gerar promoção/rebaixamento quando todos os confrontos do
+        // formato vigente estão concluídos e com placar. Para 2 turnos, cada direção do par
+        // deve existir uma vez; para turno único, cada par não ordenado deve existir uma vez.
+        if (relevantFixtures.size != expectedFixtureCount || relevantFixtures.any {
+                !it.isPlayed || it.homeScore == null || it.awayScore == null
+            }
+        ) {
+            return false
+        }
+
+        val ids = teamIds.sorted()
+        if (legs == 2) {
+            val directedPairCounts = relevantFixtures
+                .groupingBy { it.homeTeamId to it.awayTeamId }
+                .eachCount()
+            return ids.all { homeId ->
+                ids.all { awayId ->
+                    homeId == awayId || directedPairCounts[homeId to awayId] == 1
+                }
+            }
+        }
+
+        val unorderedPairCounts = relevantFixtures
+            .groupingBy { minOf(it.homeTeamId, it.awayTeamId) to maxOf(it.homeTeamId, it.awayTeamId) }
+            .eachCount()
+        for (i in 0 until ids.lastIndex) {
+            for (j in i + 1 until ids.size) {
+                if (unorderedPairCounts[ids[i] to ids[j]] != 1) return false
+            }
+        }
+        return true
     }
 
     private fun calculateSeasonStandings(

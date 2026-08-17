@@ -163,7 +163,7 @@ class MigrationSafetyTest {
 
     @Test
     fun downgradeFailsWithoutDeletingDatabase() {
-        assertUnsupportedVersionPreservesSentinel("unsupported-v19.db", 19)
+        assertUnsupportedVersionPreservesSentinel("unsupported-v20.db", 20)
     }
 
     private fun assertUnsupportedVersionPreservesSentinel(name: String, version: Int) {
@@ -241,12 +241,12 @@ class MigrationSafetyTest {
             """
             CREATE TABLE `players` (
                 `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                `teamId` INTEGER NOT NULL DEFAULT 0,
-                `name` TEXT NOT NULL DEFAULT '',
-                `age` INTEGER NOT NULL DEFAULT 18,
+                `teamId` INTEGER NOT NULL,
+                `name` TEXT NOT NULL,
+                `age` INTEGER NOT NULL,
                 `nationality` TEXT NOT NULL DEFAULT 'Brasil',
-                `position` TEXT NOT NULL DEFAULT 'MEI',
-                `force` INTEGER NOT NULL DEFAULT 50,
+                `position` TEXT NOT NULL,
+                `force` INTEGER NOT NULL,
                 `energy` INTEGER NOT NULL DEFAULT 100,
                 `moral` INTEGER NOT NULL DEFAULT 75,
                 `salary` INTEGER NOT NULL DEFAULT 10000,
@@ -280,7 +280,6 @@ class MigrationSafetyTest {
                 `defense` INTEGER NOT NULL DEFAULT 50,
                 `scoutedLevel` INTEGER NOT NULL DEFAULT 0,
                 `atributosJson` TEXT,
-                $attributeColumns,
                 `potential` INTEGER NOT NULL DEFAULT 80,
                 `gols` INTEGER NOT NULL DEFAULT 0,
                 `assistencias` INTEGER NOT NULL DEFAULT 0,
@@ -289,30 +288,37 @@ class MigrationSafetyTest {
                 `mediaNotas` REAL NOT NULL DEFAULT 0.0,
                 `focoTreino` TEXT,
                 `condicao` INTEGER NOT NULL DEFAULT 100,
-                `evolucaoMensal` REAL NOT NULL DEFAULT 0.0
+                `evolucaoMensal` REAL NOT NULL DEFAULT 0.0,
+                $attributeColumns
             )
             """.trimIndent()
         )
     }
 
-    private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
-        db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='$table'").use {
-            it.moveToFirst()
+    private fun tableExists(db: SupportSQLiteDatabase, tableName: String): Boolean {
+        db.query(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            arrayOf(tableName)
+        ).use { cursor ->
+            return cursor.moveToFirst()
         }
+    }
 
-    private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> =
-        db.query("PRAGMA table_info(`$table`)").use { cursor ->
-            val nameIndex = cursor.getColumnIndex("name")
-            buildSet {
-                while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+    private fun tableColumns(db: SupportSQLiteDatabase, tableName: String): Set<String> {
+        db.query("PRAGMA table_info(`$tableName`)").use { cursor ->
+            val index = cursor.getColumnIndexOrThrow("name")
+            return buildSet {
+                while (cursor.moveToNext()) add(cursor.getString(index))
             }
         }
+    }
 
-    private fun indexNames(db: SupportSQLiteDatabase, table: String): Set<String> =
-        db.query("PRAGMA index_list(`$table`)").use { cursor ->
-            val nameIndex = cursor.getColumnIndex("name")
-            buildSet {
-                while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+    private fun indexNames(db: SupportSQLiteDatabase, tableName: String): Set<String> {
+        db.query("PRAGMA index_list(`$tableName`)").use { cursor ->
+            val index = cursor.getColumnIndexOrThrow("name")
+            return buildSet {
+                while (cursor.moveToNext()) add(cursor.getString(index))
             }
         }
+    }
 }

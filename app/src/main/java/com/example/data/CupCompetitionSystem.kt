@@ -22,11 +22,19 @@ object CupCompetitionSystem {
 
     private val continentalGroupTypes = listOf("CONTINENTAL_T1", "CONTINENTAL_T2")
 
+    /**
+     * Gera a abertura de Copa nacional e torneios continentais.
+     *
+     * [teams] é sempre a fonte canônica para a Copa nacional. [continentalTeams] pode ser uma
+     * visão transitória dos mesmos clubes com prioridade de qualificação aplicada, sem permitir
+     * que essa prioridade altere o corte ou a ordenação da Copa nacional.
+     */
     fun generateSeasonOpeningFixtures(
         season: Int,
         teams: List<Team>,
         userTeamId: Long,
-        userCountry: String
+        userCountry: String,
+        continentalTeams: List<Team> = teams
     ): List<Fixture> {
         if (teams.isEmpty()) return emptyList()
 
@@ -50,7 +58,7 @@ object CupCompetitionSystem {
         }
 
         val userConfederation = GlobalFootballSystem.getConfederationForCountry(actualUserCountry)
-        val continentalCandidates = teams
+        val continentalCandidates = continentalTeams
             .asSequence()
             .filter { GlobalFootballSystem.getConfederationForCountry(it.country) == userConfederation }
             .distinctBy { it.id }

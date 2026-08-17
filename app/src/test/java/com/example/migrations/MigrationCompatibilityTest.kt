@@ -6,6 +6,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.migrations.MIGRATION_14_15
 import com.example.data.migrations.MIGRATION_16_17
+import com.example.data.migrations.MIGRATION_18_19
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,6 +91,38 @@ class MigrationCompatibilityTest {
         assertTrue("index_player_loans_ownerTeamId" in loanIndexes)
         assertTrue("index_player_loans_borrowerTeamId" in loanIndexes)
         assertTrue("index_player_loans_status" in loanIndexes)
+
+        db.close()
+        helper.close()
+    }
+
+    @Test
+    fun migration18To19AddsGlobalStandingsWithoutTouchingExistingData() {
+        val helper = createDatabase("migration-18-19.db", 18) { db ->
+            db.execSQL("CREATE TABLE `migration_sentinel` (`value` TEXT NOT NULL)")
+            db.execSQL("INSERT INTO `migration_sentinel` (`value`) VALUES ('KEEP_ME')")
+        }
+        val db = helper.writableDatabase
+
+        MIGRATION_18_19.migrate(db)
+
+        assertTrue(tableExists(db, "global_league_standings"))
+        assertTrue(
+            setOf(
+                "season", "country", "division", "teamId", "position", "points",
+                "played", "wins", "draws", "losses", "goalsFor", "goalsAgainst",
+                "goalDifference"
+            ).all { it in columns(db, "global_league_standings") }
+        )
+
+        val standingIndexes = indexes(db, "global_league_standings")
+        assertTrue("index_global_league_standings_season_country_division_position" in standingIndexes)
+        assertTrue("index_global_league_standings_teamId" in standingIndexes)
+
+        db.query("SELECT `value` FROM `migration_sentinel`").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("KEEP_ME", cursor.getString(0))
+        }
 
         db.close()
         helper.close()

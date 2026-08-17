@@ -1,36 +1,17 @@
 name: Long-Horizon Stress
 
+# Diagnóstico manual. O checkpoint normal de PR executa estes mesmos testes no final do
+# runner consolidado de android.yml, após build e regressão não-stress.
 on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-    paths:
-      - 'app/build.gradle.kts'
-      - 'app/src/main/java/com/example/data/GameCalendar.kt'
-      - 'app/src/main/java/com/example/data/GameEngine.kt'
-      - 'app/src/main/java/com/example/data/GlobalFootballSystem.kt'
-      - 'app/src/main/java/com/example/data/SuperMundialSystem.kt'
-      - 'app/src/main/java/com/example/usecase/**'
-      - 'app/src/main/java/com/example/ui/viewmodel/GameViewModel*.kt'
-      - 'app/src/test/java/com/example/*StressTest.kt'
-      - 'app/src/test/java/com/example/CareerFunctionalFlowTest.kt'
-      - '.github/workflows/long-horizon-stress.yml'
   workflow_dispatch:
-  schedule:
-    - cron: '30 3 * * 1'
 
 permissions:
   contents: read
 
-concurrency:
-  group: long-horizon-stress-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   stress:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout repository
@@ -78,10 +59,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.android
-          keytool -genkey -v -keystore debug.keystore \
-            -storepass android -alias androiddebugkey -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug, O=Android, C=US"
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f "debug.keystore" ]; then
+            keytool -genkey -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
           cp debug.keystore ~/.android/debug.keystore
 
       - name: Run 20 and 100 season stress tests

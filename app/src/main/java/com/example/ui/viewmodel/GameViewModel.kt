@@ -1571,6 +1571,7 @@ class GameViewModel @Inject constructor(
             repo.deleteAllHistorico()
             repo.deleteInstallments()
             repo.deleteLoans()
+            repo.deleteGlobalStandings()
 
             repo.saveTeams(dbTeams)
             repo.savePlayers(allPlayersToSave)

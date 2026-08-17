@@ -134,10 +134,40 @@ class GameRepository(private val db: AppDatabase) {
     }
     suspend fun deleteFixtures() = db.fixtureDao().deleteFixtures()
     suspend fun deleteFixturesByIds(ids: List<Long>) = db.fixtureDao().deleteFixturesByIds(ids)
+
+    suspend fun getGlobalStandingsForSeason(season: Int): List<GlobalLeagueStanding> =
+        db.globalLeagueStandingDao().getForSeason(season)
+
+    suspend fun getGlobalStandingsForLeague(
+        season: Int,
+        country: String,
+        division: Int = 1
+    ): List<GlobalLeagueStanding> =
+        db.globalLeagueStandingDao().getForLeague(season, country, division)
+
+    /**
+     * Substitui o snapshot de uma temporada usando operações DAO diretas.
+     * O chamador que precisar de atomicidade deve envolver esta chamada na transação maior.
+     * SeasonTransitionUseCase já faz isso, evitando o padrão de withTransaction aninhado.
+     */
+    suspend fun saveGlobalStandingsForSeason(
+        season: Int,
+        rows: List<GlobalLeagueStanding>
+    ) {
+        db.globalLeagueStandingDao().deleteForSeason(season)
+        if (rows.size > 100) {
+            rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(it) }
+        } else if (rows.isNotEmpty()) {
+            db.globalLeagueStandingDao().insertAll(rows)
+        }
+    }
+
+    suspend fun deleteGlobalStandings() = db.globalLeagueStandingDao().deleteAll()
+
     /**
      * Purges old match fixtures and transaction history to preserve DB size and performance.
-     * Note: HistoricoEvolucao, HistoricalRecord, and ClubLegend tables are intentionally
-     * preserved to keep historical titles, trophies, and career records intact.
+     * Note: HistoricoEvolucao, HistoricalRecord, ClubLegend and global league snapshots are
+     * intentionally preserved to keep historical titles, trophies and qualification context.
      */
     suspend fun purgeOldData(currentSeason: Int) = db.withTransaction {
         db.fixtureDao().deleteOldSeasonFixtures(currentSeason)

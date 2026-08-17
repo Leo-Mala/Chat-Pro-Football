@@ -432,7 +432,18 @@ private fun calculateSeasonStandings(teams: List<Team>, fixtures: List<Fixture>,
     )
 }
 
-fun GameViewModel.generateFixturesForSeason(season: Int, teams: List<Team>, userTeamId: Long): List<Fixture> {
+suspend fun GameViewModel.generateFixturesForSeason(season: Int, teams: List<Team>, userTeamId: Long): List<Fixture> {
     val userCountry = _selectedCountry.value ?: "BRASIL"
-    return generateCalendarUseCase.generateSeasonFixtures(season, teams, userTeamId, userCountry)
+    val qualificationStandings = if (season > 2026) {
+        repo.getGlobalStandingsForSeason(season - 1)
+    } else {
+        emptyList()
+    }
+    return generateCalendarUseCase.generateSeasonFixtures(
+        season = season,
+        teams = teams,
+        userTeamId = userTeamId,
+        userCountry = userCountry,
+        qualificationStandings = qualificationStandings
+    )
 }
