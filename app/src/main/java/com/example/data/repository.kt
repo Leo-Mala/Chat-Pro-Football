@@ -16,7 +16,7 @@ class GameRepository(private val db: AppDatabase) {
     val allTransactionsFlow: Flow<List<TransactionRecord>> = db.transactionRecordDao().getAllTransactionsFlow()
     val allOrdersFlow: Flow<List<TransferOrder>> = db.transferOrderDao().getAllOrdersFlow()
 
-    fun getPlayersForTeamFlow(teamId: Long): Flow<List<Player>> = db.playerDao().getPlayersByTeamFlow(teamId)
+    fun getPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> = db.playerDao().getPlayersByTeamFlow(teamId)
     fun getLegendsForTeamFlow(teamId: Long): Flow<List<ClubLegend>> = db.clubLegendDao().getLegendsForTeamFlow(teamId)
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)
 
@@ -69,8 +69,8 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun deleteTeams() = db.teamDao().deleteTeams()
 
     suspend fun getAllPlayers(): List<Player> = db.playerDao().getAllPlayers()
-    suspend fun getPlayersByTeam(teamId: Long): List<Player> = db.playerDao().getPlayersByTeam(teamId)
-    suspend fun getPlayerCountByTeam(teamId: Long): Int = db.playerDao().getPlayerCountByTeam(teamId)
+    suspend fun getPlayersByTeam(teamId: Long?): List<Player> = db.playerDao().getPlayersByTeam(teamId)
+    suspend fun getPlayerCountByTeam(teamId: Long?): Int = db.playerDao().getPlayerCountByTeam(teamId)
     suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()
     suspend fun getPlayer(id: Long): Player? = db.playerDao().getPlayer(id)
     suspend fun insertPlayersIfNotExists(players: List<Player>) = db.withTransaction {
@@ -95,7 +95,7 @@ class GameRepository(private val db: AppDatabase) {
             db.playerDao().updatePlayers(players)
         }
     }
-    fun getJogadoresPorNota(teamId: Long): Flow<List<Player>> = db.playerDao().getJogadoresPorNota(teamId)
+    fun getJogadoresPorNota(teamId: Long?): Flow<List<Player>> = db.playerDao().getJogadoresPorNota(teamId)
     suspend fun atualizarCondicao(id: Long, condicao: Int) = db.playerDao().atualizarCondicao(id, condicao)
     suspend fun adicionarMinutos(id: Long, minutos: Int) = db.playerDao().adicionarMinutos(id, minutos)
     suspend fun saveHistoricoEvolucaoList(list: List<HistoricoEvolucao>) = db.withTransaction {
