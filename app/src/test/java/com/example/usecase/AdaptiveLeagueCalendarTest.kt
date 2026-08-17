@@ -59,12 +59,61 @@ class AdaptiveLeagueCalendarTest {
     }
 
     @Test
-    fun giantDivisionRemainsExplicitlyOutsideCurrentSeasonFormat() {
-        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(60))
-        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(96))
+    fun sixtyClubLeagueUsesThreeBalancedGroupsOfTwenty() {
+        val teams = teams(count = 60, country = "Brasil", division = 4)
+
+        val fixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "Brasil"
+        ).filter { it.competitionType == "SERIE_D" }
+
+        assertEquals(1_140, fixtures.size)
+        assertEquals(38, fixtures.maxOf { it.week })
+        assertTrue(fixtures.all { it.week in 1..40 })
+        assertTrue(
+            LeagueSeasonFormat.hasExpectedDetailedPairings(
+                teamIds = teams.map { it.id }.toSet(),
+                fixtures = fixtures
+            )
+        )
+        assertTrue(fixtures.groupingBy { it.homeTeamId }.eachCount().values.all { it == 19 })
     }
 
-    private fun teams(count: Int, country: String): List<Team> =
+    @Test
+    fun ninetySixClubLeagueUsesSixBalancedGroupsOfSixteen() {
+        val teams = teams(count = 96, country = "Brasil", division = 4)
+
+        val fixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "Brasil"
+        ).filter { it.competitionType == "SERIE_D" }
+
+        assertEquals(1_440, fixtures.size)
+        assertEquals(30, fixtures.maxOf { it.week })
+        assertTrue(fixtures.all { it.week in 1..40 })
+        assertTrue(
+            LeagueSeasonFormat.hasExpectedDetailedPairings(
+                teamIds = teams.map { it.id }.toSet(),
+                fixtures = fixtures
+            )
+        )
+        assertTrue(fixtures.groupingBy { it.homeTeamId }.eachCount().values.all { it == 15 })
+    }
+
+    @Test
+    fun irregularGiantDivisionRemainsExplicitlyOnFallback() {
+        assertFalse(LeagueSeasonFormat.supportsDetailedFormat(41))
+    }
+
+    private fun teams(
+        count: Int,
+        country: String,
+        division: Int = 1
+    ): List<Team> =
         (1L..count.toLong()).map { id ->
             Team(
                 id = id,
@@ -72,7 +121,7 @@ class AdaptiveLeagueCalendarTest {
                 city = "Cidade $id",
                 state = "XX",
                 country = country,
-                division = 1,
+                division = division,
                 rating = 90 - (id % 20).toInt()
             )
         }
