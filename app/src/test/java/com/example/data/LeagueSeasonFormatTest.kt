@@ -60,7 +60,7 @@ class LeagueSeasonFormatTest {
         val actualGiantSizes = DefaultData.countryDivisionSizes
             .values
             .flatten()
-            .filterNot(LeagueSeasonFormat::fitsCurrentSeason)
+            .filterNot { teamCount -> LeagueSeasonFormat.fitsCurrentSeason(teamCount) }
             .toSet()
 
         assertEquals(expectedGroupSizes.keys, actualGiantSizes)
