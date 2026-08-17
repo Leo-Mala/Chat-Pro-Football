@@ -77,9 +77,11 @@ class Phase99MigrationContinuationTest {
             RelationalIntegrityAssertions.assertRepositoryReferences(repository)
             RelationalIntegrityAssertions.assertDatabasePragmas(migratedDb)
 
-            // A carreira migrada precisa continuar funcional, não apenas abrir.
+            // A semana 12 contém um jogo exclusivamente CPU; ele precisa continuar simulável após a migration.
             SimulateWeekUseCase(repository).simulateCpuMatchesForWeek(2026, 12)
-            assertTrue(repository.getFixturesForWeek(2026, 12).all { it.isPlayed })
+            val migratedCpuWeek = repository.getFixturesForWeek(2026, 12)
+            assertEquals(1, migratedCpuWeek.size)
+            assertTrue(migratedCpuWeek.single().isPlayed)
 
             val transfers = ProcessTransfersUseCase(repository)
             transfers.processWeeklyContractsAndLoans()
@@ -99,8 +101,8 @@ class Phase99MigrationContinuationTest {
             val reopenedRepository = GameRepository(reopenedDb)
             assertEquals(13, requireNotNull(reopenedRepository.getGameSave()).currentWeek)
             assertNull(requireNotNull(reopenedRepository.getPlayer(401L)).teamId)
-            assertEquals(2, reopenedRepository.getFixturesForWeek(2026, 12).size)
-            assertTrue(reopenedRepository.getFixturesForWeek(2026, 12).all { it.isPlayed })
+            assertEquals(2, reopenedRepository.getFixturesForSeason(2026).size)
+            assertTrue(reopenedRepository.getFixturesForWeek(2026, 12).single().isPlayed)
             assertEquals(1, reopenedRepository.getAllInstallments().size)
             assertEquals(1, reopenedRepository.getAllLoans().size)
             RelationalIntegrityAssertions.assertRepositoryReferences(reopenedRepository)
@@ -138,8 +140,8 @@ class Phase99MigrationContinuationTest {
         )
         repository.saveFixtures(
             listOf(
-                Fixture(season = 2026, week = 12, homeTeamId = 1L, awayTeamId = 2L, competitionType = "SERIE_A", matchSlot = MatchSlot.WEEKEND),
-                Fixture(season = 2026, week = 12, homeTeamId = 1L, awayTeamId = 3L, competitionType = "COPA", matchSlot = MatchSlot.MIDWEEK)
+                Fixture(season = 2026, week = 12, homeTeamId = 2L, awayTeamId = 3L, competitionType = "SERIE_A", matchSlot = MatchSlot.WEEKEND),
+                Fixture(season = 2026, week = 13, homeTeamId = 1L, awayTeamId = 2L, competitionType = "COPA", matchSlot = MatchSlot.MIDWEEK)
             )
         )
         repository.saveLoan(
@@ -183,7 +185,6 @@ class Phase99MigrationContinuationTest {
         db.close()
     }
 
-    /** Rebaixa somente as tabelas modificadas pela V21; as demais permanecem V20-compatíveis. */
     private fun convertRelationalTablesBackToV20Shape() {
         val path = context.getDatabasePath(databaseName).absolutePath
         val sqlite = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE)
