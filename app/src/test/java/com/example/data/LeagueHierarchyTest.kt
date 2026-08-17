@@ -40,10 +40,28 @@ class LeagueHierarchyTest {
     }
 
     @Test
+    fun twoDivisionCountryDoesNotReserveClubsForEmptyThirdLevel() {
+        val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("Suíça")
+
+        // Suíça possui somente duas divisões configuradas no DefaultData. A Série B é o nível
+        // inferior real, então não deve perder vagas por causa da Série C genérica vazia.
+        assertEquals(
+            2,
+            hierarchy.safeMovementSpotsBetween(
+                upperLevel = 1,
+                lowerLevel = 2,
+                upperTeamCount = 12,
+                lowerTeamCount = 10
+            )
+        )
+    }
+
+    @Test
     fun tinyMiddleDivisionCapsMovementSoPromotedAndRelegatedGroupsCannotOverlap() {
         val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("França")
 
-        // Série B com apenas 2 clubes precisa reservar um para cada direção.
+        // França possui três divisões ativas; uma Série B artificialmente reduzida a 2 clubes
+        // precisa reservar um para cada direção.
         assertEquals(
             1,
             hierarchy.safeMovementSpotsBetween(
