@@ -154,10 +154,11 @@ fun GameViewModel.savePlayerFromEditor(player: Player) {
         } else {
             repo.updatePlayer(player)
         }
-        if (player.teamId != 0L) {
-            val roster = repo.getPlayersByTeam(player.teamId)
+        val teamId = player.teamId
+        if (teamId != null) {
+            val roster = repo.getPlayersByTeam(teamId)
             val calculated = GameEngine.calculateTeamRating(roster)
-            val team = repo.getTeam(player.teamId)
+            val team = repo.getTeam(teamId)
             if (team != null && team.rating != calculated) {
                 repo.saveTeams(listOf(team.copy(rating = calculated)))
             }
@@ -174,7 +175,7 @@ fun GameViewModel.deletePlayerFromEditor(playerId: Long) {
 fun GameViewModel.transferPlayerFromEditor(playerId: Long, targetTeamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
         val player = repo.getPlayer(playerId) ?: return@launch
-        val updated = player.copy(teamId = targetTeamId)
+        val updated = player.copy(teamId = targetTeamId, originalTeamId = null, isOnLoan = false, loanWeeksRemaining = 0)
         repo.updatePlayer(updated)
     }
 }
