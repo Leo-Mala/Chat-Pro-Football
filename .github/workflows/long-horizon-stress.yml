@@ -1,25 +1,17 @@
 name: Long-Horizon Stress
 
-# Commits de desenvolvimento em PR draft criam apenas um check ignorado, sem runner.
-# O stress completo roda manualmente ou uma única vez quando o PR sai de draft.
+# Diagnóstico manual. O checkpoint normal de PR executa estes mesmos testes no final do
+# runner consolidado de android.yml, após build e regressão não-stress.
 on:
-  pull_request:
-    branches: [ "main", "master" ]
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: long-horizon-stress-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   stress:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout repository
