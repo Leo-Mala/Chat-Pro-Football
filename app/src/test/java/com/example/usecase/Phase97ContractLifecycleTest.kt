@@ -11,6 +11,7 @@ import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -86,7 +87,7 @@ class Phase97ContractLifecycleTest {
         assertEquals(1, afterWeekOneUser.contractDurationWeeks)
         assertEquals(1L, afterWeekOneUser.teamId)
         assertEquals(0, afterWeekOneCpu.contractDurationWeeks)
-        assertEquals(0L, afterWeekOneCpu.teamId)
+        assertNull(afterWeekOneCpu.teamId)
         assertEquals(0L, afterWeekOneCpu.salary)
 
         repository.saveGameSave(requireNotNull(repository.getGameSave()).copy(currentWeek = 2))
@@ -94,7 +95,7 @@ class Phase97ContractLifecycleTest {
 
         val expiredUser = requireNotNull(repository.getPlayer(11L))
         assertEquals(0, expiredUser.contractDurationWeeks)
-        assertEquals(0L, expiredUser.teamId)
+        assertNull(expiredUser.teamId)
         assertEquals(0L, expiredUser.salary)
 
         val allPlayers = repository.getAllPlayers()

@@ -41,8 +41,8 @@ object CareerInvariantAssertions {
 
         val validTeamIds = teams.map { it.id }.toSet()
         assertTrue(
-            "Todo jogador deve pertencer a um clube existente ou ser Agente Livre (teamId=0)",
-            players.all { it.teamId == 0L || it.teamId in validTeamIds }
+            "Todo jogador deve pertencer a um clube existente ou ser Agente Livre (teamId=null)",
+            players.all { it.teamId == null || it.teamId in validTeamIds }
         )
         assertTrue(
             "Duração de contrato não pode ser negativa",
@@ -50,7 +50,7 @@ object CareerInvariantAssertions {
         )
         assertTrue(
             "Agente Livre não pode permanecer marcado como emprestado",
-            players.filter { it.teamId == 0L }.none { it.isOnLoan }
+            players.filter { it.teamId == null }.none { it.isOnLoan }
         )
 
         val activeLoans = repository.getActiveLoans()
@@ -80,6 +80,10 @@ object CareerInvariantAssertions {
             "Nenhum fixture pode ficar fora das ${GameCalendar.WEEKS_PER_SEASON} semanas canônicas",
             fixtures.all { it.week in 1..GameCalendar.WEEKS_PER_SEASON }
         )
+        assertTrue(
+            "Fixtures persistidos devem referenciar somente clubes persistidos",
+            fixtures.all { it.homeTeamId in validTeamIds && it.awayTeamId in validTeamIds }
+        )
 
         // Centraliza semana/slot, confronto contra si mesmo, fixture duplicado e clube repetido
         // no mesmo slot. MIDWEEK + WEEKEND na mesma semana continua permitido.
@@ -98,7 +102,7 @@ object CareerInvariantAssertions {
         }
 
         if (minimumRosterTeamIds.isNotEmpty()) {
-            val playersByTeam = players.filter { it.teamId != 0L }.groupBy { it.teamId }
+            val playersByTeam = players.filter { it.teamId != null }.groupBy { it.teamId }
             minimumRosterTeamIds.forEach { teamId ->
                 assertTrue("Clube $teamId deve continuar existindo", teamId in validTeamIds)
                 val roster = playersByTeam[teamId].orEmpty()

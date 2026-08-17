@@ -11,6 +11,10 @@ import kotlin.math.abs
  *
  * A decisão de renovar/repor atletas é determinística para um mesmo estado persistido. Free Agents
  * são sempre reaproveitados antes da geração de um atleta de emergência.
+ *
+ * Registros Team com country="Mundial" são participantes virtuais/legados persistidos apenas para
+ * integridade referencial de fixtures. Eles não representam clubes domésticos ativos e, portanto,
+ * não recebem renovação nem geração automática de elenco.
  */
 class CpuSquadManagementUseCase(private val repository: GameRepository) {
 
@@ -31,15 +35,15 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         val invalidActiveLoans: Int
     )
 
-    /**
-     * Executar imediatamente antes do decremento semanal de contratos.
-     * Renova apenas atletas cujo contrato expiraria neste tick e que a CPU tem motivo esportivo
-     * objetivo para manter.
-     */
+    private fun Team.isManagedCpuClub(playerTeamId: Long?): Boolean =
+        id != playerTeamId &&
+            !isPlayerControlled &&
+            !country.equals("Mundial", ignoreCase = true)
+
     suspend fun renewCpuContractsBeforeWeeklyTick(): Int = repository.withTransaction {
         val save = repository.getGameSave()
         val cpuTeams = repository.getAllTeams()
-            .filter { it.id != save?.playerTeamId && !it.isPlayerControlled }
+            .filter { it.isManagedCpuClub(save?.playerTeamId) }
             .sortedBy { it.id }
         val playersByTeam = repository.getAllPlayers().groupBy { it.teamId }
         val updates = mutableListOf<Player>()
@@ -86,25 +90,21 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         updates.size
     }
 
-    /**
-     * Executar após o tick semanal de contratos. A leitura global é feita uma única vez; mudanças
-     * de vínculo são calculadas em memória e gravadas em lote, evitando uma consulta Room por clube.
-     */
     suspend fun ensureCpuSquadIntegrity(): ManagementReport = repository.withTransaction {
         val save = repository.getGameSave()
         val cpuTeams = repository.getAllTeams()
-            .filter { it.id != save?.playerTeamId && !it.isPlayerControlled }
+            .filter { it.isManagedCpuClub(save?.playerTeamId) }
             .sortedBy { it.id }
 
         val allPlayers = repository.getAllPlayers()
         val activeLoans = repository.getActiveLoans()
         val rosters = allPlayers
-            .filter { it.teamId != 0L }
+            .filter { it.teamId != null }
             .groupBy { it.teamId }
             .mapValues { (_, players) -> players.toMutableList() }
             .toMutableMap()
         val freeAgents = allPlayers
-            .filter { it.teamId == 0L && !it.isOnLoan }
+            .filter { it.teamId == null && !it.isOnLoan }
             .sortedBy { it.id }
             .toMutableList()
         val pendingUpdates = linkedMapOf<Long, Player>()
@@ -131,8 +131,6 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         for (team in cpuTeams) {
             val roster = rosters.getOrPut(team.id) { mutableListOf() }
 
-            // Empréstimos ativos normais já respeitam o limite na contratação. Em estados legados
-            // acima de 35, liberamos primeiro atletas próprios; empréstimos ativos são preservados.
             if (roster.size > MAX_SQUAD_SIZE) {
                 val releaseCount = roster.size - MAX_SQUAD_SIZE
                 val releasable = roster
@@ -148,8 +146,8 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                     roster.removeAll { it.id in releaseIds }
                     toRelease.forEach { player ->
                         val freeAgent = player.copy(
-                            teamId = 0L,
-                            originalTeamId = 0L,
+                            teamId = null,
+                            originalTeamId = null,
                             contractDurationWeeks = 0,
                             salary = 0L,
                             isStarter = false,
@@ -177,7 +175,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
 
                 val signedPlayer = candidate.copy(
                     teamId = team.id,
-                    originalTeamId = 0L,
+                    originalTeamId = null,
                     contractDurationWeeks = renewalDuration(candidate),
                     salary = candidate.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L),
                     isStarter = false,
@@ -208,7 +206,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                 val generatedPlayer = template.copy(
                     id = nextCollisionSafeId(),
                     teamId = team.id,
-                    originalTeamId = 0L,
+                    originalTeamId = null,
                     contractDurationWeeks = renewalDuration(template),
                     salary = template.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L),
                     isStarter = false,
@@ -251,14 +249,15 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         val refreshedPlayers = repository.getAllPlayers()
         val refreshedByTeam = refreshedPlayers.groupBy { it.teamId }
         val duplicateActiveLoans = activeLoans.size - activeLoans.map { it.playerId }.toSet().size
+        val validTeamIds = repository.getAllTeams().map { it.id }.toSet()
         val invalidLoanRows = activeLoans.count { loan ->
             val player = refreshedPlayers.firstOrNull { it.id == loan.playerId }
             player == null ||
                 !player.isOnLoan ||
                 player.teamId != loan.borrowerTeamId ||
                 player.originalTeamId != loan.ownerTeamId ||
-                loan.ownerTeamId !in rosters.keys ||
-                loan.borrowerTeamId !in rosters.keys ||
+                loan.ownerTeamId !in validTeamIds ||
+                loan.borrowerTeamId !in validTeamIds ||
                 loan.remainingWeeks <= 0
         }
         val teamsWithoutGoalkeeper = cpuTeams.count { team ->

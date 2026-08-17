@@ -36,6 +36,7 @@ class GameRepositoryFixtureScheduleTest {
 
     @Test
     fun scoreUpdateDoesNotBlockOnPreexistingLegacyConflict() = runTest {
+        seedTeams(10L, 20L, 30L)
         val league = Fixture(
             id = 1L,
             season = 2026,
@@ -68,6 +69,7 @@ class GameRepositoryFixtureScheduleTest {
 
     @Test
     fun pendingWeekendFixtureIsReturnedBeforePlayedMidweekFixtureForManualFlow() = runTest {
+        seedTeams(1L, 2L, 3L)
         val playedMidweek = Fixture(
             id = 20L,
             season = 2026,
@@ -102,6 +104,7 @@ class GameRepositoryFixtureScheduleTest {
 
     @Test
     fun rescheduleIntoOccupiedSlotIsRejected() = runTest {
+        seedTeams(1L, 2L, 3L)
         val existing = Fixture(
             id = 10L,
             season = 2026,
@@ -128,5 +131,20 @@ class GameRepositoryFixtureScheduleTest {
         } catch (_: IllegalArgumentException) {
             // esperado
         }
+    }
+
+    private suspend fun seedTeams(vararg ids: Long) {
+        repository.saveTeams(
+            ids.map { id ->
+                Team(
+                    id = id,
+                    name = "Time $id",
+                    city = "Cidade $id",
+                    state = "BR",
+                    country = "Brasil",
+                    division = 1
+                )
+            }
+        )
     }
 }

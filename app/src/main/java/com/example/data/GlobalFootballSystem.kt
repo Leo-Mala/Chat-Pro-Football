@@ -27,6 +27,16 @@ data class Competition(
 
 object GlobalFootballSystem {
 
+    /**
+     * IDs >= 200_000 pertencem ao namespace determinístico de clubes gerados/virtuais. IDs
+     * persistidos faltantes abaixo deste limite são considerados corrupção e não são inventados em
+     * runtime. A migration V20->V21 é a única exceção, pois materializa referências legadas para
+     * preservar fixtures já existentes.
+     */
+    const val VIRTUAL_TEAM_ID_FLOOR = 200_000L
+
+    fun isGeneratedVirtualTeamId(id: Long): Boolean = id >= VIRTUAL_TEAM_ID_FLOOR
+
     val confederations = listOf(
         Confederation("UEFA", "Union of European Football Associations", "🇪🇺"),
         Confederation("CONMEBOL", "Confederación Sudamericana de Fútbol", "🌎"),
@@ -108,10 +118,11 @@ object GlobalFootballSystem {
         val h2 = teamName.hashCode().toLong()
         val combined = (h1 shl 16) xor h2
         val positiveHash = (combined and 0x7FFFFFFF_FFFFFFFFL) % 800_000L
-        return 200_000L + positiveHash
+        return VIRTUAL_TEAM_ID_FLOOR + positiveHash
     }
 
-    fun getTeamByGlobalId(id: Long): Team? {
+    fun getTeamByGlobalId(id: Long?): Team? {
+        if (id == null) return null
         val countryIndex = ((id - 1) / 200).toInt()
         val teamIndex = ((id - 1) % 200).toInt()
         if (countryIndex < 0 || countryIndex >= keys.size) return null
@@ -139,7 +150,7 @@ object GlobalFootballSystem {
             name = "Clube Virtual $id",
             city = "Global",
             state = "GL",
-            country = "Brasil",
+            country = "Mundial",
             division = 1,
             rating = 50,
             stadiumName = "Arena Global",

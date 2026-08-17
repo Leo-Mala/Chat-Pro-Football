@@ -87,7 +87,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer.teamId == save.playerTeamId) {
                 return@withTransaction TransferResult.Error("O jogador já pertence ao seu clube!")
             }
-            if (player.teamId == 0L && freshPlayer.teamId != 0L) {
+            if (player.teamId == null && freshPlayer.teamId != null) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
             val currentSave = repository.getGameSave() ?: save
@@ -99,6 +99,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             val updatedSave = currentSave.copy(bankBalance = newBalance)
             val updatedPlayer = freshPlayer.copy(
                 teamId = currentSave.playerTeamId,
+                originalTeamId = null,
                 moral = 90,
                 salary = newPlayerSalary,
                 contractDurationWeeks = if (freshPlayer.contractDurationWeeks <= 0) 52 else freshPlayer.contractDurationWeeks,
@@ -111,7 +112,6 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             repository.updatePlayers(listOf(updatedPlayer))
 
             val (dueSeason, dueWeek) = FinanceUseCase.calcNextDueDate(currentSave.currentSeason, currentSave.currentWeek, 1)
-
             val uniqueTransferId = TransactionIdGenerator.generateUniqueId()
 
             repository.saveInstallment(
@@ -119,7 +119,8 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                     transferId = uniqueTransferId,
                     playerId = freshPlayer.id,
                     buyerTeamId = currentSave.playerTeamId,
-                    sellerTeamId = freshPlayer.teamId,
+                    // Histórico financeiro mantém 0 apenas como "sem vendedor" para compra de Free Agent.
+                    sellerTeamId = freshPlayer.teamId ?: 0L,
                     totalAmount = offerPrice,
                     downPayment = downPayment,
                     installmentAmount = weeklyInstallment,
@@ -203,6 +204,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             val updatedSave = currentSave.copy(bankBalance = newBalance)
             val updatedPlayer = freshPlayer.copy(
                 teamId = buyerTeamId,
+                originalTeamId = null,
                 isStarter = false,
                 isOnLoan = false,
                 loanWeeksRemaining = 0
@@ -284,7 +286,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer.isOnLoan) {
                 return@withTransaction TransferResult.Error("O jogador já está emprestado!")
             }
-            if (freshPlayer.teamId == 0L) {
+            if (freshPlayer.teamId == null) {
                 return@withTransaction TransferResult.Error("Agentes livres não podem ser emprestados!")
             }
             if (freshPlayer.contractDurationWeeks < loanWeeks) {
@@ -296,7 +298,8 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                 return@withTransaction TransferResult.Error("Já existe um empréstimo ativo para este jogador!")
             }
 
-            val ownerTeamId = if (freshPlayer.originalTeamId != 0L) freshPlayer.originalTeamId else freshPlayer.teamId
+            val ownerTeamId = freshPlayer.originalTeamId ?: freshPlayer.teamId
+                ?: return@withTransaction TransferResult.Error("Jogador sem clube proprietário não pode ser emprestado!")
             val ownerTeam = repository.getTeam(ownerTeamId)
             if (ownerTeam == null) {
                 return@withTransaction TransferResult.Error("Clube proprietário não foi encontrado!")
@@ -359,8 +362,8 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                     } else {
                         updated = updated.copy(
                             contractDurationWeeks = 0,
-                            teamId = 0L, // Free Agent
-                            originalTeamId = 0L,
+                            teamId = null,
+                            originalTeamId = null,
                             isStarter = false,
                             salary = 0L
                         )
@@ -446,7 +449,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer.teamId == save.playerTeamId) {
                 return@withTransaction TransferResult.Error("O jogador já pertence ao seu clube!")
             }
-            if (player.teamId == 0L && freshPlayer.teamId != 0L) {
+            if (player.teamId == null && freshPlayer.teamId != null) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
             val currentSave = repository.getGameSave() ?: save
@@ -458,6 +461,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             val updatedSave = currentSave.copy(bankBalance = newBalance)
             val updatedPlayer = freshPlayer.copy(
                 teamId = currentSave.playerTeamId,
+                originalTeamId = null,
                 moral = 90,
                 salary = newPlayerSalary,
                 contractDurationWeeks = if (freshPlayer.contractDurationWeeks <= 0) 52 else freshPlayer.contractDurationWeeks,
@@ -549,6 +553,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             val updatedSave = currentSave.copy(bankBalance = newBalance)
             val updatedPlayer = freshPlayer.copy(
                 teamId = buyer.id,
+                originalTeamId = null,
                 moral = 70,
                 isStarter = false,
                 isOnLoan = false,
@@ -607,7 +612,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
                 val loanWeeks = if (offer.durationWeeks > 0) offer.durationWeeks else 26
                 val updatedPlayer = freshPlayer.copy(
-                    originalTeamId = freshPlayer.teamId,
+                    originalTeamId = save.playerTeamId,
                     teamId = borrowerTeam.id,
                     isOnLoan = true,
                     loanWeeksRemaining = loanWeeks,
@@ -655,6 +660,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                 val updatedSave = currentSave.copy(bankBalance = newBalance)
                 val updatedPlayer = freshPlayer.copy(
                     teamId = buyerTeam.id,
+                    originalTeamId = null,
                     moral = 70,
                     isStarter = false,
                     isOnLoan = false,

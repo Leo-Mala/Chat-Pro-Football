@@ -143,6 +143,19 @@ class SuperMundialSystemTest {
     @Test
     fun quarterfinalsProgressThroughWeek48AndChampionIsRecordedOnlyOnce() = runTest {
         val season = 2029
+        repository.saveTeams(
+            (101L..108L).map { id ->
+                Team(
+                    id = id,
+                    name = "Mundial QA $id",
+                    city = "Global",
+                    state = "GL",
+                    country = "Brasil",
+                    division = 1,
+                    rating = 80
+                )
+            }
+        )
         val quarterfinals = listOf(
             Fixture(id = 1L, season = season, week = SuperMundialSystem.QUARTERFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = 101L, awayTeamId = 102L, homeScore = 2, awayScore = 0, competitionType = "WORLD_CUP", isPlayed = true),
             Fixture(id = 2L, season = season, week = SuperMundialSystem.QUARTERFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = 103L, awayTeamId = 104L, homeScore = 1, awayScore = 0, competitionType = "WORLD_CUP", isPlayed = true),

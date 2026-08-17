@@ -375,7 +375,9 @@ fun TransferPlayerDialog(
     onDismiss: () -> Unit,
     onConfirm: (Long) -> Unit
 ) {
-    var selectedTeamId by remember { mutableStateOf(player.teamId) }
+    var selectedTeamId by remember {
+        mutableLongStateOf(player.teamId ?: allTeams.firstOrNull()?.id ?: 0L)
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -456,6 +458,7 @@ fun TransferPlayerDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = { onConfirm(selectedTeamId) },
+                        enabled = allTeams.isNotEmpty(),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentLime, contentColor = TurfPitchDark)
                     ) {
                         Text("CONFIRMAR TRANSFERÊNCIA", fontWeight = FontWeight.Bold)

@@ -3,6 +3,7 @@ package com.example.data
 import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -72,6 +73,15 @@ data class Team(
 
 @Entity(
     tableName = "players",
+    foreignKeys = [
+        ForeignKey(
+            entity = Team::class,
+            parentColumns = ["id"],
+            childColumns = ["teamId"],
+            onUpdate = ForeignKey.NO_ACTION,
+            onDelete = ForeignKey.SET_NULL
+        )
+    ],
     indices = [
         Index(value = ["teamId", "position", "force"]),
         Index(value = ["teamId", "isStarter"]),
@@ -80,7 +90,8 @@ data class Team(
 )
 data class Player(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
-    val teamId: Long,
+    /** null é o estado canônico de Free Agent a partir do schema V21. */
+    val teamId: Long?,
     val name: String,
     val age: Int,
     val nationality: String = "Brasil",
@@ -100,7 +111,8 @@ data class Player(
     val isStarter: Boolean = false,
     val isOnLoan: Boolean = false,
     val loanWeeksRemaining: Int = 0,
-    val originalTeamId: Long = 0L,
+    /** Estado legado/derivável de empréstimo; null significa ausência de clube proprietário legado. */
+    val originalTeamId: Long? = null,
     
     // Performance and evolution stats
     val careerAssists: Int = 0,
@@ -245,6 +257,22 @@ data class Player(
 
 @Entity(
     tableName = "fixtures",
+    foreignKeys = [
+        ForeignKey(
+            entity = Team::class,
+            parentColumns = ["id"],
+            childColumns = ["homeTeamId"],
+            onUpdate = ForeignKey.NO_ACTION,
+            onDelete = ForeignKey.NO_ACTION
+        ),
+        ForeignKey(
+            entity = Team::class,
+            parentColumns = ["id"],
+            childColumns = ["awayTeamId"],
+            onUpdate = ForeignKey.NO_ACTION,
+            onDelete = ForeignKey.NO_ACTION
+        )
+    ],
     indices = [
         Index(value = ["season"]),
         Index(value = ["week"]),
@@ -422,4 +450,3 @@ data class PlayerLoan(
     val buyoutOptionPrice: Long? = null,
     val status: String = "ACTIVE"
 )
-

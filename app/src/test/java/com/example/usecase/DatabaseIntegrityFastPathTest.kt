@@ -75,6 +75,6 @@ class DatabaseIntegrityFastPathTest {
         assertTrue(report.issuesFound.isEmpty())
         assertEquals(beforeCount, afterPlayers.size)
         assertEquals(afterPlayers.size, afterPlayers.map { it.id }.toSet().size)
-        assertTrue(afterPlayers.all { it.teamId in validTeamIds })
+        assertTrue(afterPlayers.all { it.teamId != null && it.teamId in validTeamIds })
     }
 }

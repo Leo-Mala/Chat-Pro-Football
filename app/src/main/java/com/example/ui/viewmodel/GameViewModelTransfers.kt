@@ -112,7 +112,7 @@ fun GameViewModel.renewContract(player: Player, durationWeeks: Int = 52) {
                 _toastMessage.emit("O jogador não pertence ao seu clube!")
                 return@withTransaction
             }
-            if (freshPlayer.teamId == 0L && !freshPlayer.isOnLoan) {
+            if (freshPlayer.teamId == null && !freshPlayer.isOnLoan) {
                 _toastMessage.emit("Agentes livres não podem ter contratos renovados!")
                 return@withTransaction
             }

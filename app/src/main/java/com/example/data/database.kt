@@ -12,6 +12,7 @@ import com.example.data.migrations.MIGRATION_16_17
 import com.example.data.migrations.MIGRATION_17_18
 import com.example.data.migrations.MIGRATION_18_19
 import com.example.data.migrations.MIGRATION_19_20
+import com.example.data.migrations.MIGRATION_20_21
 
 @Database(
     entities = [
@@ -29,7 +30,7 @@ import com.example.data.migrations.MIGRATION_19_20
         PlayerLoan::class,
         GlobalLeagueStanding::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = true
 )
 @TypeConverters(AtributosConverter::class, MatchSlotConverter::class)
@@ -49,13 +50,20 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun globalLeagueStandingDao(): GlobalLeagueStandingDao
 
     companion object {
+        /**
+         * Não há definição histórica confiável de schema anterior à V14 no repositório atual.
+         * Versões abaixo disso falham de modo seguro e o arquivo físico é preservado.
+         */
+        const val MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION = 14
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_14_15,
             MIGRATION_15_16,
             MIGRATION_16_17,
             MIGRATION_17_18,
             MIGRATION_18_19,
-            MIGRATION_19_20
+            MIGRATION_19_20,
+            MIGRATION_20_21
         )
 
         fun buildDatabaseWithName(context: Context, name: String): AppDatabase {

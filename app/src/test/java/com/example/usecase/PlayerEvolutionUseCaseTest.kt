@@ -7,6 +7,7 @@ import com.example.data.AppDatabase
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Player
+import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,7 +43,8 @@ class PlayerEvolutionUseCaseTest {
 
     @Test
     fun processPostMatchRecovery_restores_energy_and_decreases_injury() = runTest {
-        val save = GameSave(id = 1)
+        seedTeam()
+        val save = GameSave(id = 1, playerTeamId = 1L)
         val player = Player(
             id = 1L,
             teamId = 1L,
@@ -66,6 +68,7 @@ class PlayerEvolutionUseCaseTest {
 
     @Test
     fun promoteYouthPlayer_fails_when_roster_is_full() = runTest {
+        seedTeam()
         val save = GameSave(id = 1, playerTeamId = 1L)
 
         val (success, message) = useCase.promoteYouthPlayer(save, "Novo Craque", "ATA", currentRosterSize = 35)
@@ -76,11 +79,27 @@ class PlayerEvolutionUseCaseTest {
 
     @Test
     fun promoteYouthPlayer_successfully_adds_youth_player() = runTest {
+        seedTeam()
         val save = GameSave(id = 1, playerTeamId = 1L)
 
         val (success, message) = useCase.promoteYouthPlayer(save, "Jovem Promessa", "MEI", currentRosterSize = 22)
 
         assertEquals(true, success)
         assertTrue(message.contains("promovido com sucesso"))
+    }
+
+    private suspend fun seedTeam() {
+        repository.saveTeams(
+            listOf(
+                Team(
+                    id = 1L,
+                    name = "Evolução QA",
+                    city = "Belo Horizonte",
+                    state = "MG",
+                    country = "Brasil",
+                    division = 1
+                )
+            )
+        )
     }
 }

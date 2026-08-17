@@ -9,6 +9,7 @@ import com.example.data.GameSave
 import com.example.data.Player
 import com.example.data.PlayerLoan
 import com.example.data.Team
+import com.example.support.RelationalIntegrityAssertions
 import com.example.usecase.DatabaseIntegrityUseCase
 import com.example.usecase.GenerateCalendarUseCase
 import com.example.usecase.SeasonTransitionUseCase
@@ -40,11 +41,7 @@ class RetirementLifecycleTest {
             AppDatabase::class.java
         ).allowMainThreadQueries().build()
         repository = GameRepository(db)
-        transition = SeasonTransitionUseCase(
-            repository,
-            GenerateCalendarUseCase(repository),
-            DatabaseIntegrityUseCase(repository)
-        )
+        transition = SeasonTransitionUseCase(repository, GenerateCalendarUseCase(repository), DatabaseIntegrityUseCase(repository))
     }
 
     @After
@@ -54,45 +51,15 @@ class RetirementLifecycleTest {
 
     @Test
     fun `retired loaned player is replaced by clean new identity at owner club`() = runBlocking {
-        val owner = Team(
-            id = 10L,
-            name = "Clube Proprietário",
-            city = "Belo Horizonte",
-            state = "MG",
-            country = "Brasil",
-            division = 1,
-            rating = 85
-        )
-        val borrower = Team(
-            id = 20L,
-            name = "Clube Tomador",
-            city = "São Paulo",
-            state = "SP",
-            country = "Brasil",
-            division = 1,
-            rating = 75
-        )
+        val owner = Team(id = 10L, name = "Clube Proprietário", city = "Belo Horizonte", state = "MG", country = "Brasil", division = 1, rating = 85)
+        val borrower = Team(id = 20L, name = "Clube Tomador", city = "São Paulo", state = "SP", country = "Brasil", division = 1, rating = 75)
         repository.saveTeams(listOf(owner, borrower))
 
         val ownerPlayers = (1..15).map { index ->
-            Player(
-                id = 100L + index,
-                teamId = owner.id,
-                name = "Owner $index",
-                age = 24,
-                position = if (index == 1) "GOL" else "MEI",
-                force = 70
-            )
+            Player(id = 100L + index, teamId = owner.id, name = "Owner $index", age = 24, position = if (index == 1) "GOL" else "MEI", force = 70)
         }
         val borrowerPlayers = (1..15).map { index ->
-            Player(
-                id = 200L + index,
-                teamId = borrower.id,
-                name = "Borrower $index",
-                age = 24,
-                position = if (index == 1) "GOL" else "ZAG",
-                force = 65
-            )
+            Player(id = 200L + index, teamId = borrower.id, name = "Borrower $index", age = 24, position = if (index == 1) "GOL" else "ZAG", force = 65)
         }
         val retiringPlayer = Player(
             id = 500L,
@@ -166,7 +133,7 @@ class RetirementLifecycleTest {
         assertEquals(52, replacement.contractDurationWeeks)
         assertFalse(replacement.isOnLoan)
         assertEquals(0, replacement.loanWeeksRemaining)
-        assertEquals(0L, replacement.originalTeamId)
+        assertNull(replacement.originalTeamId)
         assertEquals(0, replacement.injuryWeeksRemaining)
         assertEquals(0, replacement.suspensionWeeksRemaining)
         assertEquals(0, replacement.yellowCardsAccumulated)
@@ -175,5 +142,7 @@ class RetirementLifecycleTest {
         assertEquals("COMPLETED", closedLoan.status)
         assertEquals(0, closedLoan.remainingWeeks)
         assertTrue(repository.getPlayersByTeam(owner.id).any { it.id == replacement.id })
+        RelationalIntegrityAssertions.assertRepositoryReferences(repository)
+        RelationalIntegrityAssertions.assertDatabasePragmas(db)
     }
 }

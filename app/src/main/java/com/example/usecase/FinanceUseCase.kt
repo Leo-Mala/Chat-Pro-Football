@@ -166,11 +166,11 @@ class FinanceUseCase(private val repository: GameRepository) {
                 if (rem <= 0) {
                     val hasExpiredContract = player.contractDurationWeeks <= 0
                     if (hasExpiredContract) {
-                        // Contrato expirou durante o empréstimo: torna-se Agente Livre (teamId = 0L)
+                        // Contrato expirou durante o empréstimo: torna-se Agente Livre canônico.
                         repository.updatePlayer(
                             player.copy(
-                                teamId = 0L,
-                                originalTeamId = 0L,
+                                teamId = null,
+                                originalTeamId = null,
                                 isOnLoan = false,
                                 loanWeeksRemaining = 0,
                                 isStarter = false,
@@ -178,11 +178,12 @@ class FinanceUseCase(private val repository: GameRepository) {
                             )
                         )
                     } else {
-                        // Contrato ainda ativo: devolve ao clube proprietário original
-                        val ownerTeamId = if (player.originalTeamId != 0L) player.originalTeamId else loan.ownerTeamId
+                        // Contrato ainda ativo: devolve ao clube proprietário original.
+                        val ownerTeamId = player.originalTeamId ?: loan.ownerTeamId
                         repository.updatePlayer(
                             player.copy(
                                 teamId = ownerTeamId,
+                                originalTeamId = null,
                                 isOnLoan = false,
                                 loanWeeksRemaining = 0,
                                 isStarter = false

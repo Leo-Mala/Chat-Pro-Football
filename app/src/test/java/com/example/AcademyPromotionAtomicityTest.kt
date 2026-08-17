@@ -6,6 +6,7 @@ import com.example.data.AppDatabase
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Player
+import com.example.data.Team
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -41,6 +42,7 @@ class AcademyPromotionAtomicityTest {
     @Test
     fun `promotion writes player and academy list in one transaction`() = runBlocking {
         val originalAcademy = "prospect-a|prospect-b"
+        seedAcademyTeam()
         repository.saveGameSave(
             GameSave(
                 coachName = "Atomic QA",
@@ -73,6 +75,7 @@ class AcademyPromotionAtomicityTest {
 
     @Test
     fun `stale academy snapshot writes neither player nor save`() = runBlocking {
+        seedAcademyTeam()
         repository.saveGameSave(
             GameSave(
                 coachName = "Conflict QA",
@@ -99,5 +102,20 @@ class AcademyPromotionAtomicityTest {
         assertFalse(committed)
         assertEquals("newer-state", repository.getGameSave()?.academyProspects)
         assertTrue(repository.getPlayersByTeam(10L).isEmpty())
+    }
+
+    private suspend fun seedAcademyTeam() {
+        repository.saveTeams(
+            listOf(
+                Team(
+                    id = 10L,
+                    name = "Academia QA",
+                    city = "Belo Horizonte",
+                    state = "MG",
+                    country = "Brasil",
+                    division = 1
+                )
+            )
+        )
     }
 }

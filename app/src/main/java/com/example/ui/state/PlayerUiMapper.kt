@@ -7,7 +7,7 @@ import com.example.data.Team
 @Immutable
 data class UiPlayerItem(
     val id: Long,
-    val teamId: Long,
+    val teamId: Long?,
     val name: String,
     val age: Int,
     val position: String,

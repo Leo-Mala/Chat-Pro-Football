@@ -46,11 +46,13 @@ class SeasonTransitionUseCaseTest {
 
     private fun freeAgent(age: Int = 24) = Player(
         id = 10L,
-        teamId = 0L,
+        teamId = null,
         name = "Jogador Teste",
         age = age,
         position = "MEI",
-        force = 70
+        force = 70,
+        salary = 0L,
+        contractDurationWeeks = 0
     )
 
     @Test

@@ -3,6 +3,7 @@ package com.example
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.*
+import com.example.support.RelationalIntegrityAssertions
 import com.example.usecase.*
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -173,8 +174,6 @@ class TwentySeasonStressTest {
                 }
             )
 
-            // Transferências do usuário podem retirar um atleta da CPU. Corrigimos o elenco antes
-            // do primeiro jogo da temporada, não apenas depois da primeira rodada.
             val openingCpuReport = cpuSquadManagementUseCase.ensureCpuSquadIntegrity()
             assertTrue(openingCpuReport.minimumRosterSize >= 16)
             assertTrue(openingCpuReport.maximumRosterSize <= 35)
@@ -228,8 +227,8 @@ class TwentySeasonStressTest {
                     allPlayers.size,
                     allPlayers.map { it.id }.toSet().size
                 )
-                val validTeamIds = repository.getAllTeams().map { it.id }.toSet() + 0L
-                assertTrue(allPlayers.all { it.teamId in validTeamIds })
+                val validTeamIds = repository.getAllTeams().map { it.id }.toSet()
+                assertTrue(allPlayers.all { it.teamId == null || it.teamId in validTeamIds })
                 assertTrue(allPlayers.all { it.contractDurationWeeks >= 0 })
                 assertTrue(gameSave.bankBalance >= 0L)
 
@@ -242,6 +241,8 @@ class TwentySeasonStressTest {
             }
 
             FixtureScheduleValidator.requireValid(repository.getFixturesForSeason(currentSeason))
+            RelationalIntegrityAssertions.assertRepositoryReferences(repository)
+            RelationalIntegrityAssertions.assertDatabasePragmas(db)
             titlesBySeason[currentSeason] = "Campeão Brasileiro"
             gameSave = seasonTransitionUseCase.advanceToNextSeason(gameSave)
         }
@@ -264,7 +265,8 @@ class TwentySeasonStressTest {
 
         val finalPlayers = repository.getAllPlayers()
         assertEquals(finalPlayers.size, finalPlayers.map { it.id }.toSet().size)
-        val validTeamIds = repository.getAllTeams().map { it.id }.toSet() + 0L
-        assertTrue(finalPlayers.all { it.teamId in validTeamIds })
+        val validTeamIds = repository.getAllTeams().map { it.id }.toSet()
+        assertTrue(finalPlayers.all { it.teamId == null || it.teamId in validTeamIds })
+        RelationalIntegrityAssertions.assertDatabasePragmas(db)
     }
 }

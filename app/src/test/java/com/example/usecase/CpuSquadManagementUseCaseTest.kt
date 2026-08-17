@@ -102,7 +102,7 @@ class CpuSquadManagementUseCaseTest {
                 (1..6).map { index ->
                     Player(
                         id = 9_000L + index,
-                        teamId = 0L,
+                        teamId = null,
                         name = "Livre $index",
                         age = 22 + index,
                         position = if (index == 1) "GOL" else if (index <= 3) "ZAG" else "MEI",
@@ -113,7 +113,7 @@ class CpuSquadManagementUseCaseTest {
                 }
         )
 
-        val freeAgentIds = repository.getAllPlayers().filter { it.teamId == 0L }.map { it.id }.toSet()
+        val freeAgentIds = repository.getAllPlayers().filter { it.teamId == null }.map { it.id }.toSet()
         val report = manager.ensureCpuSquadIntegrity()
         val roster = repository.getPlayersByTeam(cpu.id)
 
@@ -122,7 +122,7 @@ class CpuSquadManagementUseCaseTest {
         assertEquals(6, report.freeAgentsSigned)
         assertEquals(0, report.emergencyPlayersGenerated)
         assertTrue("Os mesmos IDs dos agentes livres devem ser reaproveitados", roster.count { it.id in freeAgentIds } == 6)
-        assertEquals(0, repository.getAllPlayers().count { it.teamId == 0L })
+        assertEquals(0, repository.getAllPlayers().count { it.teamId == null })
     }
 
     @Test
@@ -146,7 +146,7 @@ class CpuSquadManagementUseCaseTest {
             } +
                 Player(
                     id = 9_500L,
-                    teamId = 0L,
+                    teamId = null,
                     name = "Livre Único",
                     age = 24,
                     position = "ATA",
@@ -294,7 +294,7 @@ class CpuSquadManagementUseCaseTest {
                 (1..8).map { index ->
                     Player(
                         id = 90_000L + index,
-                        teamId = 0L,
+                        teamId = null,
                         name = "Livre Determinístico $index",
                         age = 21 + index,
                         position = if (index == 1) "GOL" else if (index <= 4) "MEI" else "ATA",

@@ -1,0 +1,1589 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 21,
+    "identityHash": "363dbef3a2f5768afbae05b9fa9a50d5",
+    "entities": [
+      {
+        "tableName": "game_save",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `coachName` TEXT NOT NULL, `coachReputation` INTEGER NOT NULL, `currentWeek` INTEGER NOT NULL, `currentSeason` INTEGER NOT NULL, `playerTeamId` INTEGER NOT NULL, `bankBalance` INTEGER NOT NULL, `stadiumCapacity` INTEGER NOT NULL, `ticketPrice` REAL NOT NULL, `sponsorWeekly` INTEGER NOT NULL, `loanAmount` INTEGER NOT NULL, `isGameOver` INTEGER NOT NULL, `sponsorName` TEXT NOT NULL, `sponsorWeeksRemaining` INTEGER NOT NULL, `academyLevel` INTEGER NOT NULL, `academyWeeklyInvestment` INTEGER NOT NULL, `academyProspects` TEXT NOT NULL, `playerFormation` TEXT NOT NULL, `playerStyle` TEXT NOT NULL, `captainPlayerId` INTEGER, `penaltyPlayerId` INTEGER, `freekickPlayerId` INTEGER, `cornerPlayerId` INTEGER, `socioTorcedoresCount` INTEGER NOT NULL, `hasHiredCoach` INTEGER NOT NULL, `hasHiredPhysio` INTEGER NOT NULL, `globalScoutRevealWeeksRemaining` INTEGER NOT NULL, `activeNewsTitle` TEXT, `activeNewsDesc` TEXT, `installmentWeeklyDeduction` INTEGER NOT NULL, `installmentWeeksRemaining` INTEGER NOT NULL, `careerMatches` INTEGER NOT NULL, `careerWins` INTEGER NOT NULL, `careerDraws` INTEGER NOT NULL, `careerLosses` INTEGER NOT NULL, `careerGoalsScored` INTEGER NOT NULL, `careerGoalsConceded` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coachName",
+            "columnName": "coachName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coachReputation",
+            "columnName": "coachReputation",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentWeek",
+            "columnName": "currentWeek",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentSeason",
+            "columnName": "currentSeason",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerTeamId",
+            "columnName": "playerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bankBalance",
+            "columnName": "bankBalance",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stadiumCapacity",
+            "columnName": "stadiumCapacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ticketPrice",
+            "columnName": "ticketPrice",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sponsorWeekly",
+            "columnName": "sponsorWeekly",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "loanAmount",
+            "columnName": "loanAmount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isGameOver",
+            "columnName": "isGameOver",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sponsorName",
+            "columnName": "sponsorName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sponsorWeeksRemaining",
+            "columnName": "sponsorWeeksRemaining",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "academyLevel",
+            "columnName": "academyLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "academyWeeklyInvestment",
+            "columnName": "academyWeeklyInvestment",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "academyProspects",
+            "columnName": "academyProspects",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerFormation",
+            "columnName": "playerFormation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerStyle",
+            "columnName": "playerStyle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "captainPlayerId",
+            "columnName": "captainPlayerId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "penaltyPlayerId",
+            "columnName": "penaltyPlayerId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "freekickPlayerId",
+            "columnName": "freekickPlayerId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cornerPlayerId",
+            "columnName": "cornerPlayerId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "socioTorcedoresCount",
+            "columnName": "socioTorcedoresCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasHiredCoach",
+            "columnName": "hasHiredCoach",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasHiredPhysio",
+            "columnName": "hasHiredPhysio",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "globalScoutRevealWeeksRemaining",
+            "columnName": "globalScoutRevealWeeksRemaining",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeNewsTitle",
+            "columnName": "activeNewsTitle",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "activeNewsDesc",
+            "columnName": "activeNewsDesc",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "installmentWeeklyDeduction",
+            "columnName": "installmentWeeklyDeduction",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installmentWeeksRemaining",
+            "columnName": "installmentWeeksRemaining",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerMatches",
+            "columnName": "careerMatches",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerWins",
+            "columnName": "careerWins",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerDraws",
+            "columnName": "careerDraws",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerLosses",
+            "columnName": "careerLosses",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerGoalsScored",
+            "columnName": "careerGoalsScored",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerGoalsConceded",
+            "columnName": "careerGoalsConceded",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "teams",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `city` TEXT NOT NULL, `state` TEXT NOT NULL, `country` TEXT NOT NULL, `division` INTEGER NOT NULL, `isPlayerControlled` INTEGER NOT NULL, `rating` INTEGER NOT NULL, `stadiumName` TEXT NOT NULL, `logoUrl` TEXT, `rivalTeamId` INTEGER NOT NULL, `colorHex` TEXT, `trainingCenterLevel` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "city",
+            "columnName": "city",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "country",
+            "columnName": "country",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "division",
+            "columnName": "division",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPlayerControlled",
+            "columnName": "isPlayerControlled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stadiumName",
+            "columnName": "stadiumName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logoUrl",
+            "columnName": "logoUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rivalTeamId",
+            "columnName": "rivalTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorHex",
+            "columnName": "colorHex",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "trainingCenterLevel",
+            "columnName": "trainingCenterLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_teams_division",
+            "unique": false,
+            "columnNames": [
+              "division"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_teams_division` ON `${TABLE_NAME}` (`division`)"
+          },
+          {
+            "name": "index_teams_country",
+            "unique": false,
+            "columnNames": [
+              "country"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_teams_country` ON `${TABLE_NAME}` (`country`)"
+          }
+        ]
+      },
+      {
+        "tableName": "players",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `teamId` INTEGER, `name` TEXT NOT NULL, `age` INTEGER NOT NULL, `nationality` TEXT NOT NULL, `position` TEXT NOT NULL, `force` INTEGER NOT NULL, `energy` INTEGER NOT NULL, `moral` INTEGER NOT NULL, `salary` INTEGER NOT NULL, `contractDurationWeeks` INTEGER NOT NULL, `isFromAcademy` INTEGER NOT NULL, `careerApps` INTEGER NOT NULL, `careerGoals` INTEGER NOT NULL, `imageUrl` TEXT, `injuryWeeksRemaining` INTEGER NOT NULL, `suspensionWeeksRemaining` INTEGER NOT NULL, `yellowCardsAccumulated` INTEGER NOT NULL, `isStarter` INTEGER NOT NULL, `isOnLoan` INTEGER NOT NULL, `loanWeeksRemaining` INTEGER NOT NULL, `originalTeamId` INTEGER, `careerAssists` INTEGER NOT NULL, `careerTackles` INTEGER NOT NULL, `careerSaves` INTEGER NOT NULL, `ratingSum` REAL NOT NULL, `ratingCount` INTEGER NOT NULL, `maxHistoricalForce` INTEGER NOT NULL, `market_value` INTEGER NOT NULL, `min_price` INTEGER NOT NULL, `max_price` INTEGER NOT NULL, `demand_level` TEXT NOT NULL, `finishing` INTEGER NOT NULL, `passing` INTEGER NOT NULL, `pace` INTEGER NOT NULL, `strength` INTEGER NOT NULL, `vision` INTEGER NOT NULL, `defense` INTEGER NOT NULL, `scoutedLevel` INTEGER NOT NULL, `atributosJson` TEXT, `atributos` TEXT NOT NULL, `potential` INTEGER NOT NULL, `gols` INTEGER NOT NULL, `assistencias` INTEGER NOT NULL, `partidasDisputadas` INTEGER NOT NULL, `minutosJogados` INTEGER NOT NULL, `mediaNotas` REAL NOT NULL, `focoTreino` TEXT, `condicao` INTEGER NOT NULL, `evolucaoMensal` REAL NOT NULL, FOREIGN KEY(`teamId`) REFERENCES `teams`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "teamId",
+            "columnName": "teamId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "age",
+            "columnName": "age",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nationality",
+            "columnName": "nationality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "force",
+            "columnName": "force",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "energy",
+            "columnName": "energy",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "moral",
+            "columnName": "moral",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "salary",
+            "columnName": "salary",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contractDurationWeeks",
+            "columnName": "contractDurationWeeks",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isFromAcademy",
+            "columnName": "isFromAcademy",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerApps",
+            "columnName": "careerApps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerGoals",
+            "columnName": "careerGoals",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "injuryWeeksRemaining",
+            "columnName": "injuryWeeksRemaining",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "suspensionWeeksRemaining",
+            "columnName": "suspensionWeeksRemaining",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "yellowCardsAccumulated",
+            "columnName": "yellowCardsAccumulated",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isStarter",
+            "columnName": "isStarter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isOnLoan",
+            "columnName": "isOnLoan",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "loanWeeksRemaining",
+            "columnName": "loanWeeksRemaining",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originalTeamId",
+            "columnName": "originalTeamId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "careerAssists",
+            "columnName": "careerAssists",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerTackles",
+            "columnName": "careerTackles",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "careerSaves",
+            "columnName": "careerSaves",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ratingSum",
+            "columnName": "ratingSum",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ratingCount",
+            "columnName": "ratingCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxHistoricalForce",
+            "columnName": "maxHistoricalForce",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "market_value",
+            "columnName": "market_value",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "min_price",
+            "columnName": "min_price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "max_price",
+            "columnName": "max_price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "demand_level",
+            "columnName": "demand_level",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finishing",
+            "columnName": "finishing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passing",
+            "columnName": "passing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pace",
+            "columnName": "pace",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "strength",
+            "columnName": "strength",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vision",
+            "columnName": "vision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defense",
+            "columnName": "defense",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scoutedLevel",
+            "columnName": "scoutedLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "atributosJson",
+            "columnName": "atributosJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "atributos",
+            "columnName": "atributos",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "potential",
+            "columnName": "potential",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gols",
+            "columnName": "gols",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assistencias",
+            "columnName": "assistencias",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "partidasDisputadas",
+            "columnName": "partidasDisputadas",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minutosJogados",
+            "columnName": "minutosJogados",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaNotas",
+            "columnName": "mediaNotas",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "focoTreino",
+            "columnName": "focoTreino",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "condicao",
+            "columnName": "condicao",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evolucaoMensal",
+            "columnName": "evolucaoMensal",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_players_teamId_position_force",
+            "unique": false,
+            "columnNames": [
+              "teamId",
+              "position",
+              "force"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_players_teamId_position_force` ON `${TABLE_NAME}` (`teamId`, `position`, `force`)"
+          },
+          {
+            "name": "index_players_teamId_isStarter",
+            "unique": false,
+            "columnNames": [
+              "teamId",
+              "isStarter"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_players_teamId_isStarter` ON `${TABLE_NAME}` (`teamId`, `isStarter`)"
+          },
+          {
+            "name": "index_players_originalTeamId",
+            "unique": false,
+            "columnNames": [
+              "originalTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_players_originalTeamId` ON `${TABLE_NAME}` (`originalTeamId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "teams",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "teamId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "fixtures",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `season` INTEGER NOT NULL, `week` INTEGER NOT NULL, `homeTeamId` INTEGER NOT NULL, `awayTeamId` INTEGER NOT NULL, `homeScore` INTEGER, `awayScore` INTEGER, `homePenalties` INTEGER, `awayPenalties` INTEGER, `competitionType` TEXT NOT NULL, `isPlayed` INTEGER NOT NULL, `matchEventsJson` TEXT, `matchSlot` TEXT NOT NULL DEFAULT 'WEEKEND', FOREIGN KEY(`homeTeamId`) REFERENCES `teams`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION , FOREIGN KEY(`awayTeamId`) REFERENCES `teams`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "week",
+            "columnName": "week",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeTeamId",
+            "columnName": "homeTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "awayTeamId",
+            "columnName": "awayTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "homeScore",
+            "columnName": "homeScore",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "awayScore",
+            "columnName": "awayScore",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "homePenalties",
+            "columnName": "homePenalties",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "awayPenalties",
+            "columnName": "awayPenalties",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "competitionType",
+            "columnName": "competitionType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPlayed",
+            "columnName": "isPlayed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchEventsJson",
+            "columnName": "matchEventsJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "matchSlot",
+            "columnName": "matchSlot",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'WEEKEND'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_fixtures_season",
+            "unique": false,
+            "columnNames": [
+              "season"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_season` ON `${TABLE_NAME}` (`season`)"
+          },
+          {
+            "name": "index_fixtures_week",
+            "unique": false,
+            "columnNames": [
+              "week"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_week` ON `${TABLE_NAME}` (`week`)"
+          },
+          {
+            "name": "index_fixtures_homeTeamId",
+            "unique": false,
+            "columnNames": [
+              "homeTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_homeTeamId` ON `${TABLE_NAME}` (`homeTeamId`)"
+          },
+          {
+            "name": "index_fixtures_awayTeamId",
+            "unique": false,
+            "columnNames": [
+              "awayTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_awayTeamId` ON `${TABLE_NAME}` (`awayTeamId`)"
+          },
+          {
+            "name": "index_fixtures_competitionType",
+            "unique": false,
+            "columnNames": [
+              "competitionType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_competitionType` ON `${TABLE_NAME}` (`competitionType`)"
+          },
+          {
+            "name": "index_fixtures_season_week",
+            "unique": false,
+            "columnNames": [
+              "season",
+              "week"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_season_week` ON `${TABLE_NAME}` (`season`, `week`)"
+          },
+          {
+            "name": "index_fixtures_season_week_matchSlot",
+            "unique": false,
+            "columnNames": [
+              "season",
+              "week",
+              "matchSlot"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fixtures_season_week_matchSlot` ON `${TABLE_NAME}` (`season`, `week`, `matchSlot`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "teams",
+            "onDelete": "NO ACTION",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "homeTeamId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "teams",
+            "onDelete": "NO ACTION",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "awayTeamId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "club_legends",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `teamId` INTEGER NOT NULL, `playerName` TEXT NOT NULL, `position` TEXT NOT NULL, `apps` INTEGER NOT NULL, `goals` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "teamId",
+            "columnName": "teamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerName",
+            "columnName": "playerName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "apps",
+            "columnName": "apps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "goals",
+            "columnName": "goals",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "historical_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `season` INTEGER NOT NULL, `competitionName` TEXT NOT NULL, `championTeamName` TEXT NOT NULL, `runnerUpTeamName` TEXT NOT NULL, `topScorerName` TEXT NOT NULL, `topScorerGoals` INTEGER NOT NULL, `topScorerTeam` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "competitionName",
+            "columnName": "competitionName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "championTeamName",
+            "columnName": "championTeamName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runnerUpTeamName",
+            "columnName": "runnerUpTeamName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topScorerName",
+            "columnName": "topScorerName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topScorerGoals",
+            "columnName": "topScorerGoals",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topScorerTeam",
+            "columnName": "topScorerTeam",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "coach_offers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `teamId` INTEGER NOT NULL, `teamName` TEXT NOT NULL, `rating` INTEGER NOT NULL, `weeklySalary` INTEGER NOT NULL, `description` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "teamId",
+            "columnName": "teamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "teamName",
+            "columnName": "teamName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weeklySalary",
+            "columnName": "weeklySalary",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "transaction_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `week` INTEGER NOT NULL, `season` INTEGER NOT NULL, `type` TEXT NOT NULL, `description` TEXT NOT NULL, `amount` INTEGER NOT NULL, `isIncome` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "week",
+            "columnName": "week",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amount",
+            "columnName": "amount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isIncome",
+            "columnName": "isIncome",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "transfer_orders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `type` TEXT NOT NULL, `playerId` INTEGER NOT NULL, `buyerTeamId` INTEGER NOT NULL, `sellerTeamId` INTEGER NOT NULL, `playerName` TEXT NOT NULL, `playerPosition` TEXT NOT NULL, `playerForce` INTEGER NOT NULL, `offeredPrice` INTEGER NOT NULL, `demandLevel` TEXT NOT NULL, `status` TEXT NOT NULL, `week` INTEGER NOT NULL, `season` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerId",
+            "columnName": "playerId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "buyerTeamId",
+            "columnName": "buyerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sellerTeamId",
+            "columnName": "sellerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerName",
+            "columnName": "playerName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerPosition",
+            "columnName": "playerPosition",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerForce",
+            "columnName": "playerForce",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "offeredPrice",
+            "columnName": "offeredPrice",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "demandLevel",
+            "columnName": "demandLevel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "week",
+            "columnName": "week",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "historico_evolucao",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `jogadorId` INTEGER NOT NULL, `data` TEXT NOT NULL, `atributo` TEXT NOT NULL, `valorAntigo` INTEGER NOT NULL, `valorNovo` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "jogadorId",
+            "columnName": "jogadorId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "data",
+            "columnName": "data",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "atributo",
+            "columnName": "atributo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "valorAntigo",
+            "columnName": "valorAntigo",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "valorNovo",
+            "columnName": "valorNovo",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "transfer_installments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transferId` INTEGER NOT NULL, `playerId` INTEGER NOT NULL, `buyerTeamId` INTEGER NOT NULL, `sellerTeamId` INTEGER NOT NULL, `totalAmount` INTEGER NOT NULL, `downPayment` INTEGER NOT NULL, `installmentAmount` INTEGER NOT NULL, `totalInstallments` INTEGER NOT NULL, `remainingInstallments` INTEGER NOT NULL, `nextDueWeek` INTEGER NOT NULL, `season` INTEGER NOT NULL, `status` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transferId",
+            "columnName": "transferId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerId",
+            "columnName": "playerId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "buyerTeamId",
+            "columnName": "buyerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sellerTeamId",
+            "columnName": "sellerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalAmount",
+            "columnName": "totalAmount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "downPayment",
+            "columnName": "downPayment",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "installmentAmount",
+            "columnName": "installmentAmount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalInstallments",
+            "columnName": "totalInstallments",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingInstallments",
+            "columnName": "remainingInstallments",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextDueWeek",
+            "columnName": "nextDueWeek",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transfer_installments_buyerTeamId",
+            "unique": false,
+            "columnNames": [
+              "buyerTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transfer_installments_buyerTeamId` ON `${TABLE_NAME}` (`buyerTeamId`)"
+          },
+          {
+            "name": "index_transfer_installments_sellerTeamId",
+            "unique": false,
+            "columnNames": [
+              "sellerTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transfer_installments_sellerTeamId` ON `${TABLE_NAME}` (`sellerTeamId`)"
+          },
+          {
+            "name": "index_transfer_installments_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transfer_installments_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
+      },
+      {
+        "tableName": "player_loans",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `playerId` INTEGER NOT NULL, `ownerTeamId` INTEGER NOT NULL, `borrowerTeamId` INTEGER NOT NULL, `startSeason` INTEGER NOT NULL, `startWeek` INTEGER NOT NULL, `durationWeeks` INTEGER NOT NULL, `remainingWeeks` INTEGER NOT NULL, `weeklyFee` INTEGER NOT NULL, `buyoutOptionPrice` INTEGER, `status` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playerId",
+            "columnName": "playerId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerTeamId",
+            "columnName": "ownerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "borrowerTeamId",
+            "columnName": "borrowerTeamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startSeason",
+            "columnName": "startSeason",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startWeek",
+            "columnName": "startWeek",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationWeeks",
+            "columnName": "durationWeeks",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingWeeks",
+            "columnName": "remainingWeeks",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weeklyFee",
+            "columnName": "weeklyFee",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "buyoutOptionPrice",
+            "columnName": "buyoutOptionPrice",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_player_loans_playerId",
+            "unique": false,
+            "columnNames": [
+              "playerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_player_loans_playerId` ON `${TABLE_NAME}` (`playerId`)"
+          },
+          {
+            "name": "index_player_loans_ownerTeamId",
+            "unique": false,
+            "columnNames": [
+              "ownerTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_player_loans_ownerTeamId` ON `${TABLE_NAME}` (`ownerTeamId`)"
+          },
+          {
+            "name": "index_player_loans_borrowerTeamId",
+            "unique": false,
+            "columnNames": [
+              "borrowerTeamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_player_loans_borrowerTeamId` ON `${TABLE_NAME}` (`borrowerTeamId`)"
+          },
+          {
+            "name": "index_player_loans_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_player_loans_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
+      },
+      {
+        "tableName": "global_league_standings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`season` INTEGER NOT NULL, `country` TEXT NOT NULL, `division` INTEGER NOT NULL, `teamId` INTEGER NOT NULL, `position` INTEGER NOT NULL, `points` INTEGER NOT NULL, `played` INTEGER NOT NULL, `wins` INTEGER NOT NULL, `draws` INTEGER NOT NULL, `losses` INTEGER NOT NULL, `goalsFor` INTEGER NOT NULL, `goalsAgainst` INTEGER NOT NULL, `goalDifference` INTEGER NOT NULL, PRIMARY KEY(`season`, `country`, `division`, `teamId`))",
+        "fields": [
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "country",
+            "columnName": "country",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "division",
+            "columnName": "division",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "teamId",
+            "columnName": "teamId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "points",
+            "columnName": "points",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "played",
+            "columnName": "played",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wins",
+            "columnName": "wins",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draws",
+            "columnName": "draws",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "losses",
+            "columnName": "losses",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "goalsFor",
+            "columnName": "goalsFor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "goalsAgainst",
+            "columnName": "goalsAgainst",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "goalDifference",
+            "columnName": "goalDifference",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "season",
+            "country",
+            "division",
+            "teamId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_global_league_standings_season_country_division_position",
+            "unique": false,
+            "columnNames": [
+              "season",
+              "country",
+              "division",
+              "position"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_global_league_standings_season_country_division_position` ON `${TABLE_NAME}` (`season`, `country`, `division`, `position`)"
+          },
+          {
+            "name": "index_global_league_standings_teamId",
+            "unique": false,
+            "columnNames": [
+              "teamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_global_league_standings_teamId` ON `${TABLE_NAME}` (`teamId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '363dbef3a2f5768afbae05b9fa9a50d5')"
+    ]
+  }
+}

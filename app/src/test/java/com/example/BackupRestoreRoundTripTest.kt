@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.*
+import com.example.support.RelationalIntegrityAssertions
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -46,7 +47,6 @@ class BackupRestoreRoundTripTest {
 
     @Test
     fun executeBackupRestoreRoundTripVerification() = runBlocking {
-        // 1. Criar e popular uma carreira completa com todas as entidades
         val save = GameSave(
             id = 1,
             coachName = "Técnico Backup Teste",
@@ -63,8 +63,28 @@ class BackupRestoreRoundTripTest {
         repositorySource.saveTeams(listOf(team1, team2))
 
         val p1 = Player(id = 1001L, teamId = 100L, name = "Craque 1", age = 24, position = "ATA", force = 90)
-        val p2 = Player(id = 1002L, teamId = 101L, name = "Craque 2", age = 28, position = "MEI", force = 84)
-        repositorySource.savePlayers(listOf(p1, p2))
+        val p2 = Player(
+            id = 1002L,
+            teamId = 100L,
+            originalTeamId = 101L,
+            name = "Craque 2",
+            age = 28,
+            position = "MEI",
+            force = 84,
+            isOnLoan = true,
+            loanWeeksRemaining = 10
+        )
+        val freeAgent = Player(
+            id = 1003L,
+            teamId = null,
+            name = "Livre Backup",
+            age = 25,
+            position = "ATA",
+            force = 72,
+            salary = 0L,
+            contractDurationWeeks = 0
+        )
+        repositorySource.savePlayers(listOf(p1, p2, freeAgent))
 
         val f1 = Fixture(id = 501L, season = 2027, week = 1, homeTeamId = 100L, awayTeamId = 101L, competitionType = "SERIE_A", isPlayed = true, homeScore = 3, awayScore = 1)
         repositorySource.saveFixtures(listOf(f1))
@@ -81,7 +101,9 @@ class BackupRestoreRoundTripTest {
         val record1 = HistoricalRecord(id = 1, season = 2026, competitionName = "Campeonato Brasileiro", championTeamName = "Time Principal", runnerUpTeamName = "Time Rival", topScorerName = "Artilheiro 1", topScorerGoals = 22, topScorerTeam = "Time Principal")
         repositorySource.saveRecord(record1)
 
-        // 2. Leitura do Snapshot Original (Exportação)
+        RelationalIntegrityAssertions.assertRepositoryReferences(repositorySource)
+        RelationalIntegrityAssertions.assertDatabasePragmas(dbSource)
+
         val sourceSave = repositorySource.getGameSave()
         val sourceTeams = repositorySource.getAllTeams()
         val sourcePlayers = repositorySource.getAllPlayers()
@@ -91,7 +113,6 @@ class BackupRestoreRoundTripTest {
         val sourceLoans = repositorySource.getAllLoans()
         val sourceRecords = repositorySource.getAllHistoricalRecords()
 
-        // 3. Simulação de Restauração em novo banco de dados
         assertNotNull(sourceSave)
         repositoryRestored.saveGameSave(sourceSave!!)
         repositoryRestored.saveTeams(sourceTeams)
@@ -102,7 +123,6 @@ class BackupRestoreRoundTripTest {
         repositoryRestored.saveLoans(sourceLoans)
         sourceRecords.forEach { repositoryRestored.saveRecord(it) }
 
-        // 4. Verificação de Equivalência Pós-Restauração (100% igual ao estado pré-exportação)
         val restoredSave = repositoryRestored.getGameSave()
         val restoredTeams = repositoryRestored.getAllTeams()
         val restoredPlayers = repositoryRestored.getAllPlayers()
@@ -115,23 +135,21 @@ class BackupRestoreRoundTripTest {
         assertEquals("GameSave deve ser exatamente igual", sourceSave, restoredSave)
         assertEquals("Teams devem ter o mesmo tamanho", sourceTeams.size, restoredTeams.size)
         assertEquals("Teams devem ser exatamente iguais", sourceTeams, restoredTeams)
-
         assertEquals("Players devem ter o mesmo tamanho", sourcePlayers.size, restoredPlayers.size)
         assertEquals("Players devem ser exatamente iguais", sourcePlayers, restoredPlayers)
-
+        assertEquals("Free Agent deve continuar sem clube", null, restoredPlayers.single { it.id == freeAgent.id }.teamId)
         assertEquals("Fixtures devem ter o mesmo tamanho", sourceFixtures.size, restoredFixtures.size)
         assertEquals("Fixtures devem ser exatamente iguais", sourceFixtures, restoredFixtures)
-
         assertEquals("Transactions devem ter o mesmo tamanho", sourceTransactions.size, restoredTransactions.size)
         assertEquals("Transactions devem ser exatamente iguais", sourceTransactions, restoredTransactions)
-
         assertEquals("Installments devem ter o mesmo tamanho", sourceInstallments.size, restoredInstallments.size)
         assertEquals("Installments devem ser exatamente iguais", sourceInstallments, restoredInstallments)
-
         assertEquals("Loans devem ter o mesmo tamanho", sourceLoans.size, restoredLoans.size)
         assertEquals("Loans devem ser exatamente iguais", sourceLoans, restoredLoans)
-
         assertEquals("Records devem ter o mesmo tamanho", sourceRecords.size, restoredRecords.size)
         assertEquals("Records devem ser exatamente iguais", sourceRecords, restoredRecords)
+
+        RelationalIntegrityAssertions.assertRepositoryReferences(repositoryRestored)
+        RelationalIntegrityAssertions.assertDatabasePragmas(dbRestored)
     }
 }

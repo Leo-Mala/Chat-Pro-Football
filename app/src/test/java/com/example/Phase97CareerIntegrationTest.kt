@@ -14,6 +14,7 @@ import com.example.data.SuperMundialEditionPolicy
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
 import com.example.support.CareerInvariantAssertions
+import com.example.support.RelationalIntegrityAssertions
 import com.example.usecase.CpuSquadManagementUseCase
 import com.example.usecase.DatabaseIntegrityUseCase
 import com.example.usecase.FinanceUseCase
@@ -60,11 +61,7 @@ class Phase97CareerIntegrationTest {
         transfers = ProcessTransfersUseCase(repository)
         cpuSquads = CpuSquadManagementUseCase(repository)
         evolution = PlayerEvolutionUseCase(repository)
-        transition = SeasonTransitionUseCase(
-            repository,
-            calendar,
-            DatabaseIntegrityUseCase(repository)
-        )
+        transition = SeasonTransitionUseCase(repository, calendar, DatabaseIntegrityUseCase(repository))
     }
 
     @After
@@ -87,13 +84,8 @@ class Phase97CareerIntegrationTest {
                 teamName = team.name,
                 country = team.country
             ).map { player ->
-                // O elenco do usuário fica sob controle do teste para que expiração contratual
-                // não transforme a validação multitemporada em um teste de decisões do manager.
                 if (team.id == userTeamId) {
-                    player.copy(
-                        age = 20 + (player.id % 8).toInt(),
-                        contractDurationWeeks = 320
-                    )
+                    player.copy(age = 20 + (player.id % 8).toInt(), contractDurationWeeks = 320)
                 } else {
                     player.copy(age = 20 + (player.id % 8).toInt())
                 }
@@ -102,7 +94,7 @@ class Phase97CareerIntegrationTest {
         }
 
         var save = GameSave(
-            coachName = "QA Fase 9.7/9.8",
+            coachName = "QA Fase 9.7/9.8/9.9",
             coachReputation = 75,
             currentWeek = 1,
             currentSeason = 2026,
@@ -115,7 +107,6 @@ class Phase97CareerIntegrationTest {
             hasHiredPhysio = true
         )
         repository.saveGameSave(save)
-
         repository.saveFixtures(
             calendar.generateSeasonFixtures(
                 season = save.currentSeason,
@@ -130,7 +121,7 @@ class Phase97CareerIntegrationTest {
             val season = startSeason + seasonOffset
             assertEquals(season, save.currentSeason)
             assertEquals(1, save.currentWeek)
-            assertEquals(storedTeamIds, repository.getAllTeams().map { it.id }.toSet())
+            assertRealTeamsPreserved(storedTeamIds)
 
             CareerInvariantAssertions.assertRepositorySeason(
                 repository = repository,
@@ -139,25 +130,18 @@ class Phase97CareerIntegrationTest {
             )
 
             for (week in 1..GameCalendar.WEEKS_PER_SEASON) {
-                save = (repository.getGameSave() ?: save).copy(
-                    currentSeason = season,
-                    currentWeek = week
-                )
+                save = (repository.getGameSave() ?: save).copy(currentSeason = season, currentWeek = week)
                 repository.saveGameSave(save)
 
                 simulateWeek.simulateCpuMatchesForWeek(season, week)
-
                 val weekFixtures = repository.getFixturesForWeek(season, week)
-                val homeMatchCount = weekFixtures.count {
-                    it.isPlayed && it.homeTeamId == userTeamId
-                }
+                val homeMatchCount = weekFixtures.count { it.isPlayed && it.homeTeamId == userTeamId }
                 save = finance.processWeeklyFinances(
                     save = save,
                     homeMatchCount = homeMatchCount,
                     userPlayers = repository.getPlayersByTeam(userTeamId)
                 )
 
-                // Mesmo encadeamento do fluxo real de fim de semana da Fase 9.8.
                 cpuSquads.renewCpuContractsBeforeWeeklyTick()
                 transfers.processWeeklyContractsAndLoans()
                 val cpuReport = cpuSquads.ensureCpuSquadIntegrity()
@@ -166,9 +150,7 @@ class Phase97CareerIntegrationTest {
                 assertEquals(0, cpuReport.teamsWithoutGoalkeeper)
                 assertEquals(0, cpuReport.invalidActiveLoans)
 
-                if (week % 4 == 0) {
-                    evolution.executeMonthlyEvolution(save, "PHASE98_S${season}_W$week")
-                }
+                if (week % 4 == 0) evolution.executeMonthlyEvolution(save, "PHASE99_S${season}_W$week")
 
                 CupCompetitionSystem.processProgression(season, week, repository)
                 SuperMundialSystem.processProgression(season, week, repository)
@@ -188,7 +170,7 @@ class Phase97CareerIntegrationTest {
                         transition.advanceToNextSeason(persisted)
                         fail("Semana 40 não pode encerrar uma temporada de 48 semanas")
                     } catch (_: IllegalArgumentException) {
-                        // esperado: a regra canônica continua 48 semanas.
+                        // esperado
                     }
                     val afterRejectedTransition = requireNotNull(repository.getGameSave())
                     assertEquals(season, afterRejectedTransition.currentSeason)
@@ -200,14 +182,11 @@ class Phase97CareerIntegrationTest {
             FixtureScheduleValidator.requireValid(completedSeasonFixtures)
             assertTrue(
                 "Ao final da temporada, todo fixture já iniciado deve ter placar bilateral",
-                completedSeasonFixtures.all {
-                    !it.isPlayed || (it.homeScore != null && it.awayScore != null)
-                }
+                completedSeasonFixtures.all { !it.isPlayed || (it.homeScore != null && it.awayScore != null) }
             )
 
             val worldFixtures = completedSeasonFixtures.filter {
-                it.competitionType == "WORLD_CUP" ||
-                    it.competitionType.startsWith("WORLD_CUP_GP_")
+                it.competitionType == "WORLD_CUP" || it.competitionType.startsWith("WORLD_CUP_GP_")
             }
             if (season == 2029) {
                 assertTrue("A edição 2029 do Super Mundial deve existir", worldFixtures.isNotEmpty())
@@ -232,6 +211,9 @@ class Phase97CareerIntegrationTest {
                 assertTrue("A temporada $season não pertence ao ciclo 2025 + 4n", worldFixtures.isEmpty())
             }
 
+            RelationalIntegrityAssertions.assertRepositoryReferences(repository)
+            RelationalIntegrityAssertions.assertDatabasePragmas(db)
+
             save = transition.advanceToNextSeason(
                 requireNotNull(repository.getGameSave()).copy(
                     currentSeason = season,
@@ -241,18 +223,30 @@ class Phase97CareerIntegrationTest {
 
             assertEquals(season + 1, save.currentSeason)
             assertEquals(1, save.currentWeek)
-            assertEquals(storedTeamIds, repository.getAllTeams().map { it.id }.toSet())
+            assertRealTeamsPreserved(storedTeamIds)
             assertTrue("Saldo da carreira não pode ficar negativo", save.bankBalance >= 0L)
         }
 
         val finalSave = requireNotNull(repository.getGameSave())
         assertEquals(2031, finalSave.currentSeason)
         assertEquals(1, finalSave.currentWeek)
-        assertEquals(storedTeamIds, repository.getAllTeams().map { it.id }.toSet())
+        assertRealTeamsPreserved(storedTeamIds)
         assertEquals(
             "IDs de jogadores devem continuar únicos após cinco temporadas reais",
             repository.getAllPlayers().size,
             repository.getAllPlayers().map { it.id }.toSet().size
+        )
+        RelationalIntegrityAssertions.assertDatabasePragmas(db)
+    }
+
+    private suspend fun assertRealTeamsPreserved(expectedRealTeamIds: Set<Long>) {
+        val persistedTeams = repository.getAllTeams()
+        val persistedIds = persistedTeams.map { it.id }.toSet()
+        assertTrue("Todos os clubes reais iniciais devem permanecer persistidos", persistedIds.containsAll(expectedRealTeamIds))
+        assertTrue(
+            "Qualquer Team adicional deve ser exclusivamente participante virtual/legado do Mundial",
+            persistedTeams.filterNot { it.id in expectedRealTeamIds }
+                .all { it.country.equals("Mundial", ignoreCase = true) }
         )
     }
 

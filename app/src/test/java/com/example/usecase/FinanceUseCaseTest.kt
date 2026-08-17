@@ -8,6 +8,7 @@ import com.example.data.Fixture
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.MatchSlot
+import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -126,6 +127,13 @@ class FinanceUseCaseTest {
             sponsorWeeksRemaining = 0
         )
         repository.saveGameSave(save)
+        repository.saveTeams(
+            listOf(
+                Team(10L, "Mandante", "A", "BR", "Brasil", 1),
+                Team(20L, "Visitante Liga", "B", "BR", "Brasil", 1),
+                Team(30L, "Visitante Copa", "C", "BR", "Brasil", 1)
+            )
+        )
         repository.saveFixtures(
             listOf(
                 Fixture(
@@ -197,7 +205,7 @@ class FinanceUseCaseTest {
     fun upgradeTrainingCenter_upgrades_team_tc_level() = runTest {
         val save = GameSave(id = 1, bankBalance = 10_000_000L, playerTeamId = 10L)
         repository.saveGameSave(save)
-        val team = com.example.data.Team(id = 10L, name = "Meu Time", city = "SP", state = "SP", division = 1, trainingCenterLevel = 1)
+        val team = Team(id = 10L, name = "Meu Time", city = "SP", state = "SP", division = 1, trainingCenterLevel = 1)
         repository.saveTeams(listOf(team))
 
         val result = useCase.upgradeTrainingCenter(save)
