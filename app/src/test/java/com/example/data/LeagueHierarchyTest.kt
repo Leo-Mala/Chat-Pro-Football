@@ -2,49 +2,54 @@ package com.example.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LeagueHierarchyTest {
 
     @Test
-    fun brazilKeepsFourMovementSpots() {
+    fun brazilKeepsFourMovementSpotsAcrossAllFiveConfiguredLevels() {
         val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("Brasil")
 
         assertTrue(LeagueHierarchyLoader.hasExplicitHierarchy("Brasil"))
+        assertEquals(listOf(1, 2, 3, 4, 5), hierarchy.divisions.map { it.divisionLevel })
         assertEquals(4, hierarchy.movementSpotsBetween(1, 2))
         assertEquals(4, hierarchy.movementSpotsBetween(2, 3))
         assertEquals(4, hierarchy.movementSpotsBetween(3, 4))
+        assertEquals(4, hierarchy.movementSpotsBetween(4, 5))
         assertEquals(
             4,
             hierarchy.safeMovementSpotsBetween(
-                upperLevel = 1,
-                lowerLevel = 2,
-                upperTeamCount = 20,
-                lowerTeamCount = 20
+                upperLevel = 4,
+                lowerLevel = 5,
+                upperTeamCount = 96,
+                lowerTeamCount = 15
             )
         )
         assertTrue(hierarchy.hasBalancedAdjacentMovementRules())
     }
 
     @Test
-    fun countryWithoutExplicitHierarchyUsesGenericTwoSpots() {
+    fun countryWithoutExplicitHierarchyUsesGenericTwoSpotsOnlyAcrossRealLevels() {
         val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("França")
 
         assertFalse(LeagueHierarchyLoader.hasExplicitHierarchy("França"))
         assertEquals("França", hierarchy.country)
+        assertEquals(listOf(1, 2, 3), hierarchy.divisions.map { it.divisionLevel })
         assertEquals(2, hierarchy.movementSpotsBetween(1, 2))
         assertEquals(2, hierarchy.movementSpotsBetween(2, 3))
-        assertEquals(2, hierarchy.movementSpotsBetween(3, 4))
+        assertEquals(0, hierarchy.movementSpotsBetween(3, 4))
+        assertNull(hierarchy.getDivisionByLevel(4))
         assertTrue(hierarchy.hasBalancedAdjacentMovementRules())
     }
 
     @Test
-    fun twoDivisionCountryDoesNotReserveClubsForEmptyThirdLevel() {
+    fun twoDivisionCountryDoesNotExposeOrReserveForEmptyThirdLevel() {
         val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("Suíça")
 
-        // Suíça possui somente duas divisões configuradas no DefaultData. A Série B é o nível
-        // inferior real, então não deve perder vagas por causa da Série C genérica vazia.
+        assertEquals(listOf(1, 2), hierarchy.divisions.map { it.divisionLevel })
+        assertNull(hierarchy.getDivisionByLevel(3))
         assertEquals(
             2,
             hierarchy.safeMovementSpotsBetween(
@@ -54,6 +59,15 @@ class LeagueHierarchyTest {
                 lowerTeamCount = 10
             )
         )
+    }
+
+    @Test
+    fun oneDivisionCountryHasNoSyntheticPromotionBoundary() {
+        val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("Bolívia")
+
+        assertEquals(listOf(1), hierarchy.divisions.map { it.divisionLevel })
+        assertEquals(0, hierarchy.movementSpotsBetween(1, 2))
+        assertTrue(hierarchy.hasBalancedAdjacentMovementRules())
     }
 
     @Test
@@ -94,11 +108,13 @@ class LeagueHierarchyTest {
     }
 
     @Test
-    fun unitedStatesCanadaUsesCanonicalGlobalCountryKey() {
+    fun unitedStatesCanadaUsesCanonicalGlobalCountryKeyAndThreeRealLevels() {
         val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry("Estados Unidos / Canadá")
 
         assertTrue(LeagueHierarchyLoader.hasExplicitHierarchy("Estados Unidos / Canadá"))
+        assertEquals(listOf(1, 2, 3), hierarchy.divisions.map { it.divisionLevel })
         assertEquals(2, hierarchy.movementSpotsBetween(1, 2))
+        assertEquals(2, hierarchy.movementSpotsBetween(2, 3))
         assertTrue(LeagueHierarchyLoader.supportedCountries.contains("Estados Unidos / Canadá"))
     }
 }
