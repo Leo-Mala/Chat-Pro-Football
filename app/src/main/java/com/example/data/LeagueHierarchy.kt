@@ -36,20 +36,20 @@ data class LeagueHierarchy(
     /**
      * Applies the configured movement rule to the actual division sizes.
      *
-     * Middle divisions participate in two boundaries in the same season. Reserving at least
-     * half of their clubs for the opposite boundary guarantees that the promoted group and the
-     * relegated group cannot overlap, so no club can jump two divisions in one transition.
+     * A division only needs to reserve clubs for the opposite movement boundary when that
+     * adjacent division is really populated in the current country. This avoids treating an
+     * empty generic level as active while still guaranteeing that promoted and relegated groups
+     * cannot overlap in a small middle division.
      */
     fun safeMovementSpotsBetween(
         upperLevel: Int,
         lowerLevel: Int = upperLevel + 1,
         upperTeamCount: Int,
-        lowerTeamCount: Int
+        lowerTeamCount: Int,
+        upperHasHigherActiveDivision: Boolean = false,
+        lowerHasLowerActiveDivision: Boolean = false
     ): Int {
-        val ordered = divisions.sortedBy { it.divisionLevel }
-        val upperIndex = ordered.indexOfFirst { it.divisionLevel == upperLevel }
-        val lowerIndex = ordered.indexOfFirst { it.divisionLevel == lowerLevel }
-        if (upperIndex < 0 || lowerIndex != upperIndex + 1) return 0
+        if (lowerLevel != upperLevel + 1) return 0
 
         var spots = minOf(
             movementSpotsBetween(upperLevel, lowerLevel),
@@ -59,11 +59,11 @@ data class LeagueHierarchy(
         if (spots <= 0) return 0
 
         // A divisão superior desta fronteira também pode promover clubes para uma divisão acima.
-        if (upperIndex > 0) {
+        if (upperHasHigherActiveDivision) {
             spots = minOf(spots, upperTeamCount / 2)
         }
         // A divisão inferior desta fronteira também pode rebaixar clubes para uma divisão abaixo.
-        if (lowerIndex < ordered.lastIndex) {
+        if (lowerHasLowerActiveDivision) {
             spots = minOf(spots, lowerTeamCount / 2)
         }
         return spots
