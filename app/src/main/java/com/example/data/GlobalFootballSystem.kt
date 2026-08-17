@@ -121,7 +121,8 @@ object GlobalFootballSystem {
         return VIRTUAL_TEAM_ID_FLOOR + positiveHash
     }
 
-    fun getTeamByGlobalId(id: Long): Team? {
+    fun getTeamByGlobalId(id: Long?): Team? {
+        if (id == null) return null
         val countryIndex = ((id - 1) / 200).toInt()
         val teamIndex = ((id - 1) % 200).toInt()
         if (countryIndex < 0 || countryIndex >= keys.size) return null
