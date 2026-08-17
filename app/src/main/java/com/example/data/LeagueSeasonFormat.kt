@@ -5,8 +5,10 @@ package com.example.data
  *
  * - se turno + returno couberem, usamos 2 turnos;
  * - se apenas um turno couber, usamos turno único;
- * - divisões grandes demais até para um turno mantêm 2 turnos por compatibilidade legada e
- *   continuam fora do escopo desta fase; elas exigirão formato próprio por grupos/estágios.
+ * - divisões grandes demais até para um turno mantêm 2 turnos por compatibilidade legada no
+ *   calendário detalhado e continuam exigindo formato próprio por grupos/estágios;
+ * - a simulação global compacta não depende das 40 semanas: usa 2 turnos até 20 clubes e
+ *   turno único acima disso para manter custo previsível sem persistir fixtures CPU.
  */
 object LeagueSeasonFormat {
 
@@ -24,6 +26,18 @@ object LeagueSeasonFormat {
             rounds <= GameCalendar.WEEKS_PER_SEASON -> 1
             else -> 2 // Formatos gigantes serão tratados em subfase dedicada.
         }
+    }
+
+    /**
+     * Política exclusiva da simulação CPU em memória.
+     *
+     * Como essas partidas não ocupam semanas e nunca são persistidas, não precisamos forçar
+     * o calendário detalhado de 40 semanas. Mesmo assim, ligas muito grandes ficam em turno
+     * único para evitar duplicar milhares de confrontos sem benefício proporcional.
+     */
+    fun legsForCompactSimulation(teamCount: Int): Int {
+        if (teamCount < 2) return 0
+        return if (teamCount <= 20) 2 else 1
     }
 
     fun expectedFixtureCount(teamCount: Int): Int {
