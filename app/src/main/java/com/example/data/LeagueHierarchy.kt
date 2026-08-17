@@ -1,9 +1,9 @@
 package com.example.data
 
 data class LeagueDivision(
-    val code: String,            // "SERIE_A", "SERIE_B", "SERIE_C", "SERIE_D"
-    val name: String,            // e.g. "Série A"
-    val divisionLevel: Int,      // 1, 2, 3, 4
+    val code: String,
+    val name: String,
+    val divisionLevel: Int,
     val promotionSpots: Int,
     val relegationSpots: Int
 )
@@ -36,10 +36,9 @@ data class LeagueHierarchy(
     /**
      * Applies the configured movement rule to the actual division sizes.
      *
-     * Middle divisions participate in two boundaries in the same season. Reserving at least
-     * half of their clubs for the opposite boundary guarantees that promoted and relegated
-     * groups cannot overlap. Empty hierarchy levels do not count as active: the decision is
-     * derived from the country's configured/generated division levels.
+     * The hierarchy already contains only the active levels for this country. Middle divisions
+     * participate in two boundaries in the same season, so at most half of their clubs can move
+     * through either boundary. This guarantees that promoted and relegated groups cannot overlap.
      */
     fun safeMovementSpotsBetween(
         upperLevel: Int,
@@ -49,6 +48,11 @@ data class LeagueHierarchy(
     ): Int {
         if (lowerLevel != upperLevel + 1) return 0
 
+        val ordered = divisions.sortedBy { it.divisionLevel }
+        val upperIndex = ordered.indexOfFirst { it.divisionLevel == upperLevel }
+        val lowerIndex = ordered.indexOfFirst { it.divisionLevel == lowerLevel }
+        if (upperIndex < 0 || lowerIndex != upperIndex + 1) return 0
+
         var spots = minOf(
             movementSpotsBetween(upperLevel, lowerLevel),
             upperTeamCount,
@@ -56,38 +60,13 @@ data class LeagueHierarchy(
         )
         if (spots <= 0) return 0
 
-        val activeLevels = configuredActiveDivisionLevels()
-        val upperHasHigherActiveDivision =
-            (upperLevel - 1) in activeLevels && getDivisionByLevel(upperLevel - 1) != null
-        val lowerHasLowerActiveDivision =
-            (lowerLevel + 1) in activeLevels && getDivisionByLevel(lowerLevel + 1) != null
-
-        if (upperHasHigherActiveDivision) {
+        if (upperIndex > 0) {
             spots = minOf(spots, upperTeamCount / 2)
         }
-        if (lowerHasLowerActiveDivision) {
+        if (lowerIndex < ordered.lastIndex) {
             spots = minOf(spots, lowerTeamCount / 2)
         }
         return spots
-    }
-
-    private fun configuredActiveDivisionLevels(): Set<Int> {
-        val configuredSizes = DefaultData.countryDivisionSizes[country]
-        if (configuredSizes != null) {
-            return (1..configuredSizes.size).toSet()
-        }
-
-        val originalLevels = DefaultData.originalMap[country]
-            ?.teams
-            ?.map { it.division }
-            ?.filter { it > 0 }
-            ?.toSet()
-            .orEmpty()
-        if (originalLevels.isNotEmpty()) return originalLevels
-
-        // País não catalogado: só considera níveis que tenham regra explícita. Na prática a
-        // transição ainda exige times reais dos dois lados da fronteira antes de movimentar.
-        return divisions.map { it.divisionLevel }.toSet()
     }
 
     fun hasBalancedAdjacentMovementRules(): Boolean {
@@ -140,8 +119,9 @@ object LeagueHierarchyLoader {
     fun hasExplicitHierarchy(country: String): Boolean = country in staticHierarchies
 
     fun getHierarchyForCountry(country: String): LeagueHierarchy {
-        val staticDivs = staticHierarchies[country] ?: genericDivisions
-        val resolvedDivisions = staticDivs.map { div ->
+        val baseDivisions = staticHierarchies[country] ?: genericDivisions
+        val activeDivisions = adaptToConfiguredDivisionCount(country, baseDivisions)
+        val resolvedDivisions = activeDivisions.map { div ->
             val resolvedName = DefaultData.getCompetitionName(div.code, country)
             div.copy(name = resolvedName)
         }
@@ -154,5 +134,66 @@ object LeagueHierarchyLoader {
             cupName = resolvedCupName,
             continentalName = resolvedContinentalName
         )
+    }
+
+    private fun adaptToConfiguredDivisionCount(
+        country: String,
+        baseDivisions: List<LeagueDivision>
+    ): List<LeagueDivision> {
+        val configuredCount = configuredDivisionCount(country, baseDivisions.size)
+        if (configuredCount <= 0) return emptyList()
+
+        val movementSpots = baseDivisions
+            .firstOrNull { it.relegationSpots > 0 }
+            ?.relegationSpots
+            ?: baseDivisions.firstOrNull { it.promotionSpots > 0 }?.promotionSpots
+            ?: 2
+
+        return (1..configuredCount).map { level ->
+            val existing = baseDivisions.find { it.divisionLevel == level }
+            val code = existing?.code ?: competitionCodeForLevel(level)
+            val promotionSpots = when {
+                level == 1 -> 0
+                existing != null && existing.promotionSpots > 0 -> existing.promotionSpots
+                else -> movementSpots
+            }
+            val relegationSpots = when {
+                level == configuredCount -> 0
+                existing != null && existing.relegationSpots > 0 -> existing.relegationSpots
+                else -> movementSpots
+            }
+
+            LeagueDivision(
+                code = code,
+                name = existing?.name.orEmpty(),
+                divisionLevel = level,
+                promotionSpots = promotionSpots,
+                relegationSpots = relegationSpots
+            )
+        }
+    }
+
+    private fun configuredDivisionCount(country: String, fallback: Int): Int {
+        DefaultData.countryDivisionSizes[country]
+            ?.size
+            ?.takeIf { it > 0 }
+            ?.let { return it }
+
+        DefaultData.originalMap[country]
+            ?.teams
+            ?.maxOfOrNull { it.division }
+            ?.takeIf { it > 0 }
+            ?.let { return it }
+
+        return fallback
+    }
+
+    private fun competitionCodeForLevel(level: Int): String {
+        return when (level) {
+            1 -> "SERIE_A"
+            2 -> "SERIE_B"
+            3 -> "SERIE_C"
+            else -> "SERIE_D"
+        }
     }
 }
