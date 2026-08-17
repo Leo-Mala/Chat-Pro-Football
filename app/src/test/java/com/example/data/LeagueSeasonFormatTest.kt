@@ -49,24 +49,32 @@ class LeagueSeasonFormatTest {
     }
 
     @Test
-    fun balancedGiantLeaguesReceiveEqualGroupPlansInsideFortyWeeks() {
+    fun everyCurrentDefaultDataGiantLeagueHasEqualGroupsInsideFortyWeeks() {
+        val expectedGroupSizes = mapOf(
+            48 to 16,
+            56 to 14,
+            57 to 19,
+            60 to 20,
+            96 to 16
+        )
+
+        expectedGroupSizes.forEach { (teamCount, expectedGroupSize) ->
+            val plan = LeagueSeasonFormat.detailedGroupPlan(teamCount)
+            requireNotNull(plan)
+
+            assertEquals(expectedGroupSize, plan.groupSize)
+            assertEquals(teamCount / expectedGroupSize, plan.groupCount)
+            assertTrue(plan.rounds <= GameCalendar.WEEKS_PER_SEASON)
+            assertTrue(LeagueSeasonFormat.supportsDetailedFormat(teamCount))
+            assertFalse(LeagueSeasonFormat.fitsCurrentSeason(teamCount))
+        }
+
         val sixty = LeagueSeasonFormat.detailedGroupPlan(60)
         val ninetySix = LeagueSeasonFormat.detailedGroupPlan(96)
-
-        assertEquals(3, sixty?.groupCount)
-        assertEquals(20, sixty?.groupSize)
         assertEquals(38, sixty?.rounds)
         assertEquals(1_140, LeagueSeasonFormat.expectedFixtureCount(60))
-
-        assertEquals(6, ninetySix?.groupCount)
-        assertEquals(16, ninetySix?.groupSize)
         assertEquals(30, ninetySix?.rounds)
         assertEquals(1_440, LeagueSeasonFormat.expectedFixtureCount(96))
-
-        assertTrue(LeagueSeasonFormat.supportsDetailedFormat(60))
-        assertTrue(LeagueSeasonFormat.supportsDetailedFormat(96))
-        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(60))
-        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(96))
     }
 
     @Test
