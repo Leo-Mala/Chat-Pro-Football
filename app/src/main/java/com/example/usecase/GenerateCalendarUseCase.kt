@@ -97,9 +97,10 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
      * e o Super Mundial continua seguindo sua regra própria de temporadas elegíveis.
      *
      * [qualificationStandings] contém o snapshot da temporada anterior. Quando presente,
-     * ele ajusta somente a lista transitória usada na abertura de Copa/continentais; os ratings
-     * reais dos clubes persistidos permanecem intactos. Na primeira temporada a lista é vazia
-     * e o comportamento legado por rating continua funcionando como fallback.
+     * ele ajusta somente a lista transitória usada nos torneios continentais; a Copa nacional
+     * e o Super Mundial continuam usando os [Team] reais, e nenhum rating persistido é alterado.
+     * Na primeira temporada a lista é vazia e o comportamento legado por rating continua como
+     * fallback dos continentais.
      */
     fun generateSeasonFixtures(
         season: Int,
@@ -128,8 +129,8 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
             }
         }
 
-        // Copa nacional e continentais. Somente a fase inicial é criada aqui;
-        // as fases seguintes são geradas após os resultados pelo CupCompetitionSystem.
+        // Copa nacional usa sempre os times/ratings reais. Apenas os continentais recebem a
+        // prioridade transitória derivada da temporada anterior.
         val qualificationAwareTeams = ContinentalQualificationRules.applyPreviousSeasonStandings(
             teams = teams,
             standings = qualificationStandings
@@ -137,9 +138,10 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         allFixtures.addAll(
             CupCompetitionSystem.generateSeasonOpeningFixtures(
                 season = season,
-                teams = qualificationAwareTeams,
+                teams = teams,
                 userTeamId = userTeamId,
-                userCountry = targetCountry
+                userCountry = targetCountry,
+                continentalTeams = qualificationAwareTeams
             )
         )
 
