@@ -3,15 +3,14 @@ package com.example.usecase
 import com.example.data.Fixture
 import com.example.data.GlobalLeagueStanding
 import com.example.data.Team
-import kotlin.math.roundToInt
 import kotlin.random.Random
 
 /**
  * Produz classificações globais compactas sem persistir milhares de partidas CPU.
  *
  * A liga do país do usuário usa os resultados detalhados já existentes em [Fixture].
- * As demais primeiras divisões recebem uma simulação agregada determinística baseada
- * em força do clube + variação sazonal. O resultado final é estável para a mesma seed.
+ * As demais primeiras divisões são simuladas partida a partida apenas em memória, com
+ * resultados determinísticos por temporada/país/confronto. Somente a tabela final é salva.
  */
 class GlobalLeagueSimulationUseCase {
 
@@ -66,10 +65,11 @@ class GlobalLeagueSimulationUseCase {
                 it.homeTeamId in teamIds &&
                 it.awayTeamId in teamIds
         }
+        val expectedFixtureCount = teams.size * (teams.size - 1)
 
-        // Nunca transforma uma tabela parcialmente jogada em verdade histórica. Se a liga
-        // detalhada estiver incompleta, o fallback agregado mantém o snapshot consistente.
-        if (relevant.isEmpty() || relevant.any {
+        // Nunca transforma uma tabela parcial em verdade histórica. A liga detalhada gerada
+        // pelo jogo é turno + returno, portanto precisa conter N*(N-1) partidas concluídas.
+        if (relevant.size != expectedFixtureCount || relevant.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
             }
         ) {
@@ -82,43 +82,10 @@ class GlobalLeagueSimulationUseCase {
             val away = stats[fixture.awayTeamId] ?: continue
             val hg = fixture.homeScore ?: continue
             val ag = fixture.awayScore ?: continue
-
-            home.played++
-            away.played++
-            home.goalsFor += hg
-            home.goalsAgainst += ag
-            away.goalsFor += ag
-            away.goalsAgainst += hg
-
-            when {
-                hg > ag -> {
-                    home.wins++
-                    away.losses++
-                }
-                ag > hg -> {
-                    away.wins++
-                    home.losses++
-                }
-                else -> {
-                    home.draws++
-                    away.draws++
-                }
-            }
+            applyResult(home, away, hg, ag)
         }
 
-        return teams
-            .sortedWith(
-                compareByDescending<Team> { stats[it.id]?.points ?: 0 }
-                    .thenByDescending { stats[it.id]?.wins ?: 0 }
-                    .thenByDescending { stats[it.id]?.goalDifference ?: 0 }
-                    .thenByDescending { stats[it.id]?.goalsFor ?: 0 }
-                    .thenByDescending { it.rating }
-                    .thenBy { it.id }
-            )
-            .mapIndexed { index, team ->
-                val row = stats.getValue(team.id)
-                row.toStanding(season, team, index + 1)
-            }
+        return toStandings(season, teams, stats)
     }
 
     private fun simulateCompactLeague(
@@ -147,50 +114,108 @@ class GlobalLeagueSimulationUseCase {
             )
         }
 
-        // Mantém o resumo barato mesmo em ligas muito grandes. O objetivo aqui é produzir
-        // uma classificação sazonal coerente para o ecossistema global, não reproduzir
-        // cada rodada CPU fora do país ativo.
-        val played = minOf(38, (teams.size - 1) * 2)
-        val simulated = teams.associateWith { team ->
-            val random = Random(stableSeed(season, country, team.id))
-            val strengthFactor = ((team.rating - 50) / 170.0).coerceIn(-0.18, 0.28)
-            val winRate = (0.34 + strengthFactor + random.nextDouble(-0.08, 0.08))
-                .coerceIn(0.12, 0.72)
-            val drawRate = (0.24 + random.nextDouble(-0.05, 0.05))
-                .coerceIn(0.12, 0.34)
+        val orderedTeams = teams.sortedBy { it.id }
+        val stats = orderedTeams.associate { it.id to MutableStats() }.toMutableMap()
 
-            val wins = (played * winRate).roundToInt().coerceIn(0, played)
-            val draws = (played * drawRate).roundToInt().coerceIn(0, played - wins)
-            val losses = played - wins - draws
+        // Até 20 clubes: turno e returno (máximo 38 jogos por clube).
+        // Acima de 20: turno único. Isso evita calendário virtual acima das 40 semanas e
+        // mantém todas as partidas simétricas: cada vitória sempre corresponde a uma derrota.
+        val legs = if ((orderedTeams.size - 1) * 2 <= 38) 2 else 1
 
-            val attackingNoise = random.nextInt(0, maxOf(2, played / 3 + 1))
-            val defensiveNoise = random.nextInt(0, maxOf(2, played / 3 + 1))
-            val goalsFor = (wins * 2 + draws + attackingNoise + team.rating / 10)
-                .coerceAtLeast(0)
-            val goalsAgainst = (losses * 2 + draws + defensiveNoise + (100 - team.rating) / 12)
-                .coerceAtLeast(0)
-
-            MutableStats(
-                played = played,
-                wins = wins,
-                draws = draws,
-                losses = losses,
-                goalsFor = goalsFor,
-                goalsAgainst = goalsAgainst
-            )
+        for (i in 0 until orderedTeams.lastIndex) {
+            for (j in i + 1 until orderedTeams.size) {
+                for (leg in 0 until legs) {
+                    val homeTeam = if (leg == 0) orderedTeams[i] else orderedTeams[j]
+                    val awayTeam = if (leg == 0) orderedTeams[j] else orderedTeams[i]
+                    val (homeGoals, awayGoals) = simulateScore(
+                        season = season,
+                        country = country,
+                        homeTeam = homeTeam,
+                        awayTeam = awayTeam,
+                        leg = leg
+                    )
+                    val home = stats.getValue(homeTeam.id)
+                    val away = stats.getValue(awayTeam.id)
+                    applyResult(home, away, homeGoals, awayGoals)
+                }
+            }
         }
 
+        return toStandings(season, orderedTeams, stats)
+    }
+
+    private fun simulateScore(
+        season: Int,
+        country: String,
+        homeTeam: Team,
+        awayTeam: Team,
+        leg: Int
+    ): Pair<Int, Int> {
+        val random = Random(
+            stableSeed(
+                "$season|$country|${homeTeam.id}|${awayTeam.id}|$leg"
+            )
+        )
+        val ratingDiff = (homeTeam.rating + 5) - awayTeam.rating
+        val homeExpected = (1.35 + ratingDiff / 28.0).coerceIn(0.25, 3.20)
+        val awayExpected = (1.10 - ratingDiff / 32.0).coerceIn(0.20, 2.90)
+        return generateGoals(homeExpected, random) to generateGoals(awayExpected, random)
+    }
+
+    private fun generateGoals(expected: Double, random: Random): Int {
+        val guaranteed = expected.toInt().coerceIn(0, 4)
+        var goals = guaranteed
+        val fractional = (expected - guaranteed).coerceIn(0.0, 1.0)
+        if (random.nextDouble() < fractional) goals++
+        if (random.nextDouble() < 0.08) goals++
+        return goals.coerceIn(0, 7)
+    }
+
+    private fun applyResult(
+        home: MutableStats,
+        away: MutableStats,
+        homeGoals: Int,
+        awayGoals: Int
+    ) {
+        home.played++
+        away.played++
+        home.goalsFor += homeGoals
+        home.goalsAgainst += awayGoals
+        away.goalsFor += awayGoals
+        away.goalsAgainst += homeGoals
+
+        when {
+            homeGoals > awayGoals -> {
+                home.wins++
+                away.losses++
+            }
+            awayGoals > homeGoals -> {
+                away.wins++
+                home.losses++
+            }
+            else -> {
+                home.draws++
+                away.draws++
+            }
+        }
+    }
+
+    private fun toStandings(
+        season: Int,
+        teams: List<Team>,
+        stats: Map<Long, MutableStats>
+    ): List<GlobalLeagueStanding> {
         return teams
             .sortedWith(
-                compareByDescending<Team> { simulated.getValue(it).points }
-                    .thenByDescending { simulated.getValue(it).wins }
-                    .thenByDescending { simulated.getValue(it).goalDifference }
-                    .thenByDescending { simulated.getValue(it).goalsFor }
+                compareByDescending<Team> { stats[it.id]?.points ?: 0 }
+                    .thenByDescending { stats[it.id]?.wins ?: 0 }
+                    .thenByDescending { stats[it.id]?.goalDifference ?: 0 }
+                    .thenByDescending { stats[it.id]?.goalsFor ?: 0 }
                     .thenByDescending { it.rating }
                     .thenBy { it.id }
             )
             .mapIndexed { index, team ->
-                simulated.getValue(team).toStanding(season, team, index + 1)
+                stats.getValue(team.id).toStanding(season, team, index + 1)
             }
     }
 
@@ -216,9 +241,9 @@ class GlobalLeagueSimulationUseCase {
         )
     }
 
-    private fun stableSeed(season: Int, country: String, teamId: Long): Long {
+    private fun stableSeed(value: String): Long {
         var hash = 1125899906842597L
-        "$season|$country|$teamId".forEach { ch ->
+        value.forEach { ch ->
             hash = hash * 31L + ch.code
         }
         return hash
