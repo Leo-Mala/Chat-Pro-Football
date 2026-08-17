@@ -8,10 +8,11 @@ import kotlin.random.Random
  * Formatos usados pelo jogo:
  * - Copa nacional: mata-mata em jogo único com final na semana 35.
  * - Continental T1/T2: fase de grupos nas semanas 29, 30 e 31; mata-mata termina na semana 36.
- * - Continental T3: mata-mata em jogo único com final na semana 36.
+ * - Continental T3: mata-mata em jogo único com final na semana 36, quando habilitado pela
+ *   política da confederação ou pelo comportamento legado.
  *
- * A quantidade de participantes se adapta ao universo de clubes disponível, sempre usando
- * tamanhos de chave suportados (potências de 2) e mantendo a geração determinística.
+ * A seleção continental usa quotas explícitas quando a confederação já possui política própria;
+ * confederações ainda não normalizadas permanecem no comportamento legado determinístico.
  */
 object CupCompetitionSystem {
     const val NATIONAL_CUP_FINAL_WEEK = 35
@@ -21,6 +22,15 @@ object CupCompetitionSystem {
     private const val GROUP_WEEK_3 = 31
 
     private val continentalGroupTypes = listOf("CONTINENTAL_T1", "CONTINENTAL_T2")
+
+    internal data class ContinentalFields(
+        val tier1: List<Team>,
+        val tier2: List<Team>,
+        val tier3: List<Team>
+    ) {
+        val allTeamIds: Set<Long>
+            get() = (tier1 + tier2 + tier3).map { it.id }.toSet()
+    }
 
     /**
      * Gera a abertura de Copa nacional e torneios continentais.
@@ -69,23 +79,27 @@ object CupCompetitionSystem {
             )
             .toList()
 
-        var offset = 0
-        for (competitionType in continentalGroupTypes) {
-            val available = (continentalCandidates.size - offset).coerceAtLeast(0)
-            val participantCount = supportedGroupTeamCount(available)
-            if (participantCount == 0) continue
+        val fields = selectContinentalFields(
+            candidates = continentalCandidates,
+            confederation = userConfederation
+        )
 
-            val selected = continentalCandidates.subList(offset, offset + participantCount)
-                .shuffled(Random(stableSeed(season, competitionType)))
-            offset += participantCount
-            fixtures += generateGroupStage(season, selected, competitionType)
+        if (fields.tier1.size >= 8 && fields.tier1.size % 4 == 0) {
+            fixtures += generateGroupStage(
+                season = season,
+                teams = fields.tier1.shuffled(Random(stableSeed(season, "CONTINENTAL_T1"))),
+                competitionType = "CONTINENTAL_T1"
+            )
         }
-
-        val remaining = (continentalCandidates.size - offset).coerceAtLeast(0)
-        val tier3Count = largestPowerOfTwoAtMost(minOf(16, remaining))
-        if (tier3Count >= 2) {
-            val selected = continentalCandidates.subList(offset, offset + tier3Count)
-                .shuffled(Random(stableSeed(season, "CONTINENTAL_T3")))
+        if (fields.tier2.size >= 8 && fields.tier2.size % 4 == 0) {
+            fixtures += generateGroupStage(
+                season = season,
+                teams = fields.tier2.shuffled(Random(stableSeed(season, "CONTINENTAL_T2"))),
+                competitionType = "CONTINENTAL_T2"
+            )
+        }
+        if (fields.tier3.size >= 2) {
+            val selected = fields.tier3.shuffled(Random(stableSeed(season, "CONTINENTAL_T3")))
             val startWeek = CONTINENTAL_FINAL_WEEK - roundsToChampion(selected.size) + 1
             fixtures += generateKnockoutRound(
                 season = season,
@@ -96,6 +110,77 @@ object CupCompetitionSystem {
         }
 
         return fixtures
+    }
+
+    internal fun selectContinentalFields(
+        candidates: List<Team>,
+        confederation: String
+    ): ContinentalFields {
+        if (ContinentalQualificationQuotaPolicy.hasExplicitPolicy(confederation)) {
+            val tier1Plan = ContinentalQualificationQuotaPolicy.planFor(confederation, "CONTINENTAL_T1")
+            val tier2Plan = ContinentalQualificationQuotaPolicy.planFor(confederation, "CONTINENTAL_T2")
+            val tier3Plan = ContinentalQualificationQuotaPolicy.planFor(confederation, "CONTINENTAL_T3")
+
+            val tier1 = tier1Plan
+                ?.let { ContinentalQualificationQuotaPolicy.selectField(candidates, it).teams }
+                .orEmpty()
+            val tier1Ids = tier1.map { it.id }.toSet()
+
+            val tier2 = tier2Plan
+                ?.let {
+                    ContinentalQualificationQuotaPolicy.selectField(
+                        candidates = candidates,
+                        plan = it,
+                        excludedTeamIds = tier1Ids
+                    ).teams
+                }
+                .orEmpty()
+            val tier2Ids = tier2.map { it.id }.toSet()
+
+            val tier3 = tier3Plan
+                ?.let {
+                    ContinentalQualificationQuotaPolicy.selectField(
+                        candidates = candidates,
+                        plan = it,
+                        excludedTeamIds = tier1Ids + tier2Ids
+                    ).teams
+                }
+                .orEmpty()
+
+            return ContinentalFields(tier1 = tier1, tier2 = tier2, tier3 = tier3)
+        }
+
+        return selectLegacyContinentalFields(candidates)
+    }
+
+    private fun selectLegacyContinentalFields(candidates: List<Team>): ContinentalFields {
+        var offset = 0
+        val groupFields = mutableListOf<List<Team>>()
+
+        repeat(2) {
+            val available = (candidates.size - offset).coerceAtLeast(0)
+            val participantCount = supportedGroupTeamCount(available)
+            if (participantCount == 0) {
+                groupFields += emptyList()
+            } else {
+                groupFields += candidates.subList(offset, offset + participantCount)
+                offset += participantCount
+            }
+        }
+
+        val remaining = (candidates.size - offset).coerceAtLeast(0)
+        val tier3Count = largestPowerOfTwoAtMost(minOf(16, remaining))
+        val tier3 = if (tier3Count >= 2) {
+            candidates.subList(offset, offset + tier3Count)
+        } else {
+            emptyList()
+        }
+
+        return ContinentalFields(
+            tier1 = groupFields.getOrElse(0) { emptyList() },
+            tier2 = groupFields.getOrElse(1) { emptyList() },
+            tier3 = tier3
+        )
     }
 
     suspend fun processProgression(
@@ -183,48 +268,12 @@ object CupCompetitionSystem {
             val t3 = groupTeams[2].id
             val t4 = groupTeams[3].id
 
-            fixtures += Fixture(
-                season = season,
-                week = GROUP_WEEK_1,
-                homeTeamId = t1,
-                awayTeamId = t4,
-                competitionType = groupCode
-            )
-            fixtures += Fixture(
-                season = season,
-                week = GROUP_WEEK_1,
-                homeTeamId = t2,
-                awayTeamId = t3,
-                competitionType = groupCode
-            )
-            fixtures += Fixture(
-                season = season,
-                week = GROUP_WEEK_2,
-                homeTeamId = t1,
-                awayTeamId = t3,
-                competitionType = groupCode
-            )
-            fixtures += Fixture(
-                season = season,
-                week = GROUP_WEEK_2,
-                homeTeamId = t4,
-                awayTeamId = t2,
-                competitionType = groupCode
-            )
-            fixtures += Fixture(
-                season = season,
-                week = GROUP_WEEK_3,
-                homeTeamId = t2,
-                awayTeamId = t1,
-                competitionType = groupCode
-            )
-            fixtures += Fixture(
-                season = season,
-                week = GROUP_WEEK_3,
-                homeTeamId = t3,
-                awayTeamId = t4,
-                competitionType = groupCode
-            )
+            fixtures += Fixture(season = season, week = GROUP_WEEK_1, homeTeamId = t1, awayTeamId = t4, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_1, homeTeamId = t2, awayTeamId = t3, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_2, homeTeamId = t1, awayTeamId = t3, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_2, homeTeamId = t4, awayTeamId = t2, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_3, homeTeamId = t2, awayTeamId = t1, competitionType = groupCode)
+            fixtures += Fixture(season = season, week = GROUP_WEEK_3, homeTeamId = t3, awayTeamId = t4, competitionType = groupCode)
         }
 
         return fixtures
@@ -305,9 +354,6 @@ object CupCompetitionSystem {
             return
         }
 
-        // A semana reservada para a final deve conter exatamente uma partida. Se um save
-        // estiver malformado e chegar aqui com múltiplos confrontos, não inventamos um campeão
-        // nem lançamos uma exceção; a integridade pode ser reparada sem derrubar a carreira.
         if (currentWeek >= finalWeek) return
 
         val nextWeek = currentWeek + 1
@@ -400,11 +446,7 @@ object CupCompetitionSystem {
         repository: GameRepository
     ) {
         val winnerId = CompetitionRules.winnerOf(finalFixture) ?: return
-        val runnerUpId = if (winnerId == finalFixture.homeTeamId) {
-            finalFixture.awayTeamId
-        } else {
-            finalFixture.homeTeamId
-        }
+        val runnerUpId = if (winnerId == finalFixture.homeTeamId) finalFixture.awayTeamId else finalFixture.homeTeamId
 
         val winner = repository.getTeam(winnerId) ?: GlobalFootballSystem.getVirtualTeam(winnerId)
         val runnerUp = repository.getTeam(runnerUpId) ?: GlobalFootballSystem.getVirtualTeam(runnerUpId)
@@ -438,9 +480,7 @@ object CupCompetitionSystem {
     private fun largestPowerOfTwoAtMost(value: Int): Int {
         if (value < 2) return 0
         var result = 1
-        while (result * 2 <= value) {
-            result *= 2
-        }
+        while (result * 2 <= value) result *= 2
         return result
     }
 
