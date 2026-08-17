@@ -114,6 +114,14 @@ object ContinentalQualificationQuotaPolicy {
         confederation.equals("CONMEBOL", ignoreCase = true)
 
     /**
+     * A UI e o gerador consultam a mesma disponibilidade. Confederações ainda não normalizadas
+     * continuam com todos os tiers legados visíveis/ativos; uma política explícita pode desligar
+     * somente o tier que não existe naquela confederação.
+     */
+    fun isTierEnabled(confederation: String, competitionType: String): Boolean =
+        planFor(confederation, competitionType)?.enabled ?: true
+
+    /**
      * Seleciona um campo preservando as quotas mínimas de cada país quando há clubes elegíveis.
      *
      * A lista [candidates] já deve estar em prioridade esportiva decrescente. Primeiro são
