@@ -149,6 +149,10 @@ class GameRepository(private val db: AppDatabase) {
      * Substitui o snapshot de uma temporada usando operações DAO diretas.
      * O chamador que precisar de atomicidade deve envolver esta chamada na transação maior.
      * SeasonTransitionUseCase já faz isso, evitando o padrão de withTransaction aninhado.
+     *
+     * A primeira divisão é histórico permanente. Depois de gravar a temporada atual, snapshots
+     * antigos das divisões inferiores são podados: a temporada recém-encerrada continua completa
+     * para promoção/rebaixamento e navegação imediata, sem crescimento linear de B/C/D por décadas.
      */
     suspend fun saveGlobalStandingsForSeason(
         season: Int,
@@ -160,14 +164,15 @@ class GameRepository(private val db: AppDatabase) {
         } else if (rows.isNotEmpty()) {
             db.globalLeagueStandingDao().insertAll(rows)
         }
+        db.globalLeagueStandingDao().deleteLowerDivisionsBeforeSeason(season)
     }
 
     suspend fun deleteGlobalStandings() = db.globalLeagueStandingDao().deleteAll()
 
     /**
      * Purges old match fixtures and transaction history to preserve DB size and performance.
-     * Note: HistoricoEvolucao, HistoricalRecord, ClubLegend and global league snapshots are
-     * intentionally preserved to keep historical titles, trophies and qualification context.
+     * HistoricoEvolucao, HistoricalRecord, ClubLegend and first-division global snapshots remain
+     * historical. Lower-division global snapshots follow the bounded retention policy above.
      */
     suspend fun purgeOldData(currentSeason: Int) = db.withTransaction {
         db.fixtureDao().deleteOldSeasonFixtures(currentSeason)
