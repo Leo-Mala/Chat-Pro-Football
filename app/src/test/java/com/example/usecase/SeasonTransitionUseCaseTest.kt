@@ -54,7 +54,7 @@ class SeasonTransitionUseCaseTest {
     )
 
     @Test
-    fun transitionBeforeWeek40IsRejectedWithoutChangingCareer() = runTest {
+    fun transitionBeforeCanonicalFinalWeekIsRejectedWithoutChangingCareer() = runTest {
         val save = GameSave(
             id = 1,
             currentSeason = 2026,
@@ -66,7 +66,7 @@ class SeasonTransitionUseCaseTest {
 
         try {
             useCase.advanceToNextSeason(save)
-            fail("A transição antes da semana 40 deveria ser rejeitada.")
+            fail("A transição antes da semana final canônica deveria ser rejeitada.")
         } catch (_: IllegalArgumentException) {
             // esperado
         }
@@ -74,12 +74,12 @@ class SeasonTransitionUseCaseTest {
         val persisted = requireNotNull(repository.getGameSave())
         val player = requireNotNull(repository.getPlayer(10L))
         assertEquals(2026, persisted.currentSeason)
-        assertEquals(39, persisted.currentWeek)
+        assertEquals(GameCalendar.WEEKS_PER_SEASON - 1, persisted.currentWeek)
         assertEquals(24, player.age)
     }
 
     @Test
-    fun week40TransitionAdvancesSeasonAndAgesPlayerExactlyOnce() = runTest {
+    fun canonicalFinalWeekTransitionAdvancesSeasonAndAgesPlayerExactlyOnce() = runTest {
         val staleFinalWeekSave = GameSave(
             id = 1,
             currentSeason = 2026,

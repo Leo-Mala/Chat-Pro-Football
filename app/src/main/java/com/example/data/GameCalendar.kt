@@ -3,12 +3,21 @@ package com.example.data
 import java.util.Calendar
 
 object GameCalendar {
-    const val WEEKS_PER_SEASON = 40
+    /** Duração total da temporada de carreira. */
+    const val WEEKS_PER_SEASON = 48
+
+    /**
+     * Limite esportivo do calendário detalhado das ligas nacionais.
+     *
+     * É deliberadamente independente de [WEEKS_PER_SEASON]: aumentar a duração da temporada
+     * não pode fazer uma divisão gigante abandonar os grupos balanceados da Fase 9.5 apenas
+     * porque passaram a existir mais datas para copas e continentais.
+     */
+    const val MAX_DOMESTIC_LEAGUE_ROUNDS = 40
 
     /**
      * Avança uma quantidade de semanas usando o calendário canônico da temporada.
-     * A temporada do jogo possui 40 semanas; semanas 39 e 40 são reservadas para
-     * o fechamento da temporada e para fases finais de competições como o Super Mundial.
+     * A temporada possui 48 semanas e cada semana pode conter MIDWEEK e WEEKEND.
      */
     fun advanceWeeks(season: Int, week: Int, deltaWeeks: Int = 1): Pair<Int, Int> {
         require(week in 1..WEEKS_PER_SEASON) {
@@ -22,7 +31,14 @@ object GameCalendar {
         return Pair(season + seasonOffset, normalizedWeek)
     }
 
+    fun requireValidWeek(week: Int) {
+        require(week in 1..WEEKS_PER_SEASON) {
+            "Semana inválida: $week. Esperado 1..$WEEKS_PER_SEASON."
+        }
+    }
+
     private fun getCalendarForWeek(season: Int, week: Int): Calendar {
+        requireValidWeek(week)
         val cal = Calendar.getInstance()
         cal.set(season, Calendar.JANUARY, 10, 0, 0, 0)
         cal.set(Calendar.MILLISECOND, 0)

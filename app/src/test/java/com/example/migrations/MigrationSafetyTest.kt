@@ -93,7 +93,6 @@ class MigrationSafetyTest {
             assertEquals(2027, cursor.getInt(1))
             assertEquals(123456L, cursor.getLong(2))
             assertEquals(1, cursor.getInt(3))
-            // V15 antiga não possuía timestamp nessa tabela legada.
             assertEquals(0L, cursor.getLong(4))
         }
         assertFalse(tableExists(db, "transaction_records"))
@@ -163,7 +162,7 @@ class MigrationSafetyTest {
 
     @Test
     fun downgradeFailsWithoutDeletingDatabase() {
-        assertUnsupportedVersionPreservesSentinel("unsupported-v20.db", 20)
+        assertUnsupportedVersionPreservesSentinel("unsupported-v21.db", 21)
     }
 
     private fun assertUnsupportedVersionPreservesSentinel(name: String, version: Int) {

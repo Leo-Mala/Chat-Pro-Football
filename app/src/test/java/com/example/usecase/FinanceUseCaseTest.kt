@@ -7,6 +7,7 @@ import com.example.data.AppDatabase
 import com.example.data.Fixture
 import com.example.data.GameRepository
 import com.example.data.GameSave
+import com.example.data.MatchSlot
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -131,6 +132,7 @@ class FinanceUseCaseTest {
                     id = 100L,
                     season = 2026,
                     week = 31,
+                    matchSlot = MatchSlot.WEEKEND,
                     homeTeamId = 10L,
                     awayTeamId = 20L,
                     competitionType = "SERIE_A",
@@ -142,6 +144,7 @@ class FinanceUseCaseTest {
                     id = 101L,
                     season = 2026,
                     week = 31,
+                    matchSlot = MatchSlot.MIDWEEK,
                     homeTeamId = 10L,
                     awayTeamId = 30L,
                     competitionType = "COPA",
@@ -155,16 +158,12 @@ class FinanceUseCaseTest {
         useCase.processWeeklyFinances(save, isHomeMatch = true)
 
         val income = repository.getAllTransactions().single { it.type == "RECEITA_SEMANAL" }
-        // 7,500 effective members * R$30 = 225,000
-        // fallback sponsor = 300,000 + 50*15,000 = 1,050,000
-        // attendance = 19,500 * R$30 = 585,000 per home match; two matches = 1,170,000
         assertEquals(2_445_000L, income.amount)
     }
 
     @Test
     fun setTicketPrice_updates_and_clamps_ticket_price() = runTest {
         val save = GameSave(id = 1, ticketPrice = 25.0)
-        repository.saveGameSave(save)
 
         val result = useCase.setTicketPrice(save, 50.0)
 

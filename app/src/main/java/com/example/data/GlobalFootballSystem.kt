@@ -147,11 +147,7 @@ object GlobalFootballSystem {
         )
     }
 
-    /**
-     * Resolve também as regiões agregadas usadas pelo banco do jogo.
-     * Sem esta camada, regiões como "Estados Unidos / México", "África" e "Ásia"
-     * caíam no fallback CONMEBOL e recebiam torneios continentais incorretos.
-     */
+    /** Resolve também as regiões agregadas usadas pelo banco do jogo. */
     fun getConfederationForCountry(country: String): String {
         return when (country) {
             "Estados Unidos / México", "América Central" -> "CONCACAF"
@@ -163,47 +159,33 @@ object GlobalFootballSystem {
         }
     }
 
-    // Comprehensive real-world competition definitions
     val competitions = listOf(
-        // World
-        Competition("WORLD_CUP", "FIFA Club World Cup 🌍", "WORLD", 1, null, 34, GameCalendar.WEEKS_PER_SEASON),
-        Competition("WORLD_INTERCONTINENTAL", "FIFA Intercontinental Cup 🏆", "WORLD", 2, null, 37, 38),
+        Competition("WORLD_CUP", "FIFA Club World Cup 🌍", "WORLD", 1, null, SuperMundialSystem.GROUP_WEEK_1, GameCalendar.WEEKS_PER_SEASON),
+        Competition("WORLD_INTERCONTINENTAL", "FIFA Intercontinental Cup 🏆", "WORLD", 2, null, 40, 41),
 
-        // UEFA (Europe)
         Competition("UEFA_CL", "UEFA Champions League 🇪🇺", "CONTINENTAL", 1, "UEFA", 33, 36),
         Competition("UEFA_EL", "UEFA Europa League 🇪🇺", "CONTINENTAL", 2, "UEFA", 33, 36),
         Competition("UEFA_ECL", "UEFA Conference League 🇪🇺", "CONTINENTAL", 3, "UEFA", 33, 36),
 
-        // CONMEBOL (South America)
         Competition("CONMEBOL_CL", "Copa Libertadores 🏆", "CONTINENTAL", 1, "CONMEBOL", 33, 36),
         Competition("CONMEBOL_CS", "Copa Sudamericana 🥈", "CONTINENTAL", 2, "CONMEBOL", 33, 36),
 
-        // CONCACAF (North/Central America)
         Competition("CONCACAF_CL", "CONCACAF Champions Cup 🏆", "CONTINENTAL", 1, "CONCACAF", 33, 36),
         Competition("CONCACAF_CAC", "CONCACAF Central American Cup 🌎", "CONTINENTAL", 2, "CONCACAF", 33, 36),
         Competition("CONCACAF_CC", "CONCACAF Caribbean Cup 🏝️", "CONTINENTAL", 3, "CONCACAF", 33, 36),
 
-        // CAF (Africa)
         Competition("CAF_CL", "CAF Champions League 🏆", "CONTINENTAL", 1, "CAF", 33, 36),
         Competition("CAF_CC", "CAF Confederation Cup 🥈", "CONTINENTAL", 2, "CAF", 33, 36),
 
-        // AFC (Asia)
         Competition("AFC_CLE", "AFC Champions League Elite 🏆", "CONTINENTAL", 1, "AFC", 33, 36),
         Competition("AFC_CL2", "AFC Champions League Two 🥈", "CONTINENTAL", 2, "AFC", 33, 36),
         Competition("AFC_CHL", "AFC Challenge League 🥉", "CONTINENTAL", 3, "AFC", 33, 36),
 
-        // OFC (Oceania)
         Competition("OFC_CL", "OFC Champions League 🏆", "CONTINENTAL", 1, "OFC", 33, 36)
     )
 
-    fun getCompetitionByCode(code: String): Competition? {
-        return competitions.find { it.code == code }
-    }
+    fun getCompetitionByCode(code: String): Competition? = competitions.find { it.code == code }
 
-    /**
-     * Resolves the continental tournament for a country's top division based on confederation.
-     * Returns Triple(Tier 1 Code, Tier 2 Code, Tier 3 Code)
-     */
     fun getContinentalTournamentsForCountry(country: String): Triple<String, String, String> {
         return when (getConfederationForCountry(country)) {
             "UEFA" -> Triple("UEFA_CL", "UEFA_EL", "UEFA_ECL")

@@ -146,25 +146,36 @@ class TwentySeasonStressTest {
             repository.updateTeam(cruzeiro.copy(trainingCenterLevel = 5))
 
             if (repository.getFixturesForSeason(currentSeason).isEmpty()) {
-                val seasonFixtures = generateCalendarUseCase.generateRoundRobinFixtures(currentSeason, teams, "SERIE_A", 1)
+                val seasonFixtures = generateCalendarUseCase.generateRoundRobinFixtures(
+                    currentSeason,
+                    teams,
+                    "SERIE_A",
+                    1,
+                    matchSlot = MatchSlot.WEEKEND
+                )
                 repository.saveFixtures(seasonFixtures)
             }
 
             val seasonTransitionUseCase = SeasonTransitionUseCase(repository, generateCalendarUseCase, databaseIntegrityUseCase)
 
-            // The game season uses the same canonical boundary as production.
-            // Weeks 39–40 are exercised even when there are no league fixtures in those slots.
+            // O stress percorre as 48 semanas canônicas, inclusive as datas finais sem liga.
             for (week in 1..GameCalendar.WEEKS_PER_SEASON) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
 
-                gameSave = financeUseCase.processWeeklyFinances(gameSave, week % 2 == 1)
+                simulateWeekUseCase.simulateCpuMatchesForWeek(currentSeason, week)
+
+                val playedHomeMatches = repository.getFixturesForWeek(currentSeason, week)
+                    .count { it.isPlayed && it.homeTeamId == cruzeiro.id }
+                gameSave = financeUseCase.processWeeklyFinances(
+                    save = gameSave,
+                    homeMatchCount = playedHomeMatches,
+                    userPlayers = repository.getPlayersByTeam(cruzeiro.id)
+                )
 
                 if (week % 4 == 0) {
                     playerEvolutionUseCase.executeMonthlyEvolution(gameSave, "S${currentSeason}_W${week}")
                 }
-
-                simulateWeekUseCase.simulateCpuMatchesForWeek(currentSeason, week)
 
                 val allP = repository.getAllPlayers()
                 val playerIds = allP.map { it.id }
@@ -175,6 +186,7 @@ class TwentySeasonStressTest {
                 assertTrue("O saldo deve ser não-negativo e válido", gameSave.bankBalance >= 0L)
             }
 
+            FixtureScheduleValidator.requireValid(repository.getFixturesForSeason(currentSeason))
             titlesBySeason[currentSeason] = "Campeão Brasileiro"
             gameSave = seasonTransitionUseCase.advanceToNextSeason(gameSave)
         }

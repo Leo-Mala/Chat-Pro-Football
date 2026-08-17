@@ -4,6 +4,14 @@ import kotlin.random.Random
 
 object SuperMundialSystem {
 
+    const val GROUP_WEEK_1 = 42
+    const val GROUP_WEEK_2 = 43
+    const val GROUP_WEEK_3 = 44
+    const val ROUND_OF_16_WEEK = 45
+    const val QUARTERFINAL_WEEK = 46
+    const val SEMIFINAL_WEEK = 47
+    const val FINAL_WEEK = GameCalendar.WEEKS_PER_SEASON
+
     fun isSuperMundialSeason(season: Int): Boolean {
         // Quadrennial: 2025 (real world), 2026 (inaugural in-game season), 2030, 2034, 2038...
         return season == 2025 || season == 2026 || (season - 2026) % 4 == 0
@@ -65,7 +73,6 @@ object SuperMundialSystem {
             }
         }
 
-        // Ensure user team is included in the 32 teams if valid
         val userTeam = allTeams.find { it.id == userTeamId }
         if (userTeam != null && selectedTeams.none { it.id == userTeamId }) {
             if (selectedTeams.size >= 32) {
@@ -76,18 +83,16 @@ object SuperMundialSystem {
         }
 
         val targetCount = 32
-        // Padrão corrigido e protegido contra loop infinito
         while (selectedTeams.size < targetCount) {
             val candidate = allTeams.filter { t -> selectedTeams.none { it.id == t.id } }
                 .maxByOrNull { it.rating }
             if (candidate != null) {
                 selectedTeams.add(candidate)
             } else {
-                break // Interrompe o laço imediatamente se não houver mais candidatos!
+                break
             }
         }
 
-        // Preenchimento de segurança se a lista ainda não tiver atingido a meta
         var dummyCounter = 1
         while (selectedTeams.size < targetCount) {
             val virtualTeam = GlobalFootballSystem.getVirtualTeam(900_000L + dummyCounter)
@@ -115,19 +120,17 @@ object SuperMundialSystem {
             val t3 = groupTeams[2].id
             val t4 = groupTeams[3].id
 
-            // Round 1 - Week 34
-            fixtures.add(Fixture(season = season, week = 34, homeTeamId = t1, awayTeamId = t4, competitionType = compCode))
-            fixtures.add(Fixture(season = season, week = 34, homeTeamId = t2, awayTeamId = t3, competitionType = compCode))
+            fixtures.add(Fixture(season = season, week = GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t4, competitionType = compCode))
+            fixtures.add(Fixture(season = season, week = GROUP_WEEK_1, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t3, competitionType = compCode))
 
-            // Round 2 - Week 35
-            fixtures.add(Fixture(season = season, week = 35, homeTeamId = t1, awayTeamId = t3, competitionType = compCode))
-            fixtures.add(Fixture(season = season, week = 35, homeTeamId = t4, awayTeamId = t2, competitionType = compCode))
+            fixtures.add(Fixture(season = season, week = GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t1, awayTeamId = t3, competitionType = compCode))
+            fixtures.add(Fixture(season = season, week = GROUP_WEEK_2, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t4, awayTeamId = t2, competitionType = compCode))
 
-            // Round 3 - Week 36
-            fixtures.add(Fixture(season = season, week = 36, homeTeamId = t2, awayTeamId = t1, competitionType = compCode))
-            fixtures.add(Fixture(season = season, week = 36, homeTeamId = t3, awayTeamId = t4, competitionType = compCode))
+            fixtures.add(Fixture(season = season, week = GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t2, awayTeamId = t1, competitionType = compCode))
+            fixtures.add(Fixture(season = season, week = GROUP_WEEK_3, matchSlot = MatchSlot.MIDWEEK, homeTeamId = t3, awayTeamId = t4, competitionType = compCode))
         }
 
+        FixtureScheduleValidator.requireValid(fixtures)
         return fixtures
     }
 
@@ -144,16 +147,15 @@ object SuperMundialSystem {
         val allSeasonFixtures = repo.getFixturesForSeason(season)
 
         when (currentWeek) {
-            36 -> {
-                // Group stage completed -> Generate Oitavas de Final (Week 37)
+            GROUP_WEEK_3 -> {
                 val groupFixtures = allSeasonFixtures.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
                 if (groupFixtures.isEmpty() || groupFixtures.any { !it.isPlayed }) return
 
-                val existingOitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 37 }
+                val existingOitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == ROUND_OF_16_WEEK }
                 if (existingOitavas.isNotEmpty()) return
 
                 val groupLetters = listOf("A", "B", "C", "D", "E", "F", "G", "H")
-                val groupQualifiers = mutableMapOf<String, Pair<Long, Long>>() // Letter -> Pair(1st, 2nd)
+                val groupQualifiers = mutableMapOf<String, Pair<Long, Long>>()
 
                 for (letter in groupLetters) {
                     val compCode = "WORLD_CUP_GP_$letter"
@@ -172,11 +174,9 @@ object SuperMundialSystem {
                         h.gd += (hG - aG)
                         a.gd += (aG - hG)
 
-                        if (hG > aG) {
-                            h.points += 3
-                        } else if (aG > hG) {
-                            a.points += 3
-                        } else {
+                        if (hG > aG) h.points += 3
+                        else if (aG > hG) a.points += 3
+                        else {
                             h.points += 1
                             a.points += 1
                         }
@@ -206,7 +206,8 @@ object SuperMundialSystem {
                             oitavasFixtures.add(
                                 Fixture(
                                     season = season,
-                                    week = 37,
+                                    week = ROUND_OF_16_WEEK,
+                                    matchSlot = MatchSlot.MIDWEEK,
                                     homeTeamId = firstTeam,
                                     awayTeamId = secondTeam,
                                     competitionType = "WORLD_CUP"
@@ -214,18 +215,15 @@ object SuperMundialSystem {
                             )
                         }
                     }
-                    if (oitavasFixtures.isNotEmpty()) {
-                        repo.saveFixtures(oitavasFixtures)
-                    }
+                    if (oitavasFixtures.isNotEmpty()) repo.saveFixtures(oitavasFixtures)
                 }
             }
 
-            37 -> {
-                // Oitavas completed -> Generate Quartas de Final (Week 38)
-                val oitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 37 }
+            ROUND_OF_16_WEEK -> {
+                val oitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == ROUND_OF_16_WEEK }
                 if (oitavas.isEmpty() || oitavas.any { !it.isPlayed }) return
 
-                val existingQuartas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 38 }
+                val existingQuartas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == QUARTERFINAL_WEEK }
                 if (existingQuartas.isNotEmpty()) return
 
                 val winners = oitavas.map { getWinner(it) }
@@ -235,7 +233,8 @@ object SuperMundialSystem {
                         quartasFixtures.add(
                             Fixture(
                                 season = season,
-                                week = 38,
+                                week = QUARTERFINAL_WEEK,
+                                matchSlot = MatchSlot.MIDWEEK,
                                 homeTeamId = winners[i * 2],
                                 awayTeamId = winners[i * 2 + 1],
                                 competitionType = "WORLD_CUP"
@@ -246,48 +245,50 @@ object SuperMundialSystem {
                 }
             }
 
-            38 -> {
-                // Quartas completed -> Generate Semifinais (Week 39)
-                val quartas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 38 }
+            QUARTERFINAL_WEEK -> {
+                val quartas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == QUARTERFINAL_WEEK }
                 if (quartas.isEmpty() || quartas.any { !it.isPlayed }) return
 
-                val existingSemis = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 39 }
+                val existingSemis = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == SEMIFINAL_WEEK }
                 if (existingSemis.isNotEmpty()) return
 
                 val winners = quartas.map { getWinner(it) }
                 if (winners.size == 4) {
-                    val semisFixtures = mutableListOf<Fixture>()
-                    semisFixtures.add(
-                        Fixture(season = season, week = 39, homeTeamId = winners[0], awayTeamId = winners[1], competitionType = "WORLD_CUP")
+                    repo.saveFixtures(
+                        listOf(
+                            Fixture(season = season, week = SEMIFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = winners[0], awayTeamId = winners[1], competitionType = "WORLD_CUP"),
+                            Fixture(season = season, week = SEMIFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = winners[2], awayTeamId = winners[3], competitionType = "WORLD_CUP")
+                        )
                     )
-                    semisFixtures.add(
-                        Fixture(season = season, week = 39, homeTeamId = winners[2], awayTeamId = winners[3], competitionType = "WORLD_CUP")
-                    )
-                    repo.saveFixtures(semisFixtures)
                 }
             }
 
-            39 -> {
-                // Semifinais completed -> Generate Final (Week 40)
-                val semis = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 39 }
+            SEMIFINAL_WEEK -> {
+                val semis = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == SEMIFINAL_WEEK }
                 if (semis.isEmpty() || semis.any { !it.isPlayed }) return
 
-                val existingFinal = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == 40 }
+                val existingFinal = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == FINAL_WEEK }
                 if (existingFinal.isNotEmpty()) return
 
                 val winners = semis.map { getWinner(it) }
                 if (winners.size == 2) {
                     repo.saveFixtures(
                         listOf(
-                            Fixture(season = season, week = 40, homeTeamId = winners[0], awayTeamId = winners[1], competitionType = "WORLD_CUP")
+                            Fixture(
+                                season = season,
+                                week = FINAL_WEEK,
+                                matchSlot = MatchSlot.MIDWEEK,
+                                homeTeamId = winners[0],
+                                awayTeamId = winners[1],
+                                competitionType = "WORLD_CUP"
+                            )
                         )
                     )
                 }
             }
 
-            40 -> {
-                // Final completed -> Record Champion
-                val finalMatch = allSeasonFixtures.find { it.competitionType == "WORLD_CUP" && it.week == 40 }
+            FINAL_WEEK -> {
+                val finalMatch = allSeasonFixtures.find { it.competitionType == "WORLD_CUP" && it.week == FINAL_WEEK }
                 if (finalMatch != null && finalMatch.isPlayed) {
                     val winnerId = getWinner(finalMatch)
                     val runnerUpId = if (winnerId == finalMatch.homeTeamId) finalMatch.awayTeamId else finalMatch.homeTeamId

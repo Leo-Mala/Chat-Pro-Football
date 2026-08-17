@@ -182,14 +182,14 @@ class OneHundredSeasonMatchByMatchStressTest {
                 repository.saveFixtures(fixtures)
             }
 
-            // The game season reaches week 40. Série A remains the canonical 38-round
-            // invariant while domestic, continental and world tournaments are counted
-            // independently and are progressed from actual results.
+            // A carreira percorre todas as 48 semanas. Liga ocupa WEEKEND; copas e Mundial
+            // ocupam MIDWEEK, permitindo duas partidas na mesma semana sem colisão de slot.
             for (week in 1..GameCalendar.WEEKS_PER_SEASON) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
 
                 val weekFixtures = repository.getFixturesForWeek(currentSeason, week)
+                    .sortedWith(FixtureScheduleValidator.chronologicalComparator())
                 val unplayed = weekFixtures.filter { !it.isPlayed }
 
                 for (f in unplayed) {
@@ -217,26 +217,26 @@ class OneHundredSeasonMatchByMatchStressTest {
 
                     totalMatchesSimulated++
                     when {
-                        f.competitionType in setOf("SERIE_A", "DIV_1") ->
-                            totalLeagueMatchesSimulated++
-                        f.competitionType == "COPA" ->
-                            totalDomesticCupMatchesSimulated++
-                        f.competitionType.startsWith("CONTINENTAL_") ->
-                            totalContinentalMatchesSimulated++
-                        f.competitionType.startsWith("WORLD_CUP_GP_") ->
-                            totalWorldGroupMatchesSimulated++
-                        f.competitionType == "WORLD_CUP" ->
-                            totalWorldKnockoutMatchesSimulated++
+                        f.competitionType in setOf("SERIE_A", "DIV_1") -> totalLeagueMatchesSimulated++
+                        f.competitionType == "COPA" -> totalDomesticCupMatchesSimulated++
+                        f.competitionType.startsWith("CONTINENTAL_") -> totalContinentalMatchesSimulated++
+                        f.competitionType.startsWith("WORLD_CUP_GP_") -> totalWorldGroupMatchesSimulated++
+                        f.competitionType == "WORLD_CUP" -> totalWorldKnockoutMatchesSimulated++
                     }
                 }
 
-                // Generate the next knockout rounds only after the current week's results exist.
                 CupCompetitionSystem.processProgression(currentSeason, week, repository)
                 SuperMundialSystem.processProgression(currentSeason, week, repository)
 
                 val userPlayers = repository.getPlayersByTeam(cruzeiro.id)
                 playerEvolutionUseCase.processPostMatchRecovery(gameSave, userPlayers, 5)
-                gameSave = financeUseCase.processWeeklyFinances(gameSave, week % 2 == 1)
+                val playedHomeMatches = repository.getFixturesForWeek(currentSeason, week)
+                    .count { it.isPlayed && it.homeTeamId == cruzeiro.id }
+                gameSave = financeUseCase.processWeeklyFinances(
+                    save = gameSave,
+                    homeMatchCount = playedHomeMatches,
+                    userPlayers = userPlayers
+                )
 
                 if (week % 4 == 0) {
                     playerEvolutionUseCase.executeMonthlyEvolution(gameSave, "S${currentSeason}_W${week}")
@@ -252,6 +252,7 @@ class OneHundredSeasonMatchByMatchStressTest {
             }
 
             val seasonFixtures = repository.getFixturesForSeason(currentSeason)
+            FixtureScheduleValidator.requireValid(seasonFixtures)
             val leagueFixtures = seasonFixtures.filter {
                 it.competitionType in setOf("SERIE_A", "DIV_1")
             }
@@ -297,12 +298,12 @@ class OneHundredSeasonMatchByMatchStressTest {
         val expectedWorldGroupMatches = expectedWorldSeasons * 48
         val expectedWorldKnockoutMatches = expectedWorldSeasons * 15
 
-        // With 20 Brazilian clubs the deterministic tournament fields are:
-        // Copa: 16 clubs => 15 matches/season.
-        // Continental T1: 16 clubs => 24 group + 7 knockout = 31 matches/season.
-        // Continental T3: remaining 4 clubs => 3 knockout matches/season.
+        // O fixture sintético possui apenas 20 clubes brasileiros. Isso é suficiente para liga e
+        // Copa, mas não para os 32 clubes obrigatórios da Libertadores. O teste continental
+        // completo vive em CupCompetitionSystemTest/ContinentalQualificationQuotaPolicyTest.
+        // Portanto este stress não cria nem conta uma Libertadores artificialmente reduzida.
         val expectedDomesticCupMatches = totalSeasons * 15
-        val expectedContinentalMatches = totalSeasons * (31 + 3)
+        val expectedContinentalMatches = 0
 
         assertEquals("Expected 2126 current season", 2126, finalSave!!.currentSeason)
         assertEquals("Expected 38000 Série A matches across 100 seasons", 38000, totalLeagueMatchesSimulated)
@@ -312,7 +313,7 @@ class OneHundredSeasonMatchByMatchStressTest {
             totalDomesticCupMatchesSimulated
         )
         assertEquals(
-            "Expected complete continental brackets in every season",
+            "Synthetic 20-club universe must not create a reduced Libertadores",
             expectedContinentalMatches,
             totalContinentalMatchesSimulated
         )

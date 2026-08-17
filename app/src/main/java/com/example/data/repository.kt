@@ -24,14 +24,6 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun saveGameSave(save: GameSave) = db.gameSaveDao().insertOrUpdate(save)
     suspend fun deleteSave() = db.gameSaveDao().deleteSave()
 
-    /**
-     * Persists an academy promotion using exactly one Room transaction.
-     *
-     * The expected save fields act as an optimistic concurrency guard: if the active team
-     * or the academy list changed after the caller prepared the promotion, nothing is
-     * written. Using the DAOs directly here avoids opening a nested `withTransaction`
-     * through `savePlayers()` while a transaction is already active.
-     */
     suspend fun promoteAcademyPlayerAtomically(
         expectedPlayerTeamId: Long,
         expectedAcademyProspects: String,
@@ -52,7 +44,7 @@ class GameRepository(private val db: AppDatabase) {
         )
         true
     }
-    
+
     suspend fun saveTransaction(record: TransactionRecord) = db.transactionRecordDao().insertTransaction(record)
     suspend fun getAllTransactions(): List<TransactionRecord> = db.transactionRecordDao().getAllTransactions()
     suspend fun deleteTransactions() = db.transactionRecordDao().deleteTransactions()
@@ -113,25 +105,97 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun deletePlayer(id: Long) = db.playerDao().deletePlayer(id)
     suspend fun deletePlayers() = db.playerDao().deletePlayers()
 
-    suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture> = db.fixtureDao().getFixturesForWeek(season, week)
-    suspend fun getFixturesForSeason(season: Int): List<Fixture> = db.fixtureDao().getFixturesForSeason(season)
+    /**
+     * Na interação de uma semana, jogos ainda pendentes precisam vir antes dos já concluídos para
+     * que um segundo slot do usuário continue disponível após a partida do primeiro slot. Entre
+     * fixtures com o mesmo estado, a ordem canônica MIDWEEK -> WEEKEND continua preservada.
+     */
+    suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture> =
+        db.fixtureDao().getFixturesForWeek(season, week)
+            .sortedWith(
+                compareBy<Fixture> { if (it.isPlayed) 1 else 0 }
+                    .thenBy { it.matchSlot.order }
+                    .thenBy { it.id }
+            )
+
+    suspend fun getFixturesForSeason(season: Int): List<Fixture> =
+        db.fixtureDao().getFixturesForSeason(season)
+            .sortedWith(FixtureScheduleValidator.chronologicalComparator())
+
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForSeasonFlow(season)
     suspend fun getAllFixtures(): List<Fixture> = db.fixtureDao().getAllFixtures()
+
+    /**
+     * Toda criação de fixture passa pela mesma barreira de calendário. Progressões de copas não
+     * podem inserir silenciosamente uma segunda partida do mesmo clube no mesmo slot.
+     */
     suspend fun saveFixtures(fixtures: List<Fixture>) = db.withTransaction {
+        if (fixtures.isEmpty()) return@withTransaction
+        val existing = fixtures
+            .map { it.season }
+            .distinct()
+            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
+        FixtureScheduleValidator.requireCanAdd(existing, fixtures)
+
         if (fixtures.size > 100) {
             fixtures.chunked(100).forEach { db.fixtureDao().insertFixtures(it) }
         } else {
             db.fixtureDao().insertFixtures(fixtures)
         }
     }
-    suspend fun updateFixture(fixture: Fixture) = db.fixtureDao().updateFixture(fixture)
+
+    /**
+     * Alterar somente placar/eventos de um fixture já persistido não reabre a validação temporal.
+     * Isso permite que saves V19 continuem jogáveis mesmo se carregarem uma colisão histórica.
+     * Qualquer remarcação de semana/slot/clubes continua obrigada a passar pelo validador.
+     */
+    suspend fun updateFixture(fixture: Fixture) = db.withTransaction {
+        val seasonFixtures = db.fixtureDao().getFixturesForSeason(fixture.season)
+        val persisted = seasonFixtures.firstOrNull { it.id == fixture.id }
+        if (persisted == null || !sameScheduleIdentity(persisted, fixture)) {
+            FixtureScheduleValidator.requireCanAdd(
+                seasonFixtures.filterNot { it.id == fixture.id },
+                listOf(fixture)
+            )
+        }
+        db.fixtureDao().updateFixture(fixture)
+    }
+
     suspend fun updateFixtures(fixtures: List<Fixture>) = db.withTransaction {
+        if (fixtures.isEmpty()) return@withTransaction
+
+        val persistedById = fixtures
+            .map { it.season }
+            .distinct()
+            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
+            .associateBy { it.id }
+
+        val rescheduled = fixtures.filter { fixture ->
+            val persisted = persistedById[fixture.id]
+            persisted == null || !sameScheduleIdentity(persisted, fixture)
+        }
+
+        if (rescheduled.isNotEmpty()) {
+            val rescheduledIds = rescheduled.map { it.id }.filter { it != 0L }.toSet()
+            val existing = persistedById.values.filterNot { it.id in rescheduledIds }
+            FixtureScheduleValidator.requireCanAdd(existing, rescheduled)
+        }
+
         if (fixtures.size > 100) {
             fixtures.chunked(100).forEach { db.fixtureDao().updateFixtures(it) }
         } else {
             db.fixtureDao().updateFixtures(fixtures)
         }
     }
+
+    private fun sameScheduleIdentity(first: Fixture, second: Fixture): Boolean =
+        first.season == second.season &&
+            first.week == second.week &&
+            first.matchSlot == second.matchSlot &&
+            first.homeTeamId == second.homeTeamId &&
+            first.awayTeamId == second.awayTeamId &&
+            first.competitionType == second.competitionType
+
     suspend fun deleteFixtures() = db.fixtureDao().deleteFixtures()
     suspend fun deleteFixturesByIds(ids: List<Long>) = db.fixtureDao().deleteFixturesByIds(ids)
 
@@ -145,15 +209,6 @@ class GameRepository(private val db: AppDatabase) {
     ): List<GlobalLeagueStanding> =
         db.globalLeagueStandingDao().getForLeague(season, country, division)
 
-    /**
-     * Substitui o snapshot de uma temporada usando operações DAO diretas.
-     * O chamador que precisar de atomicidade deve envolver esta chamada na transação maior.
-     * SeasonTransitionUseCase já faz isso, evitando o padrão de withTransaction aninhado.
-     *
-     * A primeira divisão é histórico permanente. Depois de gravar a temporada atual, snapshots
-     * antigos das divisões inferiores são podados: a temporada recém-encerrada continua completa
-     * para promoção/rebaixamento e navegação imediata, sem crescimento linear de B/C/D por décadas.
-     */
     suspend fun saveGlobalStandingsForSeason(
         season: Int,
         rows: List<GlobalLeagueStanding>
@@ -169,11 +224,6 @@ class GameRepository(private val db: AppDatabase) {
 
     suspend fun deleteGlobalStandings() = db.globalLeagueStandingDao().deleteAll()
 
-    /**
-     * Purges old match fixtures and transaction history to preserve DB size and performance.
-     * HistoricoEvolucao, HistoricalRecord, ClubLegend and first-division global snapshots remain
-     * historical. Lower-division global snapshots follow the bounded retention policy above.
-     */
     suspend fun purgeOldData(currentSeason: Int) = db.withTransaction {
         db.fixtureDao().deleteOldSeasonFixtures(currentSeason)
         db.transactionRecordDao().deleteOldTransactions(currentSeason)
@@ -194,10 +244,9 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun saveOffers(offers: List<CoachOffer>) = db.coachOfferDao().insertOffers(offers)
     suspend fun getAllOffers(): List<CoachOffer> = db.coachOfferDao().getAllOffers()
     suspend fun deleteOffers() = db.coachOfferDao().deleteOffers()
-    
+
     suspend fun getAllHistorico(): List<HistoricoEvolucao> = db.historicoEvolucaoDao().getAll()
 
-    // Transfer Installment operations
     suspend fun getActiveInstallmentsForWeek(currentSeason: Int, currentWeek: Int): List<TransferInstallment> = db.transferInstallmentDao().getActiveInstallmentsForWeek(currentSeason, currentWeek)
     suspend fun getActiveInstallments(): List<TransferInstallment> = db.transferInstallmentDao().getActiveInstallments()
     suspend fun getAllInstallments(): List<TransferInstallment> = db.transferInstallmentDao().getAllInstallments()
@@ -206,7 +255,6 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun updateInstallment(installment: TransferInstallment) = db.transferInstallmentDao().updateInstallment(installment)
     suspend fun deleteInstallments() = db.transferInstallmentDao().deleteInstallments()
 
-    // Player Loan operations
     suspend fun getActiveLoans(): List<PlayerLoan> = db.playerLoanDao().getActiveLoans()
     suspend fun getActiveLoanForPlayer(playerId: Long): PlayerLoan? = db.playerLoanDao().getActiveLoanForPlayer(playerId)
     suspend fun getAllLoans(): List<PlayerLoan> = db.playerLoanDao().getAllLoans()
@@ -214,6 +262,4 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun saveLoans(loans: List<PlayerLoan>) = db.playerLoanDao().insertLoans(loans)
     suspend fun updateLoan(loan: PlayerLoan) = db.playerLoanDao().updateLoan(loan)
     suspend fun deleteLoans() = db.playerLoanDao().deleteLoans()
-
 }
-

@@ -25,6 +25,13 @@ object CompetitionRules {
         homeScore: Int,
         awayScore: Int
     ): Pair<Int?, Int?> {
+        // Libertadores/Sudamericana em ida e volta só podem ir aos pênaltis depois de conhecido
+        // o placar agregado da série. A decisão é aplicada por ConmebolCompetitionSystem no
+        // segundo jogo; nunca se decide isoladamente um empate na ida ou na volta.
+        if (ConmebolCompetitionSystem.isAggregateLeg(fixture)) {
+            return Pair(null, null)
+        }
+
         if (!isKnockoutCompetition(fixture.competitionType) || homeScore != awayScore) {
             return Pair(null, null)
         }
