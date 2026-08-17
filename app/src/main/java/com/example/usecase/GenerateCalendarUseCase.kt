@@ -6,6 +6,7 @@ import com.example.data.Fixture
 import com.example.data.GameRepository
 import com.example.data.GlobalFootballSystem
 import com.example.data.GlobalLeagueStanding
+import com.example.data.LeagueSeasonFormat
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
 
@@ -15,16 +16,19 @@ import com.example.data.Team
 class GenerateCalendarUseCase(private val repository: GameRepository) {
 
     /**
-     * Gera todas as partidas em turno e returno para uma lista de times de uma divisão.
+     * Gera partidas de pontos corridos para uma lista de times.
+     * [legs] = 1 gera turno único; [legs] = 2 gera turno + returno.
      */
     fun generateRoundRobinFixtures(
         season: Int,
         teams: List<Team>,
         competitionType: String,
-        startWeek: Int = 1
+        startWeek: Int = 1,
+        legs: Int = 2
     ): List<Fixture> {
         val fixtures = mutableListOf<Fixture>()
-        if (teams.size < 2) return fixtures
+        if (teams.size < 2 || legs <= 0) return fixtures
+        require(legs in 1..2) { "Quantidade de turnos suportada: 1 ou 2. Recebido: $legs" }
 
         val n = if (teams.size % 2 == 0) teams.size else teams.size + 1
         val teamList = teams.map { it.id }.toMutableList()
@@ -61,20 +65,22 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
             teamList.add(1, last)
         }
 
-        // Returno (inverted home/away)
-        val turnoFixtures = fixtures.toList()
-        for (f in turnoFixtures) {
-            val returnoWeek = f.week + totalRounds
-            fixtures.add(
-                Fixture(
-                    season = season,
-                    week = returnoWeek,
-                    homeTeamId = f.awayTeamId,
-                    awayTeamId = f.homeTeamId,
-                    competitionType = competitionType,
-                    isPlayed = false
+        // Returno (inverted home/away), somente quando o formato de 2 turnos cabe na temporada.
+        if (legs == 2) {
+            val turnoFixtures = fixtures.toList()
+            for (f in turnoFixtures) {
+                val returnoWeek = f.week + totalRounds
+                fixtures.add(
+                    Fixture(
+                        season = season,
+                        week = returnoWeek,
+                        homeTeamId = f.awayTeamId,
+                        awayTeamId = f.homeTeamId,
+                        competitionType = competitionType,
+                        isPlayed = false
+                    )
                 )
-            )
+            }
         }
 
         return fixtures
@@ -114,6 +120,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         val targetCountry = userTeam?.country ?: userCountry
 
         // Geração da liga de pontos corridos apenas para o país do time do usuário.
+        // A quantidade de turnos é reduzida para 1 quando o returno ultrapassaria as 40 semanas.
         val groupedTeams = teams.groupBy { Pair(it.country, it.division) }
         for ((key, teamGroup) in groupedTeams) {
             val (country, div) = key
@@ -124,7 +131,14 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                     3 -> "SERIE_C"
                     else -> "SERIE_D"
                 }
-                val groupFixtures = generateRoundRobinFixtures(season, teamGroup, divCode, 1)
+                val legs = LeagueSeasonFormat.legsForDetailedLeague(teamGroup.size)
+                val groupFixtures = generateRoundRobinFixtures(
+                    season = season,
+                    teams = teamGroup,
+                    competitionType = divCode,
+                    startWeek = 1,
+                    legs = legs
+                )
                 allFixtures.addAll(groupFixtures)
             }
         }
