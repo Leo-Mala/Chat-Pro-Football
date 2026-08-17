@@ -48,7 +48,7 @@ class CupCompetitionSystemTest {
     }
 
     @Test
-    fun `opening calendar creates disjoint CONMEBOL tier one and tier two fields`() {
+    fun `opening calendar creates full disjoint CONMEBOL group fields`() {
         val teams = conmebolUniverse()
         val userTeam = teams.first { it.id == 1L }
 
@@ -68,20 +68,29 @@ class CupCompetitionSystemTest {
         val tier2Groups = fixtures.filter { it.competitionType.startsWith("CONTINENTAL_T2_GP_") }
         val tier3 = fixtures.filter { it.competitionType == "CONTINENTAL_T3" }
 
-        assertEquals(48, tier1Groups.size)
-        assertEquals(48, tier2Groups.size)
+        assertEquals(ConmebolCompetitionSystem.GROUP_MATCH_COUNT, tier1Groups.size)
+        assertEquals(ConmebolCompetitionSystem.GROUP_MATCH_COUNT, tier2Groups.size)
         assertTrue(tier3.isEmpty())
 
         val tier1Participants = participantCounts(tier1Groups)
         val tier2Participants = participantCounts(tier2Groups)
 
         assertEquals(32, tier1Participants.size)
-        assertTrue(tier1Participants.values.all { it == 3 })
+        assertTrue(tier1Participants.values.all { it == ConmebolCompetitionSystem.GROUP_MATCHES_PER_TEAM })
         assertEquals(32, tier2Participants.size)
-        assertTrue(tier2Participants.values.all { it == 3 })
+        assertTrue(tier2Participants.values.all { it == ConmebolCompetitionSystem.GROUP_MATCHES_PER_TEAM })
         assertTrue(tier1Participants.keys.intersect(tier2Participants.keys).isEmpty())
-        assertTrue(tier1Groups.all { it.week in 29..31 && it.matchSlot == MatchSlot.MIDWEEK })
-        assertTrue(tier2Groups.all { it.week in 29..31 && it.matchSlot == MatchSlot.MIDWEEK })
+        assertEquals(ConmebolCompetitionSystem.GROUP_WEEKS.toSet(), tier1Groups.map { it.week }.toSet())
+        assertEquals(ConmebolCompetitionSystem.GROUP_WEEKS.toSet(), tier2Groups.map { it.week }.toSet())
+        assertTrue((tier1Groups + tier2Groups).all { it.matchSlot == MatchSlot.MIDWEEK })
+
+        val tier1GroupsByCode = tier1Groups.groupBy { it.competitionType }
+        val tier2GroupsByCode = tier2Groups.groupBy { it.competitionType }
+        assertEquals(8, tier1GroupsByCode.size)
+        assertEquals(8, tier2GroupsByCode.size)
+        assertTrue(tier1GroupsByCode.values.all { it.size == 12 })
+        assertTrue(tier2GroupsByCode.values.all { it.size == 12 })
+
         FixtureScheduleValidator.requireValid(fixtures)
     }
 
