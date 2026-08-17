@@ -9,6 +9,7 @@ import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.LeagueSeasonFormat
 import com.example.data.Team
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -109,7 +110,7 @@ class GroupedDetailedPromotionPriorityTest {
         SeasonTransitionUseCase(
             repository = repository,
             generateCalendarUseCase = calendar,
-            databaseIntegrityUseCase = DatabaseIntegrityUseCase(repository)
+            databaseIntegrityUseCase = mockk(relaxed = true)
         ).advanceToNextSeason(save)
 
         val updated = repository.getAllTeams().associateBy { it.id }
