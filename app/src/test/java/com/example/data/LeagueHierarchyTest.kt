@@ -18,6 +18,9 @@ class LeagueHierarchyTest {
         assertEquals(4, hierarchy.movementSpotsBetween(2, 3))
         assertEquals(4, hierarchy.movementSpotsBetween(3, 4))
         assertEquals(4, hierarchy.movementSpotsBetween(4, 5))
+        assertEquals(4, hierarchy.getDivisionByLevel(4)?.relegationSpots)
+        assertEquals(4, hierarchy.getDivisionByLevel(5)?.promotionSpots)
+        assertEquals(0, hierarchy.getDivisionByLevel(5)?.relegationSpots)
         assertEquals(
             4,
             hierarchy.safeMovementSpotsBetween(
