@@ -23,6 +23,7 @@ class TwentySeasonStressTest {
     private lateinit var generateCalendarUseCase: GenerateCalendarUseCase
     private lateinit var databaseIntegrityUseCase: DatabaseIntegrityUseCase
     private lateinit var processTransfersUseCase: ProcessTransfersUseCase
+    private lateinit var cpuSquadManagementUseCase: CpuSquadManagementUseCase
     private lateinit var financeUseCase: FinanceUseCase
     private lateinit var playerEvolutionUseCase: PlayerEvolutionUseCase
 
@@ -38,6 +39,7 @@ class TwentySeasonStressTest {
         generateCalendarUseCase = GenerateCalendarUseCase(repository)
         databaseIntegrityUseCase = DatabaseIntegrityUseCase(repository)
         processTransfersUseCase = ProcessTransfersUseCase(repository)
+        cpuSquadManagementUseCase = CpuSquadManagementUseCase(repository)
         financeUseCase = FinanceUseCase(repository)
         playerEvolutionUseCase = PlayerEvolutionUseCase(repository)
     }
@@ -65,8 +67,16 @@ class TwentySeasonStressTest {
         val rival4 = Team(id = 104L, name = "Grêmio", city = "Porto Alegre", state = "RS", division = 1, country = "Brasil", rating = 80)
         val rival5 = Team(id = 105L, name = "Internacional", city = "Porto Alegre", state = "RS", division = 1, country = "Brasil", rating = 81)
 
-        val teams = listOf(cruzeiro, rival1, rival2, rival3, rival4, rival5)
-        repository.saveTeams(teams)
+        val leagueTeams = listOf(cruzeiro, rival1, rival2, rival3, rival4, rival5)
+        val hostSupportTeams = listOf(
+            Team(201L, "Argentina Host", "Buenos Aires", "AR", "Argentina", 1, rating = 84),
+            Team(202L, "Espanha Host", "Madrid", "ES", "Espanha", 1, rating = 88),
+            Team(203L, "França Host", "Paris", "FR", "França", 1, rating = 87),
+            Team(204L, "Inglaterra Host", "London", "EN", "Inglaterra", 1, rating = 90)
+        )
+        val allTeams = leagueTeams + hostSupportTeams
+        val cpuTeamIds = allTeams.filter { it.id != cruzeiro.id }.map { it.id }.toSet()
+        repository.saveTeams(allTeams)
 
         val cruzeiroPlayers = mutableListOf<Player>()
         for (i in 1..25) {
@@ -85,15 +95,17 @@ class TwentySeasonStressTest {
                     age = 20 + (i % 12),
                     position = pos,
                     force = 99,
-                    salary = 100000L
+                    salary = 100000L,
+                    contractDurationWeeks = 2_000
                 )
             )
         }
         repository.savePlayers(cruzeiroPlayers)
 
-        for (t in teams.filter { it.id != cruzeiro.id }) {
-            val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
-            repository.savePlayers(roster)
+        for (team in allTeams.filter { it.id != cruzeiro.id }) {
+            repository.savePlayers(
+                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            )
         }
 
         var gameSave = GameSave(
@@ -114,17 +126,31 @@ class TwentySeasonStressTest {
         val titlesBySeason = mutableMapOf<Int, String>()
         val startSeason = 2026
         val totalSeasons = 20
+        var minimumCpuRosterObserved = Int.MAX_VALUE
+        var maximumCpuRosterObserved = 0
+        var teamsWithoutGoalkeeperObserved = 0
+        var invalidLoansObserved = 0
+        var expectedWorldEditions = 0
+        val observedWorldHosts = mutableListOf<String>()
 
         for (seasonOffset in 0 until totalSeasons) {
             val currentSeason = startSeason + seasonOffset
             gameSave = gameSave.copy(currentSeason = currentSeason, currentWeek = 1)
             repository.saveGameSave(gameSave)
 
+            val expectedWorld = currentSeason >= 2025 && (currentSeason - 2025) % 4 == 0
+            assertEquals(expectedWorld, SuperMundialSystem.isSuperMundialSeason(currentSeason))
+            if (expectedWorld) {
+                expectedWorldEditions++
+                observedWorldHosts += requireNotNull(
+                    SuperMundialEditionPolicy.hostCountryForSeason(currentSeason, repository.getAllTeams())
+                )
+            }
+
             var currentRoster = repository.getPlayersByTeam(cruzeiro.id)
             val olderPlayers = currentRoster.filter { it.age >= 30 }
-            for (p in olderPlayers) {
-                val sellOffer = p.calculateMarketValue()
-                val sellResult = processTransfersUseCase.sellPlayer(gameSave, p, sellOffer)
+            for (player in olderPlayers) {
+                val sellResult = processTransfersUseCase.sellPlayer(gameSave, player, player.calculateMarketValue())
                 if (sellResult is ProcessTransfersUseCase.TransferResult.Success) {
                     gameSave = sellResult.updatedSave
                 }
@@ -133,37 +159,48 @@ class TwentySeasonStressTest {
             currentRoster = repository.getPlayersByTeam(cruzeiro.id)
             if (currentRoster.size < 20) {
                 val needed = 20 - currentRoster.size
-                val freeAgents = repository.getAllPlayers().filter { it.teamId != cruzeiro.id }
-                for (fa in freeAgents.take(needed)) {
-                    val price = fa.calculateMarketValue()
-                    val buyResult = processTransfersUseCase.buyPlayer(gameSave, fa, price)
+                val candidates = repository.getAllPlayers().filter { it.teamId != cruzeiro.id }
+                for (candidate in candidates.take(needed)) {
+                    val buyResult = processTransfersUseCase.buyPlayer(gameSave, candidate, candidate.calculateMarketValue())
                     if (buyResult is ProcessTransfersUseCase.TransferResult.Success) {
                         gameSave = buyResult.updatedSave
                     }
                 }
             }
+            repository.updatePlayers(
+                repository.getPlayersByTeam(cruzeiro.id).map {
+                    it.copy(contractDurationWeeks = 2_000)
+                }
+            )
+
+            // Transferências do usuário podem retirar um atleta da CPU. Corrigimos o elenco antes
+            // do primeiro jogo da temporada, não apenas depois da primeira rodada.
+            val openingCpuReport = cpuSquadManagementUseCase.ensureCpuSquadIntegrity()
+            assertTrue(openingCpuReport.minimumRosterSize >= 16)
+            assertTrue(openingCpuReport.maximumRosterSize <= 35)
+            assertEquals(0, openingCpuReport.teamsWithoutGoalkeeper)
 
             repository.updateTeam(cruzeiro.copy(trainingCenterLevel = 5))
 
             if (repository.getFixturesForSeason(currentSeason).isEmpty()) {
-                val seasonFixtures = generateCalendarUseCase.generateRoundRobinFixtures(
-                    currentSeason,
-                    teams,
-                    "SERIE_A",
-                    1,
-                    matchSlot = MatchSlot.WEEKEND
+                val seasonFixtures = generateCalendarUseCase.generateSeasonFixtures(
+                    season = currentSeason,
+                    teams = allTeams,
+                    userTeamId = cruzeiro.id,
+                    userCountry = cruzeiro.country
                 )
                 repository.saveFixtures(seasonFixtures)
             }
 
             val seasonTransitionUseCase = SeasonTransitionUseCase(repository, generateCalendarUseCase, databaseIntegrityUseCase)
 
-            // O stress percorre as 48 semanas canônicas, inclusive as datas finais sem liga.
             for (week in 1..GameCalendar.WEEKS_PER_SEASON) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
 
                 simulateWeekUseCase.simulateCpuMatchesForWeek(currentSeason, week)
+                CupCompetitionSystem.processProgression(currentSeason, week, repository)
+                SuperMundialSystem.processProgression(currentSeason, week, repository)
 
                 val playedHomeMatches = repository.getFixturesForWeek(currentSeason, week)
                     .count { it.isPlayed && it.homeTeamId == cruzeiro.id }
@@ -173,17 +210,35 @@ class TwentySeasonStressTest {
                     userPlayers = repository.getPlayersByTeam(cruzeiro.id)
                 )
 
+                cpuSquadManagementUseCase.renewCpuContractsBeforeWeeklyTick()
+                processTransfersUseCase.processWeeklyContractsAndLoans()
+                val cpuReport = cpuSquadManagementUseCase.ensureCpuSquadIntegrity()
+                minimumCpuRosterObserved = minOf(minimumCpuRosterObserved, cpuReport.minimumRosterSize)
+                maximumCpuRosterObserved = maxOf(maximumCpuRosterObserved, cpuReport.maximumRosterSize)
+                teamsWithoutGoalkeeperObserved += cpuReport.teamsWithoutGoalkeeper
+                invalidLoansObserved += cpuReport.invalidActiveLoans
+
                 if (week % 4 == 0) {
                     playerEvolutionUseCase.executeMonthlyEvolution(gameSave, "S${currentSeason}_W${week}")
                 }
 
-                val allP = repository.getAllPlayers()
-                val playerIds = allP.map { it.id }
-                assertEquals("Não pode haver IDs duplicados de jogadores", playerIds.size, playerIds.toSet().size)
-
+                val allPlayers = repository.getAllPlayers()
+                assertEquals(
+                    "Não pode haver IDs duplicados de jogadores",
+                    allPlayers.size,
+                    allPlayers.map { it.id }.toSet().size
+                )
                 val validTeamIds = repository.getAllTeams().map { it.id }.toSet() + 0L
-                assertTrue("Todos os jogadores devem ter time válido ou ser Agente Livre (0L)", allP.all { it.teamId in validTeamIds })
-                assertTrue("O saldo deve ser não-negativo e válido", gameSave.bankBalance >= 0L)
+                assertTrue(allPlayers.all { it.teamId in validTeamIds })
+                assertTrue(allPlayers.all { it.contractDurationWeeks >= 0 })
+                assertTrue(gameSave.bankBalance >= 0L)
+
+                cpuTeamIds.forEach { teamId ->
+                    val roster = repository.getPlayersByTeam(teamId)
+                    assertTrue("CPU $teamId deve manter pelo menos 16 atletas na semana $week", roster.size >= 16)
+                    assertTrue("CPU $teamId não pode ultrapassar 35 atletas", roster.size <= 35)
+                    assertTrue("CPU $teamId deve manter goleiro", roster.any { it.position == "GOL" })
+                }
             }
 
             FixtureScheduleValidator.requireValid(repository.getFixturesForSeason(currentSeason))
@@ -194,15 +249,22 @@ class TwentySeasonStressTest {
         val finalSave = repository.getGameSave()
         assertNotNull(finalSave)
         assertEquals("Season should reach 2046 after 20 season transitions", 2046, finalSave!!.currentSeason)
-
-        val finalRoster = repository.getPlayersByTeam(cruzeiro.id)
-        assertTrue("Roster must have at least 16 players after 20 seasons", finalRoster.size >= 16)
-        assertTrue("Final bank balance must remain non-negative", finalSave.bankBalance >= 0L)
-        assertEquals("Should complete 20 simulated seasons", 20, titlesBySeason.size)
+        assertTrue(repository.getPlayersByTeam(cruzeiro.id).size >= 16)
+        assertTrue(finalSave.bankBalance >= 0L)
+        assertEquals(20, titlesBySeason.size)
+        assertEquals("2026-2045 deve conter cinco edições oficiais", 5, expectedWorldEditions)
+        assertEquals("As cinco edições devem usar as cinco sedes elegíveis antes de repetir", 5, observedWorldHosts.toSet().size)
+        observedWorldHosts.zipWithNext().forEach { (previous, next) ->
+            assertNotEquals("Edições consecutivas não podem repetir sede", previous, next)
+        }
+        assertTrue(minimumCpuRosterObserved >= 16)
+        assertTrue(maximumCpuRosterObserved <= 35)
+        assertEquals(0, teamsWithoutGoalkeeperObserved)
+        assertEquals(0, invalidLoansObserved)
 
         val finalPlayers = repository.getAllPlayers()
-        assertEquals("Player IDs must remain unique after 20 seasons", finalPlayers.size, finalPlayers.map { it.id }.toSet().size)
+        assertEquals(finalPlayers.size, finalPlayers.map { it.id }.toSet().size)
         val validTeamIds = repository.getAllTeams().map { it.id }.toSet() + 0L
-        assertTrue("Every player must reference a valid team or Free Agent after 20 seasons", finalPlayers.all { it.teamId in validTeamIds })
+        assertTrue(finalPlayers.all { it.teamId in validTeamIds })
     }
 }

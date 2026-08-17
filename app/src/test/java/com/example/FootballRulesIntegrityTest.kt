@@ -91,9 +91,6 @@ class FootballRulesIntegrityTest {
             ).mapIndexed { index, fixture -> completedFixture(fixture, index) }
         repository.saveFixtures(englandFixtures)
 
-        // Inglaterra é o país detalhado do usuário e precisa usar os resultados persistidos.
-        // Espanha não possui fixtures detalhados, mas na Fase 9.4 passa a evoluir pelo snapshot
-        // compacto determinístico da CPU em vez de permanecer congelada.
         val save = GameSave(
             coachName = "Rules QA",
             currentSeason = season,
@@ -116,7 +113,6 @@ class FootballRulesIntegrityTest {
             afterTeams.getValue(id).division != oldDivision
         }
 
-        // Ambas as fronteiras A/B preservam tamanho: 2 descem e 2 sobem.
         assertEquals(4, englandChanged)
         assertEquals(4, spainChanged)
         assertEquals(4, afterTeams.values.count { it.country == "Inglaterra" && it.division == 1 })
@@ -128,7 +124,6 @@ class FootballRulesIntegrityTest {
         assertEquals(4, snapshot.count { it.country == "Espanha" && it.division == 1 })
         assertEquals(4, snapshot.count { it.country == "Espanha" && it.division == 2 })
 
-        // O calendário detalhado da temporada seguinte continua restrito ao país do usuário.
         val nextFixtures = repository.getFixturesForSeason(2027)
         val leagueFixtures = nextFixtures.filter {
             it.competitionType in setOf("SERIE_A", "SERIE_B", "SERIE_C", "SERIE_D")
@@ -148,7 +143,7 @@ class FootballRulesIntegrityTest {
 
         val save = GameSave(
             coachName = "Mundial QA",
-            currentSeason = 2029,
+            currentSeason = 2028,
             currentWeek = GameCalendar.WEEKS_PER_SEASON,
             playerTeamId = brazil.first().id,
             bankBalance = 10_000_000L
@@ -157,8 +152,8 @@ class FootballRulesIntegrityTest {
 
         transition.advanceToNextSeason(save)
 
-        val fixtures2030 = repository.getFixturesForSeason(2030)
-        val worldGroups = fixtures2030.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
+        val fixtures2029 = repository.getFixturesForSeason(2029)
+        val worldGroups = fixtures2029.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
         assertEquals(48, worldGroups.size)
 
         val participants = worldGroups
@@ -169,7 +164,7 @@ class FootballRulesIntegrityTest {
         assertTrue(participants.values.all { it == 3 })
         assertEquals(3, participants[brazil.first().id])
 
-        val leagueFixtures = fixtures2030.filter {
+        val leagueFixtures = fixtures2029.filter {
             it.competitionType in setOf("SERIE_A", "SERIE_B", "SERIE_C", "SERIE_D")
         }
         val brazilIds = brazil.map { it.id }.toSet()

@@ -12,11 +12,14 @@ object SuperMundialSystem {
     const val SEMIFINAL_WEEK = 47
     const val FINAL_WEEK = GameCalendar.WEEKS_PER_SEASON
 
-    fun isSuperMundialSeason(season: Int): Boolean {
-        // Quadrennial: 2025 (real world), 2026 (inaugural in-game season), 2030, 2034, 2038...
-        return season == 2025 || season == 2026 || (season - 2026) % 4 == 0
-    }
+    fun isSuperMundialSeason(season: Int): Boolean =
+        SuperMundialEditionPolicy.isEditionSeason(season)
 
+    /**
+     * As 31 vagas regulares mantêm a composição histórica usada pelo projeto. A 32ª vaga é
+     * reservada ao anfitrião determinado pela política da edição, e portanto não fica presa a um
+     * clube fixo.
+     */
     val defaultSuperMundialClubs = listOf(
         // UEFA (12)
         "Real Madrid", "Manchester City", "Chelsea", "Bayern München", "Paris Saint-Germain",
@@ -31,88 +34,113 @@ object SuperMundialSystem {
         // AFC (4)
         "Al Hilal", "Urawa Red Diamonds", "Al Ain", "Ulsan HD",
         // OFC (1)
-        "Auckland City",
-        // HOST (1)
-        "Inter Miami"
+        "Auckland City"
     )
 
-    fun generateGroupStageFixtures(season: Int, allTeams: List<Team>, userTeamId: Long): List<Fixture> {
+    fun selectParticipants(season: Int, allTeams: List<Team>, userTeamId: Long): List<Team> {
         if (!isSuperMundialSeason(season)) return emptyList()
 
+        val hostTeam = SuperMundialEditionPolicy.hostTeamForSeason(season, allTeams)
+        val hostTeamId = hostTeam?.id
+        val regularTarget = if (hostTeam != null) 31 else 32
         val selectedTeams = mutableListOf<Team>()
-        val teamMap = allTeams.associateBy { it.name }
+        val realTeamsByName = allTeams.associateBy { it.name }
 
+        fun addUnique(team: Team) {
+            if (team.id != hostTeamId && selectedTeams.none { it.id == team.id }) {
+                selectedTeams.add(team)
+            }
+        }
+
+        // Primeiro reaproveita clubes persistidos que correspondem à lista histórica.
         for (clubName in defaultSuperMundialClubs) {
-            val team = teamMap[clubName] ?: allTeams.find { it.name.contains(clubName, ignoreCase = true) }
-            if (team != null) {
-                if (selectedTeams.none { it.id == team.id }) {
-                    selectedTeams.add(team)
-                }
-            } else {
-                val globalId = GlobalFootballSystem.getGlobalId("Mundial", clubName)
-                if (selectedTeams.none { it.id == globalId }) {
-                    selectedTeams.add(
-                        Team(
-                            id = globalId,
-                            name = clubName,
-                            city = "Mundial",
-                            state = "FIFA",
-                            country = "Mundial",
-                            division = 1,
-                            rating = when {
-                                clubName in listOf("Real Madrid", "Manchester City", "Bayern München") -> 88
-                                clubName in listOf("Paris Saint-Germain", "Inter de Milão", "Chelsea") -> 85
-                                clubName in listOf("Palmeiras", "Flamengo", "River Plate", "Al Hilal", "Cruzeiro") -> 82
-                                else -> 77
-                            },
-                            stadiumName = "Estádio Mundial",
-                            logoUrl = DefaultData.getLogoForTeam(clubName, "Mundial")
-                        )
-                    )
-                }
+            if (selectedTeams.size >= regularTarget) break
+            val exact = realTeamsByName[clubName]
+            val fuzzy = allTeams.find {
+                it.id != hostTeamId && it.name.contains(clubName, ignoreCase = true)
             }
+            (exact ?: fuzzy)?.let(::addUnique)
         }
 
-        val userTeam = allTeams.find { it.id == userTeamId }
-        if (userTeam != null && selectedTeams.none { it.id == userTeamId }) {
-            if (selectedTeams.size >= 32) {
-                selectedTeams[31] = userTeam
-            } else {
-                selectedTeams.add(userTeam)
+        // Se algum nome histórico não existir no save, clubes reais persistidos ocupam a vaga
+        // antes de qualquer fallback virtual.
+        allTeams.asSequence()
+            .filter { it.id != hostTeamId && selectedTeams.none { selected -> selected.id == it.id } }
+            .sortedWith(compareByDescending<Team> { it.rating }.thenBy { it.id })
+            .forEach { candidate ->
+                if (selectedTeams.size < regularTarget) addUnique(candidate)
             }
-        }
 
-        val targetCount = 32
-        while (selectedTeams.size < targetCount) {
-            val candidate = allTeams.filter { t -> selectedTeams.none { it.id == t.id } }
-                .maxByOrNull { it.rating }
-            if (candidate != null) {
-                selectedTeams.add(candidate)
-            } else {
-                break
-            }
+        // Compatibilidade para universos sintéticos/legados pequenos: somente agora recorremos aos
+        // clubes virtuais históricos ainda ausentes.
+        for (clubName in defaultSuperMundialClubs) {
+            if (selectedTeams.size >= regularTarget) break
+            if (selectedTeams.any { it.name.equals(clubName, ignoreCase = true) }) continue
+            val globalId = GlobalFootballSystem.getGlobalId("Mundial", clubName)
+            if (globalId == hostTeamId || selectedTeams.any { it.id == globalId }) continue
+            addUnique(
+                Team(
+                    id = globalId,
+                    name = clubName,
+                    city = "Mundial",
+                    state = "FIFA",
+                    country = "Mundial",
+                    division = 1,
+                    rating = when {
+                        clubName in listOf("Real Madrid", "Manchester City", "Bayern München") -> 88
+                        clubName in listOf("Paris Saint-Germain", "Inter de Milão", "Chelsea") -> 85
+                        clubName in listOf("Palmeiras", "Flamengo", "River Plate", "Al Hilal", "Cruzeiro") -> 82
+                        else -> 77
+                    },
+                    stadiumName = "Estádio Mundial",
+                    logoUrl = DefaultData.getLogoForTeam(clubName, "Mundial")
+                )
+            )
         }
 
         var dummyCounter = 1
-        while (selectedTeams.size < targetCount) {
+        while (selectedTeams.size < regularTarget) {
             val virtualTeam = GlobalFootballSystem.getVirtualTeam(900_000L + dummyCounter)
-            if (selectedTeams.none { it.id == virtualTeam.id }) {
+            if (virtualTeam.id != hostTeamId && selectedTeams.none { it.id == virtualTeam.id }) {
                 selectedTeams.add(virtualTeam)
             }
             dummyCounter++
         }
 
-        val shuffled = selectedTeams.take(32).shuffled(Random(season.toLong()))
+        // Mantém a compatibilidade histórica do projeto em que o clube do usuário pode participar,
+        // mas nunca ocupa nem duplica a vaga do anfitrião.
+        val userTeam = allTeams.find { it.id == userTeamId }
+        if (userTeam != null && userTeam.id != hostTeamId && selectedTeams.none { it.id == userTeam.id }) {
+            if (selectedTeams.size < regularTarget) {
+                selectedTeams.add(userTeam)
+            } else if (selectedTeams.isNotEmpty()) {
+                selectedTeams[selectedTeams.lastIndex] = userTeam
+            }
+        }
+
+        if (hostTeam != null && selectedTeams.none { it.id == hostTeam.id }) {
+            selectedTeams.add(hostTeam)
+        }
+
+        return selectedTeams
+            .distinctBy { it.id }
+            .take(32)
+    }
+
+    fun generateGroupStageFixtures(season: Int, allTeams: List<Team>, userTeamId: Long): List<Fixture> {
+        if (!isSuperMundialSeason(season)) return emptyList()
+
+        val selectedTeams = selectParticipants(season, allTeams, userTeamId)
+        if (selectedTeams.size != 32) return emptyList()
+
+        val shuffled = selectedTeams.shuffled(Random(season.toLong()))
         val groupLetters = listOf("A", "B", "C", "D", "E", "F", "G", "H")
         val fixtures = mutableListOf<Fixture>()
 
         for (i in 0 until 8) {
             val groupLetter = groupLetters[i]
             val startIndex = i * 4
-            val endIndex = (i + 1) * 4
-            if (endIndex > shuffled.size) break
-
-            val groupTeams = shuffled.subList(startIndex, endIndex)
+            val groupTeams = shuffled.subList(startIndex, startIndex + 4)
             val compCode = "WORLD_CUP_GP_$groupLetter"
 
             val t1 = groupTeams[0].id
@@ -186,6 +214,7 @@ object SuperMundialSystem {
                         compareByDescending<TempStanding> { it.points }
                             .thenByDescending { it.gd }
                             .thenByDescending { it.gf }
+                            .thenBy { it.teamId }
                     )
 
                     if (sorted.size >= 2) {
@@ -295,6 +324,10 @@ object SuperMundialSystem {
 
                     val winnerTeam = repo.getTeam(winnerId) ?: GlobalFootballSystem.getVirtualTeam(winnerId)
                     val runnerUpTeam = repo.getTeam(runnerUpId) ?: GlobalFootballSystem.getVirtualTeam(runnerUpId)
+                    val hostCountry = SuperMundialEditionPolicy.hostCountryForSeason(
+                        season,
+                        repo.getAllTeams()
+                    ) ?: "Sede não definida"
 
                     val existingRecords = repo.getAllHistoricalRecords()
                     val alreadySaved = existingRecords.any { it.season == season && it.competitionName.contains("Mundial") }
@@ -303,7 +336,7 @@ object SuperMundialSystem {
                         repo.saveRecord(
                             HistoricalRecord(
                                 season = season,
-                                competitionName = "Super Mundial de Clubes 🌍",
+                                competitionName = "Super Mundial de Clubes 🌍 — Sede: $hostCountry",
                                 championTeamName = winnerTeam.name,
                                 runnerUpTeamName = runnerUpTeam.name,
                                 topScorerName = "Destaque Mundial",
@@ -325,7 +358,7 @@ object SuperMundialSystem {
             aS > hS -> f.awayTeamId
             (f.homePenalties ?: 0) > (f.awayPenalties ?: 0) -> f.homeTeamId
             (f.awayPenalties ?: 0) > (f.homePenalties ?: 0) -> f.awayTeamId
-            else -> if (Random.nextBoolean()) f.homeTeamId else f.awayTeamId
+            else -> minOf(f.homeTeamId, f.awayTeamId)
         }
     }
 }
