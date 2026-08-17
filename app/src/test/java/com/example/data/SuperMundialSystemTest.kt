@@ -35,7 +35,7 @@ class SuperMundialSystemTest {
 
     @Test
     fun everyClubPlaysExactlyThreeGroupMatchesInMidweekSlots() {
-        val season = 2026
+        val season = 2029
         val userTeam = Team(
             id = 999L,
             name = "Clube Teste",
@@ -68,7 +68,7 @@ class SuperMundialSystemTest {
 
     @Test
     fun finalistPathContainsExactlySevenMatchesAndEndsAtWeek48() = runTest {
-        val season = 2026
+        val season = 2029
         val trackedTeam = Team(
             id = 999L,
             name = "Finalista Teste",
@@ -142,7 +142,7 @@ class SuperMundialSystemTest {
 
     @Test
     fun quarterfinalsProgressThroughWeek48AndChampionIsRecordedOnlyOnce() = runTest {
-        val season = 2026
+        val season = 2029
         val quarterfinals = listOf(
             Fixture(id = 1L, season = season, week = SuperMundialSystem.QUARTERFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = 101L, awayTeamId = 102L, homeScore = 2, awayScore = 0, competitionType = "WORLD_CUP", isPlayed = true),
             Fixture(id = 2L, season = season, week = SuperMundialSystem.QUARTERFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = 103L, awayTeamId = 104L, homeScore = 1, awayScore = 0, competitionType = "WORLD_CUP", isPlayed = true),
@@ -184,6 +184,7 @@ class SuperMundialSystemTest {
             .filter { it.season == season && it.competitionName.contains("Mundial") }
         assertEquals(1, recordsAfterFirstPass.size)
         assertTrue(recordsAfterFirstPass.single().championTeamName.isNotBlank())
+        assertTrue(recordsAfterFirstPass.single().competitionName.contains("Sede:"))
 
         SuperMundialSystem.processProgression(season, SuperMundialSystem.FINAL_WEEK, repository)
 
