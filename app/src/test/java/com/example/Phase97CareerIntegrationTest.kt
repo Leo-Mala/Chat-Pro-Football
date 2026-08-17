@@ -10,9 +10,11 @@ import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.MatchSlot
+import com.example.data.SuperMundialEditionPolicy
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
 import com.example.support.CareerInvariantAssertions
+import com.example.usecase.CpuSquadManagementUseCase
 import com.example.usecase.DatabaseIntegrityUseCase
 import com.example.usecase.FinanceUseCase
 import com.example.usecase.GenerateCalendarUseCase
@@ -41,6 +43,7 @@ class Phase97CareerIntegrationTest {
     private lateinit var simulateWeek: SimulateWeekUseCase
     private lateinit var finance: FinanceUseCase
     private lateinit var transfers: ProcessTransfersUseCase
+    private lateinit var cpuSquads: CpuSquadManagementUseCase
     private lateinit var evolution: PlayerEvolutionUseCase
     private lateinit var transition: SeasonTransitionUseCase
 
@@ -55,6 +58,7 @@ class Phase97CareerIntegrationTest {
         simulateWeek = SimulateWeekUseCase(repository)
         finance = FinanceUseCase(repository)
         transfers = ProcessTransfersUseCase(repository)
+        cpuSquads = CpuSquadManagementUseCase(repository)
         evolution = PlayerEvolutionUseCase(repository)
         transition = SeasonTransitionUseCase(
             repository,
@@ -73,6 +77,7 @@ class Phase97CareerIntegrationTest {
         val teams = qaTeams(8)
         val userTeamId = teams.first().id
         val storedTeamIds = teams.map { it.id }.toSet()
+        val cpuTeamIds = storedTeamIds - userTeamId
         repository.saveTeams(teams)
 
         teams.forEach { team ->
@@ -97,7 +102,7 @@ class Phase97CareerIntegrationTest {
         }
 
         var save = GameSave(
-            coachName = "QA Fase 9.7",
+            coachName = "QA Fase 9.7/9.8",
             coachReputation = 75,
             currentWeek = 1,
             currentSeason = 2026,
@@ -127,8 +132,6 @@ class Phase97CareerIntegrationTest {
             assertEquals(1, save.currentWeek)
             assertEquals(storedTeamIds, repository.getAllTeams().map { it.id }.toSet())
 
-            // Na abertura de cada temporada, o reparo atômico da virada deve garantir
-            // um elenco utilizável para todos os clubes persistidos.
             CareerInvariantAssertions.assertRepositorySeason(
                 repository = repository,
                 season = season,
@@ -154,17 +157,27 @@ class Phase97CareerIntegrationTest {
                     userPlayers = repository.getPlayersByTeam(userTeamId)
                 )
 
-                // Mesma fonte de verdade usada pelo fluxo real de fim de semana.
+                // Mesmo encadeamento do fluxo real de fim de semana da Fase 9.8.
+                cpuSquads.renewCpuContractsBeforeWeeklyTick()
                 transfers.processWeeklyContractsAndLoans()
+                val cpuReport = cpuSquads.ensureCpuSquadIntegrity()
+                assertTrue(cpuReport.minimumRosterSize >= CpuSquadManagementUseCase.MIN_SQUAD_SIZE)
+                assertTrue(cpuReport.maximumRosterSize <= CpuSquadManagementUseCase.MAX_SQUAD_SIZE)
+                assertEquals(0, cpuReport.teamsWithoutGoalkeeper)
+                assertEquals(0, cpuReport.invalidActiveLoans)
 
                 if (week % 4 == 0) {
-                    evolution.executeMonthlyEvolution(save, "PHASE97_S${season}_W$week")
+                    evolution.executeMonthlyEvolution(save, "PHASE98_S${season}_W$week")
                 }
 
                 CupCompetitionSystem.processProgression(season, week, repository)
                 SuperMundialSystem.processProgression(season, week, repository)
 
-                CareerInvariantAssertions.assertRepositorySeason(repository, season)
+                CareerInvariantAssertions.assertRepositorySeason(
+                    repository = repository,
+                    season = season,
+                    minimumRosterTeamIds = cpuTeamIds
+                )
 
                 val persisted = requireNotNull(repository.getGameSave())
                 assertEquals("A temporada não pode mudar durante a semana", season, persisted.currentSeason)
@@ -192,17 +205,31 @@ class Phase97CareerIntegrationTest {
                 }
             )
 
-            if (season == 2030) {
-                val worldFixtures = completedSeasonFixtures.filter {
-                    it.competitionType == "WORLD_CUP" ||
-                        it.competitionType.startsWith("WORLD_CUP_GP_")
-                }
-                assertTrue("A edição 2030 do Super Mundial deve existir", worldFixtures.isNotEmpty())
+            val worldFixtures = completedSeasonFixtures.filter {
+                it.competitionType == "WORLD_CUP" ||
+                    it.competitionType.startsWith("WORLD_CUP_GP_")
+            }
+            if (season == 2029) {
+                assertTrue("A edição 2029 do Super Mundial deve existir", worldFixtures.isNotEmpty())
                 assertTrue(worldFixtures.all { it.matchSlot == MatchSlot.MIDWEEK })
                 assertTrue(
                     "Super Mundial deve ocupar grupos 42-44 e mata-mata 45-48",
                     (42..48).all { expectedWeek -> worldFixtures.any { it.week == expectedWeek } }
                 )
+                val edition = requireNotNull(SuperMundialEditionPolicy.editionForSeason(season, repository.getAllTeams()))
+                assertEquals("Brasil", edition.hostCountry)
+                assertTrue(
+                    "O anfitrião da edição deve participar do Super Mundial",
+                    worldFixtures.any { it.homeTeamId == edition.hostTeamId || it.awayTeamId == edition.hostTeamId }
+                )
+                assertEquals(
+                    32,
+                    worldFixtures.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
+                        .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+                        .toSet().size
+                )
+            } else {
+                assertTrue("A temporada $season não pertence ao ciclo 2025 + 4n", worldFixtures.isEmpty())
             }
 
             save = transition.advanceToNextSeason(
