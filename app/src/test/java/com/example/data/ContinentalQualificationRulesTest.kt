@@ -42,6 +42,24 @@ class ContinentalQualificationRulesTest {
     }
 
     @Test
+    fun lowerDivisionSnapshotsNeverCreateContinentalPriority() {
+        val top = team(20, "Primeira Divisão", "Brasil", rating = 82, division = 1)
+        val secondDivisionLeader = team(21, "Líder Série B", "Brasil", rating = 95, division = 2)
+        val standings = listOf(
+            standing(top, position = 1, division = 1),
+            standing(secondDivisionLeader, position = 1, division = 2)
+        )
+
+        val adjusted = ContinentalQualificationRules.applyPreviousSeasonStandings(
+            teams = listOf(top, secondDivisionLeader),
+            standings = standings
+        ).associateBy { it.id }
+
+        assertEquals(100, adjusted.getValue(top.id).rating)
+        assertEquals(95, adjusted.getValue(secondDivisionLeader.id).rating)
+    }
+
+    @Test
     fun emptyHistoryKeepsFirstSeasonFallbackUntouched() {
         val teams = listOf(
             team(10, "A", "Brasil", 80),
@@ -70,10 +88,14 @@ class ContinentalQualificationRulesTest {
         rating = rating
     )
 
-    private fun standing(team: Team, position: Int) = GlobalLeagueStanding(
+    private fun standing(
+        team: Team,
+        position: Int,
+        division: Int = 1
+    ) = GlobalLeagueStanding(
         season = 2026,
         country = team.country,
-        division = 1,
+        division = division,
         teamId = team.id,
         position = position,
         points = 80 - position,
