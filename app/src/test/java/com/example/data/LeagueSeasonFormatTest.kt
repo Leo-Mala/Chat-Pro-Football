@@ -57,8 +57,16 @@ class LeagueSeasonFormatTest {
             60 to 20,
             96 to 16
         )
+        val actualGiantSizes = DefaultData.countryDivisionSizes
+            .values
+            .flatten()
+            .filterNot(LeagueSeasonFormat::fitsCurrentSeason)
+            .toSet()
 
-        expectedGroupSizes.forEach { (teamCount, expectedGroupSize) ->
+        assertEquals(expectedGroupSizes.keys, actualGiantSizes)
+
+        actualGiantSizes.forEach { teamCount ->
+            val expectedGroupSize = expectedGroupSizes.getValue(teamCount)
             val plan = LeagueSeasonFormat.detailedGroupPlan(teamCount)
             requireNotNull(plan)
 
