@@ -14,6 +14,10 @@ class LeagueDivisionUiTest {
         val tabs = LeagueDivisionUi.tabsForHierarchy(hierarchy)
 
         assertEquals(listOf(1, 2, 3, 4, 5), tabs.map { it.division })
+        assertEquals(
+            listOf("DIVISION_1", "DIVISION_2", "DIVISION_3", "DIVISION_4", "DIVISION_5"),
+            tabs.map { it.key }
+        )
         assertEquals(5, tabs.map { it.key }.toSet().size)
         assertEquals("DIVISION_5", tabs.last().key)
         assertEquals(5, LeagueDivisionUi.divisionFromKey(tabs.last().key))
