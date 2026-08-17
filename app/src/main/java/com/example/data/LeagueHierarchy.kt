@@ -23,7 +23,7 @@ data class LeagueHierarchy(
     }
 
     /**
-     * Returns the number of clubs that can safely exchange places across an
+     * Returns the configured number of clubs that exchange places across an
      * adjacent division boundary while preserving both division sizes.
      */
     fun movementSpotsBetween(upperLevel: Int, lowerLevel: Int = upperLevel + 1): Int {
@@ -31,6 +31,42 @@ data class LeagueHierarchy(
         val lower = getDivisionByLevel(lowerLevel) ?: return 0
         if (upper.relegationSpots <= 0 || lower.promotionSpots <= 0) return 0
         return minOf(upper.relegationSpots, lower.promotionSpots)
+    }
+
+    /**
+     * Applies the configured movement rule to the actual division sizes.
+     *
+     * Middle divisions participate in two boundaries in the same season. Reserving at least
+     * half of their clubs for the opposite boundary guarantees that the promoted group and the
+     * relegated group cannot overlap, so no club can jump two divisions in one transition.
+     */
+    fun safeMovementSpotsBetween(
+        upperLevel: Int,
+        lowerLevel: Int = upperLevel + 1,
+        upperTeamCount: Int,
+        lowerTeamCount: Int
+    ): Int {
+        val ordered = divisions.sortedBy { it.divisionLevel }
+        val upperIndex = ordered.indexOfFirst { it.divisionLevel == upperLevel }
+        val lowerIndex = ordered.indexOfFirst { it.divisionLevel == lowerLevel }
+        if (upperIndex < 0 || lowerIndex != upperIndex + 1) return 0
+
+        var spots = minOf(
+            movementSpotsBetween(upperLevel, lowerLevel),
+            upperTeamCount,
+            lowerTeamCount
+        )
+        if (spots <= 0) return 0
+
+        // A divisão superior desta fronteira também pode promover clubes para uma divisão acima.
+        if (upperIndex > 0) {
+            spots = minOf(spots, upperTeamCount / 2)
+        }
+        // A divisão inferior desta fronteira também pode rebaixar clubes para uma divisão abaixo.
+        if (lowerIndex < ordered.lastIndex) {
+            spots = minOf(spots, lowerTeamCount / 2)
+        }
+        return spots
     }
 
     fun hasBalancedAdjacentMovementRules(): Boolean {
