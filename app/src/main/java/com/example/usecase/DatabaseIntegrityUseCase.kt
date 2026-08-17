@@ -7,6 +7,9 @@ import com.example.data.Player
 /**
  * UseCase responsável pela integridade e reparo automático do banco de dados Room.
  * Separa a validação (somente leitura) do reparo (modificação auditada com gerador de ID collision-safe).
+ *
+ * Desde V21, constraints do próprio banco são a primeira defesa. Este UseCase permanece para
+ * diagnóstico e recuperação controlada de dados legados que ainda sejam semanticamente reparáveis.
  */
 class DatabaseIntegrityUseCase(private val repository: GameRepository) {
 
@@ -35,7 +38,7 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
         var teamsNeedingRepair = 0
         var playersNeededCount = 0
 
-        val orphanPlayers = allPlayers.filter { it.teamId != 0L && it.teamId !in teamIds }
+        val orphanPlayers = allPlayers.filter { it.teamId != null && it.teamId !in teamIds }
         if (orphanPlayers.isNotEmpty()) {
             issues.add("Detectados %d jogadores órfãos com time inexistente.".format(orphanPlayers.size))
         }
@@ -98,16 +101,17 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
             var addedPlayersCount = 0
             var orphanFixedCount = 0
 
-            // 1. Corrigir jogadores órfãos (com teamId inexistente e != 0L) -> Agentes Livres.
-            val orphanPlayers = allPlayers.filter { it.teamId != 0L && it.teamId !in teamIds }
+            // V21 impede novos órfãos por FK. Este bloco atende apenas estados legados/carregados.
+            val orphanPlayers = allPlayers.filter { it.teamId != null && it.teamId !in teamIds }
             if (orphanPlayers.isNotEmpty()) {
                 val fixedOrphans = orphanPlayers.map { orphan ->
-                    val updated = orphan.copy(teamId = 0L, isStarter = false)
+                    val previousTeamId = orphan.teamId
+                    val updated = orphan.copy(teamId = null, originalTeamId = null, isStarter = false)
                     issues.add(
-                        "REPARO ÓRFÃO: Jogador ID %d (%s) tinha teamId %d inexistente. Convertido para Agente Livre (teamId=0L).".format(
+                        "REPARO ÓRFÃO: Jogador ID %d (%s) tinha teamId %s inexistente. Convertido para Agente Livre (teamId=null).".format(
                             orphan.id,
                             orphan.name,
-                            orphan.teamId
+                            previousTeamId.toString()
                         )
                     )
                     updated
