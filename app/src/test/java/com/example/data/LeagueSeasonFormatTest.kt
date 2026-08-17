@@ -1,6 +1,8 @@
 package com.example.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +46,33 @@ class LeagueSeasonFormatTest {
         assertEquals(2, LeagueSeasonFormat.legsForCompactSimulation(20))
         assertEquals(1, LeagueSeasonFormat.legsForCompactSimulation(21))
         assertEquals(1, LeagueSeasonFormat.legsForCompactSimulation(96))
+    }
+
+    @Test
+    fun balancedGiantLeaguesReceiveEqualGroupPlansInsideFortyWeeks() {
+        val sixty = LeagueSeasonFormat.detailedGroupPlan(60)
+        val ninetySix = LeagueSeasonFormat.detailedGroupPlan(96)
+
+        assertEquals(3, sixty?.groupCount)
+        assertEquals(20, sixty?.groupSize)
+        assertEquals(38, sixty?.rounds)
+        assertEquals(1_140, LeagueSeasonFormat.expectedFixtureCount(60))
+
+        assertEquals(6, ninetySix?.groupCount)
+        assertEquals(16, ninetySix?.groupSize)
+        assertEquals(30, ninetySix?.rounds)
+        assertEquals(1_440, LeagueSeasonFormat.expectedFixtureCount(96))
+
+        assertTrue(LeagueSeasonFormat.supportsDetailedFormat(60))
+        assertTrue(LeagueSeasonFormat.supportsDetailedFormat(96))
+        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(60))
+        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(96))
+    }
+
+    @Test
+    fun irregularGiantSizeStaysOnFallbackUntilEqualGroupsAreDefined() {
+        assertNull(LeagueSeasonFormat.detailedGroupPlan(41))
+        assertFalse(LeagueSeasonFormat.supportsDetailedFormat(41))
     }
 
     @Test
