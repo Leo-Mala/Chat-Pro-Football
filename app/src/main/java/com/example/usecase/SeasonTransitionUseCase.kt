@@ -244,12 +244,12 @@ class SeasonTransitionUseCase(
                 fixture.homeTeamId in teamIds &&
                 fixture.awayTeamId in teamIds
         }
+        val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
+        val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
 
-        // O calendário detalhado de liga é sempre turno + returno. Portanto, uma temporada
-        // só pode gerar promoção/rebaixamento quando existem exatamente N*(N-1) confrontos
-        // internos, todos concluídos e com placar, e cada par ordenado casa -> fora aparece
-        // exatamente uma vez. Duplicatas nunca podem compensar partidas ausentes.
-        val expectedFixtureCount = teams.size * (teams.size - 1)
+        // Uma temporada só pode gerar promoção/rebaixamento quando todos os confrontos do
+        // formato vigente estão concluídos e com placar. Para 2 turnos, cada direção do par
+        // deve existir uma vez; para turno único, cada par não ordenado deve existir uma vez.
         if (relevantFixtures.size != expectedFixtureCount || relevantFixtures.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
             }
@@ -257,15 +257,27 @@ class SeasonTransitionUseCase(
             return false
         }
 
-        val directedPairCounts = relevantFixtures
-            .groupingBy { it.homeTeamId to it.awayTeamId }
-            .eachCount()
-
-        return teamIds.all { homeId ->
-            teamIds.all { awayId ->
-                homeId == awayId || directedPairCounts[homeId to awayId] == 1
+        val ids = teamIds.sorted()
+        if (legs == 2) {
+            val directedPairCounts = relevantFixtures
+                .groupingBy { it.homeTeamId to it.awayTeamId }
+                .eachCount()
+            return ids.all { homeId ->
+                ids.all { awayId ->
+                    homeId == awayId || directedPairCounts[homeId to awayId] == 1
+                }
             }
         }
+
+        val unorderedPairCounts = relevantFixtures
+            .groupingBy { minOf(it.homeTeamId, it.awayTeamId) to maxOf(it.homeTeamId, it.awayTeamId) }
+            .eachCount()
+        for (i in 0 until ids.lastIndex) {
+            for (j in i + 1 until ids.size) {
+                if (unorderedPairCounts[ids[i] to ids[j]] != 1) return false
+            }
+        }
+        return true
     }
 
     private fun calculateSeasonStandings(
