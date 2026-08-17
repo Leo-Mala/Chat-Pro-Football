@@ -48,7 +48,7 @@ class CupCompetitionSystemTest {
     }
 
     @Test
-    fun `opening calendar creates disjoint national and continental fields`() {
+    fun `opening calendar creates disjoint CONMEBOL tier one and tier two fields`() {
         val teams = conmebolUniverse()
         val userTeam = teams.first { it.id == 1L }
 
@@ -69,31 +69,40 @@ class CupCompetitionSystemTest {
 
         assertEquals(48, tier1Groups.size)
         assertEquals(48, tier2Groups.size)
-        assertEquals(8, tier3.size)
+        assertTrue(tier3.isEmpty())
 
         val tier1Participants = participantCounts(tier1Groups)
         val tier2Participants = participantCounts(tier2Groups)
-        val tier3Participants = participantCounts(tier3)
 
         assertEquals(32, tier1Participants.size)
         assertTrue(tier1Participants.values.all { it == 3 })
         assertEquals(32, tier2Participants.size)
         assertTrue(tier2Participants.values.all { it == 3 })
-        assertEquals(16, tier3Participants.size)
-
         assertTrue(tier1Participants.keys.intersect(tier2Participants.keys).isEmpty())
-        assertTrue(tier1Participants.keys.intersect(tier3Participants.keys).isEmpty())
-        assertTrue(tier2Participants.keys.intersect(tier3Participants.keys).isEmpty())
         assertTrue(tier1Groups.all { it.week in 29..31 })
         assertTrue(tier2Groups.all { it.week in 29..31 })
-        assertTrue(tier3.all { it.week == 33 })
+    }
+
+    @Test
+    fun `CONMEBOL field selector uses quota policy and disables tier three`() {
+        val candidates = conmebolUniverse()
+            .sortedWith(
+                compareBy<Team> { it.division }
+                    .thenByDescending { it.rating }
+                    .thenBy { it.id }
+            )
+
+        val fields = CupCompetitionSystem.selectContinentalFields(candidates, "CONMEBOL")
+
+        assertEquals(32, fields.tier1.size)
+        assertEquals(32, fields.tier2.size)
+        assertTrue(fields.tier3.isEmpty())
+        assertEquals(64, fields.allTeamIds.size)
+        assertTrue(fields.tier1.map { it.id }.toSet().intersect(fields.tier2.map { it.id }.toSet()).isEmpty())
     }
 
     @Test
     fun `continental qualifier uses wins before goal difference on equal points`() {
-        // Team 3 dominates the synthetic table. Teams 1 and 2 both finish with 3 points,
-        // but Team 1 has one win while Team 2 has only draws. Team 2 deliberately owns the
-        // better goal difference so this test fails if the backend skips the UI's wins tiebreak.
         val fixtures = listOf(
             played(home = 3L, away = 1L, homeGoals = 5, awayGoals = 0),
             played(home = 3L, away = 2L, homeGoals = 1, awayGoals = 0),
@@ -111,15 +120,15 @@ class CupCompetitionSystemTest {
     }
 
     @Test
-    fun `tier three progresses idempotently to a recorded champion`() = runBlocking {
-        val teams = conmebolUniverse()
+    fun `legacy tier three still progresses idempotently outside explicit quota policies`() = runBlocking {
+        val teams = legacyUefaUniverse()
         repository.saveTeams(teams)
 
         val opening = CupCompetitionSystem.generateSeasonOpeningFixtures(
             season = 2026,
             teams = teams,
             userTeamId = 1L,
-            userCountry = "Brasil"
+            userCountry = "Inglaterra"
         )
         repository.saveFixtures(opening)
 
@@ -245,5 +254,17 @@ class CupCompetitionSystemTest {
             )
         }
         return brazil + argentina
+    }
+
+    private fun legacyUefaUniverse(): List<Team> = (1L..80L).map { id ->
+        Team(
+            id = id,
+            name = "Inglaterra Clube $id",
+            city = "Cidade $id",
+            state = "ENG",
+            country = "Inglaterra",
+            division = 1,
+            rating = 100 - (id % 50).toInt()
+        )
     }
 }
