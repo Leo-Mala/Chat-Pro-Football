@@ -116,27 +116,69 @@ object ConmebolCompetitionSystem {
 
         pots.forEachIndexed { potIndex, pot ->
             val shuffledPot = pot.shuffled(Random(stableSeed(season, "$competitionType:POT:$potIndex")))
-
-            // Tenta todas as rotações do pote. Primeiro maximiza o número de alocações sem
-            // repetir país; em empate usa a menor rotação para manter determinismo.
-            val bestOffset = (0 until GROUP_COUNT)
-                .maxWithOrNull(
-                    compareBy<Int> { offset ->
-                        (0 until GROUP_COUNT).count { groupIndex ->
-                            val team = shuffledPot[(groupIndex + offset) % GROUP_COUNT]
-                            groups[groupIndex].none {
-                                it.country.equals(team.country, ignoreCase = true)
-                            }
-                        }
-                    }.thenByDescending { -it }
-                ) ?: 0
+            val assignment = countrySafePotAssignment(shuffledPot, groups)
+                ?: bestEffortPotAssignment(shuffledPot, groups)
 
             for (groupIndex in 0 until GROUP_COUNT) {
-                groups[groupIndex] += shuffledPot[(groupIndex + bestOffset) % GROUP_COUNT]
+                groups[groupIndex] += assignment[groupIndex]
             }
         }
 
         return groups.map { it.toList() }
+    }
+
+    /**
+     * Procura uma permutação completa do pote que não repita país em nenhum grupo.
+     * O pote já chega embaralhado por seed; iterar nessa ordem torna a primeira solução estável.
+     */
+    private fun countrySafePotAssignment(
+        pot: List<Team>,
+        groups: List<List<Team>>
+    ): List<Team>? {
+        val assignment = arrayOfNulls<Team>(GROUP_COUNT)
+        val used = BooleanArray(pot.size)
+
+        fun assign(groupIndex: Int): Boolean {
+            if (groupIndex == GROUP_COUNT) return true
+
+            for (candidateIndex in pot.indices) {
+                if (used[candidateIndex]) continue
+                val candidate = pot[candidateIndex]
+                val repeatsCountry = groups[groupIndex].any {
+                    it.country.equals(candidate.country, ignoreCase = true)
+                }
+                if (repeatsCountry) continue
+
+                used[candidateIndex] = true
+                assignment[groupIndex] = candidate
+                if (assign(groupIndex + 1)) return true
+                assignment[groupIndex] = null
+                used[candidateIndex] = false
+            }
+            return false
+        }
+
+        return if (assign(0)) assignment.map { requireNotNull(it) } else null
+    }
+
+    /**
+     * Alguns datasets sintéticos ou futuros classificados podem tornar impossível a restrição de
+     * país. Nessa situação, preserva todos os clubes e reduz colisões de forma determinística, sem
+     * remover ou substituir participantes silenciosamente.
+     */
+    private fun bestEffortPotAssignment(
+        pot: List<Team>,
+        groups: List<List<Team>>
+    ): List<Team> {
+        val remaining = pot.toMutableList()
+        return groups.indices.map { groupIndex ->
+            val safeIndex = remaining.indexOfFirst { candidate ->
+                groups[groupIndex].none {
+                    it.country.equals(candidate.country, ignoreCase = true)
+                }
+            }
+            remaining.removeAt(if (safeIndex >= 0) safeIndex else 0)
+        }
     }
 
     internal fun generateGroupStage(
