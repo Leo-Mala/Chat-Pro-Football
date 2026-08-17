@@ -214,7 +214,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                     allTeams.find { it.id == id } ?: GlobalFootballSystem.getVirtualTeam(id)
                 }
 
-                val groupStandings = remember(groupCode, allFixtures, groupTeams) {
+                val groupStandings = remember(groupCode, allFixtures, groupTeams, confederation) {
                     val map = groupTeams.associateWith { StandingRow(it.name) }.toMutableMap()
                     val playedFixtures = groupFixtures.filter { it.isPlayed }
 
@@ -257,12 +257,22 @@ fun StandingsTab(viewModel: GameViewModel) {
                         }
                     }
 
-                    map.entries.sortedWith(
-                        compareByDescending<Map.Entry<Team, StandingRow>> { it.value.pts }
-                            .thenByDescending { it.value.w }
-                            .thenByDescending { it.value.gf - it.value.ga }
-                            .thenByDescending { it.value.gf }
-                    ).map { it.key to it.value }
+                    val entriesById = map.entries.associateBy { it.key.id }
+                    if (
+                        confederation.equals("CONMEBOL", ignoreCase = true) &&
+                        selectedLeague in setOf("CONTINENTAL_T1", "CONTINENTAL_T2")
+                    ) {
+                        ConmebolCompetitionSystem.calculateGroupRanking(groupFixtures)
+                            .mapNotNull { teamId -> entriesById[teamId] }
+                            .map { it.key to it.value }
+                    } else {
+                        map.entries.sortedWith(
+                            compareByDescending<Map.Entry<Team, StandingRow>> { it.value.pts }
+                                .thenByDescending { it.value.w }
+                                .thenByDescending { it.value.gf - it.value.ga }
+                                .thenByDescending { it.value.gf }
+                        ).map { it.key to it.value }
+                    }
                 }
 
                 LazyColumn(
@@ -298,7 +308,14 @@ fun StandingsTab(viewModel: GameViewModel) {
                         val pos = index + 1
                         val isPlayer = team.isPlayerControlled
                         val isQualified = pos <= 2
-                        val posColor = if (isQualified) AccentLime else Color.White
+                        val isLibertadoresThird =
+                            confederation.equals("CONMEBOL", ignoreCase = true) &&
+                                selectedLeague == "CONTINENTAL_T1" && pos == 3
+                        val posColor = when {
+                            isLibertadoresThird -> AccentGold
+                            isQualified -> AccentLime
+                            else -> Color.White
+                        }
 
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -337,6 +354,20 @@ fun StandingsTab(viewModel: GameViewModel) {
                                 Text("${row.ga}", modifier = Modifier.width(22.dp), color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
                                 Text("${row.gf - row.ga}", modifier = Modifier.width(24.dp), color = if (row.gf - row.ga >= 0) AccentLime else Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                             }
+                        }
+                    }
+
+                    if (
+                        confederation.equals("CONMEBOL", ignoreCase = true) &&
+                        selectedLeague == "CONTINENTAL_T1"
+                    ) {
+                        item {
+                            Text(
+                                text = "1º e 2º avançam às oitavas • 3º (dourado) vai ao playoff da Sul-Americana",
+                                color = Color.Gray,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
                         }
                     }
 
@@ -434,54 +465,11 @@ fun StandingsTab(viewModel: GameViewModel) {
                     ) {
                         val grouped = compFixtures.groupBy { it.week }.toSortedMap()
                         grouped.forEach { (weekNum, matches) ->
-                            val phaseTitle = when {
-                                selectedLeague.contains("CONTINENTAL_T1") || selectedLeague.contains("CONTINENTAL_T2") || selectedLeague == "LIBERTADORES" || selectedLeague == "SULAMERICANA" -> {
-                                    when (weekNum) {
-                                        in 1..18 -> "Fase de Grupos (Semana $weekNum)"
-                                        21, 22 -> "Play-Offs de Acesso"
-                                        26, 27 -> "Oitavas de Final (${if (weekNum == 26) "Jogo de Ida" else "Jogo de Volta"})"
-                                        30, 31 -> "Quartas de Final (${if (weekNum == 30) "Jogo de Ida" else "Jogo de Volta"})"
-                                        34, 35 -> "Semifinais (${if (weekNum == 34) "Jogo de Ida" else "Jogo de Volta"})"
-                                        36 -> "🏆 GRANDE FINAL (Jogo Único)"
-                                        else -> "Fase Eliminatória (Semana $weekNum)"
-                                    }
-                                }
-                                selectedLeague == "COPA" -> {
-                                    when (weekNum) {
-                                        3 -> "1ª Fase"
-                                        7 -> "2ª Fase"
-                                        11 -> "3ª Fase"
-                                        15 -> "4ª Fase"
-                                        19, 20 -> "Oitavas de Final (${if (weekNum == 19) "Ida" else "Volta"})"
-                                        24, 25 -> "Quartas de Final (${if (weekNum == 24) "Ida" else "Volta"})"
-                                        29, 30 -> "Semifinais (${if (weekNum == 29) "Ida" else "Volta"})"
-                                        34, 35 -> "🏆 GRANDE FINAL (${if (weekNum == 34) "Jogo 1" else "Jogo 2"})"
-                                        else -> "Copa do Brasil (Semana $weekNum)"
-                                    }
-                                }
-                                selectedLeague == "WORLD" || selectedLeague == "WORLD_CUP" -> {
-                                    when (weekNum) {
-                                        37 -> "Oitavas de Final"
-                                        38 -> "Quartas de Final"
-                                        39 -> "Semifinais"
-                                        40 -> "🏆 GRANDE FINAL DO SUPER MUNDIAL DE CLUBES 🌍"
-                                        else -> "Super Mundial de Clubes (Semana $weekNum)"
-                                    }
-                                }
-                                selectedLeague.startsWith("SERIE_D_") -> {
-                                    when (selectedLeague) {
-                                        "SERIE_D_O64" -> "Segunda Fase (64 Avos)"
-                                        "SERIE_D_O32" -> "Terceira Fase (32 Avos)"
-                                        "SERIE_D_O16" -> "Oitavas de Final"
-                                        "SERIE_D_QF" -> "Quartas de Final (Acesso)"
-                                        "SERIE_D_SF" -> "Semifinais"
-                                        "SERIE_D_F" -> "🏆 GRANDE FINAL"
-                                        "SERIE_D_PE" -> "Repescagem de Acesso"
-                                        else -> "Série D - Fase Eliminatória"
-                                    }
-                                }
-                                else -> "Rodada / Fase (Semana $weekNum)"
-                            }
+                            val phaseTitle = competitionPhaseTitle(
+                                selectedLeague = selectedLeague,
+                                week = weekNum,
+                                confederation = confederation
+                            )
 
                             item {
                                 Text(
@@ -569,7 +557,11 @@ fun StandingsTab(viewModel: GameViewModel) {
                                             }
                                         }
 
-                                        val isFinal = isCompetitionFinalWeek(selectedLeague, weekNum)
+                                        val isFinal = isCompetitionFinalWeek(
+                                            selectedLeague = selectedLeague,
+                                            week = weekNum,
+                                            confederation = confederation
+                                        )
                                         if (f.isPlayed && isFinal && f.homeScore != null && f.awayScore != null) {
                                             val winnerId = when {
                                                 f.homeScore > f.awayScore -> f.homeTeamId
