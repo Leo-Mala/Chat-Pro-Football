@@ -62,12 +62,19 @@ class GlobalLeagueSimulationUseCase {
         val teamIds = teams.map { it.id }.toSet()
         val relevant = fixtures.filter {
             it.season == season &&
-                it.isPlayed &&
                 it.competitionType in setOf("SERIE_A", "DIV_1") &&
                 it.homeTeamId in teamIds &&
                 it.awayTeamId in teamIds
         }
-        if (relevant.isEmpty()) return emptyList()
+
+        // Nunca transforma uma tabela parcialmente jogada em verdade histórica. Se a liga
+        // detalhada estiver incompleta, o fallback agregado mantém o snapshot consistente.
+        if (relevant.isEmpty() || relevant.any {
+                !it.isPlayed || it.homeScore == null || it.awayScore == null
+            }
+        ) {
+            return emptyList()
+        }
 
         val stats = teams.associate { it.id to MutableStats() }.toMutableMap()
         for (fixture in relevant) {
@@ -152,11 +159,8 @@ class GlobalLeagueSimulationUseCase {
             val drawRate = (0.24 + random.nextDouble(-0.05, 0.05))
                 .coerceIn(0.12, 0.34)
 
-            var wins = (played * winRate).roundToInt().coerceIn(0, played)
-            var draws = (played * drawRate).roundToInt().coerceIn(0, played - wins)
-            if (wins + draws > played) {
-                draws = played - wins
-            }
+            val wins = (played * winRate).roundToInt().coerceIn(0, played)
+            val draws = (played * drawRate).roundToInt().coerceIn(0, played - wins)
             val losses = played - wins - draws
 
             val attackingNoise = random.nextInt(0, maxOf(2, played / 3 + 1))
