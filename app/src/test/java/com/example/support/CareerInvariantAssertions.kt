@@ -8,7 +8,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 
 /**
- * Invariantes de carreira compartilhados pelos testes integrados da Fase 9.7.
+ * Invariantes de carreira compartilhados pelos testes integrados.
  *
  * O objetivo é detectar corrupção estrutural cedo, sem repetir a mesma bateria de asserts
  * em cada cenário de temporada, persistência ou competição.
@@ -19,7 +19,9 @@ object CareerInvariantAssertions {
         repository: GameRepository,
         season: Int,
         minimumRosterTeamIds: Set<Long> = emptySet(),
-        minimumRosterSize: Int = 16
+        minimumRosterSize: Int = 16,
+        maximumRosterSize: Int = 35,
+        requireGoalkeeperForRosterTeams: Boolean = true
     ) {
         val teams = repository.getAllTeams()
         val players = repository.getAllPlayers()
@@ -42,6 +44,33 @@ object CareerInvariantAssertions {
             "Todo jogador deve pertencer a um clube existente ou ser Agente Livre (teamId=0)",
             players.all { it.teamId == 0L || it.teamId in validTeamIds }
         )
+        assertTrue(
+            "Duração de contrato não pode ser negativa",
+            players.all { it.contractDurationWeeks >= 0 }
+        )
+        assertTrue(
+            "Agente Livre não pode permanecer marcado como emprestado",
+            players.filter { it.teamId == 0L }.none { it.isOnLoan }
+        )
+
+        val activeLoans = repository.getActiveLoans()
+        val activeLoanPlayerIds = activeLoans.map { it.playerId }
+        assertEquals(
+            "Um jogador não pode possuir dois empréstimos ativos",
+            activeLoanPlayerIds.size,
+            activeLoanPlayerIds.toSet().size
+        )
+        activeLoans.forEach { loan ->
+            val player = players.firstOrNull { it.id == loan.playerId }
+            assertNotNull("Empréstimo ativo deve apontar para jogador existente", player)
+            requireNotNull(player)
+            assertTrue("Empréstimo ativo deve possuir duração restante positiva", loan.remainingWeeks > 0)
+            assertTrue("Clube proprietário do empréstimo deve existir", loan.ownerTeamId in validTeamIds)
+            assertTrue("Clube tomador do empréstimo deve existir", loan.borrowerTeamId in validTeamIds)
+            assertTrue("Jogador emprestado deve permanecer marcado como empréstimo", player.isOnLoan)
+            assertEquals("Jogador emprestado deve pertencer ao tomador", loan.borrowerTeamId, player.teamId)
+            assertEquals("Jogador emprestado deve preservar proprietário original", loan.ownerTeamId, player.originalTeamId)
+        }
 
         assertTrue(
             "Todos os fixtures consultados para a temporada devem pertencer à própria temporada",
@@ -69,16 +98,24 @@ object CareerInvariantAssertions {
         }
 
         if (minimumRosterTeamIds.isNotEmpty()) {
-            val rosterCounts = players
-                .filter { it.teamId != 0L }
-                .groupingBy { it.teamId }
-                .eachCount()
+            val playersByTeam = players.filter { it.teamId != 0L }.groupBy { it.teamId }
             minimumRosterTeamIds.forEach { teamId ->
                 assertTrue("Clube $teamId deve continuar existindo", teamId in validTeamIds)
+                val roster = playersByTeam[teamId].orEmpty()
                 assertTrue(
-                    "Clube $teamId deve iniciar a temporada com pelo menos $minimumRosterSize atletas",
-                    rosterCounts.getOrDefault(teamId, 0) >= minimumRosterSize
+                    "Clube $teamId deve possuir pelo menos $minimumRosterSize atletas",
+                    roster.size >= minimumRosterSize
                 )
+                assertTrue(
+                    "Clube $teamId não pode ultrapassar $maximumRosterSize atletas",
+                    roster.size <= maximumRosterSize
+                )
+                if (requireGoalkeeperForRosterTeams) {
+                    assertTrue(
+                        "Clube $teamId deve possuir ao menos um goleiro utilizável",
+                        roster.any { it.position == "GOL" }
+                    )
+                }
             }
         }
     }
