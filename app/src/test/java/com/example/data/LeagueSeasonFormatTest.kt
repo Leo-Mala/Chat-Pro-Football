@@ -1,6 +1,8 @@
 package com.example.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +46,49 @@ class LeagueSeasonFormatTest {
         assertEquals(2, LeagueSeasonFormat.legsForCompactSimulation(20))
         assertEquals(1, LeagueSeasonFormat.legsForCompactSimulation(21))
         assertEquals(1, LeagueSeasonFormat.legsForCompactSimulation(96))
+    }
+
+    @Test
+    fun everyCurrentDefaultDataGiantLeagueHasEqualGroupsInsideFortyWeeks() {
+        val expectedGroupSizes = mapOf(
+            48 to 16,
+            56 to 14,
+            57 to 19,
+            60 to 20,
+            96 to 16
+        )
+        val actualGiantSizes = DefaultData.countryDivisionSizes
+            .values
+            .flatten()
+            .filterNot { teamCount -> LeagueSeasonFormat.fitsCurrentSeason(teamCount) }
+            .toSet()
+
+        assertEquals(expectedGroupSizes.keys, actualGiantSizes)
+
+        actualGiantSizes.forEach { teamCount ->
+            val expectedGroupSize = expectedGroupSizes.getValue(teamCount)
+            val plan = LeagueSeasonFormat.detailedGroupPlan(teamCount)
+            requireNotNull(plan)
+
+            assertEquals(expectedGroupSize, plan.groupSize)
+            assertEquals(teamCount / expectedGroupSize, plan.groupCount)
+            assertTrue(plan.rounds <= GameCalendar.WEEKS_PER_SEASON)
+            assertTrue(LeagueSeasonFormat.supportsDetailedFormat(teamCount))
+            assertFalse(LeagueSeasonFormat.fitsCurrentSeason(teamCount))
+        }
+
+        val sixty = LeagueSeasonFormat.detailedGroupPlan(60)
+        val ninetySix = LeagueSeasonFormat.detailedGroupPlan(96)
+        assertEquals(38, sixty?.rounds)
+        assertEquals(1_140, LeagueSeasonFormat.expectedFixtureCount(60))
+        assertEquals(30, ninetySix?.rounds)
+        assertEquals(1_440, LeagueSeasonFormat.expectedFixtureCount(96))
+    }
+
+    @Test
+    fun irregularGiantSizeStaysOnFallbackUntilEqualGroupsAreDefined() {
+        assertNull(LeagueSeasonFormat.detailedGroupPlan(41))
+        assertFalse(LeagueSeasonFormat.supportsDetailedFormat(41))
     }
 
     @Test

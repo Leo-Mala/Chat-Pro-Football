@@ -110,7 +110,6 @@ fun StandingsTab(viewModel: GameViewModel) {
                 list
             }
 
-            // Standings Filter
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -614,18 +613,36 @@ fun StandingsTab(viewModel: GameViewModel) {
                     }
                 }
 
-                val standings = remember(selectedLeague, selectedDivision, allFixtures, leagueTeams) {
-                    val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()
-                    val leagueTeamIds = leagueTeams.map { it.id }.toSet()
-                    val acceptedCompetitionTypes = selectedDivision
+                val leagueTeamIds = remember(leagueTeams) { leagueTeams.map { it.id }.toSet() }
+                val acceptedCompetitionTypes = remember(selectedLeague, selectedDivision) {
+                    selectedDivision
                         ?.let { LeagueSeasonFormat.acceptedDetailedCompetitionTypes(it) }
                         ?: setOf(selectedLeague)
-                    val playedFixtures = allFixtures.filter {
+                }
+                val leagueFixtures = remember(allFixtures, leagueTeamIds, acceptedCompetitionTypes) {
+                    allFixtures.filter {
                         it.competitionType in acceptedCompetitionTypes &&
-                            it.isPlayed &&
                             it.homeTeamId in leagueTeamIds &&
                             it.awayTeamId in leagueTeamIds
                     }
+                }
+                val groupIndexByTeamId = remember(leagueTeamIds, leagueFixtures) {
+                    DetailedGroupTopology.groupIndexByTeamId(
+                        teamIds = leagueTeamIds,
+                        fixtures = leagueFixtures
+                    )
+                }
+                val groupedDetailedFormat = groupIndexByTeamId.isNotEmpty()
+
+                val standings = remember(
+                    selectedLeague,
+                    selectedDivision,
+                    leagueFixtures,
+                    leagueTeams,
+                    groupedDetailedFormat
+                ) {
+                    val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()
+                    val playedFixtures = leagueFixtures.filter { it.isPlayed }
 
                     for (f in playedFixtures) {
                         val homeT = leagueTeams.find { it.id == f.homeTeamId }
@@ -666,12 +683,61 @@ fun StandingsTab(viewModel: GameViewModel) {
                         }
                     }
 
-                    map.entries.sortedWith(
+                    val teamsById = leagueTeams.associateBy { it.id }
+                    val sportingComparator = compareByDescending<Long> { teamId ->
+                        teamsById[teamId]?.let { team -> map[team]?.pts } ?: 0
+                    }.thenByDescending { teamId ->
+                        teamsById[teamId]?.let { team -> map[team]?.w } ?: 0
+                    }.thenByDescending { teamId ->
+                        teamsById[teamId]?.let { team -> (map[team]?.gf ?: 0) - (map[team]?.ga ?: 0) } ?: 0
+                    }.thenByDescending { teamId ->
+                        teamsById[teamId]?.let { team -> map[team]?.gf } ?: 0
+                    }.thenByDescending { teamId ->
+                        teamsById[teamId]?.rating ?: Int.MIN_VALUE
+                    }.thenBy { it }
+
+                    val groupedOrder = if (groupedDetailedFormat) {
+                        DetailedGroupTopology.rankByGroupPosition(
+                            teamIds = leagueTeamIds,
+                            fixtures = leagueFixtures,
+                            sportingComparator = sportingComparator
+                        )
+                    } else {
+                        null
+                    }
+
+                    groupedOrder?.mapNotNull { teamId ->
+                        val team = teamsById[teamId] ?: return@mapNotNull null
+                        val row = map[team] ?: return@mapNotNull null
+                        team to row
+                    } ?: map.entries.sortedWith(
                         compareByDescending<Map.Entry<Team, StandingRow>> { it.value.pts }
                             .thenByDescending { it.value.w }
                             .thenByDescending { it.value.gf - it.value.ga }
                             .thenByDescending { it.value.gf }
                     ).map { Pair(it.key, it.value) }
+                }
+
+                if (groupedDetailedFormat) {
+                    val groupSummary = groupIndexByTeamId.values
+                        .toSet()
+                        .sorted()
+                        .joinToString(" • ") { groupIndex ->
+                            "Grupo ${DetailedGroupTopology.groupLabel(groupIndex)}"
+                        }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        color = TurfDeepGreen.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "$groupSummary\nClassificação geral por posição dentro do grupo: campeões primeiro, depois vice-campeões, terceiros e assim por diante.",
+                            color = AccentLime,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                        )
+                    }
                 }
 
                 Row(
@@ -682,6 +748,9 @@ fun StandingsTab(viewModel: GameViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("#", modifier = Modifier.width(18.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    if (groupedDetailedFormat) {
+                        Text("GR", modifier = Modifier.width(28.dp), color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    }
                     Text("Clube", modifier = Modifier.weight(1f), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Text("PTS", modifier = Modifier.width(32.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Text("J", modifier = Modifier.width(20.dp), color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -719,6 +788,17 @@ fun StandingsTab(viewModel: GameViewModel) {
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                            if (groupedDetailedFormat) {
+                                val groupIndex = groupIndexByTeamId[team.id]
+                                Text(
+                                    text = groupIndex?.let { DetailedGroupTopology.groupLabel(it) } ?: "-",
+                                    modifier = Modifier.width(28.dp),
+                                    color = AccentGold,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                             Spacer(modifier = Modifier.width(2.dp))
                             TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 16.dp)
                             Spacer(modifier = Modifier.width(4.dp))

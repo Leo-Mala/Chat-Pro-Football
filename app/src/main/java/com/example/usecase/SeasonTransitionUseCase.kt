@@ -254,10 +254,9 @@ class SeasonTransitionUseCase(
     /**
      * Resolve a ordem esportiva usada em uma fronteira do país detalhado.
      *
-     * Ligas que cabem nas 40 semanas continuam estritamente dependentes dos resultados reais:
-     * se o calendário estiver parcial ou corrompido, não há movimentação. Para uma divisão cujo
-     * formato atual é estruturalmente impossível de concluir dentro das 40 semanas, usamos o
-     * snapshot compacto validado como fallback temporário até a subfase de grupos/estágios.
+     * Formatos detalhados suportados — round-robin direto ou grupos balanceados — dependem
+     * estritamente dos resultados reais e completos. Apenas tamanhos ainda sem formato detalhado
+     * válido em 40 semanas usam o snapshot compacto como fallback temporário.
      */
     private fun resolveDetailedCountryMovementRanking(
         season: Int,
@@ -267,7 +266,7 @@ class SeasonTransitionUseCase(
         fixtures: List<Fixture>,
         snapshotRows: List<GlobalLeagueStanding>
     ): List<Long>? {
-        if (LeagueSeasonFormat.fitsCurrentSeason(teams.size)) {
+        if (LeagueSeasonFormat.supportsDetailedFormat(teams.size)) {
             if (!hasCompletedLeagueSeason(
                     teams = teams,
                     fixtures = fixtures,
@@ -348,27 +347,11 @@ class SeasonTransitionUseCase(
             return false
         }
 
-        val ids = teamIds.sorted()
-        if (legs == 2) {
-            val directedPairCounts = relevantFixtures
-                .groupingBy { it.homeTeamId to it.awayTeamId }
-                .eachCount()
-            return ids.all { homeId ->
-                ids.all { awayId ->
-                    homeId == awayId || directedPairCounts[homeId to awayId] == 1
-                }
-            }
-        }
-
-        val unorderedPairCounts = relevantFixtures
-            .groupingBy { minOf(it.homeTeamId, it.awayTeamId) to maxOf(it.homeTeamId, it.awayTeamId) }
-            .eachCount()
-        for (i in 0 until ids.lastIndex) {
-            for (j in i + 1 until ids.size) {
-                if (unorderedPairCounts[ids[i] to ids[j]] != 1) return false
-            }
-        }
-        return true
+        return LeagueSeasonFormat.hasExpectedDetailedPairings(
+            teamIds = teamIds,
+            fixtures = relevantFixtures,
+            legs = legs
+        )
     }
 
     private fun calculateSeasonStandings(
@@ -421,6 +404,32 @@ class SeasonTransitionUseCase(
                         awayRow.d += 1
                     }
                 }
+            }
+        }
+
+        val teamsById = teams.associateBy { it.id }
+        val sportingComparator = compareByDescending<Long> { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.pts } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.w } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.gd } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.let { team -> map[team]?.gf } ?: 0
+        }.thenByDescending { teamId ->
+            teamsById[teamId]?.rating ?: Int.MIN_VALUE
+        }.thenBy { it }
+
+        val groupedOrder = DetailedGroupTopology.rankByGroupPosition(
+            teamIds = teamIds,
+            fixtures = relevantFixtures,
+            sportingComparator = sportingComparator
+        )
+        if (groupedOrder != null) {
+            return groupedOrder.mapNotNull { teamId ->
+                val team = teamsById[teamId] ?: return@mapNotNull null
+                val row = map[team] ?: return@mapNotNull null
+                team to row
             }
         }
 

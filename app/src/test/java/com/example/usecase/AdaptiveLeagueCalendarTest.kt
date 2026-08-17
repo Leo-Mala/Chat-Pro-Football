@@ -59,12 +59,101 @@ class AdaptiveLeagueCalendarTest {
     }
 
     @Test
-    fun giantDivisionRemainsExplicitlyOutsideCurrentSeasonFormat() {
-        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(60))
-        assertFalse(LeagueSeasonFormat.fitsCurrentSeason(96))
+    fun fiftySevenClubLeagueUsesThreeGroupsOfNineteenWithByes() {
+        val teams = teams(count = 57, country = "México", division = 3)
+
+        val fixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "México"
+        ).filter { it.competitionType == "SERIE_C" }
+
+        assertEquals(1_026, fixtures.size)
+        assertEquals(38, fixtures.maxOf { it.week })
+        assertTrue(fixtures.all { it.week in 1..40 })
+        assertTrue(fixtures.none { it.homeTeamId <= 0L || it.awayTeamId <= 0L })
+        assertTrue(
+            LeagueSeasonFormat.hasExpectedDetailedPairings(
+                teamIds = teams.map { it.id }.toSet(),
+                fixtures = fixtures
+            )
+        )
+
+        val appearances = fixtures
+            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+            .groupingBy { it }
+            .eachCount()
+        assertEquals(57, appearances.size)
+        assertTrue(appearances.values.all { it == 36 })
     }
 
-    private fun teams(count: Int, country: String): List<Team> =
+    @Test
+    fun sixtyClubLeagueUsesThreeBalancedGroupsOfTwenty() {
+        val teams = teams(count = 60, country = "Brasil", division = 4)
+
+        val fixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "Brasil"
+        ).filter { it.competitionType == "SERIE_D" }
+
+        assertEquals(1_140, fixtures.size)
+        assertEquals(38, fixtures.maxOf { it.week })
+        assertTrue(fixtures.all { it.week in 1..40 })
+        assertTrue(
+            LeagueSeasonFormat.hasExpectedDetailedPairings(
+                teamIds = teams.map { it.id }.toSet(),
+                fixtures = fixtures
+            )
+        )
+        assertTrue(fixtures.groupingBy { it.homeTeamId }.eachCount().values.all { it == 19 })
+    }
+
+    @Test
+    fun ninetySixClubLeagueUsesSixBalancedGroupsOfSixteen() {
+        val teams = teams(count = 96, country = "Brasil", division = 4)
+
+        val fixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "Brasil"
+        ).filter { it.competitionType == "SERIE_D" }
+
+        assertEquals(1_440, fixtures.size)
+        assertEquals(30, fixtures.maxOf { it.week })
+        assertTrue(fixtures.all { it.week in 1..40 })
+        assertTrue(
+            LeagueSeasonFormat.hasExpectedDetailedPairings(
+                teamIds = teams.map { it.id }.toSet(),
+                fixtures = fixtures
+            )
+        )
+        assertTrue(fixtures.groupingBy { it.homeTeamId }.eachCount().values.all { it == 15 })
+    }
+
+    @Test
+    fun irregularGiantDivisionRemainsExplicitlyOnFallbackWithoutImpossibleLeagueFixtures() {
+        val teams = teams(count = 41, country = "Teste")
+
+        val leagueFixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "Teste"
+        ).filter { it.competitionType == "SERIE_A" }
+
+        assertFalse(LeagueSeasonFormat.supportsDetailedFormat(41))
+        assertTrue(leagueFixtures.isEmpty())
+    }
+
+    private fun teams(
+        count: Int,
+        country: String,
+        division: Int = 1
+    ): List<Team> =
         (1L..count.toLong()).map { id ->
             Team(
                 id = id,
@@ -72,7 +161,7 @@ class AdaptiveLeagueCalendarTest {
                 city = "Cidade $id",
                 state = "XX",
                 country = country,
-                division = 1,
+                division = division,
                 rating = 90 - (id % 20).toInt()
             )
         }
