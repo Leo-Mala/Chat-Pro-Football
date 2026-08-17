@@ -117,15 +117,43 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun getFixturesForSeason(season: Int): List<Fixture> = db.fixtureDao().getFixturesForSeason(season)
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForSeasonFlow(season)
     suspend fun getAllFixtures(): List<Fixture> = db.fixtureDao().getAllFixtures()
+
+    /**
+     * Toda criação de fixture passa pela mesma barreira de calendário. Progressões de copas não
+     * podem inserir silenciosamente uma segunda partida do mesmo clube no mesmo slot.
+     */
     suspend fun saveFixtures(fixtures: List<Fixture>) = db.withTransaction {
+        if (fixtures.isEmpty()) return@withTransaction
+        val existing = fixtures
+            .map { it.season }
+            .distinct()
+            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
+        FixtureScheduleValidator.requireCanAdd(existing, fixtures)
+
         if (fixtures.size > 100) {
             fixtures.chunked(100).forEach { db.fixtureDao().insertFixtures(it) }
         } else {
             db.fixtureDao().insertFixtures(fixtures)
         }
     }
-    suspend fun updateFixture(fixture: Fixture) = db.fixtureDao().updateFixture(fixture)
+
+    suspend fun updateFixture(fixture: Fixture) = db.withTransaction {
+        val existing = db.fixtureDao().getFixturesForSeason(fixture.season)
+            .filterNot { it.id == fixture.id }
+        FixtureScheduleValidator.requireCanAdd(existing, listOf(fixture))
+        db.fixtureDao().updateFixture(fixture)
+    }
+
     suspend fun updateFixtures(fixtures: List<Fixture>) = db.withTransaction {
+        if (fixtures.isEmpty()) return@withTransaction
+        val updatedIds = fixtures.map { it.id }.filter { it != 0L }.toSet()
+        val existing = fixtures
+            .map { it.season }
+            .distinct()
+            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
+            .filterNot { it.id in updatedIds }
+        FixtureScheduleValidator.requireCanAdd(existing, fixtures)
+
         if (fixtures.size > 100) {
             fixtures.chunked(100).forEach { db.fixtureDao().updateFixtures(it) }
         } else {
@@ -216,4 +244,3 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun deleteLoans() = db.playerLoanDao().deleteLoans()
 
 }
-
