@@ -66,18 +66,15 @@ class SeasonTransitionUseCase(
 
         // 2. Promoção/rebaixamento.
         // - país do usuário: somente resultados detalhados realmente concluídos podem mover clubes;
-        // - países CPU com hierarquia explícita: usam os snapshots compactos recém-persistidos;
-        // - países sem hierarquia própria ficam imóveis em vez de herdar regras brasileiras.
+        // - países CPU: usam os snapshots compactos recém-persistidos;
+        // - hierarquias nacionais explícitas prevalecem e os demais países usam o fallback
+        //   genérico conservador de 2 vagas, nunca as 4 vagas específicas do Brasil.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
         val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
 
         for ((country, countryTeams) in teamsByCountry) {
             val isDetailedCountry = country.equals(currentUserCountry, ignoreCase = true)
-            if (!isDetailedCountry && country !in LeagueHierarchyLoader.supportedCountries) {
-                continue
-            }
-
             val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry(country)
             val divisions = hierarchy.divisions.sortedBy { it.divisionLevel }
 
