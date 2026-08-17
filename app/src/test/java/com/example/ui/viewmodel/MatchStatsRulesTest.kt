@@ -1,5 +1,6 @@
 package com.example.ui.viewmodel
 
+import com.example.data.Fixture
 import com.example.data.GameEngine
 import com.example.data.Player
 import org.junit.Assert.assertEquals
@@ -82,5 +83,65 @@ class MatchStatsRulesTest {
         val appearances = collectAppearancePlayerIds(listOf(starter), emptyList(), listOf(substitution))
 
         assertEquals(setOf(1L), appearances)
+    }
+
+    @Test
+    fun playedLeagueMatchDoesNotHidePendingCupMatchInSameWeek() {
+        val userTeamId = 1L
+        val fixtures = listOf(
+            Fixture(
+                id = 1L,
+                season = 2026,
+                week = 31,
+                homeTeamId = userTeamId,
+                awayTeamId = 2L,
+                competitionType = "SERIE_A",
+                homeScore = 2,
+                awayScore = 0,
+                isPlayed = true
+            ),
+            Fixture(
+                id = 2L,
+                season = 2026,
+                week = 31,
+                homeTeamId = 3L,
+                awayTeamId = userTeamId,
+                competitionType = "COPA",
+                isPlayed = false
+            )
+        )
+
+        assertTrue(hasPendingUserFixtures(fixtures, userTeamId))
+    }
+
+    @Test
+    fun weekCanCloseOnlyAfterEveryUserFixtureIsPlayed() {
+        val userTeamId = 1L
+        val fixtures = listOf(
+            Fixture(
+                id = 1L,
+                season = 2026,
+                week = 31,
+                homeTeamId = userTeamId,
+                awayTeamId = 2L,
+                competitionType = "SERIE_A",
+                homeScore = 2,
+                awayScore = 0,
+                isPlayed = true
+            ),
+            Fixture(
+                id = 2L,
+                season = 2026,
+                week = 31,
+                homeTeamId = 3L,
+                awayTeamId = userTeamId,
+                competitionType = "COPA",
+                homeScore = 0,
+                awayScore = 1,
+                isPlayed = true
+            )
+        )
+
+        assertFalse(hasPendingUserFixtures(fixtures, userTeamId))
     }
 }

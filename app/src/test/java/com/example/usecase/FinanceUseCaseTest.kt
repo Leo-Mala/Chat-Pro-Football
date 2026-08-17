@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.AppDatabase
+import com.example.data.Fixture
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import kotlinx.coroutines.test.runTest
@@ -107,6 +108,57 @@ class FinanceUseCaseTest {
         val updatedSave = useCase.processWeeklyFinances(save, isHomeMatch = true)
 
         assertTrue(updatedSave.bankBalance != 2_000_000L)
+    }
+
+    @Test
+    fun processWeeklyFinances_counts_every_played_home_match_in_same_week() = runTest {
+        val save = GameSave(
+            id = 1,
+            currentSeason = 2026,
+            currentWeek = 31,
+            playerTeamId = 10L,
+            bankBalance = 2_000_000L,
+            socioTorcedoresCount = 5000,
+            coachReputation = 50,
+            ticketPrice = 30.0,
+            stadiumCapacity = 20000,
+            sponsorWeeksRemaining = 0
+        )
+        repository.saveGameSave(save)
+        repository.saveFixtures(
+            listOf(
+                Fixture(
+                    id = 100L,
+                    season = 2026,
+                    week = 31,
+                    homeTeamId = 10L,
+                    awayTeamId = 20L,
+                    competitionType = "SERIE_A",
+                    homeScore = 2,
+                    awayScore = 0,
+                    isPlayed = true
+                ),
+                Fixture(
+                    id = 101L,
+                    season = 2026,
+                    week = 31,
+                    homeTeamId = 10L,
+                    awayTeamId = 30L,
+                    competitionType = "COPA",
+                    homeScore = 1,
+                    awayScore = 0,
+                    isPlayed = true
+                )
+            )
+        )
+
+        useCase.processWeeklyFinances(save, isHomeMatch = true)
+
+        val income = repository.getAllTransactions().single { it.type == "RECEITA_SEMANAL" }
+        // 7,500 effective members * R$30 = 225,000
+        // fallback sponsor = 300,000 + 50*15,000 = 1,050,000
+        // attendance = 19,500 * R$30 = 585,000 per home match; two matches = 1,170,000
+        assertEquals(2_445_000L, income.amount)
     }
 
     @Test

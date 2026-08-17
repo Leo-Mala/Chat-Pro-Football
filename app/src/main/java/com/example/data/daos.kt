@@ -114,10 +114,10 @@ interface FixtureDao {
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>
 
-    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week")
+    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, id ASC")
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>>
 
-    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week")
+    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, id ASC")
     suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture>
 
     @Transaction
@@ -284,5 +284,3 @@ interface PlayerLoanDao {
     @Query("DELETE FROM player_loans")
     suspend fun deleteLoans()
 }
-
-

@@ -6,6 +6,7 @@ internal fun isCompetitionFinalWeek(selectedLeague: String, week: Int): Boolean 
     val isContinental =
         selectedLeague.contains("CONTINENTAL_T1") ||
             selectedLeague.contains("CONTINENTAL_T2") ||
+            selectedLeague.contains("CONTINENTAL_T3") ||
             selectedLeague == "LIBERTADORES" ||
             selectedLeague == "SULAMERICANA"
 

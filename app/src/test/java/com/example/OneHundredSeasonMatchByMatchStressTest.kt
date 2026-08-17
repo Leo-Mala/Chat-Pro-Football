@@ -19,7 +19,6 @@ class OneHundredSeasonMatchByMatchStressTest {
 
     private lateinit var db: AppDatabase
     private lateinit var repository: GameRepository
-    private lateinit var simulateWeekUseCase: SimulateWeekUseCase
     private lateinit var generateCalendarUseCase: GenerateCalendarUseCase
     private lateinit var databaseIntegrityUseCase: DatabaseIntegrityUseCase
     private lateinit var processTransfersUseCase: ProcessTransfersUseCase
@@ -34,7 +33,6 @@ class OneHundredSeasonMatchByMatchStressTest {
         ).allowMainThreadQueries().build()
 
         repository = GameRepository(db)
-        simulateWeekUseCase = SimulateWeekUseCase(repository)
         generateCalendarUseCase = GenerateCalendarUseCase(repository)
         databaseIntegrityUseCase = DatabaseIntegrityUseCase(repository)
         processTransfersUseCase = ProcessTransfersUseCase(repository)
@@ -128,7 +126,10 @@ class OneHundredSeasonMatchByMatchStressTest {
 
         var totalMatchesSimulated = 0
         var totalLeagueMatchesSimulated = 0
+        var totalDomesticCupMatchesSimulated = 0
+        var totalContinentalMatchesSimulated = 0
         var totalWorldGroupMatchesSimulated = 0
+        var totalWorldKnockoutMatchesSimulated = 0
         val startSeason = 2026
         val totalSeasons = 100
 
@@ -181,10 +182,10 @@ class OneHundredSeasonMatchByMatchStressTest {
                 repository.saveFixtures(fixtures)
             }
 
-            // The game season reaches week 40. Série A contributes exactly 38 rounds.
-            // Super Mundial group matches are counted separately so adding legitimate
-            // competitions never weakens the 38,000-match league invariant.
-            for (week in 1..40) {
+            // The game season reaches week 40. Série A remains the canonical 38-round
+            // invariant while domestic, continental and world tournaments are counted
+            // independently and are progressed from actual results.
+            for (week in 1..GameCalendar.WEEKS_PER_SEASON) {
                 gameSave = gameSave.copy(currentWeek = week)
                 repository.saveGameSave(gameSave)
 
@@ -194,10 +195,8 @@ class OneHundredSeasonMatchByMatchStressTest {
                 for (f in unplayed) {
                     val homeTeam = repository.getTeam(f.homeTeamId)
                         ?: GlobalFootballSystem.getVirtualTeam(f.homeTeamId)
-                        ?: cruzeiro
                     val awayTeam = repository.getTeam(f.awayTeamId)
                         ?: GlobalFootballSystem.getVirtualTeam(f.awayTeamId)
-                        ?: teams[1]
                     val homePlayers = repository.getPlayersByTeam(homeTeam.id)
                     val awayPlayers = repository.getPlayersByTeam(awayTeam.id)
 
@@ -208,19 +207,32 @@ class OneHundredSeasonMatchByMatchStressTest {
                         awayPlayers = awayPlayers
                     )
 
-                    repository.updateFixture(
-                        f.copy(
-                            isPlayed = true,
-                            homeScore = homeScore,
-                            awayScore = awayScore
-                        )
+                    var updatedFixture = f.copy(
+                        isPlayed = true,
+                        homeScore = homeScore,
+                        awayScore = awayScore
                     )
+                    updatedFixture = CompetitionRules.ensureKnockoutDecision(updatedFixture)
+                    repository.updateFixture(updatedFixture)
+
                     totalMatchesSimulated++
                     when {
-                        f.competitionType in setOf("SERIE_A", "DIV_1") -> totalLeagueMatchesSimulated++
-                        f.competitionType.startsWith("WORLD_CUP_GP_") -> totalWorldGroupMatchesSimulated++
+                        f.competitionType in setOf("SERIE_A", "DIV_1") ->
+                            totalLeagueMatchesSimulated++
+                        f.competitionType == "COPA" ->
+                            totalDomesticCupMatchesSimulated++
+                        f.competitionType.startsWith("CONTINENTAL_") ->
+                            totalContinentalMatchesSimulated++
+                        f.competitionType.startsWith("WORLD_CUP_GP_") ->
+                            totalWorldGroupMatchesSimulated++
+                        f.competitionType == "WORLD_CUP" ->
+                            totalWorldKnockoutMatchesSimulated++
                     }
                 }
+
+                // Generate the next knockout rounds only after the current week's results exist.
+                CupCompetitionSystem.processProgression(currentSeason, week, repository)
+                SuperMundialSystem.processProgression(currentSeason, week, repository)
 
                 val userPlayers = repository.getPlayersByTeam(cruzeiro.id)
                 playerEvolutionUseCase.processPostMatchRecovery(gameSave, userPlayers, 5)
@@ -280,19 +292,47 @@ class OneHundredSeasonMatchByMatchStressTest {
 
         val records = repository.getAllHistoricalRecords()
         val serieARecords = records.filter { it.competitionName == "Campeonato Brasileiro (Série A)" }
-        val expectedWorldGroupMatches = (startSeason until startSeason + totalSeasons)
-            .count { SuperMundialSystem.isSuperMundialSeason(it) } * 48
+        val expectedWorldSeasons = (startSeason until startSeason + totalSeasons)
+            .count { SuperMundialSystem.isSuperMundialSeason(it) }
+        val expectedWorldGroupMatches = expectedWorldSeasons * 48
+        val expectedWorldKnockoutMatches = expectedWorldSeasons * 15
+
+        // With 20 Brazilian clubs the deterministic tournament fields are:
+        // Copa: 16 clubs => 15 matches/season.
+        // Continental T1: 16 clubs => 24 group + 7 knockout = 31 matches/season.
+        // Continental T3: remaining 4 clubs => 3 knockout matches/season.
+        val expectedDomesticCupMatches = totalSeasons * 15
+        val expectedContinentalMatches = totalSeasons * (31 + 3)
 
         assertEquals("Expected 2126 current season", 2126, finalSave!!.currentSeason)
         assertEquals("Expected 38000 Série A matches across 100 seasons", 38000, totalLeagueMatchesSimulated)
+        assertEquals(
+            "Expected complete domestic cup brackets in every season",
+            expectedDomesticCupMatches,
+            totalDomesticCupMatchesSimulated
+        )
+        assertEquals(
+            "Expected complete continental brackets in every season",
+            expectedContinentalMatches,
+            totalContinentalMatchesSimulated
+        )
         assertEquals(
             "Expected every eligible Super Mundial to contribute 48 group matches",
             expectedWorldGroupMatches,
             totalWorldGroupMatchesSimulated
         )
         assertEquals(
-            "Total matches must equal league plus generated Super Mundial group matches",
-            totalLeagueMatchesSimulated + totalWorldGroupMatchesSimulated,
+            "Expected every eligible Super Mundial to complete its 15-match knockout bracket",
+            expectedWorldKnockoutMatches,
+            totalWorldKnockoutMatchesSimulated
+        )
+        assertEquals(
+            "Total matches must equal the sum of every generated competition family",
+            totalLeagueMatchesSimulated +
+                totalDomesticCupMatchesSimulated +
+                totalContinentalMatchesSimulated +
+                totalWorldGroupMatchesSimulated +
+                totalWorldKnockoutMatchesSimulated,
             totalMatchesSimulated
         )
         assertEquals("Expected one Série A historical record per simulated season", 100, serieARecords.size)

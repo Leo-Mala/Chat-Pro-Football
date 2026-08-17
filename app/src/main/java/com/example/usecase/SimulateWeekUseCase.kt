@@ -1,8 +1,8 @@
 package com.example.usecase
 
-import com.example.data.GameRepository
+import com.example.data.CompetitionRules
 import com.example.data.Fixture
-import com.example.data.GameSave
+import com.example.data.GameRepository
 import kotlin.math.max
 import kotlin.random.Random
 
@@ -25,7 +25,7 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     fun calculateCpuMatchScore(homeRating: Int, awayRating: Int): Pair<Int, Int> {
         val homeAdvantage = 5
         val adjustedHomeRating = homeRating + homeAdvantage
-        
+
         val ratingDiff = adjustedHomeRating - awayRating
         val baseHomeExp = max(0.5, 1.4 + (ratingDiff / 25.0))
         val baseAwayExp = max(0.3, 1.1 - (ratingDiff / 25.0))
@@ -47,18 +47,44 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     }
 
     /**
-     * Executa a simulação em lote de todas as partidas da CPU para a semana corrente.
+     * Executa a simulação em lote das partidas da CPU para a semana corrente.
+     *
+     * Quando [excludedTeamId] é informado, nenhuma partida desse clube é simulada aqui.
+     * Isso é essencial nas semanas com liga + copa/continental: todos os jogos do usuário
+     * continuam disponíveis para serem disputados ou pulados explicitamente pelo jogador.
      */
-    suspend fun simulateCpuMatchesForWeek(season: Int, week: Int): List<Fixture> {
-        val unplayedFixtures = repository.getFixturesForWeek(season, week).filter { !it.isPlayed }
+    suspend fun simulateCpuMatchesForWeek(
+        season: Int,
+        week: Int,
+        excludedTeamId: Long? = null
+    ): List<Fixture> {
+        val unplayedFixtures = repository.getFixturesForWeek(season, week).filter { fixture ->
+            !fixture.isPlayed &&
+                (excludedTeamId == null ||
+                    (fixture.homeTeamId != excludedTeamId && fixture.awayTeamId != excludedTeamId))
+        }
         val allTeams = repository.getAllTeams()
         val teamMap = allTeams.associateBy { it.id }
 
         val updatedFixtures = mutableListOf<Fixture>()
 
         for (fixture in unplayedFixtures) {
-            val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(id = fixture.homeTeamId, name = "Time A", city = "Cidade", state = "BR", division = 1, rating = 50)
-            val awayTeam = teamMap[fixture.awayTeamId] ?: com.example.data.Team(id = fixture.awayTeamId, name = "Time B", city = "Cidade", state = "BR", division = 1, rating = 50)
+            val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(
+                id = fixture.homeTeamId,
+                name = "Time A",
+                city = "Cidade",
+                state = "BR",
+                division = 1,
+                rating = 50
+            )
+            val awayTeam = teamMap[fixture.awayTeamId] ?: com.example.data.Team(
+                id = fixture.awayTeamId,
+                name = "Time B",
+                city = "Cidade",
+                state = "BR",
+                division = 1,
+                rating = 50
+            )
 
             val isRivalry = (homeTeam.rivalTeamId == awayTeam.id)
             val seed = (season * 1000L + week * 100L + fixture.id)
@@ -69,24 +95,19 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 randomSeed = seed
             )
 
-            var homePen: Int? = null
-            var awayPen: Int? = null
-            if (homeScore == awayScore && (fixture.competitionType == "CUP" || fixture.competitionType == "CONTINENTAL_T1" || fixture.competitionType == "CONTINENTAL_T2" || fixture.competitionType == "WORLD_CUP")) {
-                val hP = Random.nextInt(3, 6)
-                var aP = Random.nextInt(3, 6)
-                if (hP == aP) aP += 1
-                homePen = hP
-                awayPen = aP
-            }
+            val (homePenalties, awayPenalties) = CompetitionRules.resolvePenaltiesIfNeeded(
+                fixture = fixture,
+                homeScore = homeScore,
+                awayScore = awayScore
+            )
 
-            val updated = fixture.copy(
+            updatedFixtures += fixture.copy(
                 homeScore = homeScore,
                 awayScore = awayScore,
-                homePenalties = homePen,
-                awayPenalties = awayPen,
+                homePenalties = homePenalties,
+                awayPenalties = awayPenalties,
                 isPlayed = true
             )
-            updatedFixtures.add(updated)
         }
 
         if (updatedFixtures.isNotEmpty()) {

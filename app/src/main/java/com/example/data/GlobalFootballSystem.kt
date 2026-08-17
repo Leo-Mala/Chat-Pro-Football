@@ -147,6 +147,22 @@ object GlobalFootballSystem {
         )
     }
 
+    /**
+     * Resolve também as regiões agregadas usadas pelo banco do jogo.
+     * Sem esta camada, regiões como "Estados Unidos / México", "África" e "Ásia"
+     * caíam no fallback CONMEBOL e recebiam torneios continentais incorretos.
+     */
+    fun getConfederationForCountry(country: String): String {
+        return when (country) {
+            "Estados Unidos / México", "América Central" -> "CONCACAF"
+            "África" -> "CAF"
+            "Ásia" -> "AFC"
+            "Oceania" -> "OFC"
+            "África / Ásia / Oceania" -> "MIXED"
+            else -> countries.find { it.name == country }?.confederation ?: "CONMEBOL"
+        }
+    }
+
     // Comprehensive real-world competition definitions
     val competitions = listOf(
         // World
@@ -189,14 +205,14 @@ object GlobalFootballSystem {
      * Returns Triple(Tier 1 Code, Tier 2 Code, Tier 3 Code)
      */
     fun getContinentalTournamentsForCountry(country: String): Triple<String, String, String> {
-        val conf = countries.find { it.name == country }?.confederation ?: "CONMEBOL"
-        return when (conf) {
+        return when (getConfederationForCountry(country)) {
             "UEFA" -> Triple("UEFA_CL", "UEFA_EL", "UEFA_ECL")
-            "CONMEBOL" -> Triple("CONMEBOL_CL", "CONMEBOL_CS", "CONMEBOL_CL") // Sudamerica uses T1 / T2
+            "CONMEBOL" -> Triple("CONMEBOL_CL", "CONMEBOL_CS", "CONMEBOL_CL")
             "CONCACAF" -> Triple("CONCACAF_CL", "CONCACAF_CAC", "CONCACAF_CC")
             "CAF" -> Triple("CAF_CL", "CAF_CC", "CAF_CL")
             "AFC" -> Triple("AFC_CLE", "AFC_CL2", "AFC_CHL")
             "OFC" -> Triple("OFC_CL", "OFC_CL", "OFC_CL")
+            "MIXED" -> Triple("WORLD_CUP", "WORLD_INTERCONTINENTAL", "WORLD_CUP")
             else -> Triple("CONMEBOL_CL", "CONMEBOL_CS", "CONMEBOL_CL")
         }
     }
