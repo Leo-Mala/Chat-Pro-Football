@@ -1,0 +1,73 @@
+name: Fix Career Functional Test
+
+on:
+  push:
+    branches: [ "agent/v3-global-standings-qualification" ]
+    paths:
+      - '.github/workflows/fix-career-test.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v3-global-standings-qualification
+          fetch-depth: 0
+
+      - name: Stabilize academy promotion assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/test/java/com/example/CareerFunctionalFlowTest.kt')
+          text = path.read_text()
+
+          old_before = '''        val promotedProspect = initialProspects.first()
+        val rosterCountBeforePromotion = repository.getPlayerCountByTeam(selectedTeam.id)
+
+        val promotionJob = viewModel.promoteAcademyProspect(promotedProspect)'''
+          new_before = '''        val promotedProspect = initialProspects.first()
+        val rosterBeforePromotion = repository.getPlayersByTeam(selectedTeam.id)
+        val rosterCountBeforePromotion = rosterBeforePromotion.size
+        val rosterIdsBeforePromotion = rosterBeforePromotion.map { it.id }.toSet()
+
+        val promotionJob = viewModel.promoteAcademyProspect(promotedProspect)'''
+
+          old_after = '''        val promotedPlayer = repository.getPlayersByTeam(selectedTeam.id)
+            .first { it.name == promotedProspect.name }
+        assertTrue(promotedPlayer.isFromAcademy)
+        assertEquals(selectedTeam.country, promotedPlayer.nationality)'''
+          new_after = '''        val promotedPlayer = repository.getPlayersByTeam(selectedTeam.id)
+            .single { it.id !in rosterIdsBeforePromotion }
+        assertEquals(promotedProspect.name, promotedPlayer.name)
+        assertTrue(promotedPlayer.isFromAcademy)
+        assertEquals(selectedTeam.country, promotedPlayer.nationality)'''
+
+          if text.count(old_before) != 1:
+              raise SystemExit('Expected one pre-promotion block')
+          if text.count(old_after) != 1:
+              raise SystemExit('Expected one promoted-player assertion block')
+
+          text = text.replace(old_before, new_before, 1)
+          text = text.replace(old_after, new_after, 1)
+          path.write_text(text)
+          PY
+
+      - name: Commit stabilized test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/test/java/com/example/CareerFunctionalFlowTest.kt
+          git diff --cached --check
+          git commit -m "test: identify promoted academy player by new id"
+          git push origin HEAD:agent/v3-global-standings-qualification
