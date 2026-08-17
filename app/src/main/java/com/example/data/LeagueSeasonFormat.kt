@@ -23,14 +23,7 @@ object LeagueSeasonFormat {
         val legs: Int = 2
     ) {
         val rounds: Int
-            get() = roundsPerLegStatic(groupSize) * legs
-
-        companion object {
-            private fun roundsPerLegStatic(teamCount: Int): Int {
-                if (teamCount < 2) return 0
-                return if (teamCount % 2 == 0) teamCount - 1 else teamCount
-            }
-        }
+            get() = LeagueSeasonFormat.roundsPerLeg(groupSize) * legs
     }
 
     fun roundsPerLeg(teamCount: Int): Int {
@@ -82,7 +75,7 @@ object LeagueSeasonFormat {
             } else {
                 plan.groupCount - 1 - column
             }
-            groups[groupIndex] += team
+            groups[groupIndex].add(team)
         }
 
         check(groups.all { it.size == plan.groupSize }) {
@@ -193,8 +186,8 @@ object LeagueSeasonFormat {
 
             val adjacency = teamIds.associateWith { mutableSetOf<Long>() }.toMutableMap()
             fixtures.forEach { fixture ->
-                adjacency.getValue(fixture.homeTeamId) += fixture.awayTeamId
-                adjacency.getValue(fixture.awayTeamId) += fixture.homeTeamId
+                adjacency.getValue(fixture.homeTeamId).add(fixture.awayTeamId)
+                adjacency.getValue(fixture.awayTeamId).add(fixture.homeTeamId)
             }
 
             val remaining = teamIds.toMutableSet()
@@ -208,14 +201,14 @@ object LeagueSeasonFormat {
 
                 while (queue.isNotEmpty()) {
                     val current = queue.removeFirst()
-                    component += current
+                    component.add(current)
                     adjacency.getValue(current).forEach { neighbor ->
                         if (remaining.remove(neighbor)) {
                             queue.add(neighbor)
                         }
                     }
                 }
-                components += component
+                components.add(component)
             }
 
             if (components.size != plan.groupCount || components.any { it.size != plan.groupSize }) {
