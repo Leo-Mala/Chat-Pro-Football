@@ -93,7 +93,7 @@ class SimulateWeekUseCaseTest {
                     id = 12L,
                     season = 2026,
                     week = 31,
-                    homeTeamId = 2L,
+                    homeTeamId = 3L,
                     awayTeamId = 4L,
                     competitionType = "SERIE_A"
                 )
