@@ -31,8 +31,6 @@ class SeasonTransitionUseCase(
     suspend fun advanceToNextSeason(save: GameSave): GameSave = repository.withTransaction {
         val persistedSave = repository.getGameSave() ?: save
 
-        // Idempotência: uma chamada repetida com um snapshot da temporada anterior
-        // nunca deve envelhecer atletas, mover divisões ou apagar fixtures novamente.
         if (persistedSave.currentSeason != save.currentSeason) {
             return@withTransaction persistedSave
         }
@@ -51,11 +49,6 @@ class SeasonTransitionUseCase(
         val currentUserCountry = allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
             ?: "Brasil"
 
-        // 1. Persistir primeiro o retrato global da temporada que terminou.
-        // O país do usuário aproveita fixtures reais de cada divisão quando completos; todas as
-        // demais divisões recebem uma classificação agregada determinística. Como esta função
-        // já está dentro da transação de temporada, delete + insert permanecem atômicos sem
-        // abrir um segundo withTransaction.
         val globalStandings = globalLeagueSimulationUseCase.buildSeasonStandings(
             season = currentSeason,
             teams = allTeams,
@@ -64,13 +57,6 @@ class SeasonTransitionUseCase(
         )
         repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
 
-        // 2. Promoção/rebaixamento.
-        // - país do usuário: somente resultados detalhados realmente concluídos podem mover clubes;
-        // - países CPU: usam os snapshots compactos recém-persistidos;
-        // - hierarquias nacionais explícitas prevalecem e os demais países usam o fallback
-        //   genérico conservador de 2 vagas, nunca as 4 vagas específicas do Brasil;
-        // - divisões intermediárias pequenas reduzem automaticamente as vagas para que os
-        //   grupos promovidos e rebaixados nunca se sobreponham na mesma temporada.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
         val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
@@ -90,29 +76,35 @@ class SeasonTransitionUseCase(
                     lowerTeamCount = lowerTeams.size
                 )
 
-                if (movementSpots <= 0) {
-                    continue
-                }
+                if (movementSpots <= 0) continue
 
                 val relegatedIds: List<Long>
                 val promotedIds: List<Long>
 
                 if (isDetailedCountry) {
-                    if (!hasCompletedLeagueSeason(upperTeams, seasonFixtures, upperRule.code) ||
-                        !hasCompletedLeagueSeason(lowerTeams, seasonFixtures, lowerRule.code)
+                    if (!hasCompletedLeagueSeason(
+                            teams = upperTeams,
+                            fixtures = seasonFixtures,
+                            division = upperRule.divisionLevel
+                        ) ||
+                        !hasCompletedLeagueSeason(
+                            teams = lowerTeams,
+                            fixtures = seasonFixtures,
+                            division = lowerRule.divisionLevel
+                        )
                     ) {
                         continue
                     }
 
                     val upperStandings = calculateSeasonStandings(
-                        upperTeams,
-                        seasonFixtures,
-                        upperRule.code
+                        teams = upperTeams,
+                        fixtures = seasonFixtures,
+                        division = upperRule.divisionLevel
                     )
                     val lowerStandings = calculateSeasonStandings(
-                        lowerTeams,
-                        seasonFixtures,
-                        lowerRule.code
+                        teams = lowerTeams,
+                        fixtures = seasonFixtures,
+                        division = lowerRule.divisionLevel
                     )
 
                     relegatedIds = upperStandings.takeLast(movementSpots).map { it.first.id }
@@ -170,9 +162,6 @@ class SeasonTransitionUseCase(
 
         updatedTeamsMap.values.forEach { repository.updateTeam(it) }
 
-        // 3. Envelhecer atletas uma única vez por temporada. Aposentadoria cria uma
-        // identidade nova de verdade: o atleta antigo é removido e o substituto recebe
-        // novo ID, contrato/estatísticas zerados e nenhum vínculo de empréstimo herdado.
         val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
         val playersToUpdate = mutableListOf<Player>()
         val replacementPlayers = mutableListOf<Player>()
@@ -239,21 +228,14 @@ class SeasonTransitionUseCase(
             repository.savePlayers(replacementPlayers)
         }
 
-        // 4. Reparar integridade antes de gerar o novo calendário.
         databaseIntegrityUseCase.repairDatabase()
 
-        // 5. Remover fixtures/dados antigos somente depois de todas as regras da semana 40
-        // e do snapshot global terem sido processados.
         repository.purgeOldData(nextSeason)
         repository.deleteFixtures()
 
-        // 6. A primeira temporada e todas as seguintes usam exatamente o mesmo gerador.
-        // A liga detalhada permanece no país do usuário; a classificação global da temporada
-        // encerrada passa a ordenar a qualificação continental da nova temporada.
         val updatedTeamsList = updatedTeamsMap.values.toList()
         val playerTeam = updatedTeamsMap[sourceSave.playerTeamId]
-        val userCountry = playerTeam?.country
-            ?: currentUserCountry
+        val userCountry = playerTeam?.country ?: currentUserCountry
 
         val newFixtures = generateCalendarUseCase.generateSeasonFixtures(
             season = nextSeason,
@@ -264,7 +246,6 @@ class SeasonTransitionUseCase(
         )
         repository.saveFixtures(newFixtures)
 
-        // 7. Persistir a nova temporada por último. Esse write é o marcador atômico da transição concluída.
         val updatedSave = sourceSave.copy(
             currentSeason = nextSeason,
             currentWeek = 1
@@ -304,13 +285,13 @@ class SeasonTransitionUseCase(
     private fun hasCompletedLeagueSeason(
         teams: List<Team>,
         fixtures: List<Fixture>,
-        compType: String
+        division: Int
     ): Boolean {
         if (teams.size < 2) return false
         val teamIds = teams.map { it.id }.toSet()
         if (teamIds.size != teams.size) return false
 
-        val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
+        val acceptedTypes = LeagueSeasonFormat.acceptedDetailedCompetitionTypes(division)
         val relevantFixtures = fixtures.filter { fixture ->
             fixture.competitionType in acceptedTypes &&
                 fixture.homeTeamId in teamIds &&
@@ -319,9 +300,6 @@ class SeasonTransitionUseCase(
         val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
         val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
 
-        // Uma temporada só pode gerar promoção/rebaixamento quando todos os confrontos do
-        // formato vigente estão concluídos e com placar. Para 2 turnos, cada direção do par
-        // deve existir uma vez; para turno único, cada par não ordenado deve existir uma vez.
         if (relevantFixtures.size != expectedFixtureCount || relevantFixtures.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
             }
@@ -355,11 +333,11 @@ class SeasonTransitionUseCase(
     private fun calculateSeasonStandings(
         teams: List<Team>,
         fixtures: List<Fixture>,
-        compType: String
+        division: Int
     ): List<Pair<Team, SeasonStandingRow>> {
         val map = teams.associateWith { SeasonStandingRow(it.name) }.toMutableMap()
         val teamIds = teams.map { it.id }.toSet()
-        val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
+        val acceptedTypes = LeagueSeasonFormat.acceptedDetailedCompetitionTypes(division)
         val relevantFixtures = fixtures.filter {
             it.competitionType in acceptedTypes &&
                 it.isPlayed &&
@@ -411,19 +389,5 @@ class SeasonTransitionUseCase(
                 .thenByDescending { it.second.gd }
                 .thenByDescending { it.second.gf }
         )
-    }
-
-    private fun alternateCompetitionType(compType: String): String {
-        return when (compType) {
-            "SERIE_A" -> "DIV_1"
-            "SERIE_B" -> "DIV_2"
-            "SERIE_C" -> "DIV_3"
-            "SERIE_D" -> "DIV_4"
-            "DIV_1" -> "SERIE_A"
-            "DIV_2" -> "SERIE_B"
-            "DIV_3" -> "SERIE_C"
-            "DIV_4" -> "SERIE_D"
-            else -> compType
-        }
     }
 }
