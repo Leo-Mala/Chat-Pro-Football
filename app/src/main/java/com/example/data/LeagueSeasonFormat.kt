@@ -1,16 +1,20 @@
 package com.example.data
 
 /**
- * Regra única para encaixar ligas de pontos corridos no calendário canônico de 40 semanas.
+ * Regra única para encaixar ligas de pontos corridos no calendário doméstico detalhado.
  *
- * - se turno + returno couberem, usamos 2 turnos;
+ * A temporada completa possui 48 semanas, mas ligas nacionais continuam limitadas a
+ * [GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS] rodadas. As datas restantes existem para copas,
+ * continentais e torneios mundiais, sem desfazer os formatos escaláveis da Fase 9.5.
+ *
+ * - se turno + returno couberem no limite doméstico, usamos 2 turnos;
  * - se apenas um turno couber, usamos turno único;
  * - divisões gigantes com partição exata em grupos de 4..20 clubes usam grupos balanceados,
  *   todos com o mesmo tamanho e turno + returno em paralelo;
  * - tamanhos gigantes que ainda não admitem grupos iguais continuam explicitamente fora do
  *   formato detalhado e podem usar o fallback compacto até uma regra específica ser definida;
- * - a simulação global compacta não depende das 40 semanas: usa 2 turnos até 20 clubes e
- *   turno único acima disso para manter custo previsível sem persistir fixtures CPU.
+ * - a simulação global compacta não depende do calendário detalhado: usa 2 turnos até 20 clubes
+ *   e turno único acima disso para manter custo previsível sem persistir fixtures CPU.
  */
 object LeagueSeasonFormat {
 
@@ -34,14 +38,16 @@ object LeagueSeasonFormat {
     /**
      * Retorna um plano de grupos somente quando o round-robin direto não cabe e é possível
      * particionar todos os clubes em grupos de tamanho idêntico. Priorizamos o maior grupo
-     * possível (até 20) para preservar variedade de adversários sem ultrapassar 40 semanas.
+     * possível (até 20) para preservar variedade de adversários sem ultrapassar o limite
+     * doméstico de rodadas.
      */
     fun detailedGroupPlan(teamCount: Int): DetailedGroupPlan? {
         if (teamCount < 2 || fitsCurrentSeason(teamCount)) return null
 
         val groupSize = (MAX_DETAILED_GROUP_SIZE downTo MIN_DETAILED_GROUP_SIZE)
             .firstOrNull { candidate ->
-                teamCount % candidate == 0 && roundsPerLeg(candidate) * 2 <= GameCalendar.WEEKS_PER_SEASON
+                teamCount % candidate == 0 &&
+                    roundsPerLeg(candidate) * 2 <= GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS
             }
             ?: return null
 
@@ -91,8 +97,8 @@ object LeagueSeasonFormat {
         if (rounds == 0) return 0
 
         return when {
-            rounds * 2 <= GameCalendar.WEEKS_PER_SEASON -> 2
-            rounds <= GameCalendar.WEEKS_PER_SEASON -> 1
+            rounds * 2 <= GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS -> 2
+            rounds <= GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS -> 1
             else -> 2 // Mantém compatibilidade para tamanhos ainda sem partição balanceada.
         }
     }
@@ -123,8 +129,8 @@ object LeagueSeasonFormat {
      * Política exclusiva da simulação CPU em memória.
      *
      * Como essas partidas não ocupam semanas e nunca são persistidas, não precisamos forçar
-     * o calendário detalhado de 40 semanas. Mesmo assim, ligas muito grandes ficam em turno
-     * único para evitar duplicar milhares de confrontos sem benefício proporcional.
+     * o limite do calendário detalhado. Mesmo assim, ligas muito grandes ficam em turno único
+     * para evitar duplicar milhares de confrontos sem benefício proporcional.
      */
     fun legsForCompactSimulation(teamCount: Int): Int {
         if (teamCount < 2) return 0
@@ -251,9 +257,9 @@ object LeagueSeasonFormat {
         return true
     }
 
-    /** Round-robin direto cabe sem recorrer a grupos. */
+    /** Round-robin direto cabe no limite doméstico sem recorrer a grupos. */
     fun fitsCurrentSeason(teamCount: Int): Boolean {
         val rounds = roundsPerLeg(teamCount)
-        return rounds in 1..GameCalendar.WEEKS_PER_SEASON
+        return rounds in 1..GameCalendar.MAX_DOMESTIC_LEAGUE_ROUNDS
     }
 }
