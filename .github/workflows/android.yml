@@ -65,7 +65,7 @@ jobs:
               echo "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
             fi
           else
-            cat << 'EOF'
+            cat << 'EOF' > app/google-services.json
           {
             "project_info": {
               "project_number": "1234567890",
@@ -85,10 +85,10 @@ jobs:
                 "services": { "appinvite_service": { "status": 1 } }
               }
             ],
-            "configuration_version": "1"
+            "configuration_version": 1
           }
           EOF
-          fi > app/google-services.json
+          fi
 
       - name: Setup Debug Keystore
         shell: bash
