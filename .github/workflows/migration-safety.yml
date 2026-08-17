@@ -6,7 +6,6 @@ on:
     paths:
       - 'app/src/main/java/com/example/data/**'
       - 'app/src/test/java/com/example/migrations/**'
-      - 'app/schemas/**'
       - 'app/build.gradle.kts'
       - '.github/workflows/migration-safety.yml'
   pull_request:
@@ -15,7 +14,6 @@ on:
     paths:
       - 'app/src/main/java/com/example/data/**'
       - 'app/src/test/java/com/example/migrations/**'
-      - 'app/schemas/**'
       - 'app/build.gradle.kts'
       - '.github/workflows/migration-safety.yml'
   workflow_dispatch:
