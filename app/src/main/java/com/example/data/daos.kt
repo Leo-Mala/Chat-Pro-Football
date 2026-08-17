@@ -32,8 +32,11 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE id = :id")
     suspend fun getTeam(id: Long): Team?
 
-    @Transaction
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    /**
+     * Upsert evita a semântica DELETE+INSERT do SQLite REPLACE. Isso é essencial depois que Team
+     * se torna tabela-pai de FKs de Player/Fixture no schema V21.
+     */
+    @Upsert
     suspend fun insertTeams(teams: List<Team>)
 
     @Update
@@ -63,6 +66,9 @@ interface PlayerDao {
     @Query("SELECT COUNT(*) FROM players WHERE teamId = :teamId")
     suspend fun getPlayerCountByTeam(teamId: Long): Int
 
+    @Query("SELECT * FROM players WHERE teamId IS NULL ORDER BY position DESC, force DESC, id ASC")
+    suspend fun getFreeAgents(): List<Player>
+
     @Query("SELECT * FROM players WHERE id = :id")
     suspend fun getPlayer(id: Long): Player?
 
@@ -70,8 +76,7 @@ interface PlayerDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPlayers(players: List<Player>)
 
-    @Transaction
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertPlayersReplace(players: List<Player>)
 
     @Update
@@ -120,8 +125,7 @@ interface FixtureDao {
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture>
 
-    @Transaction
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertFixtures(fixtures: List<Fixture>)
 
     @Update
@@ -248,10 +252,10 @@ interface TransferInstallmentDao {
     @Query("SELECT * FROM transfer_installments")
     suspend fun getAllInstallments(): List<TransferInstallment>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertInstallment(installment: TransferInstallment): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertInstallments(installments: List<TransferInstallment>)
 
     @Update
@@ -272,10 +276,10 @@ interface PlayerLoanDao {
     @Query("SELECT * FROM player_loans")
     suspend fun getAllLoans(): List<PlayerLoan>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertLoan(loan: PlayerLoan): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertLoans(loans: List<PlayerLoan>)
 
     @Update
