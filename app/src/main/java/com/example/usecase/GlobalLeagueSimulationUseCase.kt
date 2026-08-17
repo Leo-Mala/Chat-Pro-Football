@@ -299,7 +299,7 @@ class GlobalLeagueSimulationUseCase {
             2 -> setOf("SERIE_B", "DIV_2")
             3 -> setOf("SERIE_C", "DIV_3")
             4 -> setOf("SERIE_D", "DIV_4")
-            else -> setOf("DIV_$division")
+            else -> setOf("SERIE_D", "DIV_$division")
         }
     }
 
