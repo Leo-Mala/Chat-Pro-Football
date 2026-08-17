@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Index
@@ -147,7 +148,6 @@ data class Player(
             val parsed = AtributosConverter.jsonToAtributos(atributosJson)
             if (parsed != null) return parsed
         }
-        // Build Atributos using real player variables (finishing, passing, pace, strength, vision, defense)
         val posEnum = Posicao.fromCode(position)
         val isGk = posEnum == Posicao.GOLEIRO
         val defaultGkAttr = if (isGk) force else 30
@@ -205,7 +205,6 @@ data class Player(
     }
 
     fun calculateMarketValue(): Long {
-        // Exponential valuation based on player force
         val baseValue = when {
             force < 40 -> force * 12000L
             force < 60 -> 40 * 12000L + (force - 40) * 60000L
@@ -213,16 +212,12 @@ data class Player(
             force < 85 -> 40 * 12000L + 20 * 60000L + 15 * 450000L + (force - 75) * 1800000L
             else -> 40 * 12000L + 20 * 60000L + 15 * 450000L + 10 * 1800000L + (force - 85) * 6000000L
         }
-        
-        // Age correction factor
-        // Young players have solid potential value, peak is 23-29, declines steadily from 30+
         val ageFactor = when {
             age < 23 -> 0.8 + (age - 15) * 0.025
             age in 23..29 -> 1.0
             age in 30..33 -> 1.0 - (age - 29) * 0.07
-            else -> (0.72 - (age - 33) * 0.07).coerceAtLeast(0.12) // Heavy decline as they approach retirement (42)
+            else -> (0.72 - (age - 33) * 0.07).coerceAtLeast(0.12)
         }
-        
         return (baseValue * ageFactor).toLong().coerceAtLeast(40000L)
     }
 
@@ -240,7 +235,7 @@ data class Player(
 
     fun calculateSalary(clubReputation: Double = 50.0): Long {
         val finalSalary = ((clubReputation / 100.0) * force * 1500.0).toLong()
-        return finalSalary.coerceAtLeast(3000L) // Minimum monthly salary R$ 3,000
+        return finalSalary.coerceAtLeast(3000L)
     }
 
     fun getAverageRating(): Double {
@@ -263,7 +258,8 @@ data class Player(
 data class Fixture(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val season: Int,
-    val week: Int, // 1 to GameCalendar.WEEKS_PER_SEASON
+    val week: Int,
+    @ColumnInfo(defaultValue = "'WEEKEND'")
     val matchSlot: MatchSlot = MatchSlot.WEEKEND,
     val homeTeamId: Long,
     val awayTeamId: Long,
@@ -271,9 +267,9 @@ data class Fixture(
     val awayScore: Int? = null,
     val homePenalties: Int? = null,
     val awayPenalties: Int? = null,
-    val competitionType: String, // STATE, SERIE_A, SERIE_B, SERIE_C, SERIE_D, CUP, CONTINENTAL, WORLD
+    val competitionType: String,
     val isPlayed: Boolean = false,
-    val matchEventsJson: String? = null // For storing detailed goals & actions if needed
+    val matchEventsJson: String? = null
 )
 
 @Entity(tableName = "club_legends")
@@ -313,7 +309,7 @@ data class TransactionRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val week: Int,
     val season: Int,
-    val type: String, // "COMPRA", "VENDA", "EMPRESTIMO_TOMAR", "EMPRESTIMO_PAGAR", "ESTADIO_REFORMA", "ACADEMIA_REFORMA", "PATROCINIO"
+    val type: String,
     val description: String,
     val amount: Long,
     val isIncome: Boolean,
@@ -340,7 +336,7 @@ data class DatabaseValidationResult(
 @Entity(tableName = "transfer_orders")
 data class TransferOrder(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
-    val type: String, // "COMPRA" or "VENDA"
+    val type: String,
     val playerId: Long,
     val buyerTeamId: Long = 0L,
     val sellerTeamId: Long = 0L,
@@ -348,8 +344,8 @@ data class TransferOrder(
     val playerPosition: String,
     val playerForce: Int,
     val offeredPrice: Long,
-    val demandLevel: String, // "high", "medium", "low"
-    val status: String, // "pending", "accepted", "declined"
+    val demandLevel: String,
+    val status: String,
     val week: Int,
     val season: Int,
     val timestamp: Long = System.currentTimeMillis()
@@ -401,7 +397,7 @@ data class TransferInstallment(
     val remainingInstallments: Int,
     val nextDueWeek: Int,
     val season: Int,
-    val status: String = "ACTIVE" // "ACTIVE", "COMPLETED", "DEFAULTED"
+    val status: String = "ACTIVE"
 )
 
 @Entity(
@@ -424,6 +420,6 @@ data class PlayerLoan(
     val remainingWeeks: Int,
     val weeklyFee: Long = 0L,
     val buyoutOptionPrice: Long? = null,
-    val status: String = "ACTIVE" // "ACTIVE", "COMPLETED", "BOUGHT_OUT"
+    val status: String = "ACTIVE"
 )
 
