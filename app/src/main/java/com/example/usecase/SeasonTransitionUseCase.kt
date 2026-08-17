@@ -52,9 +52,10 @@ class SeasonTransitionUseCase(
             ?: "Brasil"
 
         // 1. Persistir primeiro o retrato global da temporada que terminou.
-        // O país do usuário usa os fixtures reais; os demais países recebem uma classificação
-        // agregada determinística. Como esta função já está dentro da transação de temporada,
-        // delete + insert permanecem atômicos sem abrir um segundo withTransaction.
+        // O país do usuário aproveita fixtures reais de cada divisão quando completos; todas as
+        // demais divisões recebem uma classificação agregada determinística. Como esta função
+        // já está dentro da transação de temporada, delete + insert permanecem atômicos sem
+        // abrir um segundo withTransaction.
         val globalStandings = globalLeagueSimulationUseCase.buildSeasonStandings(
             season = currentSeason,
             teams = allTeams,
@@ -63,13 +64,20 @@ class SeasonTransitionUseCase(
         )
         repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
 
-        // 2. Promoção/rebaixamento só é aplicado em fronteiras de divisões que realmente
-        // disputaram e concluíram suas ligas. Isso impede movimentação arbitrária em países
-        // cujo campeonato detalhado ainda não foi simulado no calendário da carreira atual.
+        // 2. Promoção/rebaixamento.
+        // - país do usuário: somente resultados detalhados realmente concluídos podem mover clubes;
+        // - países CPU com hierarquia explícita: usam os snapshots compactos recém-persistidos;
+        // - países sem hierarquia própria ficam imóveis em vez de herdar regras brasileiras.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
+        val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
 
         for ((country, countryTeams) in teamsByCountry) {
+            val isDetailedCountry = country.equals(currentUserCountry, ignoreCase = true)
+            if (!isDetailedCountry && country !in LeagueHierarchyLoader.supportedCountries) {
+                continue
+            }
+
             val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry(country)
             val divisions = hierarchy.divisions.sortedBy { it.divisionLevel }
 
@@ -88,35 +96,74 @@ class SeasonTransitionUseCase(
                     continue
                 }
 
-                if (!hasCompletedLeagueSeason(upperTeams, seasonFixtures, upperRule.code) ||
-                    !hasCompletedLeagueSeason(lowerTeams, seasonFixtures, lowerRule.code)
-                ) {
-                    continue
+                val relegatedIds: List<Long>
+                val promotedIds: List<Long>
+
+                if (isDetailedCountry) {
+                    if (!hasCompletedLeagueSeason(upperTeams, seasonFixtures, upperRule.code) ||
+                        !hasCompletedLeagueSeason(lowerTeams, seasonFixtures, lowerRule.code)
+                    ) {
+                        continue
+                    }
+
+                    val upperStandings = calculateSeasonStandings(
+                        upperTeams,
+                        seasonFixtures,
+                        upperRule.code
+                    )
+                    val lowerStandings = calculateSeasonStandings(
+                        lowerTeams,
+                        seasonFixtures,
+                        lowerRule.code
+                    )
+
+                    relegatedIds = upperStandings.takeLast(movementSpots).map { it.first.id }
+                    promotedIds = lowerStandings.take(movementSpots).map { it.first.id }
+                } else {
+                    val upperSnapshot = snapshotRowsByCountryDivision[
+                        country to upperRule.divisionLevel
+                    ].orEmpty()
+                    val lowerSnapshot = snapshotRowsByCountryDivision[
+                        country to lowerRule.divisionLevel
+                    ].orEmpty()
+
+                    if (!hasCompleteSnapshot(
+                            season = currentSeason,
+                            country = country,
+                            division = upperRule.divisionLevel,
+                            teams = upperTeams,
+                            rows = upperSnapshot
+                        ) ||
+                        !hasCompleteSnapshot(
+                            season = currentSeason,
+                            country = country,
+                            division = lowerRule.divisionLevel,
+                            teams = lowerTeams,
+                            rows = lowerSnapshot
+                        )
+                    ) {
+                        continue
+                    }
+
+                    relegatedIds = upperSnapshot
+                        .sortedBy { it.position }
+                        .takeLast(movementSpots)
+                        .map { it.teamId }
+                    promotedIds = lowerSnapshot
+                        .sortedBy { it.position }
+                        .take(movementSpots)
+                        .map { it.teamId }
                 }
 
-                val upperStandings = calculateSeasonStandings(
-                    upperTeams,
-                    seasonFixtures,
-                    upperRule.code
-                )
-                val lowerStandings = calculateSeasonStandings(
-                    lowerTeams,
-                    seasonFixtures,
-                    lowerRule.code
-                )
-
-                val relegated = upperStandings.takeLast(movementSpots).map { it.first }
-                val promoted = lowerStandings.take(movementSpots).map { it.first }
-
-                for (team in relegated) {
-                    val currentTeam = updatedTeamsMap[team.id] ?: team
-                    updatedTeamsMap[team.id] = currentTeam.copy(
+                for (teamId in relegatedIds) {
+                    val currentTeam = updatedTeamsMap[teamId] ?: continue
+                    updatedTeamsMap[teamId] = currentTeam.copy(
                         division = lowerRule.divisionLevel
                     )
                 }
-                for (team in promoted) {
-                    val currentTeam = updatedTeamsMap[team.id] ?: team
-                    updatedTeamsMap[team.id] = currentTeam.copy(
+                for (teamId in promotedIds) {
+                    val currentTeam = updatedTeamsMap[teamId] ?: continue
+                    updatedTeamsMap[teamId] = currentTeam.copy(
                         division = upperRule.divisionLevel
                     )
                 }
@@ -227,6 +274,33 @@ class SeasonTransitionUseCase(
         repository.saveGameSave(updatedSave)
 
         updatedSave
+    }
+
+    private fun hasCompleteSnapshot(
+        season: Int,
+        country: String,
+        division: Int,
+        teams: List<Team>,
+        rows: List<GlobalLeagueStanding>
+    ): Boolean {
+        if (teams.isEmpty() || rows.size != teams.size) return false
+
+        val expectedTeamIds = teams.map { it.id }.toSet()
+        val rowTeamIds = rows.map { it.teamId }
+        if (rowTeamIds.toSet() != expectedTeamIds || rowTeamIds.size != rowTeamIds.toSet().size) {
+            return false
+        }
+
+        if (rows.any {
+                it.season != season ||
+                    !it.country.equals(country, ignoreCase = true) ||
+                    it.division != division
+            }
+        ) {
+            return false
+        }
+
+        return rows.map { it.position }.sorted() == (1..teams.size).toList()
     }
 
     private fun hasCompletedLeagueSeason(
