@@ -42,6 +42,21 @@ data class LeagueHierarchy(
 }
 
 object LeagueHierarchyLoader {
+    /**
+     * Fallback neutro para países que ainda não possuem regras nacionais detalhadas.
+     *
+     * O comportamento antigo herdava a hierarquia brasileira (4 vagas) para qualquer país
+     * desconhecido. Para a simulação mundial isso distorcia França, Alemanha, Itália etc.
+     * Duas vagas preservam tamanhos das divisões e são compatíveis com a modelagem simplificada
+     * atual até a futura normalização específica de cada federação.
+     */
+    private val genericDivisions = listOf(
+        LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
+        LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
+        LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
+        LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
+    )
+
     private val staticHierarchies = mapOf(
         "Brasil" to listOf(
             LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 4),
@@ -49,67 +64,26 @@ object LeagueHierarchyLoader {
             LeagueDivision("SERIE_C", "", 3, promotionSpots = 4, relegationSpots = 4),
             LeagueDivision("SERIE_D", "", 4, promotionSpots = 4, relegationSpots = 0)
         ),
-        "Inglaterra" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "Espanha" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "Argentina" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "Estados Unidos / México" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "América Central" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "África" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "Ásia" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "Oceania" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        ),
-        "África / Ásia / Oceania" to listOf(
-            LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 2),
-            LeagueDivision("SERIE_B", "", 2, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_C", "", 3, promotionSpots = 2, relegationSpots = 2),
-            LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
-        )
+        "Inglaterra" to genericDivisions,
+        "Espanha" to genericDivisions,
+        "Argentina" to genericDivisions,
+        "Estados Unidos / Canadá" to genericDivisions,
+        // Alias legado mantido para saves/dados antigos que ainda usem a denominação anterior.
+        "Estados Unidos / México" to genericDivisions,
+        "América Central" to genericDivisions,
+        "África" to genericDivisions,
+        "Ásia" to genericDivisions,
+        "Oceania" to genericDivisions,
+        "África / Ásia / Oceania" to genericDivisions
     )
 
     val supportedCountries: Set<String>
         get() = staticHierarchies.keys
 
+    fun hasExplicitHierarchy(country: String): Boolean = country in staticHierarchies
+
     fun getHierarchyForCountry(country: String): LeagueHierarchy {
-        val staticDivs = staticHierarchies[country] ?: staticHierarchies["Brasil"]!!
+        val staticDivs = staticHierarchies[country] ?: genericDivisions
         val resolvedDivisions = staticDivs.map { div ->
             val resolvedName = DefaultData.getCompetitionName(div.code, country)
             div.copy(name = resolvedName)
