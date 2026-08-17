@@ -40,6 +40,25 @@ object LeagueSeasonFormat {
         return if (teamCount <= 20) 2 else 1
     }
 
+    /**
+     * Decide o mando em ligas compactas de turno único sem favorecer IDs baixos ou altos.
+     *
+     * Para um campeonato completo, a paridade dos índices distribui os mandos de modo que a
+     * diferença entre quaisquer clubes seja no máximo um jogo. Temporada e divisão entram na
+     * paridade para inverter a orientação ao longo dos anos sem introduzir aleatoriedade.
+     */
+    fun firstTeamHostsCompactSingleLeg(
+        firstIndex: Int,
+        secondIndex: Int,
+        season: Int,
+        division: Int
+    ): Boolean {
+        require(firstIndex >= 0 && secondIndex > firstIndex) {
+            "Índices de confronto inválidos: $firstIndex x $secondIndex"
+        }
+        return (firstIndex + secondIndex + season + division) % 2 == 0
+    }
+
     fun expectedFixtureCount(teamCount: Int): Int {
         if (teamCount < 2) return 0
         val legs = legsForDetailedLeague(teamCount)
