@@ -177,7 +177,7 @@ class SeasonTransitionUseCase(
 
                 val replacementTeamId = when {
                     activeLoan != null -> activeLoan.ownerTeamId
-                    player.isOnLoan && player.originalTeamId != 0L -> player.originalTeamId
+                    player.isOnLoan && player.originalTeamId != null -> player.originalTeamId
                     else -> player.teamId
                 }
                 val newForce = if (replacementTeamId == sourceSave.playerTeamId) {
@@ -202,7 +202,7 @@ class SeasonTransitionUseCase(
                     isStarter = false,
                     isOnLoan = false,
                     loanWeeksRemaining = 0,
-                    originalTeamId = 0L,
+                    originalTeamId = null,
                     potential = maxOf(80, newForce)
                 )
             } else {
