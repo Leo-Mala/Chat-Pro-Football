@@ -5,7 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -87,14 +87,11 @@ class GameRepositoryFixtureScheduleTest {
         )
         db.fixtureDao().insertFixtures(listOf(existing, movable))
 
-        assertThrows(IllegalArgumentException::class.java) {
-            runBlockingReschedule(repository, movable)
-        }
-    }
-
-    private fun runBlockingReschedule(repository: GameRepository, fixture: Fixture) {
-        kotlinx.coroutines.runBlocking {
-            repository.updateFixture(fixture.copy(week = 20))
+        try {
+            repository.updateFixture(movable.copy(week = 20))
+            fail("Remarcar para um slot já ocupado pelo mesmo clube deveria ser rejeitado.")
+        } catch (_: IllegalArgumentException) {
+            // esperado
         }
     }
 }
