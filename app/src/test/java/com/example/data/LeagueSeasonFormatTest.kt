@@ -45,4 +45,12 @@ class LeagueSeasonFormatTest {
         assertEquals(1, LeagueSeasonFormat.legsForCompactSimulation(21))
         assertEquals(1, LeagueSeasonFormat.legsForCompactSimulation(96))
     }
+
+    @Test
+    fun detailedCompetitionAliasesRemainDivisionAwareBeyondFourthLevel() {
+        assertEquals(setOf("SERIE_A", "DIV_1"), LeagueSeasonFormat.acceptedDetailedCompetitionTypes(1))
+        assertEquals(setOf("SERIE_D", "DIV_4"), LeagueSeasonFormat.acceptedDetailedCompetitionTypes(4))
+        assertEquals(setOf("SERIE_D", "DIV_5"), LeagueSeasonFormat.acceptedDetailedCompetitionTypes(5))
+        assertEquals(setOf("SERIE_D", "DIV_6"), LeagueSeasonFormat.acceptedDetailedCompetitionTypes(6))
+    }
 }
