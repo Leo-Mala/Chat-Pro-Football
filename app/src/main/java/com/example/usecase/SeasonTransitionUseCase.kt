@@ -242,7 +242,15 @@ class SeasonTransitionUseCase(
                 fixture.homeTeamId in teamIds &&
                 fixture.awayTeamId in teamIds
         }
-        return relevantFixtures.isNotEmpty() && relevantFixtures.all { it.isPlayed }
+
+        // O calendário detalhado de liga é sempre turno + returno. Portanto, uma temporada
+        // só pode gerar promoção/rebaixamento quando existem exatamente N*(N-1) confrontos
+        // internos, todos concluídos e com placar. Uma lista parcial porém totalmente jogada
+        // não pode ser confundida com uma liga encerrada.
+        val expectedFixtureCount = teams.size * (teams.size - 1)
+        return relevantFixtures.size == expectedFixtureCount && relevantFixtures.all {
+            it.isPlayed && it.homeScore != null && it.awayScore != null
+        }
     }
 
     private fun calculateSeasonStandings(
