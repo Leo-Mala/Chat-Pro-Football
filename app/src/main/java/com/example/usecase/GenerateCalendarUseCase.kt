@@ -122,6 +122,8 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         // Geração da liga de pontos corridos apenas para o país do time do usuário.
         // Formatos comuns usam o round-robin adaptativo; gigantes divisíveis em grupos iguais
         // jogam turno + returno dentro do grupo, em paralelo, sem ultrapassar 40 semanas.
+        // Tamanhos gigantes ainda sem formato balanceado não persistem um calendário impossível:
+        // ficam no fallback compacto até uma regra detalhada própria ser definida.
         val groupedTeams = teams.groupBy { Pair(it.country, it.division) }
         for ((key, teamGroup) in groupedTeams) {
             val (country, div) = key
@@ -141,7 +143,7 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
                             )
                         )
                     }
-                } else {
+                } else if (LeagueSeasonFormat.fitsCurrentSeason(teamGroup.size)) {
                     val legs = LeagueSeasonFormat.legsForDetailedLeague(teamGroup.size)
                     allFixtures.addAll(
                         generateRoundRobinFixtures(
