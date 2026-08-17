@@ -175,8 +175,18 @@ class GlobalLeagueSimulationUseCase {
         for (i in 0 until orderedTeams.lastIndex) {
             for (j in i + 1 until orderedTeams.size) {
                 for (leg in 0 until legs) {
-                    val homeTeam = if (leg == 0) orderedTeams[i] else orderedTeams[j]
-                    val awayTeam = if (leg == 0) orderedTeams[j] else orderedTeams[i]
+                    val firstTeamAtHome = if (legs == 1) {
+                        LeagueSeasonFormat.firstTeamHostsCompactSingleLeg(
+                            firstIndex = i,
+                            secondIndex = j,
+                            season = season,
+                            division = division
+                        )
+                    } else {
+                        leg == 0
+                    }
+                    val homeTeam = if (firstTeamAtHome) orderedTeams[i] else orderedTeams[j]
+                    val awayTeam = if (firstTeamAtHome) orderedTeams[j] else orderedTeams[i]
                     val (homeGoals, awayGoals) = simulateScore(
                         season = season,
                         country = country,
