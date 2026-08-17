@@ -78,7 +78,7 @@ class GlobalLeagueSimulationUseCase {
         val teamIds = teams.map { it.id }.toSet()
         if (teamIds.size != teams.size) return emptyList()
 
-        val acceptedTypes = competitionTypesForDivision(division)
+        val acceptedTypes = LeagueSeasonFormat.acceptedDetailedCompetitionTypes(division)
         val relevant = fixtures.filter {
             it.season == season &&
                 it.competitionType in acceptedTypes &&
@@ -88,9 +88,6 @@ class GlobalLeagueSimulationUseCase {
         val legs = LeagueSeasonFormat.legsForDetailedLeague(teams.size)
         val expectedFixtureCount = LeagueSeasonFormat.expectedFixtureCount(teams.size)
 
-        // Nunca transforma uma tabela parcial ou estruturalmente corrompida em verdade
-        // histórica. O calendário pode ser turno único ou turno + returno, conforme o número
-        // de clubes que cabe nas 40 semanas, e todos os pareamentos esperados precisam existir.
         if (relevant.size != expectedFixtureCount || relevant.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
             } || !hasExpectedPairings(teamIds, relevant, legs)
@@ -301,16 +298,6 @@ class GlobalLeagueSimulationUseCase {
             goalsAgainst = goalsAgainst,
             goalDifference = goalDifference
         )
-    }
-
-    private fun competitionTypesForDivision(division: Int): Set<String> {
-        return when (division) {
-            1 -> setOf("SERIE_A", "DIV_1")
-            2 -> setOf("SERIE_B", "DIV_2")
-            3 -> setOf("SERIE_C", "DIV_3")
-            4 -> setOf("SERIE_D", "DIV_4")
-            else -> setOf("SERIE_D", "DIV_$division")
-        }
     }
 
     private fun stableSeed(value: String): Long {
