@@ -45,6 +45,40 @@ class FixtureScheduleValidatorTest {
     }
 
     @Test
+    fun fixtureBeforeFirstWeekIsRejected() {
+        assertThrows(IllegalArgumentException::class.java) {
+            FixtureScheduleValidator.requireValid(
+                listOf(
+                    fixture(
+                        week = 0,
+                        slot = MatchSlot.WEEKEND,
+                        home = 1L,
+                        away = 2L,
+                        competition = "SERIE_A"
+                    )
+                )
+            )
+        }
+    }
+
+    @Test
+    fun clubCannotPlayAgainstItself() {
+        assertThrows(IllegalArgumentException::class.java) {
+            FixtureScheduleValidator.requireValid(
+                listOf(
+                    fixture(
+                        week = 8,
+                        slot = MatchSlot.MIDWEEK,
+                        home = 7L,
+                        away = 7L,
+                        competition = "COPA"
+                    )
+                )
+            )
+        }
+    }
+
+    @Test
     fun progressionCannotAddConflictAgainstPersistedSchedule() {
         val existing = listOf(
             fixture(week = 20, slot = MatchSlot.MIDWEEK, home = 7L, away = 8L, competition = "COPA")
