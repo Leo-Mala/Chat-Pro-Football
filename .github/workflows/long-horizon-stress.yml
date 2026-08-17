@@ -1,11 +1,11 @@
 name: Long-Horizon Stress
 
-# PR events create only a skipped control run so concurrency can cancel an older
-# expensive stress run. The stress job itself runs exclusively by manual dispatch.
+# Commits de desenvolvimento em PR draft criam apenas um check ignorado, sem runner.
+# O stress completo roda manualmente ou uma única vez quando o PR sai de draft.
 on:
   pull_request:
     branches: [ "main", "master" ]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   stress:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
