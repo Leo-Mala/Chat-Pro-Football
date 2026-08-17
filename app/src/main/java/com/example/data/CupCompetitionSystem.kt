@@ -161,9 +161,9 @@ object CupCompetitionSystem {
             val available = (candidates.size - offset).coerceAtLeast(0)
             val participantCount = supportedGroupTeamCount(available)
             if (participantCount == 0) {
-                groupFields += emptyList()
+                groupFields.add(emptyList())
             } else {
-                groupFields += candidates.subList(offset, offset + participantCount)
+                groupFields.add(candidates.subList(offset, offset + participantCount))
                 offset += participantCount
             }
         }
