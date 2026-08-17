@@ -88,7 +88,7 @@ data class Player(
     val energy: Int = 100, // 0 to 100
     val moral: Int = 75, // 0 to 100
     val salary: Long = 10000L,
-    val contractDurationWeeks: Int = 52,
+    val contractDurationWeeks: Int = GameCalendar.WEEKS_PER_SEASON,
     val isFromAcademy: Boolean = false,
     val careerApps: Int = 0,
     val careerGoals: Int = 0,
@@ -256,13 +256,15 @@ data class Player(
         Index(value = ["homeTeamId"]),
         Index(value = ["awayTeamId"]),
         Index(value = ["competitionType"]),
-        Index(value = ["season", "week"])
+        Index(value = ["season", "week"]),
+        Index(value = ["season", "week", "matchSlot"])
     ]
 )
 data class Fixture(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val season: Int,
-    val week: Int, // 1 to 40 (GameCalendar.WEEKS_PER_SEASON)
+    val week: Int, // 1 to GameCalendar.WEEKS_PER_SEASON
+    val matchSlot: MatchSlot = MatchSlot.WEEKEND,
     val homeTeamId: Long,
     val awayTeamId: Long,
     val homeScore: Int? = null,
@@ -424,6 +426,4 @@ data class PlayerLoan(
     val buyoutOptionPrice: Long? = null,
     val status: String = "ACTIVE" // "ACTIVE", "COMPLETED", "BOUGHT_OUT"
 )
-
-
 
