@@ -27,6 +27,7 @@ jobs:
   validation:
     # Drafts não alocam runner. O checkpoint consolidado pode ser disparado manualmente
     # via workflow_dispatch; PRs não-draft só executam em novos commits/reaberturas.
+    # Este job é o gate consolidado único antes do merge da fase.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
