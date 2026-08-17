@@ -323,13 +323,16 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
     val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
 
-    // Process weekly contracts and loans
+    // A CPU decide renovações imediatamente antes do único tick semanal de contratos.
+    val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
+    cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
     processTransfersUseCase.processWeeklyContractsAndLoans()
+    cpuSquadManagement.processWeeklyAfterContracts()
 
     // Generate incoming transfer offers for user players
     generateWeeklyIncomingOffers()
 
-    // Execute monthly evolution every 4 weeks, including the canonical final week (40).
+    // Execute monthly evolution every 4 weeks, including the canonical final week (48).
     if (save.currentWeek % 4 == 0) {
         playerEvolutionUseCase.executeMonthlyEvolution(save, "S${save.currentSeason}_W${save.currentWeek}")
     }
