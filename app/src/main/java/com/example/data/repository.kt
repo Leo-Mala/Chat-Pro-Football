@@ -71,6 +71,7 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun getAllPlayers(): List<Player> = db.playerDao().getAllPlayers()
     suspend fun getPlayersByTeam(teamId: Long): List<Player> = db.playerDao().getPlayersByTeam(teamId)
     suspend fun getPlayerCountByTeam(teamId: Long): Int = db.playerDao().getPlayerCountByTeam(teamId)
+    suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()
     suspend fun getPlayer(id: Long): Player? = db.playerDao().getPlayer(id)
     suspend fun insertPlayersIfNotExists(players: List<Player>) = db.withTransaction {
         if (players.size > 100) {
@@ -126,11 +127,13 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun getAllFixtures(): List<Fixture> = db.fixtureDao().getAllFixtures()
 
     /**
-     * Toda criação de fixture passa pela mesma barreira de calendário. Progressões de copas não
-     * podem inserir silenciosamente uma segunda partida do mesmo clube no mesmo slot.
+     * Toda criação de fixture passa pela mesma barreira de calendário e, desde V21, pela barreira
+     * relacional. Participantes virtuais conhecidos são materializados em Team antes do insert;
+     * referências desconhecidas são recusadas em vez de persistir corrupção.
      */
     suspend fun saveFixtures(fixtures: List<Fixture>) = db.withTransaction {
         if (fixtures.isEmpty()) return@withTransaction
+        ensureFixtureTeamReferences(fixtures)
         val existing = fixtures
             .map { it.season }
             .distinct()
@@ -150,6 +153,7 @@ class GameRepository(private val db: AppDatabase) {
      * Qualquer remarcação de semana/slot/clubes continua obrigada a passar pelo validador.
      */
     suspend fun updateFixture(fixture: Fixture) = db.withTransaction {
+        ensureFixtureTeamReferences(listOf(fixture))
         val seasonFixtures = db.fixtureDao().getFixturesForSeason(fixture.season)
         val persisted = seasonFixtures.firstOrNull { it.id == fixture.id }
         if (persisted == null || !sameScheduleIdentity(persisted, fixture)) {
@@ -163,6 +167,7 @@ class GameRepository(private val db: AppDatabase) {
 
     suspend fun updateFixtures(fixtures: List<Fixture>) = db.withTransaction {
         if (fixtures.isEmpty()) return@withTransaction
+        ensureFixtureTeamReferences(fixtures)
 
         val persistedById = fixtures
             .map { it.season }
@@ -186,6 +191,27 @@ class GameRepository(private val db: AppDatabase) {
         } else {
             db.fixtureDao().updateFixtures(fixtures)
         }
+    }
+
+    private suspend fun ensureFixtureTeamReferences(fixtures: List<Fixture>) {
+        if (fixtures.isEmpty()) return
+        val requiredIds = fixtures
+            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+            .toSet()
+        require(requiredIds.none { it <= 0L }) {
+            "Fixture não pode referenciar teamId <= 0."
+        }
+
+        val persistedIds = db.teamDao().getAllTeams().asSequence().map { it.id }.toHashSet()
+        val missing = requiredIds.filterNot { it in persistedIds }.sorted()
+        if (missing.isEmpty()) return
+
+        val invalidMissing = missing.filterNot(GlobalFootballSystem::isGeneratedVirtualTeamId)
+        require(invalidMissing.isEmpty()) {
+            "Fixture referencia clubes não persistidos fora do namespace virtual: $invalidMissing"
+        }
+
+        db.teamDao().insertTeams(missing.map(GlobalFootballSystem::getVirtualTeam))
     }
 
     private fun sameScheduleIdentity(first: Fixture, second: Fixture): Boolean =
