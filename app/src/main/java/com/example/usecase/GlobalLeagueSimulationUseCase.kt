@@ -90,7 +90,7 @@ class GlobalLeagueSimulationUseCase {
 
         if (relevant.size != expectedFixtureCount || relevant.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
-            } || !hasExpectedPairings(teamIds, relevant, legs)
+            } || !LeagueSeasonFormat.hasExpectedDetailedPairings(teamIds, relevant, legs)
         ) {
             return emptyList()
         }
@@ -105,36 +105,6 @@ class GlobalLeagueSimulationUseCase {
         }
 
         return toStandings(season, teams, stats)
-    }
-
-    private fun hasExpectedPairings(
-        teamIds: Set<Long>,
-        fixtures: List<Fixture>,
-        legs: Int
-    ): Boolean {
-        val ids = teamIds.sorted()
-        if (legs == 2) {
-            val directedPairCounts = fixtures
-                .groupingBy { it.homeTeamId to it.awayTeamId }
-                .eachCount()
-
-            return ids.all { homeId ->
-                ids.all { awayId ->
-                    homeId == awayId || directedPairCounts[homeId to awayId] == 1
-                }
-            }
-        }
-
-        val unorderedPairCounts = fixtures
-            .groupingBy { minOf(it.homeTeamId, it.awayTeamId) to maxOf(it.homeTeamId, it.awayTeamId) }
-            .eachCount()
-
-        for (i in 0 until ids.lastIndex) {
-            for (j in i + 1 until ids.size) {
-                if (unorderedPairCounts[ids[i] to ids[j]] != 1) return false
-            }
-        }
-        return true
     }
 
     private fun simulateCompactLeague(
