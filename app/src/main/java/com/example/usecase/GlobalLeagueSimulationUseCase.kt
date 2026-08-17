@@ -59,6 +59,8 @@ class GlobalLeagueSimulationUseCase {
         if (teams.size < 2) return emptyList()
 
         val teamIds = teams.map { it.id }.toSet()
+        if (teamIds.size != teams.size) return emptyList()
+
         val relevant = fixtures.filter {
             it.season == season &&
                 it.competitionType in setOf("SERIE_A", "DIV_1") &&
@@ -67,11 +69,12 @@ class GlobalLeagueSimulationUseCase {
         }
         val expectedFixtureCount = teams.size * (teams.size - 1)
 
-        // Nunca transforma uma tabela parcial em verdade histórica. A liga detalhada gerada
-        // pelo jogo é turno + returno, portanto precisa conter N*(N-1) partidas concluídas.
+        // Nunca transforma uma tabela parcial ou estruturalmente corrompida em verdade
+        // histórica. O calendário detalhado é turno + returno: além de N*(N-1) partidas,
+        // cada par ordenado casa -> fora deve existir exatamente uma vez.
         if (relevant.size != expectedFixtureCount || relevant.any {
                 !it.isPlayed || it.homeScore == null || it.awayScore == null
-            }
+            } || !hasEveryDirectedPairExactlyOnce(teamIds, relevant)
         ) {
             return emptyList()
         }
@@ -86,6 +89,21 @@ class GlobalLeagueSimulationUseCase {
         }
 
         return toStandings(season, teams, stats)
+    }
+
+    private fun hasEveryDirectedPairExactlyOnce(
+        teamIds: Set<Long>,
+        fixtures: List<Fixture>
+    ): Boolean {
+        val directedPairCounts = fixtures
+            .groupingBy { it.homeTeamId to it.awayTeamId }
+            .eachCount()
+
+        return teamIds.all { homeId ->
+            teamIds.all { awayId ->
+                homeId == awayId || directedPairCounts[homeId to awayId] == 1
+            }
+        }
     }
 
     private fun simulateCompactLeague(
@@ -118,8 +136,8 @@ class GlobalLeagueSimulationUseCase {
         val stats = orderedTeams.associate { it.id to MutableStats() }.toMutableMap()
 
         // Até 20 clubes: turno e returno (máximo 38 jogos por clube).
-        // Acima de 20: turno único. Isso evita calendário virtual acima das 40 semanas e
-        // mantém todas as partidas simétricas: cada vitória sempre corresponde a uma derrota.
+        // Acima de 20: turno único. Nas primeiras divisões atualmente cadastradas isso chega
+        // no máximo a 29 jogos por clube, mantendo o horizonte de 40 semanas.
         val legs = if ((orderedTeams.size - 1) * 2 <= 38) 2 else 1
 
         for (i in 0 until orderedTeams.lastIndex) {
