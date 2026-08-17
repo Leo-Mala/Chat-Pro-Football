@@ -6,6 +6,7 @@ import org.junit.Test
 
 class ContinentalPartialFieldCompatibilityTest {
 
+    // Final regression for reduced candidate universes: never persist an unfinishable 20-team field.
     @Test
     fun twentyEligibleCONMEBOLClubsDegradeToCompleteSixteenTeamTierOne() {
         val candidates = (1L..20L).map { id ->
