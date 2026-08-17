@@ -68,7 +68,9 @@ class SeasonTransitionUseCase(
         // - país do usuário: somente resultados detalhados realmente concluídos podem mover clubes;
         // - países CPU: usam os snapshots compactos recém-persistidos;
         // - hierarquias nacionais explícitas prevalecem e os demais países usam o fallback
-        //   genérico conservador de 2 vagas, nunca as 4 vagas específicas do Brasil.
+        //   genérico conservador de 2 vagas, nunca as 4 vagas específicas do Brasil;
+        // - divisões intermediárias pequenas reduzem automaticamente as vagas para que os
+        //   grupos promovidos e rebaixados nunca se sobreponham na mesma temporada.
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
         val teamsByCountry = allTeams.groupBy { it.country }
         val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
@@ -81,15 +83,14 @@ class SeasonTransitionUseCase(
             for ((upperRule, lowerRule) in divisions.zipWithNext()) {
                 val upperTeams = countryTeams.filter { it.division == upperRule.divisionLevel }
                 val lowerTeams = countryTeams.filter { it.division == lowerRule.divisionLevel }
-                val movementSpots = hierarchy.movementSpotsBetween(
-                    upperRule.divisionLevel,
-                    lowerRule.divisionLevel
+                val movementSpots = hierarchy.safeMovementSpotsBetween(
+                    upperLevel = upperRule.divisionLevel,
+                    lowerLevel = lowerRule.divisionLevel,
+                    upperTeamCount = upperTeams.size,
+                    lowerTeamCount = lowerTeams.size
                 )
 
-                if (movementSpots <= 0 ||
-                    upperTeams.size < movementSpots ||
-                    lowerTeams.size < movementSpots
-                ) {
+                if (movementSpots <= 0) {
                     continue
                 }
 
