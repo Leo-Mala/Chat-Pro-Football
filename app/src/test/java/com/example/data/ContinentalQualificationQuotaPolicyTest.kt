@@ -2,6 +2,7 @@ package com.example.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -148,7 +149,14 @@ class ContinentalQualificationQuotaPolicyTest {
         assertEquals(0, tier3.targetFieldSize)
         assertTrue(ContinentalQualificationQuotaPolicy.hasExplicitPolicy("CONMEBOL"))
         assertFalse(ContinentalQualificationQuotaPolicy.hasExplicitPolicy("UEFA"))
-        assertEquals(null, ContinentalQualificationQuotaPolicy.planFor("UEFA", "CONTINENTAL_T1"))
+        assertNull(ContinentalQualificationQuotaPolicy.planFor("UEFA", "CONTINENTAL_T1"))
+
+        assertTrue(ContinentalQualificationQuotaPolicy.isTierEnabled("CONMEBOL", "CONTINENTAL_T1"))
+        assertTrue(ContinentalQualificationQuotaPolicy.isTierEnabled("CONMEBOL", "CONTINENTAL_T2"))
+        assertFalse(ContinentalQualificationQuotaPolicy.isTierEnabled("CONMEBOL", "CONTINENTAL_T3"))
+        assertTrue(ContinentalQualificationQuotaPolicy.isTierEnabled("UEFA", "CONTINENTAL_T1"))
+        assertTrue(ContinentalQualificationQuotaPolicy.isTierEnabled("UEFA", "CONTINENTAL_T2"))
+        assertTrue(ContinentalQualificationQuotaPolicy.isTierEnabled("UEFA", "CONTINENTAL_T3"))
     }
 
     private fun conmebolUniverse(): List<Team> {
