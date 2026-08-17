@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.AppDatabase
 import com.example.data.Fixture
+import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Team
@@ -58,7 +59,7 @@ class GlobalCpuMultiSeasonTransitionTest {
 
         var save = GameSave(
             currentSeason = 2026,
-            currentWeek = 40,
+            currentWeek = GameCalendar.WEEKS_PER_SEASON,
             playerTeamId = brazil.first().id
         )
         repository.saveGameSave(save)
@@ -102,7 +103,7 @@ class GlobalCpuMultiSeasonTransitionTest {
             .map { it.teamId }
             .toSet()
 
-        save = save.copy(currentWeek = 40)
+        save = save.copy(currentWeek = GameCalendar.WEEKS_PER_SEASON)
         repository.saveGameSave(save)
         save = transition.advanceToNextSeason(save)
 
