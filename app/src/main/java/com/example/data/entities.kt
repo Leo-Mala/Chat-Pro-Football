@@ -89,7 +89,7 @@ data class Player(
     val energy: Int = 100, // 0 to 100
     val moral: Int = 75, // 0 to 100
     val salary: Long = 10000L,
-    val contractDurationWeeks: Int = GameCalendar.WEEKS_PER_SEASON,
+    val contractDurationWeeks: Int = 52,
     val isFromAcademy: Boolean = false,
     val careerApps: Int = 0,
     val careerGoals: Int = 0,
