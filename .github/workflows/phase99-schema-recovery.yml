@@ -1,0 +1,51 @@
+name: Phase 9.9 Schema Recovery
+
+on:
+  push:
+    branches:
+      - agent/v3-room-relational-integrity
+    paths:
+      - '.github/workflows/phase99-schema-recovery.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  recover-schema:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v3-room-relational-integrity
+          fetch-depth: 0
+
+      - name: Recover exact Room V21 schema from validated artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/phase99-schema
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            /repos/${{ github.repository }}/actions/artifacts/9303294759/zip \
+            > /tmp/phase99-schema/artifact.zip
+          unzip -q /tmp/phase99-schema/artifact.zip -d /tmp/phase99-schema/unpacked
+          test -f /tmp/phase99-schema/unpacked/21.json
+          echo 'af95a28a92a5f9b146d83409369b68b357324d1d22587362854cf5e9589595c9  /tmp/phase99-schema/unpacked/21.json' | sha256sum -c -
+          mkdir -p app/schemas/com.example.data.AppDatabase
+          cp /tmp/phase99-schema/unpacked/21.json app/schemas/com.example.data.AppDatabase/21.json
+
+      - name: Commit only the validated schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/schemas/com.example.data.AppDatabase/21.json
+          git diff --cached --quiet && { echo 'Schema already present; nothing to commit.'; exit 0; }
+          git commit -m 'chore(room): add exported V21 schema'
+          git push origin HEAD:agent/v3-room-relational-integrity
