@@ -4,6 +4,7 @@ import com.example.usecase.FinanceUseCase
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/** Checkpoint consolidado da Fase 9.6A: calendário, rollover e limites domésticos. */
 class GameCalendarTest {
 
     @Test
