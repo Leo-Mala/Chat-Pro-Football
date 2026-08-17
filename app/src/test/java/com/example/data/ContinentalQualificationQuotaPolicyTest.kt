@@ -90,6 +90,40 @@ class ContinentalQualificationQuotaPolicyTest {
     }
 
     @Test
+    fun currentDefaultDataCanFillBothCONMEBOLFieldsUsingOnlyTopFlightClubs() {
+        var nextId = 1L
+        val candidates = conmebolCountries.flatMap { country ->
+            DefaultData.getTeamsForCountry(country)
+                .filter { it.division == 1 }
+                .map { template ->
+                    Team(
+                        id = nextId++,
+                        name = template.name,
+                        city = template.city,
+                        state = template.state,
+                        country = country,
+                        division = template.division,
+                        rating = template.rating,
+                        stadiumName = template.stadium
+                    )
+                }
+        }.sortedWith(
+            compareBy<Team> { it.division }
+                .thenByDescending { it.rating }
+                .thenBy { it.id }
+        )
+
+        val fields = CupCompetitionSystem.selectContinentalFields(candidates, "CONMEBOL")
+
+        assertEquals(32, fields.tier1.size)
+        assertEquals(32, fields.tier2.size)
+        assertTrue(fields.tier3.isEmpty())
+        assertEquals(64, fields.allTeamIds.size)
+        assertTrue((fields.tier1 + fields.tier2).all { it.division == 1 })
+        assertEquals(conmebolCountries.toSet(), (fields.tier1 + fields.tier2).map { it.country }.toSet())
+    }
+
+    @Test
     fun missingCountryQuotaIsRedistributedWithoutShrinkingField() {
         val candidates = conmebolUniverse().filterNot { it.country == "Bolívia" }
         val plan = requireNotNull(
