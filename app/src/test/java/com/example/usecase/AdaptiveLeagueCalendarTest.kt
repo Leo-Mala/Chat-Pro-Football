@@ -59,6 +59,36 @@ class AdaptiveLeagueCalendarTest {
     }
 
     @Test
+    fun fiftySevenClubLeagueUsesThreeGroupsOfNineteenWithByes() {
+        val teams = teams(count = 57, country = "México", division = 3)
+
+        val fixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "México"
+        ).filter { it.competitionType == "SERIE_C" }
+
+        assertEquals(1_026, fixtures.size)
+        assertEquals(38, fixtures.maxOf { it.week })
+        assertTrue(fixtures.all { it.week in 1..40 })
+        assertTrue(fixtures.none { it.homeTeamId <= 0L || it.awayTeamId <= 0L })
+        assertTrue(
+            LeagueSeasonFormat.hasExpectedDetailedPairings(
+                teamIds = teams.map { it.id }.toSet(),
+                fixtures = fixtures
+            )
+        )
+
+        val appearances = fixtures
+            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+            .groupingBy { it }
+            .eachCount()
+        assertEquals(57, appearances.size)
+        assertTrue(appearances.values.all { it == 36 })
+    }
+
+    @Test
     fun sixtyClubLeagueUsesThreeBalancedGroupsOfTwenty() {
         val teams = teams(count = 60, country = "Brasil", division = 4)
 
