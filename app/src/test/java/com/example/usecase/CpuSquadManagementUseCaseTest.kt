@@ -238,6 +238,74 @@ class CpuSquadManagementUseCaseTest {
         assertFalse(repository.getActiveLoans().isEmpty())
     }
 
+    @Test
+    fun `same persisted state produces identical CPU squad decisions`() = runBlocking {
+        val secondDb = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            AppDatabase::class.java
+        ).allowMainThreadQueries().build()
+        try {
+            val secondRepository = GameRepository(secondDb)
+            seedDeterministicScenario(repository)
+            seedDeterministicScenario(secondRepository)
+
+            val firstReport = CpuSquadManagementUseCase(repository).ensureCpuSquadIntegrity()
+            val secondReport = CpuSquadManagementUseCase(secondRepository).ensureCpuSquadIntegrity()
+
+            assertEquals(firstReport, secondReport)
+            assertEquals(
+                repository.getAllPlayers().sortedBy { it.id },
+                secondRepository.getAllPlayers().sortedBy { it.id }
+            )
+        } finally {
+            secondDb.close()
+        }
+    }
+
+    private suspend fun seedDeterministicScenario(target: GameRepository) {
+        val user = team(10L, "Usuário Determinismo", isPlayer = true)
+        val cpuA = team(20L, "CPU A")
+        val cpuB = team(30L, "CPU B")
+        target.saveTeams(listOf(user, cpuA, cpuB))
+        target.saveGameSave(GameSave(playerTeamId = user.id, currentSeason = 2029, currentWeek = 12))
+        target.savePlayers(
+            (1..12).map { index ->
+                Player(
+                    id = 20_000L + index,
+                    teamId = cpuA.id,
+                    name = "A $index",
+                    age = 24 + index % 7,
+                    position = if (index == 1) "GOL" else "MEI",
+                    force = 68 + index % 5,
+                    contractDurationWeeks = 40
+                )
+            } +
+                (1..14).map { index ->
+                    Player(
+                        id = 30_000L + index,
+                        teamId = cpuB.id,
+                        name = "B $index",
+                        age = 23 + index % 8,
+                        position = if (index == 1) "GOL" else "ZAG",
+                        force = 70 + index % 6,
+                        contractDurationWeeks = 40
+                    )
+                } +
+                (1..8).map { index ->
+                    Player(
+                        id = 90_000L + index,
+                        teamId = 0L,
+                        name = "Livre Determinístico $index",
+                        age = 21 + index,
+                        position = if (index == 1) "GOL" else if (index <= 4) "MEI" else "ATA",
+                        force = 65 + index,
+                        contractDurationWeeks = 0,
+                        salary = 0L
+                    )
+                }
+        )
+    }
+
     private fun team(id: Long, name: String, isPlayer: Boolean = false): Team = Team(
         id = id,
         name = name,
