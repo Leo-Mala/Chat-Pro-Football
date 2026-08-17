@@ -102,22 +102,22 @@ interface PlayerDao {
 
 @Dao
 interface FixtureDao {
-    @Query("SELECT * FROM fixtures ORDER BY season DESC, week ASC, id ASC")
+    @Query("SELECT * FROM fixtures ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")
     fun getFixturesFlow(): Flow<List<Fixture>>
 
-    @Query("SELECT * FROM fixtures ORDER BY season DESC, week ASC, id ASC")
+    @Query("SELECT * FROM fixtures ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")
     suspend fun getAllFixtures(): List<Fixture>
 
-    @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, id ASC")
+    @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>>
 
-    @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, id ASC")
+    @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>
 
-    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, id ASC")
+    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>>
 
-    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, id ASC")
+    @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture>
 
     @Transaction
