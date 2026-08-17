@@ -1,9 +1,11 @@
 package com.example.usecase
 
+import com.example.data.ContinentalQualificationRules
 import com.example.data.CupCompetitionSystem
 import com.example.data.Fixture
 import com.example.data.GameRepository
 import com.example.data.GlobalFootballSystem
+import com.example.data.GlobalLeagueStanding
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
 
@@ -93,12 +95,18 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
      * A liga de pontos corridos continua restrita ao país do usuário. A Copa nacional usa
      * clubes desse mesmo país; os torneios continentais usam clubes da confederação correta;
      * e o Super Mundial continua seguindo sua regra própria de temporadas elegíveis.
+     *
+     * [qualificationStandings] contém o snapshot da temporada anterior. Quando presente,
+     * ele ajusta somente a lista transitória usada na abertura de Copa/continentais; os ratings
+     * reais dos clubes persistidos permanecem intactos. Na primeira temporada a lista é vazia
+     * e o comportamento legado por rating continua funcionando como fallback.
      */
     fun generateSeasonFixtures(
         season: Int,
         teams: List<Team>,
         userTeamId: Long,
-        userCountry: String = "BRASIL"
+        userCountry: String = "BRASIL",
+        qualificationStandings: List<GlobalLeagueStanding> = emptyList()
     ): List<Fixture> {
         val allFixtures = mutableListOf<Fixture>()
         val userTeam = teams.find { it.id == userTeamId }
@@ -122,16 +130,20 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
 
         // Copa nacional e continentais. Somente a fase inicial é criada aqui;
         // as fases seguintes são geradas após os resultados pelo CupCompetitionSystem.
+        val qualificationAwareTeams = ContinentalQualificationRules.applyPreviousSeasonStandings(
+            teams = teams,
+            standings = qualificationStandings
+        )
         allFixtures.addAll(
             CupCompetitionSystem.generateSeasonOpeningFixtures(
                 season = season,
-                teams = teams,
+                teams = qualificationAwareTeams,
                 userTeamId = userTeamId,
                 userCountry = targetCountry
             )
         )
 
-        // Super Mundial permanece independente e só existe nas temporadas elegíveis.
+        // Super Mundial permanece independente, usa ratings reais e só existe nas temporadas elegíveis.
         val worldCupFixtures = SuperMundialSystem.generateGroupStageFixtures(season, teams, userTeamId)
         allFixtures.addAll(worldCupFixtures)
 
