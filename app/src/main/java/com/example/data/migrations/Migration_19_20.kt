@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *
  * Saves V19 nasceram em um calendário de uma data lógica por semana, mas já podiam conter
  * liga + copa/continental na mesma semana. Para preservar essa intenção na nova arquitetura:
- * - ligas detalhadas SERIE_*/DIV_* permanecem em WEEKEND;
+ * - ligas detalhadas com prefixos SERIE_ ou DIV_ permanecem em WEEKEND;
  * - copas, continentais e torneios mundiais legados são classificados como MIDWEEK.
  */
 val MIGRATION_19_20 = object : Migration(19, 20) {
