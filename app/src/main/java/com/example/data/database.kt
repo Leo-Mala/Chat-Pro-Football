@@ -10,6 +10,7 @@ import com.example.data.migrations.MIGRATION_14_15
 import com.example.data.migrations.MIGRATION_15_16
 import com.example.data.migrations.MIGRATION_16_17
 import com.example.data.migrations.MIGRATION_17_18
+import com.example.data.migrations.MIGRATION_18_19
 
 @Database(
     entities = [
@@ -24,9 +25,10 @@ import com.example.data.migrations.MIGRATION_17_18
         TransferOrder::class,
         HistoricoEvolucao::class,
         TransferInstallment::class,
-        PlayerLoan::class
+        PlayerLoan::class,
+        GlobalLeagueStanding::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 @TypeConverters(AtributosConverter::class)
@@ -43,13 +45,15 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun historicoEvolucaoDao(): HistoricoEvolucaoDao
     abstract fun transferInstallmentDao(): TransferInstallmentDao
     abstract fun playerLoanDao(): PlayerLoanDao
+    abstract fun globalLeagueStandingDao(): GlobalLeagueStandingDao
 
     companion object {
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_14_15,
             MIGRATION_15_16,
             MIGRATION_16_17,
-            MIGRATION_17_18
+            MIGRATION_17_18,
+            MIGRATION_18_19
         )
 
         fun buildDatabaseWithName(context: Context, name: String): AppDatabase {
