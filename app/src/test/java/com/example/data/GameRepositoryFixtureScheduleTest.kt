@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -63,6 +64,40 @@ class GameRepositoryFixtureScheduleTest {
         val updated = repository.getFixturesForWeek(2026, 12).first { it.id == 1L }
         assertEquals(2, updated.homeScore)
         assertEquals(1, updated.awayScore)
+    }
+
+    @Test
+    fun pendingWeekendFixtureIsReturnedBeforePlayedMidweekFixtureForManualFlow() = runTest {
+        val playedMidweek = Fixture(
+            id = 20L,
+            season = 2026,
+            week = 10,
+            matchSlot = MatchSlot.MIDWEEK,
+            homeTeamId = 1L,
+            awayTeamId = 2L,
+            competitionType = "CONTINENTAL_T1",
+            homeScore = 2,
+            awayScore = 1,
+            isPlayed = true
+        )
+        val pendingWeekend = Fixture(
+            id = 21L,
+            season = 2026,
+            week = 10,
+            matchSlot = MatchSlot.WEEKEND,
+            homeTeamId = 3L,
+            awayTeamId = 1L,
+            competitionType = "SERIE_A"
+        )
+        repository.saveFixtures(listOf(playedMidweek, pendingWeekend))
+
+        val userFixtures = repository.getFixturesForWeek(2026, 10)
+            .filter { it.homeTeamId == 1L || it.awayTeamId == 1L }
+
+        assertEquals(2, userFixtures.size)
+        assertEquals(pendingWeekend.id, userFixtures.first().id)
+        assertFalse(userFixtures.first().isPlayed)
+        assertEquals(MatchSlot.WEEKEND, userFixtures.first().matchSlot)
     }
 
     @Test
