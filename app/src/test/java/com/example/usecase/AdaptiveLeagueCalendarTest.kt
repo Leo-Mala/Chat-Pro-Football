@@ -135,8 +135,18 @@ class AdaptiveLeagueCalendarTest {
     }
 
     @Test
-    fun irregularGiantDivisionRemainsExplicitlyOnFallback() {
+    fun irregularGiantDivisionRemainsExplicitlyOnFallbackWithoutImpossibleLeagueFixtures() {
+        val teams = teams(count = 41, country = "Teste")
+
+        val leagueFixtures = useCase.generateSeasonFixtures(
+            season = 2026,
+            teams = teams,
+            userTeamId = teams.first().id,
+            userCountry = "Teste"
+        ).filter { it.competitionType == "SERIE_A" }
+
         assertFalse(LeagueSeasonFormat.supportsDetailedFormat(41))
+        assertTrue(leagueFixtures.isEmpty())
     }
 
     private fun teams(
