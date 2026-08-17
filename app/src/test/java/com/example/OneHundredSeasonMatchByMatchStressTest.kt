@@ -297,12 +297,15 @@ class OneHundredSeasonMatchByMatchStressTest {
         val expectedWorldGroupMatches = expectedWorldSeasons * 48
         val expectedWorldKnockoutMatches = expectedWorldSeasons * 15
 
-        // With 20 Brazilian clubs the deterministic tournament fields are:
+        // With 20 Brazilian clubs the explicit CONMEBOL policy degrades the incomplete universe
+        // to the largest tournament-compatible field instead of persisting five groups that
+        // cannot reach a power-of-two knockout bracket:
         // Copa: 16 clubs => 15 matches/season.
         // Continental T1: 16 clubs => 24 group + 7 knockout = 31 matches/season.
-        // Continental T3: remaining 4 clubs => 3 knockout matches/season.
+        // Continental T2: fewer than 8 eligible clubs remain => no partial tournament.
+        // Continental T3: disabled for CONMEBOL.
         val expectedDomesticCupMatches = totalSeasons * 15
-        val expectedContinentalMatches = totalSeasons * (31 + 3)
+        val expectedContinentalMatches = totalSeasons * 31
 
         assertEquals("Expected 2126 current season", 2126, finalSave!!.currentSeason)
         assertEquals("Expected 38000 Série A matches across 100 seasons", 38000, totalLeagueMatchesSimulated)
