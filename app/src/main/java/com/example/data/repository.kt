@@ -105,9 +105,18 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun deletePlayer(id: Long) = db.playerDao().deletePlayer(id)
     suspend fun deletePlayers() = db.playerDao().deletePlayers()
 
+    /**
+     * Na interação de uma semana, jogos ainda pendentes precisam vir antes dos já concluídos para
+     * que um segundo slot do usuário continue disponível após a partida do primeiro slot. Entre
+     * fixtures com o mesmo estado, a ordem canônica MIDWEEK -> WEEKEND continua preservada.
+     */
     suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture> =
         db.fixtureDao().getFixturesForWeek(season, week)
-            .sortedWith(FixtureScheduleValidator.chronologicalComparator())
+            .sortedWith(
+                compareBy<Fixture> { if (it.isPlayed) 1 else 0 }
+                    .thenBy { it.matchSlot.order }
+                    .thenBy { it.id }
+            )
 
     suspend fun getFixturesForSeason(season: Int): List<Fixture> =
         db.fixtureDao().getFixturesForSeason(season)
