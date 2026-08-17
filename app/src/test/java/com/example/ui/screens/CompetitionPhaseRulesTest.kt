@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.data.GameCalendar
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -7,12 +8,11 @@ import org.junit.Test
 class CompetitionPhaseRulesTest {
 
     @Test
-    fun worldCupIsFinalOnlyOnWeek40() {
-        assertFalse(isCompetitionFinalWeek("WORLD", 36))
-        assertFalse(isCompetitionFinalWeek("WORLD", 38))
-        assertFalse(isCompetitionFinalWeek("WORLD_CUP", 39))
-        assertTrue(isCompetitionFinalWeek("WORLD", 40))
-        assertTrue(isCompetitionFinalWeek("WORLD_CUP", 40))
+    fun worldCupIsFinalOnlyOnCanonicalFinalWeek() {
+        assertFalse(isCompetitionFinalWeek("WORLD", 40))
+        assertFalse(isCompetitionFinalWeek("WORLD_CUP", GameCalendar.WEEKS_PER_SEASON - 1))
+        assertTrue(isCompetitionFinalWeek("WORLD", GameCalendar.WEEKS_PER_SEASON))
+        assertTrue(isCompetitionFinalWeek("WORLD_CUP", GameCalendar.WEEKS_PER_SEASON))
     }
 
     @Test
