@@ -99,12 +99,12 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         val allPlayers = repository.getAllPlayers()
         val activeLoans = repository.getActiveLoans()
         val rosters = allPlayers
-            .filter { it.teamId != 0L }
+            .filter { it.teamId != null }
             .groupBy { it.teamId }
             .mapValues { (_, players) -> players.toMutableList() }
             .toMutableMap()
         val freeAgents = allPlayers
-            .filter { it.teamId == 0L && !it.isOnLoan }
+            .filter { it.teamId == null && !it.isOnLoan }
             .sortedBy { it.id }
             .toMutableList()
         val pendingUpdates = linkedMapOf<Long, Player>()
@@ -148,8 +148,8 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                     roster.removeAll { it.id in releaseIds }
                     toRelease.forEach { player ->
                         val freeAgent = player.copy(
-                            teamId = 0L,
-                            originalTeamId = 0L,
+                            teamId = null,
+                            originalTeamId = null,
                             contractDurationWeeks = 0,
                             salary = 0L,
                             isStarter = false,
@@ -177,7 +177,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
 
                 val signedPlayer = candidate.copy(
                     teamId = team.id,
-                    originalTeamId = 0L,
+                    originalTeamId = null,
                     contractDurationWeeks = renewalDuration(candidate),
                     salary = candidate.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L),
                     isStarter = false,
@@ -208,7 +208,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                 val generatedPlayer = template.copy(
                     id = nextCollisionSafeId(),
                     teamId = team.id,
-                    originalTeamId = 0L,
+                    originalTeamId = null,
                     contractDurationWeeks = renewalDuration(template),
                     salary = template.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L),
                     isStarter = false,
