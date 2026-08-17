@@ -28,6 +28,28 @@ object LeagueSeasonFormat {
         }
     }
 
+    /** Código canônico hoje persistido pelo calendário detalhado para cada nível. */
+    fun detailedCompetitionTypeForDivision(division: Int): String {
+        require(division > 0) { "Divisão deve ser positiva: $division" }
+        return when (division) {
+            1 -> "SERIE_A"
+            2 -> "SERIE_B"
+            3 -> "SERIE_C"
+            else -> "SERIE_D"
+        }
+    }
+
+    /**
+     * Códigos aceitos ao ler fixtures detalhados.
+     *
+     * Mantém compatibilidade tanto com o código legado SERIE_* gravado pelo calendário quanto
+     * com aliases division-aware `DIV_n`. Para níveis 5+, isso significa `SERIE_D` + `DIV_5`,
+     * `SERIE_D` + `DIV_6` etc., evitando que snapshot e promoção usem regras divergentes.
+     */
+    fun acceptedDetailedCompetitionTypes(division: Int): Set<String> {
+        return setOf(detailedCompetitionTypeForDivision(division), "DIV_$division")
+    }
+
     /**
      * Política exclusiva da simulação CPU em memória.
      *
