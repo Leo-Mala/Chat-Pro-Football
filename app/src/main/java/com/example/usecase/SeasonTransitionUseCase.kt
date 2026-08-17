@@ -236,6 +236,8 @@ class SeasonTransitionUseCase(
     ): Boolean {
         if (teams.size < 2) return false
         val teamIds = teams.map { it.id }.toSet()
+        if (teamIds.size != teams.size) return false
+
         val acceptedTypes = setOf(compType, alternateCompetitionType(compType))
         val relevantFixtures = fixtures.filter { fixture ->
             fixture.competitionType in acceptedTypes &&
@@ -245,11 +247,24 @@ class SeasonTransitionUseCase(
 
         // O calendário detalhado de liga é sempre turno + returno. Portanto, uma temporada
         // só pode gerar promoção/rebaixamento quando existem exatamente N*(N-1) confrontos
-        // internos, todos concluídos e com placar. Uma lista parcial porém totalmente jogada
-        // não pode ser confundida com uma liga encerrada.
+        // internos, todos concluídos e com placar, e cada par ordenado casa -> fora aparece
+        // exatamente uma vez. Duplicatas nunca podem compensar partidas ausentes.
         val expectedFixtureCount = teams.size * (teams.size - 1)
-        return relevantFixtures.size == expectedFixtureCount && relevantFixtures.all {
-            it.isPlayed && it.homeScore != null && it.awayScore != null
+        if (relevantFixtures.size != expectedFixtureCount || relevantFixtures.any {
+                !it.isPlayed || it.homeScore == null || it.awayScore == null
+            }
+        ) {
+            return false
+        }
+
+        val directedPairCounts = relevantFixtures
+            .groupingBy { it.homeTeamId to it.awayTeamId }
+            .eachCount()
+
+        return teamIds.all { homeId ->
+            teamIds.all { awayId ->
+                homeId == awayId || directedPairCounts[homeId to awayId] == 1
+            }
         }
     }
 
