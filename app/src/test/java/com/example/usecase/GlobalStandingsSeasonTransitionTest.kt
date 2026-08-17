@@ -152,7 +152,7 @@ class GlobalStandingsSeasonTransitionTest {
     }
 
     @Test
-    fun unsupportedCpuCountryDoesNotInheritBrazilianMovementRules() = runBlocking {
+    fun countryWithoutExplicitHierarchyUsesGenericTwoSpotMovement() = runBlocking {
         val user = team(1, "Brasil User", "Brasil", 80)
         val brazilOther = team(2, "Brasil CPU", "Brasil", 70)
         val franceUpper = (30L..33L).mapIndexed { index, id ->
@@ -161,24 +161,50 @@ class GlobalStandingsSeasonTransitionTest {
         val franceLower = (40L..43L).mapIndexed { index, id ->
             team(id, "FRA B ${index + 1}", "França", 70 - index * 5, division = 2)
         }
-        repository.saveTeams(listOf(user, brazilOther) + franceUpper + franceLower)
+        val allTeams = listOf(user, brazilOther) + franceUpper + franceLower
+        repository.saveTeams(allTeams)
 
         val save = GameSave(currentSeason = 2026, currentWeek = 40, playerTeamId = user.id)
         repository.saveGameSave(save)
-        repository.saveFixtures(
-            listOf(
-                playedLeagueFixture(1, user.id, brazilOther.id, 1, 0),
-                playedLeagueFixture(2, brazilOther.id, user.id, 0, 1)
-            )
+        val detailedFixtures = listOf(
+            playedLeagueFixture(1, user.id, brazilOther.id, 1, 0),
+            playedLeagueFixture(2, brazilOther.id, user.id, 0, 1)
         )
+        repository.saveFixtures(detailedFixtures)
+
+        val expectedSnapshot = GlobalLeagueSimulationUseCase().buildSeasonStandings(
+            season = 2026,
+            teams = allTeams,
+            detailedFixtures = detailedFixtures,
+            detailedCountry = "Brasil"
+        )
+        val expectedRelegated = expectedSnapshot
+            .filter { it.country == "França" && it.division == 1 }
+            .sortedBy { it.position }
+            .takeLast(2)
+            .map { it.teamId }
+            .toSet()
+        val expectedPromoted = expectedSnapshot
+            .filter { it.country == "França" && it.division == 2 }
+            .sortedBy { it.position }
+            .take(2)
+            .map { it.teamId }
+            .toSet()
 
         newTransition().advanceToNextSeason(save)
 
         val updated = repository.getAllTeams().associateBy { it.id }
-        franceUpper.forEach { assertEquals(1, updated.getValue(it.id).division) }
-        franceLower.forEach { assertEquals(2, updated.getValue(it.id).division) }
+        expectedRelegated.forEach { id -> assertEquals(2, updated.getValue(id).division) }
+        expectedPromoted.forEach { id -> assertEquals(1, updated.getValue(id).division) }
+        franceUpper.filterNot { it.id in expectedRelegated }
+            .forEach { assertEquals(1, updated.getValue(it.id).division) }
+        franceLower.filterNot { it.id in expectedPromoted }
+            .forEach { assertEquals(2, updated.getValue(it.id).division) }
 
-        // Mesmo sem movimentação, as tabelas CPU continuam disponíveis para histórico.
+        // A França usa exatamente 2 vagas genéricas, não as 4 específicas do Brasil.
+        assertEquals(2, expectedRelegated.size)
+        assertEquals(2, expectedPromoted.size)
+
         val snapshot = repository.getGlobalStandingsForSeason(2026)
         assertEquals(4, snapshot.count { it.country == "França" && it.division == 1 })
         assertEquals(4, snapshot.count { it.country == "França" && it.division == 2 })
