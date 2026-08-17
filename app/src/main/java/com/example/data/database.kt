@@ -11,6 +11,7 @@ import com.example.data.migrations.MIGRATION_15_16
 import com.example.data.migrations.MIGRATION_16_17
 import com.example.data.migrations.MIGRATION_17_18
 import com.example.data.migrations.MIGRATION_18_19
+import com.example.data.migrations.MIGRATION_19_20
 
 @Database(
     entities = [
@@ -28,10 +29,10 @@ import com.example.data.migrations.MIGRATION_18_19
         PlayerLoan::class,
         GlobalLeagueStanding::class
     ],
-    version = 19,
+    version = 20,
     exportSchema = true
 )
-@TypeConverters(AtributosConverter::class)
+@TypeConverters(AtributosConverter::class, MatchSlotConverter::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun gameSaveDao(): GameSaveDao
     abstract fun teamDao(): TeamDao
@@ -53,7 +54,8 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_15_16,
             MIGRATION_16_17,
             MIGRATION_17_18,
-            MIGRATION_18_19
+            MIGRATION_18_19,
+            MIGRATION_19_20
         )
 
         fun buildDatabaseWithName(context: Context, name: String): AppDatabase {
