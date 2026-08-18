@@ -13,6 +13,8 @@ USER_AGENT = "Chat-Pro-Football/1.0 (open-data pilot; https://github.com/Leo-Mal
 ENWIKI_API = "https://en.wikipedia.org/w/api.php"
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 SEASON_REFERENCE_DATE = date(2026, 8, 18)
+ASSOCIATION_FOOTBALL_PLAYER_QID = "Q937857"
+LOAN_QID = "Q2914547"
 
 WIKIPEDIA_PAGES = {
     "Arsenal FC":"Arsenal F.C.",
@@ -53,6 +55,21 @@ def _time_to_iso(value: dict[str, Any] | None) -> str | None:
         return None
     return raw[1:11] if raw.startswith("+") else raw[:10]
 
+def _qualifier_values(statement: dict[str, Any], prop: str) -> list[Any]:
+    values = []
+    for snak in (statement.get("qualifiers") or {}).get(prop, []):
+        value = (snak.get("datavalue") or {}).get("value")
+        if value is not None:
+            values.append(value)
+    return values
+
+def _statement_active(statement: dict[str, Any]) -> bool:
+    end_values = _qualifier_values(statement, "P582")
+    if not end_values:
+        return True
+    end_iso = _time_to_iso(end_values[0]) if isinstance(end_values[0], dict) else None
+    return end_iso is None or end_iso >= SEASON_REFERENCE_DATE.isoformat()
+
 def _claim_item_ids(entity: dict[str, Any], prop: str) -> list[str]:
     result = []
     for claim in (entity.get("claims") or {}).get(prop, []):
@@ -61,6 +78,17 @@ def _claim_item_ids(entity: dict[str, Any], prop: str) -> list[str]:
         if isinstance(value, dict) and value.get("id"):
             result.append(str(value["id"]))
     return result
+
+def _active_claim_item_ids(entity: dict[str, Any], prop: str) -> list[str]:
+    rows = []
+    for claim in (entity.get("claims") or {}).get(prop, []):
+        if claim.get("rank") == "deprecated" or not _statement_active(claim):
+            continue
+        value = (((claim.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {})
+        if isinstance(value, dict) and value.get("id"):
+            rows.append((0 if claim.get("rank") == "preferred" else 1, str(value["id"])))
+    rows.sort()
+    return [qid for _, qid in rows]
 
 def _claim_time(entity: dict[str, Any], prop: str) -> str | None:
     for claim in (entity.get("claims") or {}).get(prop, []):
@@ -71,33 +99,20 @@ def _claim_time(entity: dict[str, Any], prop: str) -> str | None:
                 return parsed
     return None
 
-def _qualifier_values(statement: dict[str, Any], prop: str) -> list[Any]:
-    values = []
-    for snak in (statement.get("qualifiers") or {}).get(prop, []):
-        value = (snak.get("datavalue") or {}).get("value")
-        if value is not None:
-            values.append(value)
-    return values
-
 def _statement_for_team(entity: dict[str, Any], team_qid: str) -> dict[str, Any] | None:
     candidates = []
     for statement in (entity.get("claims") or {}).get("P54", []):
         value = (((statement.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {})
-        if value.get("id") != team_qid:
+        if value.get("id") != team_qid or not _statement_active(statement):
             continue
-        end_values = _qualifier_values(statement, "P582")
-        if end_values:
-            end_iso = _time_to_iso(end_values[0]) if isinstance(end_values[0], dict) else None
-            if end_iso and end_iso < SEASON_REFERENCE_DATE.isoformat():
-                continue
         candidates.append(statement)
     if not candidates:
         return None
     candidates.sort(key=lambda s: 0 if s.get("rank") == "preferred" else 1)
     return candidates[0]
 
-def _shirt_number(entity: dict[str, Any], membership: dict[str, Any]) -> int | None:
-    candidates = _qualifier_values(membership, "P1618")
+def _shirt_number(entity: dict[str, Any], membership: dict[str, Any] | None) -> int | None:
+    candidates = _qualifier_values(membership or {}, "P1618")
     if not candidates:
         for statement in (entity.get("claims") or {}).get("P1618", []):
             value = ((statement.get("mainsnak") or {}).get("datavalue") or {}).get("value")
@@ -111,6 +126,35 @@ def _shirt_number(entity: dict[str, Any], membership: dict[str, Any]) -> int | N
                 return number
         except (TypeError, ValueError):
             pass
+    return None
+
+def _position_ids(entity: dict[str, Any], membership: dict[str, Any] | None) -> list[str]:
+    result = []
+    for value in _qualifier_values(membership or {}, "P413"):
+        if isinstance(value, dict) and value.get("id"):
+            result.append(str(value["id"]))
+    for qid in _claim_item_ids(entity, "P413"):
+        if qid not in result:
+            result.append(qid)
+    return result
+
+def _position_to_provider_label(label: str) -> str | None:
+    value = label.strip().casefold().replace("_", " ")
+    if "goalkeeper" in value or value == "keeper":
+        return "Goalkeeper"
+    if any(token in value for token in (
+        "defender", "centre-back", "center-back", "full-back", "fullback",
+        "wing-back", "wingback", "left-back", "right-back", "sweeper",
+    )):
+        return "Defender"
+    if any(token in value for token in (
+        "midfielder", "midfield", "wing half", "wing-half", "half-back", "half back",
+    )):
+        return "Midfielder"
+    if any(token in value for token in (
+        "forward", "striker", "winger", "attacker",
+    )):
+        return "Forward"
     return None
 
 class WikimediaClient:
@@ -236,26 +280,26 @@ class WikimediaOpenDataProvider(DataProvider):
             linked_entities = self.client.entities(linked_qids)
             all_entities.update(linked_entities)
 
-            stadium_qids = set(_claim_item_ids(club_entity, "P115"))
-            city_qids = set(_claim_item_ids(club_entity, "P159") + _claim_item_ids(club_entity, "P131"))
-            related = stadium_qids | city_qids
+            stadium_qids = _active_claim_item_ids(club_entity, "P115")
+            city_qids = _active_claim_item_ids(club_entity, "P159") or _active_claim_item_ids(club_entity, "P131")
+            related = set(stadium_qids + city_qids)
             labels = _labels(all_entities, related, self.client)
-            stadium = labels.get(next(iter(stadium_qids), ""), "")
-            city = labels.get(next(iter(city_qids), ""), "")
+            stadium = labels.get(stadium_qids[0], "") if stadium_qids else ""
+            city = labels.get(city_qids[0], "") if city_qids else ""
 
             transient_team_id = _qid_int(club_qid)
-            accepted = []
+            candidates = []
             rejected = []
             metadata_qids: set[str] = set()
 
             for linked_qid in linked_qids:
                 entity = linked_entities.get(linked_qid) or {}
-                membership = _statement_for_team(entity, club_qid)
-                if membership is None:
+                if ASSOCIATION_FOOTBALL_PLAYER_QID not in _claim_item_ids(entity, "P106"):
                     continue
+                membership = _statement_for_team(entity, club_qid)
                 birth = _claim_time(entity, "P569")
                 nationality_ids = _claim_item_ids(entity, "P27")
-                position_ids = _claim_item_ids(entity, "P413")
+                position_ids = _position_ids(entity, membership)
                 metadata_qids.update(nationality_ids)
                 metadata_qids.update(position_ids)
                 label = str(((entity.get("labels") or {}).get("en") or {}).get("value") or "")
@@ -267,12 +311,25 @@ class WikimediaOpenDataProvider(DataProvider):
                 if missing:
                     rejected.append({"qid":linked_qid,"title":label or linked_qid,"missing":missing})
                     continue
-                accepted.append((linked_qid, entity, membership, label, birth, nationality_ids, position_ids))
+                candidates.append((linked_qid, entity, membership, label, birth, nationality_ids, position_ids))
 
             metadata_labels = _labels(all_entities, metadata_qids, self.client)
-            for linked_qid, entity, membership, label, birth, nationality_ids, position_ids in accepted:
+            accepted_count = 0
+            p54_crosschecked = 0
+            for linked_qid, entity, membership, label, birth, nationality_ids, position_ids in candidates:
                 nationality = metadata_labels.get(nationality_ids[0], nationality_ids[0])
-                position = metadata_labels.get(position_ids[0], position_ids[0])
+                raw_position = metadata_labels.get(position_ids[0], position_ids[0])
+                position = _position_to_provider_label(raw_position)
+                if position is None:
+                    rejected.append({
+                        "qid":linked_qid,
+                        "title":label,
+                        "missing":[f"supportedPosition({raw_position})"],
+                    })
+                    continue
+                accepted_count += 1
+                if membership is not None:
+                    p54_crosschecked += 1
                 players_response.append({
                     "player":{
                         "id":_qid_int(linked_qid),
@@ -286,18 +343,19 @@ class WikimediaOpenDataProvider(DataProvider):
                     }],
                 })
 
-                acquisition_ids = []
-                for value in _qualifier_values(membership, "P1642"):
-                    if isinstance(value, dict) and value.get("id"):
-                        acquisition_ids.append(str(value["id"]))
-                if "Q2914547" in acquisition_ids:
-                    audit["loanCandidates"].append({
-                        "playerQid":linked_qid,
-                        "player":label,
-                        "borrowerClub":team_name,
-                        "borrowerClubQid":club_qid,
-                        "status":"DETECTED_NOT_MATERIALIZED",
-                    })
+                if membership is not None:
+                    acquisition_ids = []
+                    for value in _qualifier_values(membership, "P1642"):
+                        if isinstance(value, dict) and value.get("id"):
+                            acquisition_ids.append(str(value["id"]))
+                    if LOAN_QID in acquisition_ids:
+                        audit["loanCandidates"].append({
+                            "playerQid":linked_qid,
+                            "player":label,
+                            "borrowerClub":team_name,
+                            "borrowerClubQid":club_qid,
+                            "status":"DETECTED_NOT_MATERIALIZED",
+                        })
 
             teams_response.append({
                 "team":{"id":transient_team_id,"name":team_name,"country":"England"},
@@ -309,7 +367,8 @@ class WikimediaOpenDataProvider(DataProvider):
                 "wikipediaPage":club_pages[team_name],
                 "squadSection":section,
                 "candidateLinks":len(links),
-                "acceptedPlayers":len(accepted),
+                "acceptedPlayers":accepted_count,
+                "p54CrossCheckedPlayers":p54_crosschecked,
                 "rejectedPlayers":rejected,
                 "stadium":stadium,
                 "city":city,
