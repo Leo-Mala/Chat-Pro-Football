@@ -75,7 +75,12 @@
     {"fullName":"Trai Hume","position":"Defender","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
     {"fullName":"Noah Sadiki","position":"Midfielder","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
     {"fullName":"Chris Rigg","position":"Midfielder","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
-    {"fullName":"Jocelin Ta Bi","position":"Forward","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"}
+    {"fullName":"Jocelin Ta Bi","position":"Forward","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
+    {"fullName":"Jayden Meghoma","position":"Defender","source":"https://www.brentfordfc.com/en/news/article/interviews-jayden-meghoma-pre-season-portugal-2026-rangers-loan"},
+    {"fullName":"Kevin","position":"Forward","source":"https://www.fulhamfc.com/teams/"},
+    {"fullName":"Joshua King","position":"Midfielder","source":"https://www.fulhamfc.com/teams/"},
+    {"fullName":"Cameron Humphreys","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/40/ipswich-town/squad"},
+    {"fullName":"Guglielmo Vicario","position":"Goalkeeper","source":"https://www.tottenhamhotspur.com/player/184254/guglielmo-vicario"}
   ],
   "stadiums": [
     {"club":"Brentford FC","stadium":"Gtech Community Stadium","source":"https://www.premierleague.com/en/clubs/94/brentford/stadium"},
@@ -84,7 +89,8 @@
   ],
   "squadMemberships": [
     {"club":"Manchester City","clubWikipediaPage":"Manchester City F.C.","fullName":"Rodri","wikipediaTitle":"Rodri (footballer, born 1996)","source":"https://www.mancity.com/players/rodri"},
-    {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop (footballer)","source":"https://www.itfc.co.uk/news/2026/july/22/issa-diop-is-a-blue/"}
+    {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop (footballer)","source":"https://www.itfc.co.uk/news/2026/july/22/issa-diop-is-a-blue/"},
+    {"club":"Tottenham Hotspur","clubWikipediaPage":"Tottenham Hotspur F.C.","fullName":"Guglielmo Vicario","wikipediaTitle":"Guglielmo Vicario","source":"https://www.tottenhamhotspur.com/player/184254/guglielmo-vicario"}
   ],
   "birthDates": [
     {"fullName":"Zach Abbott","wikipediaTitle":"Zach Abbott","birthDateIso":"2006-05-13","source":"https://www.premierleague.com/en/players/549067/zach-abbott/overview"}
