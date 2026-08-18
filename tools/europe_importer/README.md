@@ -14,6 +14,14 @@ Live credentials are read only from environment variables: `API_FOOTBALL_KEY` an
 
 `config/associations_2026_27.json` defines the same 20 UEFA associations modeled in the app. The first executable pilot exercises all 20 Premier League clubs in Python. Android keeps a small representative Premier League canonical fixture (including both sides of a loan) as `FIXTURE_ONLY`; it exists only for loader/planner tests and cannot seed a real save. Live `FACTUAL` generation can write the full league, optionally sharded by club for reviewable versioned diffs.
 
+## Runtime activation
+
+The app only exposes a dataset to career creation when `dataset_manifest.json` reports `validationStatus=VALIDATED` and every canonical shard is `datasetKind=FACTUAL`. `FIXTURE_ONLY` is therefore test data, never production seed data.
+
+`GenerateCalendarUseCase.generateSeasonFixtures` is the new-career checkpoint that prepares a one-shot `EuropeanNewSaveSeedCoordinator` plan. During the initial Room transaction, `GameRepository.saveTeams` applies factual club city/stadium metadata and `savePlayers` atomically consumes the planner output for `Player` plus `PlayerLoan`. The pending plan is removed after one consumption and also cleared in the outer transaction `finally`, so save loading, roster repair, regens, academies and uncovered countries/divisions keep their existing procedural behavior.
+
+If a future factual club resolves to a stable identity that is not present in the current global team list, or if a loan cannot materialize both owner and borrower, the seed fails closed instead of silently creating inconsistent data.
+
 ## Commands
 
 ```bash
