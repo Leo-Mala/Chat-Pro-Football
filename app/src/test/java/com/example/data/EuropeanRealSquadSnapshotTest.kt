@@ -74,6 +74,15 @@ class EuropeanRealSquadSnapshotTest {
     }
 
     @Test
+    fun `Manchester United snapshot records only official club sources`() {
+        val snapshot = ManchesterUnitedSquad2026_27.snapshot
+
+        assertTrue(snapshot.sourceRefs.isNotEmpty())
+        assertTrue(snapshot.sourceRefs.all { it.startsWith("https://www.manutd.com/") })
+        assertEquals("2026-08-18", snapshot.verifiedAsOfIso)
+    }
+
+    @Test
     fun `global factual catalog exposes one audited club and leaves the rest visibly missing`() {
         val expectedTotal = EuropeanDomesticBaseline2026_27.associations
             .sumOf { it.verifiedTopFlightClubs.size }
