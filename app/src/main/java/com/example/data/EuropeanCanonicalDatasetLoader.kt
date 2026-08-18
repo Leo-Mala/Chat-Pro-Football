@@ -37,13 +37,18 @@ data class EuropeanCanonicalDataset(
     val squadCatalog: EuropeanRealSquadCatalog = EuropeanRealSquadCatalog(squads)
     val loanCatalog: EuropeanRealLoanCatalog = EuropeanRealLoanCatalog(loans)
 
+    private data class TeamIdentityKey(val id: Long, val country: String, val name: String)
+
+    private fun Team.identityKey() = TeamIdentityKey(id, country.trim().lowercase(), name.trim().lowercase())
+    private fun EuropeanCanonicalClubFact.identityKey() =
+        TeamIdentityKey(teamId, country.trim().lowercase(), name.trim().lowercase())
+
+    fun appliesTo(team: Team): Boolean = clubFacts.any { it.identityKey() == team.identityKey() }
+
     fun applyClubFacts(teams: List<Team>): List<Team> {
-        val factsById = clubFacts.associateBy { it.teamId }
+        val factsByIdentity = clubFacts.associateBy { it.identityKey() }
         return teams.map { team ->
-            val fact = factsById[team.id] ?: return@map team
-            require(team.country.equals(fact.country, ignoreCase = true)) {
-                "Dataset factual aponta country divergente para teamId=${team.id}: ${team.country} vs ${fact.country}"
-            }
+            val fact = factsByIdentity[team.identityKey()] ?: return@map team
             team.copy(
                 city = fact.city.ifBlank { team.city },
                 stadiumName = fact.stadium.ifBlank { team.stadiumName }
