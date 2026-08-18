@@ -16,14 +16,44 @@ class _Client:
         payload = {
             "Q132719377": {
                 "claims": {
-                    "P106": [{"mainsnak": {"datavalue": {"value": {"id": "Q937857"}}}}],
-                    "P569": [{"mainsnak": {"datavalue": {"value": {"time": "+2005-08-04T00:00:00Z", "precision": 11}}}}],
-                    "P1532": [{"mainsnak": {"datavalue": {"value": {"id": "Q1041"}}}}],
+                    "P106": [
+                        {
+                            "mainsnak": {
+                                "datavalue": {
+                                    "value": {"id": "Q937857"}
+                                }
+                            }
+                        }
+                    ],
+                    "P569": [
+                        {
+                            "mainsnak": {
+                                "datavalue": {
+                                    "value": {
+                                        "time": "+2005-08-04T00:00:00Z",
+                                        "precision": 11,
+                                    }
+                                }
+                            }
+                        }
+                    ],
+                    "P1532": [
+                        {
+                            "mainsnak": {
+                                "datavalue": {
+                                    "value": {"id": "Q1041"}
+                                }
+                            }
+                        }
+                    ],
                 },
                 "labels": {"en": {"value": "Modou Kéba Cissé"}},
                 "descriptions": {"en": {"value": "Senegalese footballer"}},
             },
-            "Q1041": {"claims": {}, "labels": {"en": {"value": "Senegal"}},
+            "Q1041": {
+                "claims": {},
+                "labels": {"en": {"value": "Senegal"}},
+            },
         }
         return {qid: payload[qid] for qid in qids if qid in payload}
 
@@ -37,26 +67,34 @@ class _Provider:
 class VerifiedMembershipMaterializerTest(unittest.TestCase):
     def test_materializes_p1532_only_player_from_verified_membership(self):
         raw = {
-            "teamsResponse": {"response": [{
-                "team": {"id": 100, "name": "Aston Villa"},
-                "venue": {},
-            }]},
+            "teamsResponse": {
+                "response": [
+                    {
+                        "team": {"id": 100, "name": "Aston Villa"},
+                        "venue": {},
+                    }
+                ]
+            },
             "playersResponse": {"response": []},
             "openDataAudit": {"verifiedOverridesUsed": [], "warnings": []},
         }
         overrides = {
-            "positions": [{
-                "fullName": "Modou Kéba Cissé",
-                "position": "Defender",
-                "source": "https://example.test/official-position",
-            }],
-            "squadMemberships": [{
-                "club": "Aston Villa",
-                "clubWikipediaPage": "Aston Villa F.C.",
-                "fullName": "Modou Kéba Cissé",
-                "wikipediaTitle": "Modou Kéba Cissé",
-                "source": "https://example.test/official-membership",
-            }],
+            "positions": [
+                {
+                    "fullName": "Modou Kéba Cissé",
+                    "position": "Defender",
+                    "source": "https://example.test/official-position",
+                }
+            ],
+            "squadMemberships": [
+                {
+                    "club": "Aston Villa",
+                    "clubWikipediaPage": "Aston Villa F.C.",
+                    "fullName": "Modou Kéba Cissé",
+                    "wikipediaTitle": "Modou Kéba Cissé",
+                    "source": "https://example.test/official-membership",
+                }
+            ],
         }
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "overrides.json"
@@ -74,20 +112,42 @@ class VerifiedMembershipMaterializerTest(unittest.TestCase):
 
     def test_does_not_duplicate_existing_verified_membership(self):
         raw = {
-            "teamsResponse": {"response": [{"team": {"id": 100, "name": "Aston Villa"}, "venue": {}}]},
-            "playersResponse": {"response": [{
-                "player": {"id": 132719377, "name": "Modou Kéba Cissé", "birth": {"date": "2005-08-04"}, "nationality": "Senegal"},
-                "statistics": [{"team": {"id": 100}, "games": {"position": "Defender", "number": None}}],
-            }]},
+            "teamsResponse": {
+                "response": [
+                    {"team": {"id": 100, "name": "Aston Villa"}, "venue": {}}
+                ]
+            },
+            "playersResponse": {
+                "response": [
+                    {
+                        "player": {
+                            "id": 132719377,
+                            "name": "Modou Kéba Cissé",
+                            "birth": {"date": "2005-08-04"},
+                            "nationality": "Senegal",
+                        },
+                        "statistics": [
+                            {
+                                "team": {"id": 100},
+                                "games": {"position": "Defender", "number": None},
+                            }
+                        ],
+                    }
+                ]
+            },
             "openDataAudit": {"verifiedOverridesUsed": [], "warnings": []},
         }
-        overrides = {"squadMemberships": [{
-            "club": "Aston Villa",
-            "clubWikipediaPage": "Aston Villa F.C.",
-            "fullName": "Modou Kéba Cissé",
-            "wikipediaTitle": "Modou Kéba Cissé",
-            "source": "https://example.test/official-membership",
-        }]}
+        overrides = {
+            "squadMemberships": [
+                {
+                    "club": "Aston Villa",
+                    "clubWikipediaPage": "Aston Villa F.C.",
+                    "fullName": "Modou Kéba Cissé",
+                    "wikipediaTitle": "Modou Kéba Cissé",
+                    "source": "https://example.test/official-membership",
+                }
+            ]
+        }
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "overrides.json"
             path.write_text(json.dumps(overrides), encoding="utf-8")
