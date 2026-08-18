@@ -120,4 +120,28 @@ class StableRealPlayerIdentityTest {
         assertEquals(26, alreadyHadBirthday.ageAt2026SeasonStart())
         assertEquals(25, birthdayLater.ageAt2026SeasonStart())
     }
+
+    @Test
+    fun `template rejects future or underage factual dates instead of coercing age`() {
+        val invalidForGameplay = listOf(
+            "2030-01-01",
+            "2012-01-01",
+            "2011-08-02"
+        )
+
+        invalidForGameplay.forEach { birthDate ->
+            var failed = false
+            try {
+                EuropeanRealPlayerTemplate("Too Young", birthDate, "England", "MEI")
+            } catch (_: IllegalArgumentException) {
+                failed = true
+            }
+            assertTrue("Data factual deveria ser recusada no baseline: $birthDate", failed)
+        }
+
+        val exactlyFifteen = EuropeanRealPlayerTemplate(
+            "Exactly Fifteen", "2011-08-01", "England", "MEI"
+        )
+        assertEquals(15, exactlyFifteen.ageAt2026SeasonStart())
+    }
 }
