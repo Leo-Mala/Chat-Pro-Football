@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,6 +35,15 @@ class EuropeanCanonicalDatasetLoaderTest {
         assertEquals(1, dataset.loans.size)
         assertEquals(486, dataset.squads.sumOf { it.players.size } + dataset.loans.size)
         assertTrue(dataset.squads.all { it.coverage() == EuropeanSquadCoverage.GAMEPLAY_READY_FACTUAL_SNAPSHOT })
+    }
+
+    @Test fun `procedural stable alias cannot resolve a factual squad`() {
+        val dataset = EuropeanCanonicalDatasetLoader.loadForTesting(context.assets)
+        assertNotNull(dataset.squadCatalog.find("Inglaterra", "Liverpool FC"))
+        assertNull(
+            "A procedural club named Liverpool must not inherit Liverpool FC factual identity",
+            dataset.squadCatalog.find("Inglaterra", "Liverpool")
+        )
     }
 
     @Test fun `canonical loader rejects gameplay attributes even in fixture mode`() {
