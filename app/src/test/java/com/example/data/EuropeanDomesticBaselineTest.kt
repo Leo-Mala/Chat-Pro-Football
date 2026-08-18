@@ -103,4 +103,27 @@ class EuropeanDomesticBaselineTest {
         assertEquals(206L, StableTeamIdentityRegistry.idFor("Espanha", "Athletic Bilbao"))
         assertFalse(StableTeamIdentityRegistry.isStableRealClub("Brasil", "Flamengo"))
     }
+
+    @Test
+    fun `all England and Spain seeded templates resolve to unique reversible ids`() {
+        listOf("Inglaterra", "Espanha").forEach { country ->
+            val templates = DefaultData.getTeamsForCountry(country)
+            val resolved = templates.map { template ->
+                val id = GlobalFootballSystem.getGlobalId(country, template.name)
+                id to template.name
+            }
+
+            assertEquals(
+                "$country possui colisão de teamId após aplicar registry estável",
+                resolved.size,
+                resolved.map { it.first }.distinct().size
+            )
+
+            resolved.forEach { (id, expectedName) ->
+                val materialized = requireNotNull(GlobalFootballSystem.getTeamByGlobalId(id))
+                assertEquals(expectedName, materialized.name)
+                assertEquals(country, materialized.country)
+            }
+        }
+    }
 }
