@@ -51,11 +51,12 @@ class EuropeanStableTeamIdentityTest {
     }
 
     @Test
-    fun `baseline hash snapshots do not drift`() {
+    fun `baseline hash snapshots and explicit collision override do not drift`() {
         assertEquals(103474L, StableTeamIdentityRegistry.idFor("Itália", "Atalanta"))
         assertEquals(105115L, StableTeamIdentityRegistry.idFor("Alemanha", "FC Bayern München"))
         assertEquals(117552L, StableTeamIdentityRegistry.idFor("Portugal", "FC Porto"))
         assertEquals(122151L, StableTeamIdentityRegistry.idFor("Países Baixos", "Ajax"))
+        assertEquals(122152L, StableTeamIdentityRegistry.idFor("Países Baixos", "Go Ahead Eagles"))
         assertEquals(186494L, StableTeamIdentityRegistry.idFor("Grécia", "Olympiacos"))
     }
 
