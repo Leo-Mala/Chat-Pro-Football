@@ -29,6 +29,20 @@ def _rewrite_open_data_provenance(value: Any) -> Any:
     return value
 
 
+def _apply_verified_loan_provenance(dataset: dict[str, Any], overrides_path: Path) -> None:
+    overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
+    source_by_name = {
+        str(row.get("fullName") or "").strip(): str(row.get("source") or "").strip()
+        for row in overrides.get("loans", []) or []
+        if row.get("fullName") and row.get("source")
+    }
+    for loan in dataset.get("loans", []) or []:
+        player_name = str((loan.get("player") or {}).get("fullName") or "").strip()
+        source = source_by_name.get(player_name)
+        if source:
+            loan["sourceRefs"] = [source]
+
+
 def main() -> int:
     output_dir = Path(
         os.environ.get("PREMIER_LEAGUE_PILOT_OUTPUT", "build/premier-league-real-pilot")
@@ -79,9 +93,10 @@ def main() -> int:
             dataset_kind="FACTUAL",
             output_dir=None,
         )
-        result.dataset["provider"] = "wikimedia-open-data"
-        _rewrite_open_data_provenance(result.dataset)
-        manifest = write_sharded_dataset(result.dataset, output_dir)
+        canonical_dataset = _rewrite_open_data_provenance(result.dataset)
+        canonical_dataset["provider"] = "wikimedia-open-data"
+        _apply_verified_loan_provenance(canonical_dataset, overrides_path)
+        manifest = write_sharded_dataset(canonical_dataset, output_dir)
 
         if manifest.get("validationStatus") != "VALIDATED":
             raise RuntimeError(
