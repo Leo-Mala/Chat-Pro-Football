@@ -74,6 +74,15 @@ Após este primeiro lote:
 - ausência de snapshot não é mascarada como cobertura factual completa;
 - o fallback procedural ainda não foi removido do seed.
 
+## Sincronização com a base doméstica
+
+Em 2026-08-18 esta branch foi sincronizada por merge commit normal com o head validado do PR #28:
+`be57c82c028c45259dec296ad211b4b75d55616b`.
+
+O PR #28 passou build, suíte core, stress 20/100 e verificação Room V21 no CI #381. A sincronização
+não usou rebase, squash nem force-push e preserva os sete arquivos exclusivos desta fase sobre a
+base doméstica validada.
+
 ## Comportamento esperado
 
 1. Um jogador factual é materializado uma vez no novo save com seu ID canônico.
@@ -85,8 +94,7 @@ Após este primeiro lote:
 
 Antes de importar os demais milhares de jogadores:
 
-- validar o PR #28 doméstico no CI completo;
-- sincronizar esta branch com o head verde do PR #28 sem rebase/force-push;
+- validar o conjunto PR #28 + PR #29 no CI completo do head exato;
 - validar o primeiro snapshot e colisões globais de `stableId`;
 - transcrever os demais clubes em lotes auditáveis por país;
 - criar a modelagem factual de jogadores emprestados antes de materializá-los no seed;
