@@ -99,7 +99,12 @@ def materialize_missing_verified_memberships(
         str(row.get("fullName") or "").strip(): str(row.get("nationality") or "").strip()
         for row in overrides.get("nationalities", []) or []
     }
-    player_rows = (raw.get("playersResponse") or {}).get("response") or []
+    players_response = raw.setdefault("playersResponse", {})
+    if not isinstance(players_response, dict):
+        raise RuntimeError("playersResponse must be an object")
+    player_rows = players_response.setdefault("response", [])
+    if not isinstance(player_rows, list):
+        raise RuntimeError("playersResponse.response must be a list")
     audit = raw.get("openDataAudit") or provider.last_audit
 
     for membership in memberships:
