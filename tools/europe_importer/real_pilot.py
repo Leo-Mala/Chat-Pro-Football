@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .audited_discovery import (
+    install_current_squad_only_discovery,
+    install_p1532_discovery_bridge,
+)
 from .identity import StableTeamIdentityContract
 from .open_data_postprocess import (
     apply_canonical_name_overrides,
@@ -14,7 +18,6 @@ from .open_data_postprocess import (
 from .pipeline import run_pipeline
 from .providers import FixtureProvider, ProviderRequest
 from .sharding import write_sharded_dataset
-from .verified_membership_materializer import materialize_missing_verified_memberships
 from .wikimedia_open_data import WikimediaOpenDataProvider
 
 HERE = Path(__file__).resolve().parent
@@ -72,25 +75,31 @@ def main() -> int:
         HERE / ".cache" / "wikimedia-open-data",
         team_names=team_names,
     )
+    # Order matters: first constrain collaborative discovery to the active squad body, then bridge
+    # P1532-only structured facts for preliminary discovery, then add explicitly verified members.
+    install_current_squad_only_discovery(provider)
+    install_p1532_discovery_bridge(provider, overrides_path)
     install_verified_squad_discovery_overrides(provider, overrides_path)
 
     summary_path = output_dir / "pilot_summary.json"
     audit_path = output_dir / "open_data_audit.json"
 
     try:
-        # Collection is intentionally separate from canonicalization so the
-        # audit survives even if validation fails.
+        # Collection is intentionally separate from canonicalization so the audit survives even if
+        # validation fails. Verified squad memberships only affect discovery; every player fact is
+        # still required to pass the normal collector and post-processing validation path.
         raw = provider.collect(request)
-        materialize_missing_verified_memberships(provider, raw, overrides_path)
+        provider.last_audit["p1532DiscoveryBridgeCount"] = len(
+            getattr(provider, "p1532_discovery_bridged_qids", set())
+        )
         raw = apply_verified_open_data_facts(provider, raw, overrides_path)
         audit_path.write_text(
             json.dumps(provider.last_audit, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
 
-        # The open-data collector emits the same transient raw shape as the
-        # tested fixture normalizer. External/QIDs are stripped by canonicalize;
-        # only explicitly verified membership/loan facts may fill discovery gaps.
+        # The open-data collector emits the same transient raw shape as the tested fixture
+        # normalizer. QIDs and provider-like transient identifiers are stripped by canonicalize.
         raw["provider"] = "fixture"
         contract = StableTeamIdentityContract.from_json(contract_path)
         result = run_pipeline(
@@ -147,10 +156,11 @@ def main() -> int:
             "loanCandidatesDetected": len(provider.last_audit.get("loanCandidates") or []),
             "verifiedLoanCount": verified_loan_count,
             "canonicalNameCorrectionCount": len(name_corrections),
+            "p1532DiscoveryBridgeCount": provider.last_audit.get("p1532DiscoveryBridgeCount", 0),
             "validationStatus": manifest.get("validationStatus"),
             "datasetFiles": manifest.get("datasetFiles"),
             "sourcePolicy": {
-                "squadDiscovery": "English Wikipedia current/first-team squad section plus explicit official membership overrides",
+                "squadDiscovery": "English Wikipedia current/first-team squad body only (nested subsections excluded) plus explicit official membership overrides",
                 "structuredFacts": "Wikidata CC0",
                 "sportNationality": "Current/ranked Wikidata P1532; official override for unresolved ambiguity; P27 only when P1532 is absent",
                 "verifiedOverrides": "Official club/league sources",
