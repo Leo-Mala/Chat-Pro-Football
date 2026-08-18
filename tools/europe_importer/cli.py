@@ -7,6 +7,7 @@ from .fixture_builder import build_premier_league_api_fixture
 from .identity import StableTeamIdentityContract
 from .pipeline import run_pipeline
 from .providers import ApiFootballProvider, FixtureProvider, JsonCache, ProviderRequest, SportmonksProvider
+from .sharding import write_sharded_dataset
 
 HERE = Path(__file__).resolve().parent
 
@@ -25,6 +26,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--terms-reviewed", action="store_true", help="Required before any live provider request.")
     p.add_argument("--no-transfers", action="store_true")
     p.add_argument("--generated-at")
+    p.add_argument("--shard-by-club", action="store_true")
     return p
 
 def main(argv=None) -> int:
@@ -33,11 +35,7 @@ def main(argv=None) -> int:
         raise SystemExit("Live imports require --terms-reviewed after verifying current provider terms/licensing.")
     cache = JsonCache(HERE / ".cache")
     if args.provider == "fixture":
-        provider = (
-            FixtureProvider(args.fixture)
-            if args.fixture is not None
-            else FixtureProvider(payload=build_premier_league_api_fixture())
-        )
+        provider = FixtureProvider(args.fixture) if args.fixture is not None else FixtureProvider(payload=build_premier_league_api_fixture())
     elif args.provider == "api-football":
         provider = ApiFootballProvider(cache)
     else:
@@ -55,10 +53,11 @@ def main(argv=None) -> int:
         provider, request, contract,
         generated_at=args.generated_at,
         dataset_kind=args.dataset_kind,
-        output_dir=args.output_dir,
+        output_dir=None if args.shard_by_club else args.output_dir,
         filename=args.filename,
     )
-    print(json.dumps(result.manifest, ensure_ascii=False, indent=2))
+    manifest = write_sharded_dataset(result.dataset, args.output_dir) if args.shard_by_club else result.manifest
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
     return 0
 
 if __name__ == "__main__":
