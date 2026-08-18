@@ -6,9 +6,10 @@ import kotlin.random.Random
  * Geração e progressão das copas da carreira.
  *
  * - Copa nacional: mata-mata em jogo único, MIDWEEK, com final na semana 27;
+ * - UEFA: delegada ao [UefaCompetitionSystem] usando códigos concretos UEFA_CL/EL/ECL;
  * - CONMEBOL: delegada ao [ConmebolCompetitionSystem], com Libertadores/Sudamericana completas;
- * - outras confederações: preservam o formato continental legado desta fase do projeto;
- * - Continental T3: mata-mata em jogo único até a semana 36, quando habilitado.
+ * - demais confederações: preservam o formato continental legado desta fase do projeto;
+ * - Continental T3 legado: mata-mata em jogo único até a semana 36, quando habilitado.
  */
 object CupCompetitionSystem {
     const val NATIONAL_CUP_FINAL_WEEK = 27
@@ -81,6 +82,18 @@ object CupCompetitionSystem {
             )
             .toList()
 
+        // UEFA usa a nova projeção tipada de vagas. Ela reordena internamente por associação,
+        // divisão e id e deliberadamente ignora rating como falso coeficiente continental.
+        if (userConfederation == FootballConfederation.UEFA) {
+            val uefaFields = UefaQualificationRules.selectLeaguePhaseFields(continentalCandidates)
+            fixtures += UefaCompetitionSystem.generateOpeningFixtures(
+                season = season,
+                fields = uefaFields
+            )
+            FixtureScheduleValidator.requireValid(fixtures)
+            return fixtures
+        }
+
         val fields = selectContinentalFields(
             candidates = continentalCandidates,
             confederation = userConfederation.code
@@ -93,8 +106,6 @@ object CupCompetitionSystem {
                 sudamericanaTeams = fields.tier2
             )
         } else {
-            // Compatibilidade temporária: as regras reais destas confederações entram nas fases
-            // 9.10B2/C/D. O registry identifica explicitamente esse engine como LEGACY_GENERIC.
             if (fields.tier1.size >= 8 && fields.tier1.size % 4 == 0) {
                 fixtures += generateLegacyGroupStage(
                     season = season,
@@ -212,6 +223,17 @@ object CupCompetitionSystem {
             seasonFixtures = seasonFixtures,
             repository = repository
         )
+
+        // Saves antigos UEFA com apenas CONTINENTAL_T1/T2/T3 continuam no processador legado.
+        // Uma temporada nova é detectada pelos códigos concretos e delegada integralmente ao engine.
+        if (UefaCompetitionSystem.isUefaSeason(seasonFixtures)) {
+            UefaCompetitionSystem.processProgression(
+                season = season,
+                currentWeek = currentWeek,
+                repository = repository
+            )
+            return
+        }
 
         // Uma temporada nova CONMEBOL usa ida/volta e transferência Libertadores -> Sudamericana.
         // O processador legado jamais deve enxergar esses T1/T2, pois trataria uma perna isolada
