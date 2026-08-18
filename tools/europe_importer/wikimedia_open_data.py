@@ -9,12 +9,14 @@ from typing import Any
 
 from .providers import DataProvider, ProviderRequest
 
+HERE = Path(__file__).resolve().parent
 USER_AGENT = "Chat-Pro-Football/1.0 (open-data pilot; https://github.com/Leo-Mala/Chat-Pro-Football)"
 ENWIKI_API = "https://en.wikipedia.org/w/api.php"
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 SEASON_REFERENCE_DATE = date(2026, 8, 18)
 ASSOCIATION_FOOTBALL_PLAYER_QID = "Q937857"
 LOAN_QID = "Q2914547"
+OVERRIDES_PATH = HERE / "config" / "open_data_verified_overrides_2026_27.json"
 
 WIKIPEDIA_PAGES = {
     "Arsenal FC":"Arsenal F.C.",
@@ -153,6 +155,26 @@ def _position_to_provider_label(label: str) -> str | None:
         return "Forward"
     return None
 
+def _load_verified_overrides() -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], str]:
+    if not OVERRIDES_PATH.exists():
+        return {}, {}, ""
+    doc = json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
+    positions = {
+        str(row["fullName"]): {
+            "position": str(row["position"]),
+            "source": str(row["source"]),
+        }
+        for row in doc.get("positions", [])
+    }
+    stadiums = {
+        str(row["club"]): {
+            "stadium": str(row["stadium"]),
+            "source": str(row["source"]),
+        }
+        for row in doc.get("stadiums", [])
+    }
+    return positions, stadiums, str(doc.get("verifiedAsOfIso") or "")
+
 class WikimediaClient:
     def __init__(self, cache_root: Path, min_interval_seconds: float = 0.2):
         self.cache_root = cache_root
@@ -249,12 +271,19 @@ class WikimediaOpenDataProvider(DataProvider):
     def __init__(self, cache_root: Path, team_names: list[str]):
         self.client = WikimediaClient(cache_root)
         self.team_names = team_names
+        self.position_overrides, self.stadium_overrides, self.overrides_verified_as = _load_verified_overrides()
         self.last_audit: dict[str, Any] = {}
 
     def collect(self, request: ProviderRequest) -> dict[str, Any]:
         teams_response = []
         players_response = []
-        audit = {"clubs":[], "warnings":[], "loanCandidates":[]}
+        audit = {
+            "clubs":[],
+            "warnings":[],
+            "loanCandidates":[],
+            "verifiedOverridesUsed":[],
+            "verifiedOverridesAsOfIso": self.overrides_verified_as,
+        }
         all_entities: dict[str, dict[str, Any]] = {}
 
         club_qids: dict[str, str] = {}
@@ -282,6 +311,15 @@ class WikimediaOpenDataProvider(DataProvider):
             labels = _labels(all_entities, related, self.client)
             stadium = labels.get(stadium_qids[0], "") if stadium_qids else ""
             city = labels.get(city_qids[0], "") if city_qids else ""
+            stadium_override = self.stadium_overrides.get(team_name)
+            if stadium_override:
+                stadium = stadium_override["stadium"]
+                audit["verifiedOverridesUsed"].append({
+                    "kind":"stadium",
+                    "club":team_name,
+                    "value":stadium,
+                    "source":stadium_override["source"],
+                })
 
             transient_team_id = _qid_int(club_qid)
             candidates = []
@@ -301,17 +339,19 @@ class WikimediaOpenDataProvider(DataProvider):
                 metadata_qids.update(nationality_ids)
                 metadata_qids.update(position_ids)
                 label = str(((entity.get("labels") or {}).get("en") or {}).get("value") or "")
+                verified_position = self.position_overrides.get(label)
                 missing = []
                 if not label: missing.append("name")
                 if not birth: missing.append("birthDate")
                 if not nationality_ids: missing.append("nationality")
-                if not position_ids and description_position is None: missing.append("position")
+                if not position_ids and description_position is None and verified_position is None:
+                    missing.append("position")
                 if missing:
                     rejected.append({"qid":linked_qid,"title":label or linked_qid,"missing":missing})
                     continue
                 candidates.append((
                     linked_qid, entity, membership, label, birth,
-                    nationality_ids, position_ids, description_position,
+                    nationality_ids, position_ids, description_position, verified_position,
                 ))
 
             metadata_labels = _labels(all_entities, metadata_qids, self.client)
@@ -319,11 +359,14 @@ class WikimediaOpenDataProvider(DataProvider):
             p54_crosschecked = 0
             for (
                 linked_qid, entity, membership, label, birth,
-                nationality_ids, position_ids, description_position,
+                nationality_ids, position_ids, description_position, verified_position,
             ) in candidates:
                 nationality = metadata_labels.get(nationality_ids[0], nationality_ids[0])
                 raw_position = metadata_labels.get(position_ids[0], position_ids[0]) if position_ids else ""
-                position = description_position or _position_to_provider_label(raw_position)
+                position = (
+                    verified_position["position"] if verified_position
+                    else description_position or _position_to_provider_label(raw_position)
+                )
                 if position is None:
                     rejected.append({
                         "qid":linked_qid,
@@ -331,6 +374,14 @@ class WikimediaOpenDataProvider(DataProvider):
                         "missing":[f"supportedPosition({raw_position})"],
                     })
                     continue
+                if verified_position:
+                    audit["verifiedOverridesUsed"].append({
+                        "kind":"position",
+                        "player":label,
+                        "club":team_name,
+                        "value":position,
+                        "source":verified_position["source"],
+                    })
                 accepted_count += 1
                 if membership is not None:
                     p54_crosschecked += 1
