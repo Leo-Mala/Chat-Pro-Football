@@ -16,11 +16,11 @@ class EuropeanFactualClubSeedReadinessTest {
         assertEquals(320, assessments.map { it.stableTeamId }.distinct().size)
 
         val counts = assessments.groupingBy { it.status }.eachCount()
-        assertEquals(40, counts[EuropeanFactualClubSeedStatus.READY])
-        assertEquals(280, counts[EuropeanFactualClubSeedStatus.MISSING_EXPLICIT_TEMPLATE])
-        assertEquals(null, counts[EuropeanFactualClubSeedStatus.NON_TOP_FLIGHT_TEMPLATE])
-        assertEquals(null, counts[EuropeanFactualClubSeedStatus.INVALID_TEMPLATE_METADATA])
-        assertEquals(null, counts[EuropeanFactualClubSeedStatus.GLOBAL_ID_MISMATCH])
+        assertEquals(40, counts.getOrDefault(EuropeanFactualClubSeedStatus.READY, 0))
+        assertEquals(280, counts.getOrDefault(EuropeanFactualClubSeedStatus.MISSING_EXPLICIT_TEMPLATE, 0))
+        assertEquals(0, counts.getOrDefault(EuropeanFactualClubSeedStatus.NON_TOP_FLIGHT_TEMPLATE, 0))
+        assertEquals(0, counts.getOrDefault(EuropeanFactualClubSeedStatus.INVALID_TEMPLATE_METADATA, 0))
+        assertEquals(0, counts.getOrDefault(EuropeanFactualClubSeedStatus.GLOBAL_ID_MISMATCH, 0))
     }
 
     @Test
@@ -29,8 +29,8 @@ class EuropeanFactualClubSeedReadinessTest {
         val readyByCountry = ready.groupingBy { it.country }.eachCount()
 
         assertEquals(setOf("Inglaterra", "Espanha"), readyByCountry.keys)
-        assertEquals(20, readyByCountry["Inglaterra"])
-        assertEquals(20, readyByCountry["Espanha"])
+        assertEquals(20, readyByCountry.getOrDefault("Inglaterra", 0))
+        assertEquals(20, readyByCountry.getOrDefault("Espanha", 0))
         assertEquals(280, EuropeanFactualClubSeedReadiness.notReadyAssessments().size)
     }
 
