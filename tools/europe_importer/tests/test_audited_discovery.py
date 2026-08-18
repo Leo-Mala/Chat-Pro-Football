@@ -21,25 +21,26 @@ class _Client:
             return {
                 "parse": {
                     "sections": [
-                        {"index": "5", "line": "First-team squad", "level": "2"},
-                        {"index": "6", "line": "Out on loan", "level": "3"},
-                        {"index": "7", "line": "Club staff", "level": "2"},
+                        {"index": "5", "line": "First Team", "level": "2"},
+                        {"index": "6", "line": "Goalkeepers", "level": "3"},
+                        {"index": "7", "line": "First Team out on loan", "level": "3"},
+                        {"index": "8", "line": "Club staff", "level": "2"},
                     ]
                 }
             }
         if params.get("prop") == "links" and params.get("section") == "5":
-            # MediaWiki's expanded parent links include nested subsection content.
             return {
                 "parse": {
                     "links": [
                         {"ns": 0, "title": "Active One"},
                         {"ns": 0, "title": "Active Two"},
+                        {"ns": 0, "title": "Active Goalkeeper"},
                         {"ns": 0, "title": "Loaned Player"},
                         {"ns": 14, "title": "Category:Example"},
                     ]
                 }
             }
-        if params.get("prop") == "links" and params.get("section") == "6":
+        if params.get("prop") == "links" and params.get("section") == "7":
             return {"parse": {"links": [{"ns": 0, "title": "Loaned Player"}]}}
         raise AssertionError(params)
 
@@ -48,40 +49,25 @@ class _Client:
             "Q1": {
                 "claims": {
                     "P1532": [
-                        {
-                            "rank": "preferred",
-                            "mainsnak": {"datavalue": {"value": {"id": "Q10"}}},
-                        }
+                        {"rank": "preferred", "mainsnak": {"datavalue": {"value": {"id": "Q10"}}}}
                     ]
                 }
             },
             "Q2": {
                 "claims": {
                     "P1532": [
-                        {
-                            "rank": "normal",
-                            "mainsnak": {"datavalue": {"value": {"id": "Q10"}}},
-                        },
-                        {
-                            "rank": "normal",
-                            "mainsnak": {"datavalue": {"value": {"id": "Q11"}}},
-                        },
+                        {"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q10"}}}},
+                        {"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q11"}}}},
                     ]
                 }
             },
             "Q3": {
                 "claims": {
                     "P27": [
-                        {
-                            "rank": "normal",
-                            "mainsnak": {"datavalue": {"value": {"id": "Q20"}}},
-                        }
+                        {"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q20"}}}}
                     ],
                     "P1532": [
-                        {
-                            "rank": "preferred",
-                            "mainsnak": {"datavalue": {"value": {"id": "Q10"}}},
-                        }
+                        {"rank": "preferred", "mainsnak": {"datavalue": {"value": {"id": "Q10"}}}}
                     ],
                 }
             },
@@ -95,20 +81,20 @@ class _Provider:
 
 
 class AuditedDiscoveryTest(unittest.TestCase):
-    def test_current_squad_discovery_excludes_nested_out_on_loan_section(self):
+    def test_current_squad_discovery_keeps_active_nested_groups_and_excludes_loans(self):
         provider = _Provider()
         install_current_squad_only_discovery(provider)
         section, links = provider.client.current_squad_links("Example F.C.")
 
-        self.assertEqual("First-team squad", section)
-        self.assertEqual(["Active One", "Active Two"], links)
+        self.assertEqual("First Team", section)
+        self.assertEqual(["Active Goalkeeper", "Active One", "Active Two"], links)
         self.assertNotIn("Loaned Player", links)
         sections_requested = [
             params.get("section")
             for _, params in provider.client.calls
             if params.get("prop") == "links"
         ]
-        self.assertEqual(["5", "6"], sections_requested)
+        self.assertEqual(["5", "7"], sections_requested)
 
     def test_p1532_only_player_receives_transient_discovery_bridge(self):
         provider = _Provider()
