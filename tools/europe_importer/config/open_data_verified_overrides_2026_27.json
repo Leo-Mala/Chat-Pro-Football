@@ -48,7 +48,34 @@
     {"fullName":"Eric da Silva Moreira","position":"Defender","source":"https://www.premierleague.com/en/news/4679886/position-changes-for-202627-fantasy-premier-league/"},
     {"fullName":"Mateus Fernandes","position":"Midfielder","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
     {"fullName":"Lucas Bergvall","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/6/tottenham-hotspur/squad"},
-    {"fullName":"Souza","position":"Defender","source":"https://www.premierleague.com/en/clubs/6/tottenham-hotspur/squad"}
+    {"fullName":"Souza","position":"Defender","source":"https://www.premierleague.com/en/clubs/6/tottenham-hotspur/squad"},
+    {"fullName":"Tommy Setford","position":"Goalkeeper","source":"https://www.premierleague.com/en/players/551221/tommy-setford/stats"},
+    {"fullName":"Alysson","position":"Forward","source":"https://www.premierleague.com/en/players/653481/alysson-edward/stats"},
+    {"fullName":"Bradley Burrowes","position":"Midfielder","source":"https://www.premierleague.com/en/players/645618/bradley-burrowes/overview"},
+    {"fullName":"Veljko Milosavljević","position":"Defender","source":"https://www.premierleague.com/en/clubs/91/bournemouth/squad"},
+    {"fullName":"Remy Rees-Dottin","position":"Forward","source":"https://www.premierleague.com/en/clubs/91/bournemouth/squad"},
+    {"fullName":"Ellery Balcombe","position":"Goalkeeper","source":"https://www.premierleague.com/en/players/235448/ellery-balcombe/matches"},
+    {"fullName":"Benjamin Fredrick","position":"Defender","source":"https://www.premierleague.com/en/news/4679010/fredrick-promoted-to-brentfords-first-team-squad-and-signs-new-contract"},
+    {"fullName":"Kaye Furo","position":"Forward","source":"https://www.premierleague.com/en/players/593174/kaye-furo/overview"},
+    {"fullName":"Gustavo Nunes","position":"Forward","source":"https://www.premierleague.com/en/players/626464/gustavo-nunes-fernandes-gomes/overview"},
+    {"fullName":"Estevão","position":"Forward","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
+    {"fullName":"Justin Devenny","position":"Midfielder","source":"https://www.premierleague.com/en/players/489706/justin-devenny/career"},
+    {"fullName":"Tyler Dibling","position":"Midfielder","source":"https://www.premierleague.com/en/players/496661/tyler-dibling/overview"},
+    {"fullName":"Harrison Armstrong","position":"Midfielder","source":"https://www.premierleague.com/en/news/4680040/moyes-names-starting-xi-for-dundee-test"},
+    {"fullName":"Charlie Hughes","position":"Defender","source":"https://www.premierleague.com/en/players/501902/charlie-hughes/overview"},
+    {"fullName":"Kasey McAteer","position":"Midfielder","source":"https://www.premierleague.com/clubs/8/Ipswich-Town/squad?se=719"},
+    {"fullName":"Sindre Walle Egeli","position":"Forward","source":"https://www.premierleague.com/clubs/8/Ipswich-Town/squad?se=719"},
+    {"fullName":"Milos Kerkez","position":"Defender","source":"https://www.premierleague.com/en/players/494595/florian-wirtz/overview"},
+    {"fullName":"Vítězslav Jaroš","position":"Goalkeeper","source":"https://www.premierleague.com/en/players/494595/florian-wirtz/overview"},
+    {"fullName":"Harvey Davies","position":"Goalkeeper","source":"https://www.premierleague.com/en/players/494595/florian-wirtz/overview"},
+    {"fullName":"Trey Nyoni","position":"Midfielder","source":"https://www.premierleague.com/en/players/494595/florian-wirtz/overview"},
+    {"fullName":"Giovanni Leoni","position":"Defender","source":"https://www.premierleague.com/en/players/494595/florian-wirtz/overview"},
+    {"fullName":"Calvin Ramsey","position":"Defender","source":"https://www.premierleague.com/en/players/494595/florian-wirtz/overview"},
+    {"fullName":"Nico O'Reilly","position":"Defender","source":"https://www.premierleague.com/en/news/4679946/whats-new-in-202627-fantasy-changes-to-bonus-points-system"},
+    {"fullName":"Trai Hume","position":"Defender","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
+    {"fullName":"Noah Sadiki","position":"Midfielder","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
+    {"fullName":"Chris Rigg","position":"Midfielder","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"},
+    {"fullName":"Jocelin Ta Bi","position":"Forward","source":"https://www.premierleague.com/en/players/84450/granit-xhaka/overview"}
   ],
   "stadiums": [
     {"club":"Brentford FC","stadium":"Gtech Community Stadium","source":"https://www.premierleague.com/en/clubs/94/brentford/stadium"},
@@ -58,6 +85,9 @@
   "squadMemberships": [
     {"club":"Manchester City","clubWikipediaPage":"Manchester City F.C.","fullName":"Rodri","wikipediaTitle":"Rodri (footballer, born 1996)","source":"https://www.mancity.com/players/rodri"},
     {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop (footballer)","source":"https://www.itfc.co.uk/news/2026/july/22/issa-diop-is-a-blue/"}
+  ],
+  "birthDates": [
+    {"fullName":"Zach Abbott","wikipediaTitle":"Zach Abbott","birthDateIso":"2006-05-13","source":"https://www.premierleague.com/en/players/549067/zach-abbott/overview"}
   ],
   "nationalities": [
     {"fullName":"Declan Rice","nationality":"England","source":"https://www.premierleague.com/en/players/204480/"},
