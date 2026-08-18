@@ -93,11 +93,12 @@ def _select_current_sport_country(entity: dict[str, Any], as_of_iso: str) -> tup
 
 
 def install_verified_squad_discovery_overrides(provider: Any, overrides_path: Path) -> None:
-    """Augment volatile Wikipedia squad discovery with explicitly sourced memberships.
+    """Augment volatile discovery with explicitly sourced memberships.
 
-    This does not inject player facts. It only adds an officially verified player page to the
-    discovery set; occupation, birth date, nationality and position still have to resolve through
-    the normal structured-data validation path.
+    Besides adding the official player page to discovery, bind its resolved Wikidata identity to the
+    officially supplied ``fullName``. The collector may use that name only when the same QID lacks
+    an English Wikidata label; all other facts (occupation, birth date, nationality and position)
+    still have to pass the normal structured-data validation path.
     """
     overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
     rows = overrides.get("squadMemberships", []) or []
@@ -105,6 +106,7 @@ def install_verified_squad_discovery_overrides(provider: Any, overrides_path: Pa
         return
 
     by_club_page: dict[str, list[str]] = {}
+    verified_names_by_qid: dict[str, dict[str, str]] = {}
     for row in rows:
         club_page = str(row.get("clubWikipediaPage") or "").strip()
         player_page = str(row.get("wikipediaTitle") or "").strip()
@@ -113,6 +115,15 @@ def install_verified_squad_discovery_overrides(provider: Any, overrides_path: Pa
         if not all((club_page, player_page, full_name, source)):
             raise RuntimeError(f"Incomplete verified squad membership override: {row}")
         by_club_page.setdefault(club_page, []).append(player_page)
+        player_qid = provider.client.page_qid(player_page)
+        existing = verified_names_by_qid.get(player_qid)
+        candidate = {"fullName": full_name, "source": source, "clubPage": club_page}
+        if existing and existing["fullName"] != full_name:
+            raise RuntimeError(
+                f"Conflicting verified squad names for {player_qid}: "
+                f"{existing['fullName']} vs {full_name}"
+            )
+        verified_names_by_qid[player_qid] = candidate
 
     original = provider.client.current_squad_links
 
@@ -122,6 +133,7 @@ def install_verified_squad_discovery_overrides(provider: Any, overrides_path: Pa
         return section, sorted(set(links).union(forced))
 
     provider.client.current_squad_links = current_squad_links
+    provider.verified_squad_names_by_qid = verified_names_by_qid
 
 
 def _team_id_by_name(raw: dict[str, Any]) -> dict[str, int]:
@@ -185,26 +197,26 @@ def _prepare_verified_player_names(
     for correction in overrides.get("playerNames", []) or []:
         current_name = str(correction.get("currentName") or "").strip()
         official_name = str(correction.get("officialName") or "").strip()
+        birth_date = str(correction.get("birthDateIso") or "").strip()
         source = str(correction.get("source") or "").strip()
-        if not all((current_name, official_name, source)) or current_name == official_name:
+        if not all((current_name, official_name, birth_date, source)) or current_name == official_name:
             raise RuntimeError(f"Incomplete/invalid verified player name override: {correction}")
         matches = [
             row for row in player_rows
             if str((row.get("player") or {}).get("name") or "").strip() in {current_name, official_name}
+            and str(((row.get("player") or {}).get("birth") or {}).get("date") or "").strip() == birth_date
         ]
         if len(matches) != 1:
             raise RuntimeError(
                 f"Verified player name correction must resolve exactly once: "
-                f"{current_name} -> {official_name} (matches={len(matches)})"
+                f"{current_name} -> {official_name}/{birth_date} (matches={len(matches)})"
             )
-        # Freeze the pre-correction spelling for pipeline identity validation. The canonical writer
-        # applies the official display spelling afterwards and encodes the old identity spelling in
-        # the existing disambiguator field so Android and Python preserve the same stable playerId.
         matches[0]["player"]["name"] = current_name
         audit.setdefault("verifiedOverridesUsed", []).append({
             "kind": "playerName",
             "identityName": current_name,
             "officialName": official_name,
+            "birthDateIso": birth_date,
             "source": source,
         })
 
