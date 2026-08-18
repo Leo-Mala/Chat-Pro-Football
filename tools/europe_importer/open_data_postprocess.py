@@ -24,6 +24,38 @@ def _qid_from_transient_id(value: Any) -> str:
     return f"Q{int(value)}"
 
 
+def install_verified_squad_discovery_overrides(provider: Any, overrides_path: Path) -> None:
+    """Augment volatile Wikipedia squad discovery with explicitly sourced memberships.
+
+    This is intentionally installed before collect(). It does not inject player facts; it only
+    adds a verified player page to the discovery set, after which the normal Wikidata validation
+    still has to provide occupation, birth date, nationality and position.
+    """
+    overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
+    rows = overrides.get("squadMemberships", []) or []
+    if not rows:
+        return
+
+    by_club_page: dict[str, list[str]] = {}
+    for row in rows:
+        club_page = str(row.get("clubWikipediaPage") or "").strip()
+        player_page = str(row.get("wikipediaTitle") or "").strip()
+        full_name = str(row.get("fullName") or "").strip()
+        source = str(row.get("source") or "").strip()
+        if not all((club_page, player_page, full_name, source)):
+            raise RuntimeError(f"Incomplete verified squad membership override: {row}")
+        by_club_page.setdefault(club_page, []).append(player_page)
+
+    original = provider.client.current_squad_links
+
+    def current_squad_links(title: str) -> tuple[str, list[str]]:
+        section, links = original(title)
+        forced = by_club_page.get(title, [])
+        return section, sorted(set(links).union(forced))
+
+    provider.client.current_squad_links = current_squad_links
+
+
 def _apply_sport_nationalities(provider: Any, raw: dict[str, Any], audit: dict[str, Any]) -> None:
     rows = (raw.get("playersResponse") or {}).get("response") or []
     qids = sorted({
@@ -73,6 +105,45 @@ def _apply_sport_nationalities(provider: Any, raw: dict[str, Any], audit: dict[s
         "playersUsingCitizenshipFallback": fallback_citizenship,
         "fallbackProperty": "P27",
     }
+
+
+def _audit_verified_squad_memberships(
+    raw: dict[str, Any], audit: dict[str, Any], overrides: dict[str, Any]
+) -> None:
+    team_id_by_name = {
+        str((row.get("team") or {}).get("name")): int((row.get("team") or {})["id"])
+        for row in (raw.get("teamsResponse") or {}).get("response") or []
+        if (row.get("team") or {}).get("name") and (row.get("team") or {}).get("id") is not None
+    }
+    player_rows = (raw.get("playersResponse") or {}).get("response") or []
+
+    for row in overrides.get("squadMemberships", []) or []:
+        full_name = str(row.get("fullName") or "").strip()
+        club = str(row.get("club") or "").strip()
+        source = str(row.get("source") or "").strip()
+        if club not in team_id_by_name:
+            raise RuntimeError(f"Verified squad membership club not collected: {club}")
+        team_id = team_id_by_name[club]
+        matches = [
+            player_row for player_row in player_rows
+            if str((player_row.get("player") or {}).get("name") or "").strip() == full_name
+            and any(
+                int((stat.get("team") or {}).get("id")) == team_id
+                for stat in player_row.get("statistics") or []
+                if (stat.get("team") or {}).get("id") is not None
+            )
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Verified squad membership must resolve exactly once: {club}/{full_name} "
+                f"(matches={len(matches)})"
+            )
+        audit.setdefault("verifiedOverridesUsed", []).append({
+            "kind": "squadMembership",
+            "player": full_name,
+            "club": club,
+            "source": source,
+        })
 
 
 def _apply_verified_loans(
@@ -168,6 +239,7 @@ def apply_verified_open_data_facts(
 ) -> dict[str, Any]:
     overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
     audit = provider.last_audit
+    _audit_verified_squad_memberships(raw, audit, overrides)
     _apply_sport_nationalities(provider, raw, audit)
     _apply_verified_loans(raw, audit, overrides)
     provider.last_audit = audit
