@@ -122,6 +122,7 @@ class AuditedDiscoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "overrides.json"
             path.write_text(json.dumps(overrides), encoding="utf-8")
+            install_current_squad_only_discovery(provider)
             install_p1532_discovery_bridge(provider, path)
             entities = provider.client.entities(["Q1", "Q2", "Q3"])
 
@@ -146,6 +147,7 @@ class AuditedDiscoveryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "overrides.json"
             path.write_text(json.dumps(overrides), encoding="utf-8")
+            install_current_squad_only_discovery(provider)
             install_p1532_discovery_bridge(provider, path)
             entities = provider.client.entities(["Q4", "Q5"])
 
