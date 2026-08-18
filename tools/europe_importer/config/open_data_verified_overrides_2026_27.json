@@ -28,5 +28,14 @@
       "stadium": "Gtech Community Stadium",
       "source": "https://www.premierleague.com/en/clubs/94/brentford/stadium"
     }
+  ],
+  "loans": [
+    {
+      "fullName": "Alejandro Garnacho",
+      "ownerClub": "Chelsea FC",
+      "borrowerClub": "Aston Villa",
+      "verifiedAsOfIso": "2026-08-14",
+      "source": "https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"
+    }
   ]
 }
