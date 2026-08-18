@@ -7,10 +7,10 @@ package com.example.data
  * Data de verificação desta transcrição: 2026-08-18.
  *
  * `VERIFIED_TOP_FLIGHT` significa que a lista de participantes da primeira divisão foi conferida
- * em fonte oficial da própria liga para 2026/27. `STRUCTURE_ONLY` significa que a associação já
- * possui identidade/nome de competições e tamanho de primeira divisão, mas os clubes ainda não
- * foram transcritos para a base oficial desta fase. Esse estado explícito impede que fallback
- * procedural seja confundido com cobertura real completa.
+ * em fonte oficial da própria liga/federação para 2026/27. `STRUCTURE_ONLY` significa que a
+ * associação já possui identidade/nome de competições e tamanho de primeira divisão, mas os clubes
+ * ainda não foram transcritos para a base oficial desta fase. Esse estado explícito impede que
+ * fallback procedural seja confundido com cobertura real completa.
  */
 enum class EuropeanDomesticCoverage {
     VERIFIED_TOP_FLIGHT,
@@ -153,6 +153,88 @@ object EuropeanDomesticBaseline2026_27 {
         "ESTAC Troyes"
     )
 
+    // Eredivisie CV — página oficial de clubes, temporada 2026/27.
+    private val netherlandsClubs = listOf(
+        "ADO Den Haag",
+        "Ajax",
+        "AZ",
+        "Excelsior Rotterdam",
+        "FC Groningen",
+        "FC Twente",
+        "FC Utrecht",
+        "Feyenoord",
+        "Fortuna Sittard",
+        "Go Ahead Eagles",
+        "N.E.C. Nijmegen",
+        "PEC Zwolle",
+        "PSV",
+        "SC Cambuur",
+        "sc Heerenveen",
+        "Sparta Rotterdam",
+        "Telstar",
+        "Willem II"
+    )
+
+    // Pro League — os nove jogos da 1ª rodada oficial fecham os 18 participantes 2026/27.
+    private val belgiumClubs = listOf(
+        "Club Brugge",
+        "KV Kortrijk",
+        "STVV",
+        "Lommel SK",
+        "Royal Antwerp FC",
+        "SK Beveren",
+        "Royale Union Saint-Gilloise",
+        "KVC Westerlo",
+        "Standard de Liège",
+        "Cercle Brugge",
+        "SV Zulte Waregem",
+        "KRC Genk",
+        "RSC Anderlecht",
+        "RAAL La Louvière",
+        "Sporting Charleroi",
+        "OH Leuven",
+        "KAA Gent",
+        "KV Mechelen"
+    )
+
+    // TFF — os nove jogos da 1ª rodada oficial fecham os 18 participantes 2026/27.
+    private val turkeyClubs = listOf(
+        "Gençlerbirliği",
+        "Fenerbahçe",
+        "Kasımpaşa",
+        "Trabzonspor",
+        "Beşiktaş",
+        "Eyüpspor",
+        "Galatasaray",
+        "Çorum FK",
+        "Amed Sportif Faaliyetler",
+        "Erzurumspor FK",
+        "Konyaspor",
+        "Çaykur Rizespor",
+        "Samsunspor",
+        "Göztepe",
+        "Gaziantep FK",
+        "Alanyaspor",
+        "İstanbul Başakşehir FK",
+        "Kocaelispor"
+    )
+
+    // SPFL — os seis jogos da rodada inaugural oficial fecham os 12 participantes 2026/27.
+    private val scotlandClubs = listOf(
+        "Aberdeen",
+        "Celtic",
+        "Dundee",
+        "Dundee United",
+        "Falkirk",
+        "Heart of Midlothian",
+        "Hibernian",
+        "Kilmarnock",
+        "Motherwell",
+        "Rangers",
+        "St Johnstone",
+        "St Mirren"
+    )
+
     val associations: List<EuropeanDomesticAssociationBaseline> = listOf(
         EuropeanDomesticAssociationBaseline(
             "Inglaterra", "Premier League", "FA Cup", 20,
@@ -180,19 +262,19 @@ object EuropeanDomesticBaseline2026_27 {
         ),
         EuropeanDomesticAssociationBaseline(
             "Países Baixos", "Eredivisie", "KNVB Beker", 18,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, netherlandsClubs
         ),
         EuropeanDomesticAssociationBaseline(
-            "Bélgica", "Belgian Pro League", "Belgian Cup", 16,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            "Bélgica", "Jupiler Pro League", "Croky Cup", 18,
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, belgiumClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Turquia", "Süper Lig", "Türkiye Kupası", 18,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, turkeyClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Escócia", "Scottish Premiership", "Scottish Cup", 12,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, scotlandClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Áustria", "Austrian Bundesliga", "ÖFB-Cup", 12,
