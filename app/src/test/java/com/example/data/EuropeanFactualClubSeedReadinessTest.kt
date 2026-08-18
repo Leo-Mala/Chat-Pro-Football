@@ -1,6 +1,7 @@
 package com.example.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,14 +18,14 @@ class EuropeanFactualClubSeedReadinessTest {
 
         val counts = assessments.groupingBy { it.status }.eachCount()
         assertEquals(40, counts.getOrDefault(EuropeanFactualClubSeedStatus.READY, 0))
-        assertEquals(280, counts.getOrDefault(EuropeanFactualClubSeedStatus.MISSING_EXPLICIT_TEMPLATE, 0))
+        assertEquals(279, counts.getOrDefault(EuropeanFactualClubSeedStatus.MISSING_EXPLICIT_TEMPLATE, 0))
         assertEquals(0, counts.getOrDefault(EuropeanFactualClubSeedStatus.NON_TOP_FLIGHT_TEMPLATE, 0))
         assertEquals(0, counts.getOrDefault(EuropeanFactualClubSeedStatus.INVALID_TEMPLATE_METADATA, 0))
-        assertEquals(0, counts.getOrDefault(EuropeanFactualClubSeedStatus.GLOBAL_ID_MISMATCH, 0))
+        assertEquals(1, counts.getOrDefault(EuropeanFactualClubSeedStatus.GLOBAL_ID_MISMATCH, 0))
     }
 
     @Test
-    fun `ready set is exactly the current England and Spain factual baselines`() {
+    fun `ready set remains England and Spain until additional template resolver is integrated`() {
         val ready = EuropeanFactualClubSeedReadiness.readyAssessments()
         val expected = EuropeanDomesticBaseline2026_27.associations
             .filter { it.country == "Inglaterra" || it.country == "Espanha" }
@@ -41,7 +42,7 @@ class EuropeanFactualClubSeedReadinessTest {
     }
 
     @Test
-    fun `Manchester United is ready but Trabzonspor is still missing explicit template`() {
+    fun `Manchester United is ready while Trabzonspor template waits for global id resolver`() {
         val united = EuropeanFactualClubSeedReadiness.assess("Inglaterra", "Manchester United")
         val trabzonspor = EuropeanFactualClubSeedReadiness.assess("Turquia", "Trabzonspor")
 
@@ -50,10 +51,14 @@ class EuropeanFactualClubSeedReadinessTest {
         assertEquals(5L, united.resolvedGlobalId)
         assertNotNull(united.template)
 
-        assertEquals(EuropeanFactualClubSeedStatus.MISSING_EXPLICIT_TEMPLATE, trabzonspor.status)
-        assertNotNull(StableTeamIdentityRegistry.idFor("Turquia", "Trabzonspor"))
-        assertEquals(null, trabzonspor.template)
-        assertEquals(null, trabzonspor.resolvedGlobalId)
+        assertEquals(EuropeanFactualClubSeedStatus.GLOBAL_ID_MISMATCH, trabzonspor.status)
+        assertEquals(130_395L, trabzonspor.stableTeamId)
+        assertNotNull(trabzonspor.template)
+        assertEquals("Trabzon", trabzonspor.template?.city)
+        assertEquals("Papara Park", trabzonspor.template?.stadium)
+        assertEquals(78, trabzonspor.template?.rating)
+        assertNotNull(trabzonspor.resolvedGlobalId)
+        assertNotEquals(trabzonspor.stableTeamId, trabzonspor.resolvedGlobalId)
     }
 
     @Test
