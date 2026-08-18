@@ -51,6 +51,14 @@ class FixtureProvider(DataProvider):
         assert self.path is not None
         return json.loads(self.path.read_text(encoding="utf-8"))
 
+
+def _is_season_loan(transfer: dict[str, Any], api_season: int) -> bool:
+    transfer_type = transfer.get("type") or {}
+    type_name = transfer_type.get("name") if isinstance(transfer_type, dict) else str(transfer_type or "")
+    date = str(transfer.get("date") or "")
+    return "loan" in str(type_name).casefold() and date.startswith(str(api_season))
+
+
 class ApiFootballProvider(DataProvider):
     name = "api-football"
     BASE_URL = "https://v3.football.api-sports.io"
@@ -75,6 +83,12 @@ class ApiFootballProvider(DataProvider):
         if request.provider_league_id is None:
             raise ValueError("API-Football requires provider_league_id")
         teams = self._get("teams", {"league": request.provider_league_id, "season": request.api_season})
+        league_team_ids = {
+            int((item.get("team") or {})["id"])
+            for item in teams.get("response", [])
+            if (item.get("team") or {}).get("id") is not None
+        }
+
         player_entries: list[dict[str, Any]] = []
         page = 1
         while True:
@@ -88,18 +102,53 @@ class ApiFootballProvider(DataProvider):
             if int(paging.get("current", page)) >= int(paging.get("total", page)):
                 break
             page += 1
+        league_player_ids = {
+            int((entry.get("player") or {})["id"])
+            for entry in player_entries
+            if (entry.get("player") or {}).get("id") is not None
+        }
+
         transfers: list[dict[str, Any]] = []
+        external_team_ids: set[int] = set()
+        external_player_ids: set[int] = set()
         if request.fetch_transfers:
             for item in teams.get("response", []):
                 provider_team_id = (item.get("team") or {}).get("id")
-                if provider_team_id is not None:
-                    team_transfers = self._get("transfers", {"team": provider_team_id})
-                    transfers.extend(team_transfers.get("response", []))
+                if provider_team_id is None:
+                    continue
+                team_transfers = self._get("transfers", {"team": provider_team_id})
+                rows = team_transfers.get("response", [])
+                transfers.extend(rows)
+                for row in rows:
+                    player_id = (row.get("player") or {}).get("id")
+                    for transfer in row.get("transfers") or []:
+                        if not _is_season_loan(transfer, request.api_season):
+                            continue
+                        endpoints = transfer.get("teams") or {}
+                        for side in ("out", "in"):
+                            endpoint_id = (endpoints.get(side) or {}).get("id")
+                            if endpoint_id is not None and int(endpoint_id) not in league_team_ids:
+                                external_team_ids.add(int(endpoint_id))
+                        if player_id is not None and int(player_id) not in league_player_ids:
+                            external_player_ids.add(int(player_id))
+
+        external_teams: dict[str, Any] = {}
+        for team_id in sorted(external_team_ids):
+            external_teams[str(team_id)] = self._get("teams", {"id": team_id})
+
+        external_players: dict[str, Any] = {}
+        for player_id in sorted(external_player_ids):
+            external_players[str(player_id)] = self._get(
+                "players", {"id": player_id, "season": request.api_season}
+            )
+
         return {
             "provider":"api-football",
             "teamsResponse": teams,
             "playersResponse":{"response":player_entries},
             "transfersResponse":{"response":transfers},
+            "externalTeamsById": external_teams,
+            "externalPlayersById": external_players,
         }
 
 class SportmonksProvider(DataProvider):
@@ -128,22 +177,58 @@ class SportmonksProvider(DataProvider):
         if request.provider_season_id is None:
             raise ValueError("Sportmonks requires provider_season_id")
         teams = self._get(f"teams/seasons/{request.provider_season_id}", {"include":"venue;country"})
+        league_team_ids = {int(team["id"]) for team in teams.get("data", [])}
         squads: dict[str, Any] = {}
         transfers: dict[str, Any] = {}
+        league_player_ids: set[int] = set()
+        external_team_ids: set[int] = set()
+        external_player_ids: set[int] = set()
+
         for team in teams.get("data", []):
             team_id = team["id"]
-            squads[str(team_id)] = self._get(
+            squad_doc = self._get(
                 f"squads/seasons/{request.provider_season_id}/teams/{team_id}",
-                {"include":"player;details.type"},
+                {"include":"player;position"},
             )
+            squads[str(team_id)] = squad_doc
+            for squad in squad_doc.get("data", []):
+                player = squad.get("player") or {}
+                player_id = player.get("id") or squad.get("player_id")
+                if player_id is not None:
+                    league_player_ids.add(int(player_id))
+
             if request.fetch_transfers:
-                transfers[str(team_id)] = self._get(
+                transfer_doc = self._get(
                     f"transfers/teams/{team_id}",
                     {"include":"player;type;fromTeam;toTeam"},
                 )
+                transfers[str(team_id)] = transfer_doc
+                for transfer in transfer_doc.get("data", []):
+                    if not _is_season_loan(transfer, request.api_season):
+                        continue
+                    player_id = transfer.get("player_id")
+                    owner = transfer.get("from_team_id")
+                    borrower = transfer.get("to_team_id")
+                    if owner is not None and int(owner) not in league_team_ids:
+                        external_team_ids.add(int(owner))
+                    if borrower is not None and int(borrower) not in league_team_ids:
+                        external_team_ids.add(int(borrower))
+                    if player_id is not None and int(player_id) not in league_player_ids:
+                        external_player_ids.add(int(player_id))
+
+        external_teams = {
+            str(team_id): self._get(f"teams/{team_id}", {"include":"venue;country"})
+            for team_id in sorted(external_team_ids)
+        }
+        external_players = {
+            str(player_id): self._get(f"players/{player_id}", {"include":"position;nationality"})
+            for player_id in sorted(external_player_ids)
+        }
         return {
             "provider":"sportmonks",
             "teamsResponse":teams,
             "squadsByTeam":squads,
             "transfersByTeam":transfers,
+            "externalTeamsById":external_teams,
+            "externalPlayersById":external_players,
         }
