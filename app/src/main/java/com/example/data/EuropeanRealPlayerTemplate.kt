@@ -29,13 +29,9 @@ data class EuropeanRealPlayerTemplate(
         get() = StableRealPlayerIdentity.idFor(fullName, birthDateIso, identityDisambiguator)
 
     fun ageAt2026SeasonStart(): Int {
-        val parts = birthDateIso.split('-')
-        val year = parts[0].toInt()
-        val month = parts[1].toInt()
-        val day = parts[2].toInt()
-        require(month in 1..12 && day in 1..31) { "Data factual inválida: $birthDateIso" }
-        val birthdayAlreadyOccurred = month < 8 || (month == 8 && day <= 1)
-        return (2026 - year - if (birthdayAlreadyOccurred) 0 else 1).coerceAtLeast(15)
+        val birthDate = parseStrictIsoDate(birthDateIso, "Data factual")
+        val birthdayAlreadyOccurred = birthDate.month < 8 || (birthDate.month == 8 && birthDate.day <= 1)
+        return (2026 - birthDate.year - if (birthdayAlreadyOccurred) 0 else 1).coerceAtLeast(15)
     }
 
     fun toGameplayPlayer(teamId: Long, teamRating: Int): Player {
