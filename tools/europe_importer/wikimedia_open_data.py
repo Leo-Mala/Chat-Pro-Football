@@ -112,13 +112,9 @@ def _statement_for_team(entity: dict[str, Any], team_qid: str) -> dict[str, Any]
     return candidates[0]
 
 def _shirt_number(entity: dict[str, Any], membership: dict[str, Any] | None) -> int | None:
+    # P1618 as a top-level player statement is often historical and can collide
+    # after transfers. Only trust a number qualified on the current P54 link.
     candidates = _qualifier_values(membership or {}, "P1618")
-    if not candidates:
-        for statement in (entity.get("claims") or {}).get("P1618", []):
-            value = ((statement.get("mainsnak") or {}).get("datavalue") or {}).get("value")
-            if value is not None:
-                candidates.append(value)
-                break
     for value in candidates:
         try:
             number = int(str(value))
@@ -144,11 +140,11 @@ def _position_to_provider_label(label: str) -> str | None:
         return "Goalkeeper"
     if any(token in value for token in (
         "defender", "centre-back", "center-back", "full-back", "fullback",
-        "wing-back", "wingback", "left-back", "right-back", "sweeper",
+        "wing-back", "wingback", "left-back", "right-back", "sweeper", "stopper",
     )):
         return "Defender"
     if any(token in value for token in (
-        "midfielder", "midfield", "wing half", "wing-half", "half-back", "half back",
+        "midfielder", "midfield", "wing half", "wing-half", "half-back", "half back", "playmaker",
     )):
         return "Midfielder"
     if any(token in value for token in (
@@ -231,7 +227,7 @@ class WikimediaClient:
                 continue
             payload = self.get(
                 WIKIDATA_API,
-                {"action":"wbgetentities","ids":"|".join(batch),"props":"claims|labels","languages":"en"}
+                {"action":"wbgetentities","ids":"|".join(batch),"props":"claims|labels|descriptions","languages":"en"}
             )
             for qid, entity in (payload.get("entities") or {}).items():
                 if not entity.get("missing"):
@@ -300,6 +296,8 @@ class WikimediaOpenDataProvider(DataProvider):
                 birth = _claim_time(entity, "P569")
                 nationality_ids = _claim_item_ids(entity, "P27")
                 position_ids = _position_ids(entity, membership)
+                description = str(((entity.get("descriptions") or {}).get("en") or {}).get("value") or "")
+                description_position = _position_to_provider_label(description)
                 metadata_qids.update(nationality_ids)
                 metadata_qids.update(position_ids)
                 label = str(((entity.get("labels") or {}).get("en") or {}).get("value") or "")
@@ -307,19 +305,25 @@ class WikimediaOpenDataProvider(DataProvider):
                 if not label: missing.append("name")
                 if not birth: missing.append("birthDate")
                 if not nationality_ids: missing.append("nationality")
-                if not position_ids: missing.append("position")
+                if not position_ids and description_position is None: missing.append("position")
                 if missing:
                     rejected.append({"qid":linked_qid,"title":label or linked_qid,"missing":missing})
                     continue
-                candidates.append((linked_qid, entity, membership, label, birth, nationality_ids, position_ids))
+                candidates.append((
+                    linked_qid, entity, membership, label, birth,
+                    nationality_ids, position_ids, description_position,
+                ))
 
             metadata_labels = _labels(all_entities, metadata_qids, self.client)
             accepted_count = 0
             p54_crosschecked = 0
-            for linked_qid, entity, membership, label, birth, nationality_ids, position_ids in candidates:
+            for (
+                linked_qid, entity, membership, label, birth,
+                nationality_ids, position_ids, description_position,
+            ) in candidates:
                 nationality = metadata_labels.get(nationality_ids[0], nationality_ids[0])
-                raw_position = metadata_labels.get(position_ids[0], position_ids[0])
-                position = _position_to_provider_label(raw_position)
+                raw_position = metadata_labels.get(position_ids[0], position_ids[0]) if position_ids else ""
+                position = description_position or _position_to_provider_label(raw_position)
                 if position is None:
                     rejected.append({
                         "qid":linked_qid,
