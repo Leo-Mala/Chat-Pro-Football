@@ -78,30 +78,44 @@ enum class EuropeanSquadCoverage {
 }
 
 /**
- * Catálogo incremental. Um clube só deve entrar aqui quando seu snapshot factual tiver sido
- * transcrito e revisado. A ausência continua visível e nunca é mascarada como elenco completo.
+ * Catálogo imutável de snapshots factuais. Os lotes por país serão concatenados na construção;
+ * nenhuma execução de save pode registrar/alterar dados globais em runtime.
  */
-object EuropeanRealSquadCatalog {
-    private val snapshots = linkedMapOf<Pair<String, String>, EuropeanRealSquadSnapshot>()
+class EuropeanRealSquadCatalog(
+    snapshots: List<EuropeanRealSquadSnapshot>
+) {
+    private val snapshotsByClub: Map<Pair<String, String>, EuropeanRealSquadSnapshot>
 
-    fun register(snapshot: EuropeanRealSquadSnapshot) {
-        val key = canonicalKey(snapshot.country, snapshot.clubName)
-        require(snapshots.putIfAbsent(key, snapshot) == null) {
-            "Snapshot duplicado para ${snapshot.country}/${snapshot.clubName}"
+    init {
+        val entries = snapshots.map { snapshot ->
+            canonicalKey(snapshot.country, snapshot.clubName) to snapshot
         }
+        require(entries.map { it.first }.distinct().size == entries.size) {
+            "Há snapshots duplicados para o mesmo clube factual."
+        }
+
+        val globalPlayerIds = snapshots.flatMap { it.players }.map { it.stableId }
+        require(globalPlayerIds.distinct().size == globalPlayerIds.size) {
+            "Um jogador factual aparece simultaneamente em mais de um snapshot de clube."
+        }
+
+        snapshotsByClub = entries.toMap()
     }
 
     fun find(country: String, clubName: String): EuropeanRealSquadSnapshot? =
-        snapshots[canonicalKey(country, clubName)]
+        snapshotsByClub[canonicalKey(country, clubName)]
 
-    fun all(): List<EuropeanRealSquadSnapshot> = snapshots.values.toList()
+    fun all(): List<EuropeanRealSquadSnapshot> = snapshotsByClub.values.toList()
 
-    fun gameplayReadyClubs(): Set<Pair<String, String>> = snapshots.values
-        .filter { it.coverage() == EuropeanSquadCoverage.GAMEPLAY_READY_FACTUAL_SNAPSHOT }
-        .mapTo(linkedSetOf()) { canonicalKey(it.country, it.clubName) }
+    fun gameplayReadyClubs(): Set<Pair<String, String>> = snapshotsByClub
+        .filterValues { it.coverage() == EuropeanSquadCoverage.GAMEPLAY_READY_FACTUAL_SNAPSHOT }
+        .keys
 
-    internal fun clearForTests() {
-        snapshots.clear()
+    fun missingTopFlightClubs(): Set<Pair<String, String>> {
+        val expected = EuropeanDomesticBaseline2026_27.associations.flatMap { baseline ->
+            baseline.verifiedTopFlightClubs.map { club -> canonicalKey(baseline.country, club) }
+        }.toSet()
+        return expected - snapshotsByClub.keys
     }
 
     private fun canonicalKey(country: String, clubName: String): Pair<String, String> {
@@ -109,4 +123,12 @@ object EuropeanRealSquadCatalog {
         val canonicalClub = StableTeamIdentityRegistry.canonicalNameFor(canonicalCountry, clubName) ?: clubName
         return canonicalCountry.trim().lowercase() to canonicalClub.trim().lowercase()
     }
+}
+
+/**
+ * Source of truth do seed factual. Permanece vazio até os primeiros lotes auditados serem
+ * transcritos; `missingTopFlightClubs()` deixa a cobertura incompleta mensurável.
+ */
+object EuropeanRealSquads {
+    val catalog = EuropeanRealSquadCatalog(emptyList())
 }
