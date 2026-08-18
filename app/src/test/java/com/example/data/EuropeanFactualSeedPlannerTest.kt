@@ -66,6 +66,26 @@ class EuropeanFactualSeedPlannerTest {
     }
 
     @Test
+    fun `missing owner also blocks factual loan`() {
+        val trabzonspor = team(
+            id = requireNotNull(StableTeamIdentityRegistry.idFor("Turquia", "Trabzonspor")),
+            name = "Trabzonspor",
+            country = "Turquia",
+            rating = 78
+        )
+
+        val plan = EuropeanFactualSeedPlanner.build(
+            teams = listOf(trabzonspor),
+            proceduralRosterFactory = { team -> listOf(proceduralPlayer(team, 905_000_001L)) }
+        )
+
+        assertTrue(plan.loans.isEmpty())
+        assertEquals(1, plan.blockedLoans.size)
+        assertTrue(plan.blockedLoans.single().reason.contains("Manchester United"))
+        assertFalse(plan.players.any { it.name == "Andre Onana" })
+    }
+
+    @Test
     fun `club without factual snapshot remains explicit procedural fallback`() {
         val realMadrid = team(201L, "Real Madrid", "Espanha", 90)
 
@@ -80,6 +100,37 @@ class EuropeanFactualSeedPlannerTest {
         assertEquals(setOf(realMadrid.id), plan.proceduralFallbackTeamIds)
         assertEquals(1, plan.players.size)
         assertEquals(realMadrid.id, plan.players.single().teamId)
+    }
+
+    @Test
+    fun `partial factual snapshot still uses procedural fallback`() {
+        val realMadrid = team(201L, "Real Madrid", "Espanha", 90)
+        val partial = EuropeanRealSquadSnapshot(
+            country = "Espanha",
+            clubName = "Real Madrid",
+            domesticSeasonLabel = "2026/27",
+            verifiedAsOfIso = "2026-08-18",
+            sourceRefs = listOf("official:test-partial"),
+            players = listOf(
+                EuropeanRealPlayerTemplate(
+                    fullName = "Partial Keeper",
+                    birthDateIso = "2000-01-01",
+                    nationality = "Spain",
+                    position = "GOL"
+                )
+            )
+        )
+
+        val plan = EuropeanFactualSeedPlanner.build(
+            teams = listOf(realMadrid),
+            squadCatalog = EuropeanRealSquadCatalog(listOf(partial)),
+            loanCatalog = EuropeanRealLoanCatalog(emptyList()),
+            proceduralRosterFactory = { team -> listOf(proceduralPlayer(team, 915_000_001L)) }
+        )
+
+        assertTrue(plan.factualSquadTeamIds.isEmpty())
+        assertEquals(setOf(realMadrid.id), plan.proceduralFallbackTeamIds)
+        assertEquals(listOf("Procedural Real Madrid"), plan.players.map { it.name })
     }
 
     @Test
