@@ -43,7 +43,7 @@ object UefaAccessList2026_27 {
         return if (canonical in europeanPerformanceSpotCountries) 1 else 0
     }
 
-    fun championsKnownAutomaticSlotTotal(): Int =
+    fun championsLeaguePhaseAllocationTotal(): Int =
         championsDirectLeagueSlotsByCountry.values.sum() +
             CHAMPIONS_TITLEHOLDER_SLOTS +
             EUROPA_TITLEHOLDER_SLOTS +
