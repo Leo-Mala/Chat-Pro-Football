@@ -24,10 +24,16 @@ class EuropeanFactualClubSeedReadinessTest {
     }
 
     @Test
-    fun `only England and Spain are currently fully materialized top flight templates`() {
+    fun `ready set is exactly the current England and Spain factual baselines`() {
         val ready = EuropeanFactualClubSeedReadiness.readyAssessments()
+        val expected = EuropeanDomesticBaseline2026_27.associations
+            .filter { it.country == "Inglaterra" || it.country == "Espanha" }
+            .flatMap { baseline -> baseline.verifiedTopFlightClubs.map { baseline.country to it } }
+            .toSet()
+        val actual = ready.map { it.country to it.clubName }.toSet()
         val readyByCountry = ready.groupingBy { it.country }.eachCount()
 
+        assertEquals(expected, actual)
         assertEquals(setOf("Inglaterra", "Espanha"), readyByCountry.keys)
         assertEquals(20, readyByCountry.getOrDefault("Inglaterra", 0))
         assertEquals(20, readyByCountry.getOrDefault("Espanha", 0))
