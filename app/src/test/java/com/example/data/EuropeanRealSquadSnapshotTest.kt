@@ -58,19 +58,20 @@ class EuropeanRealSquadSnapshotTest {
     }
 
     @Test
-    fun `Manchester United official snapshot is gameplay ready and excludes active loan list`() {
+    fun `Manchester United official snapshot matches current active list and excludes Onana loan`() {
         val snapshot = ManchesterUnitedSquad2026_27.snapshot
 
-        assertEquals(30, snapshot.players.size)
-        assertEquals(30, snapshot.players.map { it.stableId }.distinct().size)
+        assertEquals(32, snapshot.players.size)
+        assertEquals(32, snapshot.players.map { it.stableId }.distinct().size)
         assertEquals(EuropeanSquadCoverage.GAMEPLAY_READY_FACTUAL_SNAPSHOT, snapshot.coverage())
-        assertEquals(4, snapshot.players.count { it.position == "GOL" })
+        assertEquals(5, snapshot.players.count { it.position == "GOL" })
         assertEquals(7, snapshot.players.count { it.position == "ATA" })
-        assertEquals(10, snapshot.players.count { it.position == "ZAG" || it.position == "LAT" })
+        assertEquals(11, snapshot.players.count { it.position == "ZAG" || it.position == "LAT" })
         assertEquals(9, snapshot.players.count { it.position == "MEI" || it.position == "VOL" })
-        assertFalse(snapshot.players.any { it.fullName == "Altay Bayindir" })
+        assertTrue(snapshot.players.any { it.fullName == "Altay Bayindir" && it.shirtNumber == 1 })
+        assertTrue(snapshot.players.any { it.fullName == "Tyler Fredricson" && it.shirtNumber == 33 })
         assertFalse(snapshot.players.any { it.fullName == "Andre Onana" })
-        assertEquals(1, snapshot.players.single { it.fullName == "Senne Lammens" }.shirtNumber)
+        assertEquals(31, snapshot.players.single { it.fullName == "Senne Lammens" }.shirtNumber)
     }
 
     @Test
