@@ -1,7 +1,5 @@
 package com.example.data
 
-import kotlin.random.Random
-
 data class Confederation(
     val acronym: String,
     val name: String,
@@ -18,8 +16,8 @@ data class Country(
 data class Competition(
     val code: String,
     val name: String,
-    val type: String, // "LEAGUE", "CUP", "CONTINENTAL", "WORLD"
-    val level: Int,   // 1 = Tier 1, 2 = Tier 2, 3 = Tier 3
+    val type: String,
+    val level: Int,
     val confederation: String?,
     val startWeek: Int,
     val endWeek: Int
@@ -37,6 +35,7 @@ object GlobalFootballSystem {
 
     fun isGeneratedVirtualTeamId(id: Long): Boolean = id >= VIRTUAL_TEAM_ID_FLOOR
 
+    /** Metadados visuais legados. Regras esportivas usam [FootballConfederation]. */
     val confederations = listOf(
         Confederation("UEFA", "Union of European Football Associations", "🇪🇺"),
         Confederation("CONMEBOL", "Confederación Sudamericana de Fútbol", "🌎"),
@@ -158,55 +157,53 @@ object GlobalFootballSystem {
         )
     }
 
-    /** Resolve também as regiões agregadas usadas pelo banco do jogo. */
-    fun getConfederationForCountry(country: String): String {
-        return when (country) {
-            "Estados Unidos / México", "América Central" -> "CONCACAF"
-            "África" -> "CAF"
-            "Ásia" -> "AFC"
-            "Oceania" -> "OFC"
-            "África / Ásia / Oceania" -> "MIXED"
-            else -> countries.find { it.name == country }?.confederation ?: "CONMEBOL"
-        }
+    /** API nova, tipada e fail-safe. País desconhecido e "Mundial" retornam null. */
+    fun getTypedConfederationForCountry(country: String): FootballConfederation? =
+        CountryFootballRulesRegistry.confederationFor(country)
+
+    /**
+     * Adaptador legado para consumidores que ainda esperam String.
+     *
+     * O fallback histórico para CONMEBOL foi removido. Entradas sem confederação retornam UNKNOWN;
+     * o alias agregado MIXED continua explicitamente reconhecido para leitura de dados antigos.
+     */
+    fun getConfederationForCountry(country: String): String =
+        CountryFootballRulesRegistry.legacyConfederationCodeFor(country) ?: "UNKNOWN"
+
+    /** Catálogo legado agora derivado da source of truth de competições. */
+    val competitions: List<Competition> = CompetitionRulesRegistry.catalogDefinitions.map { definition ->
+        Competition(
+            code = definition.code,
+            name = definition.displayName,
+            type = definition.category,
+            level = definition.level,
+            confederation = definition.confederation?.code,
+            startWeek = requireNotNull(definition.startWeek),
+            endWeek = requireNotNull(definition.endWeek)
+        )
     }
 
-    val competitions = listOf(
-        Competition("WORLD_CUP", "FIFA Club World Cup 🌍", "WORLD", 1, null, SuperMundialSystem.GROUP_WEEK_1, GameCalendar.WEEKS_PER_SEASON),
-        Competition("WORLD_INTERCONTINENTAL", "FIFA Intercontinental Cup 🏆", "WORLD", 2, null, 40, 41),
+    fun getCompetitionByCode(code: String): Competition? =
+        competitions.find { it.code.equals(code, ignoreCase = true) }
 
-        Competition("UEFA_CL", "UEFA Champions League 🇪🇺", "CONTINENTAL", 1, "UEFA", 33, 36),
-        Competition("UEFA_EL", "UEFA Europa League 🇪🇺", "CONTINENTAL", 2, "UEFA", 33, 36),
-        Competition("UEFA_ECL", "UEFA Conference League 🇪🇺", "CONTINENTAL", 3, "UEFA", 33, 36),
-
-        Competition("CONMEBOL_CL", "Copa Libertadores 🏆", "CONTINENTAL", 1, "CONMEBOL", 33, 36),
-        Competition("CONMEBOL_CS", "Copa Sudamericana 🥈", "CONTINENTAL", 2, "CONMEBOL", 33, 36),
-
-        Competition("CONCACAF_CL", "CONCACAF Champions Cup 🏆", "CONTINENTAL", 1, "CONCACAF", 33, 36),
-        Competition("CONCACAF_CAC", "CONCACAF Central American Cup 🌎", "CONTINENTAL", 2, "CONCACAF", 33, 36),
-        Competition("CONCACAF_CC", "CONCACAF Caribbean Cup 🏝️", "CONTINENTAL", 3, "CONCACAF", 33, 36),
-
-        Competition("CAF_CL", "CAF Champions League 🏆", "CONTINENTAL", 1, "CAF", 33, 36),
-        Competition("CAF_CC", "CAF Confederation Cup 🥈", "CONTINENTAL", 2, "CAF", 33, 36),
-
-        Competition("AFC_CLE", "AFC Champions League Elite 🏆", "CONTINENTAL", 1, "AFC", 33, 36),
-        Competition("AFC_CL2", "AFC Champions League Two 🥈", "CONTINENTAL", 2, "AFC", 33, 36),
-        Competition("AFC_CHL", "AFC Challenge League 🥉", "CONTINENTAL", 3, "AFC", 33, 36),
-
-        Competition("OFC_CL", "OFC Champions League 🏆", "CONTINENTAL", 1, "OFC", 33, 36)
-    )
-
-    fun getCompetitionByCode(code: String): Competition? = competitions.find { it.code == code }
-
-    fun getContinentalTournamentsForCountry(country: String): Triple<String, String, String> {
-        return when (getConfederationForCountry(country)) {
-            "UEFA" -> Triple("UEFA_CL", "UEFA_EL", "UEFA_ECL")
-            "CONMEBOL" -> Triple("CONMEBOL_CL", "CONMEBOL_CS", "CONMEBOL_CL")
-            "CONCACAF" -> Triple("CONCACAF_CL", "CONCACAF_CAC", "CONCACAF_CC")
-            "CAF" -> Triple("CAF_CL", "CAF_CC", "CAF_CL")
-            "AFC" -> Triple("AFC_CLE", "AFC_CL2", "AFC_CHL")
-            "OFC" -> Triple("OFC_CL", "OFC_CL", "OFC_CL")
-            "MIXED" -> Triple("WORLD_CUP", "WORLD_INTERCONTINENTAL", "WORLD_CUP")
-            else -> Triple("CONMEBOL_CL", "CONMEBOL_CS", "CONMEBOL_CL")
+    /**
+     * Resolução segura. null significa que o país não possui uma confederação/rota continental
+     * válida nesta camada. O agregado MIXED mantém somente o mapeamento mundial legado explícito.
+     */
+    fun getContinentalTournamentsForCountryOrNull(country: String): Triple<String, String, String>? {
+        val rules = CountryFootballRulesRegistry.resolve(country) ?: return null
+        if (rules.legacyConfederationCode == "MIXED") {
+            return Triple("WORLD_CUP", "WORLD_INTERCONTINENTAL", "WORLD_CUP")
         }
+        val confederation = rules.confederation ?: return null
+        return CompetitionRulesRegistry.continentalCatalogCodes(confederation)
     }
+
+    /**
+     * Adaptador legado com falha explícita: nunca substitui uma associação desconhecida por outra.
+     */
+    fun getContinentalTournamentsForCountry(country: String): Triple<String, String, String> =
+        requireNotNull(getContinentalTournamentsForCountryOrNull(country)) {
+            "País/região sem competição continental registrada: '$country'."
+        }
 }

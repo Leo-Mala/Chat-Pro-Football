@@ -391,16 +391,27 @@ enum class CompetitionType(val code: String, val displayName: String, val level:
     WORLD_CUP("WORLD_CUP", "Super Mundial de Clubes", 0);
 
     companion object {
-        fun fromCode(code: String): CompetitionType {
-            return entries.find { it.code.equals(code, ignoreCase = true) || it.name.equals(code, ignoreCase = true) }
-                ?: when (code.uppercase()) {
-                    "DIV_1" -> SERIE_A
-                    "DIV_2" -> SERIE_B
-                    "DIV_3" -> SERIE_C
-                    "DIV_4" -> SERIE_D
-                    else -> SERIE_A
-                }
+        /** Resolução segura para novos consumidores. Código desconhecido permanece desconhecido. */
+        fun fromCodeOrNull(code: String): CompetitionType? {
+            return entries.find {
+                it.code.equals(code, ignoreCase = true) || it.name.equals(code, ignoreCase = true)
+            } ?: when (code.trim().uppercase()) {
+                "DIV_1" -> SERIE_A
+                "DIV_2" -> SERIE_B
+                "DIV_3" -> SERIE_C
+                "DIV_4" -> SERIE_D
+                else -> null
+            }
         }
+
+        /**
+         * Adaptador compatível com a assinatura histórica, porém agora falha explicitamente em vez
+         * de converter qualquer código desconhecido em SERIE_A.
+         */
+        fun fromCode(code: String): CompetitionType =
+            requireNotNull(fromCodeOrNull(code)) {
+                "Código de competição desconhecido: '$code'."
+            }
     }
 }
 
