@@ -5,7 +5,8 @@ package com.example.data
  *
  * Clubes com snapshot factual `GAMEPLAY_READY` recebem o elenco factual. Clubes ainda sem cobertura
  * usam explicitamente o fallback procedural fornecido pelo chamador. Empréstimos só são
- * materializados quando proprietário e tomador existem no conjunto de times do novo save.
+ * materializados quando proprietário e tomador existem no conjunto de times do novo save com a
+ * mesma identidade estável (id + país + nome).
  *
  * Isso permite testar a migração progressiva antes de alterar o seed central de `DefaultData`.
  */
@@ -34,6 +35,11 @@ object EuropeanFactualSeedPlanner {
             }
         }
     }
+
+    private fun Team.matchesIdentity(id: Long, country: String, name: String): Boolean =
+        this.id == id &&
+            this.country.equals(country, ignoreCase = true) &&
+            this.name.equals(name, ignoreCase = true)
 
     fun build(
         teams: List<Team>,
@@ -68,11 +74,15 @@ object EuropeanFactualSeedPlanner {
         val blockedLoans = mutableListOf<BlockedLoan>()
         val materializedLoans = mutableListOf<PlayerLoan>()
         loanCatalog.all().forEach { loan ->
-            val ownerExists = teamsById.containsKey(loan.ownerTeamId)
-            val borrower = teamsById[loan.borrowerTeamId]
-            if (!ownerExists || borrower == null) {
+            val owner = teams.firstOrNull {
+                it.matchesIdentity(loan.ownerTeamId, loan.ownerCountry, loan.ownerClubName)
+            }
+            val borrower = teams.firstOrNull {
+                it.matchesIdentity(loan.borrowerTeamId, loan.borrowerCountry, loan.borrowerClubName)
+            }
+            if (owner == null || borrower == null) {
                 val missing = buildList {
-                    if (!ownerExists) add("owner ${loan.ownerCountry}/${loan.ownerClubName}")
+                    if (owner == null) add("owner ${loan.ownerCountry}/${loan.ownerClubName}")
                     if (borrower == null) add("borrower ${loan.borrowerCountry}/${loan.borrowerClubName}")
                 }.joinToString(" + ")
                 blockedLoans += BlockedLoan(
