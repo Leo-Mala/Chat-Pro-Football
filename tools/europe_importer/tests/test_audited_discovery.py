@@ -21,23 +21,26 @@ class _Client:
             return {
                 "parse": {
                     "sections": [
-                        {"index": "5", "line": "First-team squad"},
-                        {"index": "6", "line": "Out on loan"},
+                        {"index": "5", "line": "First-team squad", "level": "2"},
+                        {"index": "6", "line": "Out on loan", "level": "3"},
+                        {"index": "7", "line": "Club staff", "level": "2"},
                     ]
                 }
             }
-        if params.get("prop") == "wikitext":
+        if params.get("prop") == "links" and params.get("section") == "5":
+            # MediaWiki's expanded parent links include nested subsection content.
             return {
                 "parse": {
-                    "wikitext": (
-                        "{{Fs player|name=[[Active One]]}}\n"
-                        "{{Fs player|name=[[Active Two]]}}\n"
-                        "===Out on loan===\n"
-                        "{{Fs player|name=[[Loaned Player]]}}\n"
-                        "[[Category:Example]]\n"
-                    )
+                    "links": [
+                        {"ns": 0, "title": "Active One"},
+                        {"ns": 0, "title": "Active Two"},
+                        {"ns": 0, "title": "Loaned Player"},
+                        {"ns": 14, "title": "Category:Example"},
+                    ]
                 }
             }
+        if params.get("prop") == "links" and params.get("section") == "6":
+            return {"parse": {"links": [{"ns": 0, "title": "Loaned Player"}]}}
         raise AssertionError(params)
 
     def entities(self, qids):
@@ -100,6 +103,12 @@ class AuditedDiscoveryTest(unittest.TestCase):
         self.assertEqual("First-team squad", section)
         self.assertEqual(["Active One", "Active Two"], links)
         self.assertNotIn("Loaned Player", links)
+        sections_requested = [
+            params.get("section")
+            for _, params in provider.client.calls
+            if params.get("prop") == "links"
+        ]
+        self.assertEqual(["5", "6"], sections_requested)
 
     def test_p1532_only_player_receives_transient_discovery_bridge(self):
         provider = _Provider()
