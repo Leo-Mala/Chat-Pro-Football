@@ -58,7 +58,9 @@ class SeasonTransitionUseCase(
         repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
 
         val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
-        val teamsByCountry = allTeams.groupBy { it.country }
+        val teamsByCountry = allTeams
+            .filter { CountryFootballRulesRegistry.isDomesticCompetitionEligible(it.country) }
+            .groupBy { it.country }
         val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
 
         for ((country, countryTeams) in teamsByCountry) {
