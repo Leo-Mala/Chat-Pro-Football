@@ -20,13 +20,17 @@ class EuropeanDomesticBaselineTest {
     }
 
     @Test
-    fun `verified top five have complete unique 2026 27 club lists`() {
-        val expectedCounts = mapOf(
+    fun `verified top flights have complete unique 2026 27 club lists`() {
+        val expectedCounts = linkedMapOf(
             "Inglaterra" to 20,
             "Espanha" to 20,
             "Itália" to 20,
             "Alemanha" to 18,
-            "França" to 18
+            "França" to 18,
+            "Países Baixos" to 18,
+            "Bélgica" to 18,
+            "Turquia" to 18,
+            "Escócia" to 12
         )
 
         assertEquals(expectedCounts.keys, EuropeanDomesticBaseline2026_27.verifiedTopFlightCountries)
