@@ -19,6 +19,22 @@ class StableRealPlayerIdentityTest {
     }
 
     @Test
+    fun `verified spelling correction preserves the already versioned stable identity`() {
+        val oldId = StableRealPlayerIdentity.idFor("Emanuel Emegha", "2003-02-03")
+        val correctedId = StableRealPlayerIdentity.idFor(
+            "Emmanuel Emegha",
+            "2003-02-03",
+            "identity-name-v1:Emanuel Emegha"
+        )
+
+        assertEquals(oldId, correctedId)
+        assertNotEquals(
+            oldId,
+            StableRealPlayerIdentity.idFor("Emmanuel Emegha", "2003-02-03")
+        )
+    }
+
+    @Test
     fun `identity transliterates european letters that NFKD does not decompose`() {
         val variants = listOf(
             Triple("Martin Ødegaard", "Martin Odegaard", "1998-12-17"),
@@ -58,7 +74,6 @@ class StableRealPlayerIdentityTest {
             assertTrue("Data impossível foi aceita: $invalidDate", failed)
         }
 
-        // 2000 é bissexto; esta data precisa continuar válida.
         assertTrue(StableRealPlayerIdentity.isRealPlayerId(
             StableRealPlayerIdentity.idFor("Leap Year", "2000-02-29")
         ))
