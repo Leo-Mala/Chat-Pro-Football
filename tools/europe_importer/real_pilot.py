@@ -7,12 +7,14 @@ from typing import Any
 
 from .identity import StableTeamIdentityContract
 from .open_data_postprocess import (
+    apply_canonical_name_overrides,
     apply_verified_open_data_facts,
     install_verified_squad_discovery_overrides,
 )
 from .pipeline import run_pipeline
 from .providers import FixtureProvider, ProviderRequest
 from .sharding import write_sharded_dataset
+from .verified_membership_materializer import materialize_missing_verified_memberships
 from .wikimedia_open_data import WikimediaOpenDataProvider
 
 HERE = Path(__file__).resolve().parent
@@ -79,6 +81,7 @@ def main() -> int:
         # Collection is intentionally separate from canonicalization so the
         # audit survives even if validation fails.
         raw = provider.collect(request)
+        materialize_missing_verified_memberships(provider, raw, overrides_path)
         raw = apply_verified_open_data_facts(provider, raw, overrides_path)
         audit_path.write_text(
             json.dumps(provider.last_audit, ensure_ascii=False, indent=2) + "\n",
@@ -86,8 +89,8 @@ def main() -> int:
         )
 
         # The open-data collector emits the same transient raw shape as the
-        # tested API-Football/fixture normalizer. External/QIDs are stripped by
-        # canonicalize; only explicitly verified loan rows are synthesized.
+        # tested fixture normalizer. External/QIDs are stripped by canonicalize;
+        # only explicitly verified membership/loan facts may fill discovery gaps.
         raw["provider"] = "fixture"
         contract = StableTeamIdentityContract.from_json(contract_path)
         result = run_pipeline(
@@ -100,6 +103,12 @@ def main() -> int:
         canonical_dataset = _rewrite_open_data_provenance(result.dataset)
         canonical_dataset["provider"] = "wikimedia-open-data"
         _apply_verified_loan_provenance(canonical_dataset, overrides_path)
+        name_corrections = apply_canonical_name_overrides(canonical_dataset, overrides_path)
+        provider.last_audit["canonicalNameCorrections"] = name_corrections
+        audit_path.write_text(
+            json.dumps(provider.last_audit, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         manifest = write_sharded_dataset(canonical_dataset, output_dir)
 
         if manifest.get("validationStatus") != "VALIDATED":
@@ -137,12 +146,13 @@ def main() -> int:
             "loanCount": manifest.get("loanCount"),
             "loanCandidatesDetected": len(provider.last_audit.get("loanCandidates") or []),
             "verifiedLoanCount": verified_loan_count,
+            "canonicalNameCorrectionCount": len(name_corrections),
             "validationStatus": manifest.get("validationStatus"),
             "datasetFiles": manifest.get("datasetFiles"),
             "sourcePolicy": {
                 "squadDiscovery": "English Wikipedia current/first-team squad section plus explicit official membership overrides",
                 "structuredFacts": "Wikidata CC0",
-                "sportNationality": "Wikidata P1532 with P27 fallback",
+                "sportNationality": "Current/ranked Wikidata P1532; official override for unresolved ambiguity; P27 only when P1532 is absent",
                 "verifiedOverrides": "Official club/league sources",
                 "providerIdsPersisted": False,
                 "wikipediaTextPersisted": False,
