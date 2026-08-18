@@ -6,7 +6,6 @@
     {"fullName":"Thierno Barry","position":"Forward","source":"https://www.premierleague.com/en/players/586309/thierno-barry/stats"},
     {"fullName":"Tarik Muharemović","position":"Defender","source":"https://www.leedsunited.com/en/news/tarik-muharemovic-signs-for-leeds-united"},
     {"fullName":"Myles Lewis-Skelly","position":"Midfielder","source":"https://www.premierleague.com/en/news/4679886/position-changes-for-202627-fantasy-premier-league/"},
-    {"fullName":"Modou Kéba Cissé","position":"Defender","source":"https://www.premierleague.com/en/news/4362218"},
     {"fullName":"Álvaro Rodríguez","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
     {"fullName":"Jannik Schuster","position":"Defender","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
     {"fullName":"Eiran Cashin","position":"Defender","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
@@ -16,14 +15,13 @@
     {"fullName":"Ibrahim Osman","position":"Forward","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
     {"fullName":"Zadok Yohanna","position":"Forward","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
     {"fullName":"Stefanos Tzimas","position":"Forward","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
-    {"fullName":"Rodrigo Rêgo","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
     {"fullName":"Geovany Quenda","position":"Midfielder","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
-    {"fullName":"Marco Palestra","position":"Defender","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
+    {"fullName":"Marco Palestra","position":"Defender","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
     {"fullName":"Aaron Anselmino","position":"Defender","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
     {"fullName":"Jamie Gittens","position":"Forward","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
     {"fullName":"Nicolas Jackson","position":"Forward","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
     {"fullName":"Estêvão","position":"Forward","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
-    {"fullName":"Valentín Barco","position":"Midfielder","source":"https://www.chelseafc.com/en/news/article/summer-transfers-2026-all-the-chelsea-ins-outs-and-new-contracts-so-far"},
+    {"fullName":"Valentín Barco","position":"Midfielder","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
     {"fullName":"Carl Rushworth","position":"Goalkeeper","source":"https://www.premierleague.com/en/clubs/9/coventry-city/squad"},
     {"fullName":"Bobby Thomas","position":"Defender","source":"https://www.premierleague.com/en/clubs/9/coventry-city/squad"},
     {"fullName":"Ellis Simms","position":"Forward","source":"https://www.premierleague.com/en/clubs/9/coventry-city/squad"},
@@ -35,7 +33,7 @@
     {"fullName":"Jonah Kusi-Asare","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
     {"fullName":"Elliot Stroud","position":"Defender","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
     {"fullName":"Emersonn","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
-    {"fullName":"Issa Diop","position":"Defender","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Issa Diop","position":"Defender","source":"https://www.itfc.co.uk/news/2026/july/22/issa-diop-is-a-blue/"},
     {"fullName":"Jeremy Monga","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
     {"fullName":"Andrey Santos","position":"Midfielder","source":"https://www.premierleague.com/en/news/4679289/man-utd-sign-midfielder-andrey-santos-from-chelsea"},
     {"fullName":"Patrick Dorgu","position":"Midfielder","source":"https://www.premierleague.com/en/news/4679886/position-changes-for-202627-fantasy-premier-league/"},
@@ -43,7 +41,7 @@
     {"fullName":"Jack Fletcher","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
     {"fullName":"Ayden Heaven","position":"Defender","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
     {"fullName":"Shea Lacey","position":"Forward","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
-    {"fullName":"Ewen Jaouen","position":"Goalkeeper","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Ewen Jaouen","position":"Goalkeeper","source":"https://www.premierleague.com/en/players/"},
     {"fullName":"Murillo","position":"Defender","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
     {"fullName":"Jair Cunha","position":"Defender","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
     {"fullName":"Omari Hutchinson","position":"Forward","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
@@ -59,15 +57,13 @@
   ],
   "squadMemberships": [
     {"club":"Manchester City","clubWikipediaPage":"Manchester City F.C.","fullName":"Rodri","wikipediaTitle":"Rodri (footballer, born 1996)","source":"https://www.mancity.com/players/rodri"},
-    {"club":"Aston Villa","clubWikipediaPage":"Aston Villa F.C.","fullName":"Modou Kéba Cissé","wikipediaTitle":"Modou Kéba Cissé","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
-    {"club":"Brighton & Hove Albion","clubWikipediaPage":"Brighton & Hove Albion F.C.","fullName":"Rodrigo Rêgo","wikipediaTitle":"Rodrigo Rêgo (footballer, born 2005)","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
-    {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop (footballer)","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"}
+    {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop (footballer)","source":"https://www.itfc.co.uk/news/2026/july/22/issa-diop-is-a-blue/"}
   ],
   "nationalities": [
     {"fullName":"Declan Rice","nationality":"England","source":"https://www.premierleague.com/en/players/204480/"}
   ],
   "playerNames": [
-    {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"}
+    {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","birthDateIso":"2003-02-03","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"}
   ],
   "squadExclusions": [
     {"club":"Liverpool FC","fullName":"Ronald Araújo","birthDateIso":"1999-03-07","reason":"Current FC Barcelona first-team player; false Liverpool squad association from collaborative discovery.","source":"https://www.fcbarcelona.com/en/football/first-team/players/66133/ronaldaraujo"},
