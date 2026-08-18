@@ -78,7 +78,7 @@ enum class EuropeanSquadCoverage {
 }
 
 /**
- * Catálogo imutável de snapshots factuais. Os lotes por país serão concatenados na construção;
+ * Catálogo imutável de snapshots factuais. Os lotes por país são concatenados na construção;
  * nenhuma execução de save pode registrar/alterar dados globais em runtime.
  */
 class EuropeanRealSquadCatalog(
@@ -126,9 +126,14 @@ class EuropeanRealSquadCatalog(
 }
 
 /**
- * Source of truth do seed factual. Permanece vazio até os primeiros lotes auditados serem
- * transcritos; `missingTopFlightClubs()` deixa a cobertura incompleta mensurável.
+ * Source of truth incremental do seed factual. Apenas snapshots auditados entram nesta lista.
+ * Em 2026-08-18 existe um único clube cadastrado: Manchester United. A diferença para os 320
+ * clubes factuais da primeira divisão permanece mensurável por `missingTopFlightClubs()`.
  */
 object EuropeanRealSquads {
-    val catalog = EuropeanRealSquadCatalog(emptyList())
+    val catalog = EuropeanRealSquadCatalog(
+        listOf(
+            ManchesterUnitedSquad2026_27.snapshot
+        )
+    )
 }
