@@ -1,50 +1,76 @@
 {
   "verifiedAsOfIso": "2026-08-18",
   "positions": [
-    {
-      "fullName": "Michael Kayode",
-      "position": "Defender",
-      "source": "https://www.premierleague.com/en/players/607464/michael-kayode/overview"
-    },
-    {
-      "fullName": "Bart Verbruggen",
-      "position": "Goalkeeper",
-      "source": "https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"
-    },
-    {
-      "fullName": "Thierno Barry",
-      "position": "Forward",
-      "source": "https://www.premierleague.com/en/players/586309/thierno-barry/stats"
-    },
-    {
-      "fullName": "Tarik Muharemović",
-      "position": "Defender",
-      "source": "https://www.leedsunited.com/en/news/tarik-muharemovic-signs-for-leeds-united"
-    }
+    {"fullName":"Michael Kayode","position":"Defender","source":"https://www.premierleague.com/en/players/607464/michael-kayode/overview"},
+    {"fullName":"Bart Verbruggen","position":"Goalkeeper","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Thierno Barry","position":"Forward","source":"https://www.premierleague.com/en/players/586309/thierno-barry/stats"},
+    {"fullName":"Tarik Muharemović","position":"Defender","source":"https://www.leedsunited.com/en/news/tarik-muharemovic-signs-for-leeds-united"},
+    {"fullName":"Myles Lewis-Skelly","position":"Midfielder","source":"https://www.premierleague.com/en/news/4679886/position-changes-for-202627-fantasy-premier-league/"},
+    {"fullName":"Álvaro Rodríguez","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Jannik Schuster","position":"Defender","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Eiran Cashin","position":"Defender","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Tom McGill","position":"Goalkeeper","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Jack Hinshelwood","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Malick Yalcouyé","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Ibrahim Osman","position":"Forward","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Zadok Yohanna","position":"Forward","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Stefanos Tzimas","position":"Forward","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"},
+    {"fullName":"Geovany Quenda","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
+    {"fullName":"Marco Palestra","position":"Defender","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
+    {"fullName":"Aaron Anselmino","position":"Defender","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
+    {"fullName":"Jamie Gittens","position":"Forward","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
+    {"fullName":"Nicolas Jackson","position":"Forward","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
+    {"fullName":"Estêvão","position":"Forward","source":"https://www.premierleague.com/en/clubs/8/chelsea/squad"},
+    {"fullName":"Carl Rushworth","position":"Goalkeeper","source":"https://www.premierleague.com/en/clubs/9/coventry-city/squad"},
+    {"fullName":"Bobby Thomas","position":"Defender","source":"https://www.premierleague.com/en/clubs/9/coventry-city/squad"},
+    {"fullName":"Ellis Simms","position":"Forward","source":"https://www.premierleague.com/en/clubs/9/coventry-city/squad"},
+    {"fullName":"Hayden Hackney","position":"Midfielder","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Tyrique George","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Tim Iroegbunam","position":"Midfielder","source":"https://www.premierleague.com/en/news/4680040/moyes-names-starting-xi-for-dundee-test"},
+    {"fullName":"Jonah Kusi-Asare","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Emersonn","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Issa Diop","position":"Defender","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Jeremy Monga","position":"Forward","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Andrey Santos","position":"Midfielder","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Patrick Dorgu","position":"Midfielder","source":"https://www.premierleague.com/en/news/4679886/position-changes-for-202627-fantasy-premier-league/"},
+    {"fullName":"Leny Yoro","position":"Defender","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
+    {"fullName":"Jack Fletcher","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
+    {"fullName":"Ayden Heaven","position":"Defender","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
+    {"fullName":"Shea Lacey","position":"Forward","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
+    {"fullName":"Ewen Jaouen","position":"Goalkeeper","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Murillo","position":"Defender","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
+    {"fullName":"Jair Cunha","position":"Defender","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
+    {"fullName":"Omari Hutchinson","position":"Forward","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
+    {"fullName":"Eric da Silva Moreira","position":"Defender","source":"https://www.premierleague.com/en/news/4679886/position-changes-for-202627-fantasy-premier-league/"},
+    {"fullName":"Mateus Fernandes","position":"Midfielder","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"},
+    {"fullName":"Lucas Bergvall","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/6/tottenham-hotspur/squad"},
+    {"fullName":"Souza","position":"Defender","source":"https://www.premierleague.com/en/clubs/6/tottenham-hotspur/squad"}
   ],
   "stadiums": [
-    {
-      "club": "Brentford FC",
-      "stadium": "Gtech Community Stadium",
-      "source": "https://www.premierleague.com/en/clubs/94/brentford/stadium"
-    }
+    {"club":"Brentford FC","stadium":"Gtech Community Stadium","source":"https://www.premierleague.com/en/clubs/94/brentford/stadium"},
+    {"club":"AFC Bournemouth","stadium":"Vitality Stadium","source":"https://www.premierleague.com/en/clubs/91/bournemouth/squad"},
+    {"club":"Brighton & Hove Albion","stadium":"American Express Stadium","source":"https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"}
   ],
   "squadMemberships": [
-    {
-      "club": "Manchester City",
-      "clubWikipediaPage": "Manchester City F.C.",
-      "fullName": "Rodri",
-      "wikipediaTitle": "Rodri (footballer, born 1996)",
-      "source": "https://www.mancity.com/news/mens/man-city-fpl-prices-2026-27-revealed-haaland-rodri-foden-63920330"
-    }
+    {"club":"Manchester City","clubWikipediaPage":"Manchester City F.C.","fullName":"Rodri","wikipediaTitle":"Rodri (footballer, born 1996)","source":"https://www.mancity.com/players/rodri"},
+    {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"}
+  ],
+  "nationalities": [
+    {"fullName":"Declan Rice","nationality":"England","source":"https://www.premierleague.com/en/players/204480/"}
+  ],
+  "playerNames": [
+    {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"}
+  ],
+  "squadExclusions": [
+    {"club":"Liverpool FC","fullName":"Ronald Araújo","source":"https://www.fcbarcelona.com/en/football/first-team/players/66133/ronaldaraujo"},
+    {"club":"Chelsea FC","fullName":"Danny Welbeck","source":"https://www.premierleague.com/en/players/50175/danny-welbeck/overview"},
+    {"club":"Chelsea FC","fullName":"Jordan Henderson","source":"https://www.premierleague.com/en/players/56979/jordan-henderson/stats"},
+    {"club":"Chelsea FC","fullName":"Maxence Lacroix","source":"https://www.premierleague.com/en/players/437499/maxence-lacroix/overview"},
+    {"club":"Coventry City","fullName":"Taiwo Awoniyi","source":"https://www.premierleague.com/en/players/210156/taiwo-awoniyi/overview"},
+    {"club":"Coventry City","fullName":"Gustavo Hamer","source":"https://www.premierleague.com/en/players/196100/gustavo-hamer/overview"},
+    {"club":"Everton FC","fullName":"Brennan Johnson","source":"https://www.premierleague.com/en/news/4531068"}
   ],
   "loans": [
-    {
-      "fullName": "Alejandro Garnacho",
-      "ownerClub": "Chelsea FC",
-      "borrowerClub": "Aston Villa",
-      "verifiedAsOfIso": "2026-08-14",
-      "source": "https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"
-    }
+    {"fullName":"Alejandro Garnacho","ownerClub":"Chelsea FC","borrowerClub":"Aston Villa","verifiedAsOfIso":"2026-08-14","source":"https://www.premierleague.com/en/news/4681361/every-premier-league-clubs-biggest-deals-in-summer-transfer-window/"}
   ]
 }
