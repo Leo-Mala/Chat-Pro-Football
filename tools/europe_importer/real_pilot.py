@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from .identity import StableTeamIdentityContract
-from .open_data_postprocess import apply_verified_open_data_facts
+from .open_data_postprocess import (
+    apply_verified_open_data_facts,
+    install_verified_squad_discovery_overrides,
+)
 from .pipeline import run_pipeline
 from .providers import FixtureProvider, ProviderRequest
 from .sharding import write_sharded_dataset
@@ -67,6 +70,7 @@ def main() -> int:
         HERE / ".cache" / "wikimedia-open-data",
         team_names=team_names,
     )
+    install_verified_squad_discovery_overrides(provider, overrides_path)
 
     summary_path = output_dir / "pilot_summary.json"
     audit_path = output_dir / "open_data_audit.json"
@@ -136,7 +140,7 @@ def main() -> int:
             "validationStatus": manifest.get("validationStatus"),
             "datasetFiles": manifest.get("datasetFiles"),
             "sourcePolicy": {
-                "squadDiscovery": "English Wikipedia current/first-team squad section",
+                "squadDiscovery": "English Wikipedia current/first-team squad section plus explicit official membership overrides",
                 "structuredFacts": "Wikidata CC0",
                 "sportNationality": "Wikidata P1532 with P27 fallback",
                 "verifiedOverrides": "Official club/league sources",
