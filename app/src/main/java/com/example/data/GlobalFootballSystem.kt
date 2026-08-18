@@ -102,7 +102,17 @@ object GlobalFootballSystem {
 
     val keys = countries.map { it.name }
 
+    /**
+     * Resolve o ID global de clube.
+     *
+     * Clubes reais já congelados no [StableTeamIdentityRegistry] deixam de depender da posição na
+     * lista. Isso permite mudar de divisão ou reorganizar DefaultData sem trocar a identidade. Os
+     * clubes ainda não migrados continuam no algoritmo legado até sua associação receber baseline
+     * real explícito.
+     */
     fun getGlobalId(country: String, teamName: String): Long {
+        StableTeamIdentityRegistry.idFor(country, teamName)?.let { return it }
+
         val countryIndex = keys.indexOf(country)
         if (countryIndex != -1) {
             val teams = DefaultData.countriesMap[country]?.teams
@@ -120,28 +130,47 @@ object GlobalFootballSystem {
         return VIRTUAL_TEAM_ID_FLOOR + positiveHash
     }
 
+    /**
+     * Materializa um clube a partir do ID global.
+     *
+     * IDs congelados são resolvidos primeiro pelo registry e depois pelo nome atual no DefaultData.
+     * O decoder posicional legado permanece como fallback para saves/associações ainda não
+     * migrados para identidade explícita.
+     */
     fun getTeamByGlobalId(id: Long?): Team? {
         if (id == null) return null
+
+        StableTeamIdentityRegistry.identityForId(id)?.let { identity ->
+            val template = DefaultData.countriesMap[identity.country]
+                ?.teams
+                ?.firstOrNull { team ->
+                    StableTeamIdentityRegistry.idFor(identity.country, team.name) == id
+                }
+                ?: return@let
+            return template.toPersistedTeam(id = id, country = identity.country)
+        }
+
         val countryIndex = ((id - 1) / 200).toInt()
         val teamIndex = ((id - 1) % 200).toInt()
         if (countryIndex < 0 || countryIndex >= keys.size) return null
         val country = keys[countryIndex]
         val teams = DefaultData.countriesMap[country]?.teams ?: return null
         if (teamIndex < 0 || teamIndex >= teams.size) return null
-        val t = teams[teamIndex]
-        return Team(
-            id = id,
-            name = t.name,
-            city = t.city,
-            state = t.state,
-            country = country,
-            division = t.division,
-            rating = t.rating,
-            stadiumName = t.stadium,
-            logoUrl = DefaultData.getLogoForTeam(t.name, country),
-            isPlayerControlled = false
-        )
+        return teams[teamIndex].toPersistedTeam(id = id, country = country)
     }
+
+    private fun DefaultData.TeamTemplate.toPersistedTeam(id: Long, country: String): Team = Team(
+        id = id,
+        name = name,
+        city = city,
+        state = state,
+        country = country,
+        division = division,
+        rating = rating,
+        stadiumName = stadium,
+        logoUrl = DefaultData.getLogoForTeam(name, country),
+        isPlayerControlled = false
+    )
 
     fun getVirtualTeam(id: Long): Team {
         return getTeamByGlobalId(id) ?: Team(
