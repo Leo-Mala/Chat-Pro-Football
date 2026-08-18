@@ -20,13 +20,14 @@ class EuropeanDomesticBaselineTest {
     }
 
     @Test
-    fun `verified top flights have complete unique factual club lists`() {
+    fun `all modeled UEFA top flights have complete unique factual club lists`() {
         val expectedCounts = linkedMapOf(
             "Inglaterra" to 20,
             "Espanha" to 20,
             "Itália" to 20,
             "Alemanha" to 18,
             "França" to 18,
+            "Portugal" to 18,
             "Países Baixos" to 18,
             "Bélgica" to 18,
             "Turquia" to 18,
@@ -39,7 +40,8 @@ class EuropeanDomesticBaselineTest {
             "Polônia" to 18,
             "Tchéquia" to 16,
             "Croácia" to 10,
-            "Sérvia" to 14
+            "Sérvia" to 14,
+            "Grécia" to 14
         )
 
         assertEquals(expectedCounts.keys, EuropeanDomesticBaseline2026_27.verifiedTopFlightCountries)
@@ -55,13 +57,12 @@ class EuropeanDomesticBaselineTest {
     }
 
     @Test
-    fun `only Portugal and Greece remain structure only`() {
+    fun `no modeled UEFA association remains structure only`() {
         val remaining = EuropeanDomesticBaseline2026_27.associations
             .filter { it.coverage == EuropeanDomesticCoverage.STRUCTURE_ONLY }
             .map { it.country }
-            .toSet()
 
-        assertEquals(setOf("Portugal", "Grécia"), remaining)
+        assertTrue(remaining.isEmpty())
     }
 
     @Test
@@ -69,7 +70,8 @@ class EuropeanDomesticBaselineTest {
         assertEquals("2026", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Noruega")).domesticSeasonLabel)
         assertEquals("2026", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Suécia")).domesticSeasonLabel)
         assertEquals("2026/27", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Inglaterra")).domesticSeasonLabel)
-        assertEquals("2026/27", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Tchéquia")).domesticSeasonLabel)
+        assertEquals("2026/27", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Portugal")).domesticSeasonLabel)
+        assertEquals("2026/27", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Grécia")).domesticSeasonLabel)
     }
 
     @Test
