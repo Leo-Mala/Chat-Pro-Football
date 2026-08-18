@@ -95,12 +95,20 @@ object UefaDomesticAccessPlanner {
         )
     }
 
-    fun fromTitleholder(teamId: Long, competition: CompetitionIdentity): UefaDomesticEntryCandidate? {
+    fun fromTitleholder(
+        teamId: Long,
+        country: String,
+        competition: CompetitionIdentity
+    ): UefaDomesticEntryCandidate? {
         if (teamId <= 0L) return null
         require(competition in setOf(CompetitionIdentity.UEFA_CL, CompetitionIdentity.UEFA_EL, CompetitionIdentity.UEFA_ECL))
+        val rules = CountryFootballRulesRegistry.resolve(country) ?: return null
+        if (rules.confederation != FootballConfederation.UEFA || rules.kind != CountryRuleKind.NATIONAL_ASSOCIATION) {
+            return null
+        }
         return UefaDomesticEntryCandidate(
             teamId = teamId,
-            country = "UEFA",
+            country = rules.canonicalCountry,
             source = QualificationSource.ContinentalChampion(competition)
         )
     }
