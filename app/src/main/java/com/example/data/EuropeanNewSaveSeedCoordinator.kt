@@ -60,7 +60,24 @@ object EuropeanNewSaveSeedCoordinator {
         teams: List<Team>,
         dataset: EuropeanCanonicalDataset
     ) {
-        val factualTeams = dataset.applyClubFacts(teams)
+        val existingIds = teams.mapTo(hashSetOf()) { it.id }
+        val loanEndpointIds = dataset.loans
+            .flatMap { listOf(it.ownerTeamId, it.borrowerTeamId) }
+            .distinct()
+        val externalLoanTeams = loanEndpointIds
+            .filterNot(existingIds::contains)
+            .map { teamId ->
+                requireNotNull(GlobalFootballSystem.getTeamByGlobalId(teamId)) {
+                    "Endpoint de empréstimo factual não pode ser materializado pelo resolvedor global: teamId=$teamId"
+                }
+            }
+
+        val seedTeams = teams + externalLoanTeams
+        require(seedTeams.map { it.id }.distinct().size == seedTeams.size) {
+            "Seed de novo save contém teamId duplicado após materializar endpoints de empréstimo."
+        }
+
+        val factualTeams = dataset.applyClubFacts(seedTeams)
         val plan = dataset.buildSeedPlan(
             teams = factualTeams,
             proceduralRosterFactory = { team ->
