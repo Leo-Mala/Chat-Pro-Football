@@ -51,23 +51,22 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tools/europe_importer/tests -t .
 
-      - name: Generate Premier League real-data pilot
+      - name: Generate Premier League open-data pilot
+        id: open_data_pilot
         if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
+        continue-on-error: true
         env:
-          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-          API_FOOTBALL_MIN_INTERVAL_SECONDS: "6.2"
           PREMIER_LEAGUE_PILOT_OUTPUT: build/premier-league-real-pilot
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${API_FOOTBALL_KEY:-}" || { echo "::error::API_FOOTBALL_KEY repository secret is missing"; exit 1; }
           python3 -m tools.europe_importer.real_pilot
 
-      - name: Upload Premier League real-data pilot
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
+      - name: Upload Premier League open-data audit
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
         uses: actions/upload-artifact@v4
         with:
-          name: premier-league-real-data-pilot-${{ github.sha }}
+          name: premier-league-open-data-pilot-${{ github.sha }}
           path: build/premier-league-real-pilot/
           if-no-files-found: error
 
@@ -175,6 +174,13 @@ jobs:
           name: room-schema-${{ github.sha }}
           path: ${{ steps.room_schema.outputs.schema_file }}
           if-no-files-found: error
+
+      - name: Fail if Premier League open-data pilot failed
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot' && steps.open_data_pilot.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error::Premier League open-data pilot did not reach FACTUAL + VALIDATED. Inspect the uploaded audit artifact."
+          exit 1
 
       - name: Upload test report on failure
         if: failure()
