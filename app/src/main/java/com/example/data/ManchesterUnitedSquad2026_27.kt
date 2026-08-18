@@ -7,9 +7,10 @@ package com.example.data
  * A janela inglesa de verão de 2026 segue aberta até 2026-09-01, portanto este arquivo é um
  * snapshot datado e NÃO é declarado como elenco final da temporada.
  *
- * Altay Bayindir e Andre Onana aparecem explicitamente como "On Loan" na página oficial do clube
- * em 2026-08-18 e, por isso, não são materializados como membros ativos do elenco neste snapshot.
- * O vínculo de propriedade/empréstimo será tratado pela futura camada factual de loans.
+ * Andre Onana aparece explicitamente como "On Loan" na página/perfil oficial em 2026-08-18 e,
+ * por isso, não é materializado como membro ativo deste snapshot. Altay Bayindir aparece como
+ * goleiro ativo e permanece no elenco. O vínculo de propriedade/empréstimo de Onana será tratado
+ * pela futura camada factual de loans.
  *
  * Mapeamento de posição para o modelo do jogo:
  * - categoria oficial Forward -> ATA;
@@ -49,16 +50,19 @@ object ManchesterUnitedSquad2026_27 {
             "https://www.manutd.com/en/teams/mens-team/patrick-dorgu",
             "https://www.manutd.com/en/teams/mens-team/diogo-dalot",
             "https://www.manutd.com/en/teams/mens-team/matthijs-de-ligt",
+            "https://www.manutd.com/en/teams/mens-team/tyler-fredricson",
             "https://www.manutd.com/en/teams/mens-team/ayden-heaven",
             "https://www.manutd.com/en/teams/mens-team/harry-maguire",
             "https://www.manutd.com/en/teams/mens-team/lisandro-martinez",
             "https://www.manutd.com/en/teams/mens-team/noussair-mazraoui",
             "https://www.manutd.com/en/teams/mens-team/luke-shaw",
             "https://www.manutd.com/en/teams/mens-team/leny-yoro",
+            "https://www.manutd.com/en/teams/mens-team/altay-bayindir",
             "https://www.manutd.com/en/teams/mens-team/karl-darlow",
             "https://www.manutd.com/en/teams/mens-team/tom-heaton",
             "https://www.manutd.com/en/teams/mens-team/senne-lammens",
-            "https://www.manutd.com/en/teams/mens-team/dermot-mee"
+            "https://www.manutd.com/en/teams/mens-team/dermot-mee",
+            "https://www.manutd.com/en/teams/mens-team/andre-onana"
         ),
         players = listOf(
             p("Matheus Cunha", "1999-05-27", "Brazil", "ATA", 10),
@@ -83,6 +87,7 @@ object ManchesterUnitedSquad2026_27 {
             p("Patrick Chinazaekpere Dorgu", "2004-10-26", "Denmark", "LAT", 13),
             p("Diogo Dalot", "1999-03-18", "Portugal", "LAT", 2),
             p("Matthijs de Ligt", "1999-08-12", "Netherlands", "ZAG", 4),
+            p("Tyler Fredricson", "2005-02-23", "England", "ZAG", 33),
             p("Ayden Heaven", "2006-09-22", "England", "ZAG", 26),
             p("Harry Maguire", "1993-03-05", "England", "ZAG", 5),
             p("Lisandro Martínez", "1998-01-18", "Argentina", "ZAG", 6),
@@ -90,10 +95,10 @@ object ManchesterUnitedSquad2026_27 {
             p("Luke Shaw", "1995-07-12", "England", "LAT", 23),
             p("Leny Yoro", "2005-11-13", "France", "ZAG", 15),
 
+            p("Altay Bayindir", "1998-04-14", "Türkiye", "GOL", 1),
             p("Karl Darlow", "1990-10-08", "Wales", "GOL", 12),
             p("Tom Heaton", "1986-04-15", "England", "GOL", 22),
-            // A página atual do elenco em 2026-08-18 mostra Lammens com a camisa 1.
-            p("Senne Lammens", "2002-07-07", "Belgium", "GOL", 1),
+            p("Senne Lammens", "2002-07-07", "Belgium", "GOL", 31),
             p("Dermot Mee", "2002-11-20", "Northern Ireland", "GOL", 45)
         )
     )
