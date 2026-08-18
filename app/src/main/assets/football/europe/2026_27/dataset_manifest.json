@@ -1,18 +1,37 @@
 {
-  "provider":"api-football",
-  "season":"2026/27",
-  "generatedAt":"2026-08-18T14:00:00Z",
-  "countries":["Inglaterra"],
-  "leagues":["Premier League"],
-  "clubCount":5,
-  "playerCount":91,
-  "loanCount":1,
-  "validationStatus":"FIXTURE_ONLY",
-  "datasetFiles":[
+  "provider": "wikimedia-open-data",
+  "season": "2026/27",
+  "generatedAt": "2026-08-18T17:36:22Z",
+  "countries": [
+    "Inglaterra"
+  ],
+  "leagues": [
+    "Premier League"
+  ],
+  "clubCount": 20,
+  "playerCount": 486,
+  "loanCount": 1,
+  "validationStatus": "VALIDATED",
+  "datasetFiles": [
     "inglaterra__premier-league__arsenal-fc.json",
     "inglaterra__premier-league__aston-villa.json",
     "inglaterra__premier-league__afc-bournemouth.json",
     "inglaterra__premier-league__brentford-fc.json",
-    "inglaterra__premier-league__manchester-united.json"
+    "inglaterra__premier-league__brighton-hove-albion.json",
+    "inglaterra__premier-league__chelsea-fc.json",
+    "inglaterra__premier-league__coventry-city.json",
+    "inglaterra__premier-league__crystal-palace.json",
+    "inglaterra__premier-league__everton-fc.json",
+    "inglaterra__premier-league__fulham-fc.json",
+    "inglaterra__premier-league__hull-city.json",
+    "inglaterra__premier-league__ipswich-town.json",
+    "inglaterra__premier-league__leeds-united.json",
+    "inglaterra__premier-league__liverpool-fc.json",
+    "inglaterra__premier-league__manchester-city.json",
+    "inglaterra__premier-league__manchester-united.json",
+    "inglaterra__premier-league__newcastle-united.json",
+    "inglaterra__premier-league__nottingham-forest.json",
+    "inglaterra__premier-league__sunderland-afc.json",
+    "inglaterra__premier-league__tottenham-hotspur.json"
   ]
 }
