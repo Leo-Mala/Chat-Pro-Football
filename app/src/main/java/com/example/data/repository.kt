@@ -4,7 +4,15 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 
 class GameRepository(private val db: AppDatabase) {
-    suspend fun <R> withTransaction(block: suspend () -> R): R = db.withTransaction(block)
+    suspend fun <R> withTransaction(block: suspend () -> R): R =
+        try {
+            db.withTransaction(block)
+        } finally {
+            // Um plano factual de novo save é estritamente efêmero e nunca pode vazar para
+            // reparos, carregamentos ou transações posteriores do mesmo slot.
+            EuropeanNewSaveSeedCoordinator.clear(this)
+        }
+
     suspend fun <R> runInTransaction(block: suspend () -> R): R = db.withTransaction(block)
     val gameSaveFlow: Flow<GameSave?> = db.gameSaveDao().getGameSaveFlow()
     val allTeamsFlow: Flow<List<Team>> = db.teamDao().getAllTeamsFlow()
@@ -58,10 +66,11 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun getAllTeams(): List<Team> = db.teamDao().getAllTeams()
     suspend fun getTeam(id: Long): Team? = db.teamDao().getTeam(id)
     suspend fun saveTeams(teams: List<Team>) = db.withTransaction {
-        if (teams.size > 100) {
-            teams.chunked(100).forEach { db.teamDao().insertTeams(it) }
+        val teamsToPersist = EuropeanNewSaveSeedCoordinator.teamsFor(this@GameRepository, teams)
+        if (teamsToPersist.size > 100) {
+            teamsToPersist.chunked(100).forEach { db.teamDao().insertTeams(it) }
         } else {
-            db.teamDao().insertTeams(teams)
+            db.teamDao().insertTeams(teamsToPersist)
         }
     }
     suspend fun updateTeam(team: Team) = db.teamDao().updateTeam(team)
@@ -81,10 +90,15 @@ class GameRepository(private val db: AppDatabase) {
         }
     }
     suspend fun savePlayers(players: List<Player>) = db.withTransaction {
-        if (players.size > 100) {
-            players.chunked(100).forEach { db.playerDao().insertPlayersReplace(it) }
+        val seed = EuropeanNewSaveSeedCoordinator.consumePlayers(this@GameRepository, players)
+        val playersToPersist = seed.players
+        if (playersToPersist.size > 100) {
+            playersToPersist.chunked(100).forEach { db.playerDao().insertPlayersReplace(it) }
         } else {
-            db.playerDao().insertPlayersReplace(players)
+            db.playerDao().insertPlayersReplace(playersToPersist)
+        }
+        if (seed.loans.isNotEmpty()) {
+            db.playerLoanDao().insertLoans(seed.loans)
         }
     }
     suspend fun updatePlayer(player: Player) = db.playerDao().updatePlayer(player)
