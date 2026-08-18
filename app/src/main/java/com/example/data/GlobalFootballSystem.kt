@@ -32,7 +32,8 @@ object GlobalFootballSystem {
      * preservar fixtures já existentes.
      */
     const val VIRTUAL_TEAM_ID_FLOOR = 200_000L
-    private const val STABLE_COLLISION_FALLBACK_FLOOR = 1_000_000_000L
+
+    private const val TEAM_IDS_PER_COUNTRY = 200
 
     fun isGeneratedVirtualTeamId(id: Long): Boolean = id >= VIRTUAL_TEAM_ID_FLOOR
 
@@ -106,26 +107,36 @@ object GlobalFootballSystem {
     /**
      * Resolve o ID global de clube.
      *
-     * Clubes reais já congelados no [StableTeamIdentityRegistry] deixam de depender da posição na
-     * lista. Isso permite mudar de divisão ou reorganizar DefaultData sem trocar a identidade. Os
-     * clubes ainda não migrados continuam no algoritmo legado quando o slot posicional não colide
-     * com um ID real congelado. Em caso de colisão, o fallback procedural recebe um ID hash em um
-     * namespace alto e nunca toma o ID histórico de outro clube.
+     * O registry estável só é aplicado a templates factuais explicitamente cadastrados em
+     * [DefaultData.originalMap]. Um clube procedural que, por coincidência, receba um nome igual a
+     * um alias histórico nunca herda a identidade do clube real.
+     *
+     * Para os demais templates do catálogo, os slots livres do bloco de 200 IDs do país são
+     * atribuídos em ordem determinística, pulando IDs congelados. Isso evita colisões sem transformar
+     * placeholders domésticos conhecidos em clubes virtuais.
      */
     fun getGlobalId(country: String, teamName: String): Long {
-        StableTeamIdentityRegistry.idFor(country, teamName)?.let { return it }
+        stableSeedIdFor(country, teamName)?.let { return it }
 
         val countryIndex = keys.indexOf(country)
         if (countryIndex != -1) {
             val teams = DefaultData.countriesMap[country]?.teams
             if (teams != null) {
-                val teamIndex = teams.indexOfFirst { it.name.equals(teamName, ignoreCase = true) }
+                val nonStableTeams = teams.filter { stableSeedIdFor(country, it.name) == null }
+                val teamIndex = nonStableTeams.indexOfFirst { it.name.equals(teamName, ignoreCase = true) }
                 if (teamIndex != -1) {
-                    val positionalId = (countryIndex * 200 + teamIndex + 1).toLong()
-                    if (StableTeamIdentityRegistry.identityForId(positionalId) == null) {
-                        return positionalId
+                    val blockStart = countryIndex * TEAM_IDS_PER_COUNTRY + 1L
+                    val blockEndInclusive = blockStart + TEAM_IDS_PER_COUNTRY - 1L
+                    val reservedIds = StableTeamIdentityRegistry.all
+                        .asSequence()
+                        .filter { it.country == country }
+                        .map { it.id }
+                        .filter { it in blockStart..blockEndInclusive }
+                        .toSet()
+                    val freeIds = (blockStart..blockEndInclusive).filterNot(reservedIds::contains)
+                    if (teamIndex < freeIds.size) {
+                        return freeIds[teamIndex]
                     }
-                    return collisionSafeGeneratedTeamId(country, teamName)
                 }
             }
         }
@@ -135,25 +146,24 @@ object GlobalFootballSystem {
     /**
      * Materializa um clube a partir do ID global.
      *
-     * IDs congelados são resolvidos primeiro pelo registry e depois pelo nome atual no DefaultData.
-     * IDs gerados no namespace virtual são procurados de volta no catálogo atual antes do fallback
-     * genérico. O decoder posicional legado permanece para saves/associações ainda não migrados.
+     * A resolução reversa procura pelo ID canônico calculado para cada template atual. Assim, IDs
+     * congelados e slots livres coexistem sem depender de decodificar o índice atual da lista.
      */
     fun getTeamByGlobalId(id: Long?): Team? {
         if (id == null) return null
 
         StableTeamIdentityRegistry.identityForId(id)?.let { identity ->
-            val template = DefaultData.countriesMap[identity.country]
+            val template = DefaultData.originalMap[identity.country]
                 ?.teams
-                ?.firstOrNull { team ->
-                    StableTeamIdentityRegistry.idFor(identity.country, team.name) == id
-                }
+                ?.firstOrNull { stableSeedIdFor(identity.country, it.name) == id }
                 ?: return@let
             return template.toPersistedTeam(id = id, country = identity.country)
         }
 
-        if (isGeneratedVirtualTeamId(id)) {
-            for (country in keys) {
+        if (!isGeneratedVirtualTeamId(id)) {
+            val countryIndex = ((id - 1) / TEAM_IDS_PER_COUNTRY).toInt()
+            if (countryIndex in keys.indices) {
+                val country = keys[countryIndex]
                 val template = DefaultData.countriesMap[country]
                     ?.teams
                     ?.firstOrNull { getGlobalId(country, it.name) == id }
@@ -164,16 +174,24 @@ object GlobalFootballSystem {
             return null
         }
 
-        val countryIndex = ((id - 1) / 200).toInt()
-        val teamIndex = ((id - 1) % 200).toInt()
-        if (countryIndex < 0 || countryIndex >= keys.size) return null
-        val country = keys[countryIndex]
-        val teams = DefaultData.countriesMap[country]?.teams ?: return null
-        if (teamIndex < 0 || teamIndex >= teams.size) return null
-        val template = teams[teamIndex]
-        val canonicalId = getGlobalId(country, template.name)
-        if (canonicalId != id) return null
-        return template.toPersistedTeam(id = id, country = country)
+        for (country in keys) {
+            val template = DefaultData.countriesMap[country]
+                ?.teams
+                ?.firstOrNull { getGlobalId(country, it.name) == id }
+            if (template != null) {
+                return template.toPersistedTeam(id = id, country = country)
+            }
+        }
+        return null
+    }
+
+    private fun stableSeedIdFor(country: String, teamName: String): Long? {
+        val isExplicitSeed = DefaultData.originalMap[country]
+            ?.teams
+            ?.any { it.name.equals(teamName, ignoreCase = true) }
+            ?: false
+        if (!isExplicitSeed) return null
+        return StableTeamIdentityRegistry.idFor(country, teamName)
     }
 
     private fun DefaultData.TeamTemplate.toPersistedTeam(id: Long, country: String): Team = Team(
@@ -188,15 +206,6 @@ object GlobalFootballSystem {
         logoUrl = DefaultData.getLogoForTeam(name, country),
         isPlayerControlled = false
     )
-
-    private fun collisionSafeGeneratedTeamId(country: String, teamName: String): Long {
-        var hash = 1469598103934665603L
-        "$country|$teamName".forEach { ch ->
-            hash = (hash xor ch.code.toLong()) * 1099511628211L
-        }
-        val positive = hash and Long.MAX_VALUE
-        return STABLE_COLLISION_FALLBACK_FLOOR + (positive % 8_000_000_000L)
-    }
 
     /** Mantém o algoritmo virtual legado para entradas que nunca tiveram posição no catálogo. */
     private fun legacyVirtualTeamId(country: String, teamName: String): Long {
