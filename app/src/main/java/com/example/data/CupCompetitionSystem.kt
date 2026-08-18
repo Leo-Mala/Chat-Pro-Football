@@ -39,27 +39,40 @@ object CupCompetitionSystem {
 
         val fixtures = mutableListOf<Fixture>()
         val actualUserCountry = teams.find { it.id == userTeamId }?.country ?: userCountry
+        val countryRules = CountryFootballRulesRegistry.resolve(actualUserCountry)
 
-        val nationalCupTeams = selectNationalCupTeams(
-            teams = teams,
-            userTeamId = userTeamId,
-            userCountry = actualUserCountry
-        )
-        if (nationalCupTeams.size >= 2) {
-            val startWeek = NATIONAL_CUP_FINAL_WEEK - roundsToChampion(nationalCupTeams.size) + 1
-            fixtures += generateKnockoutRound(
-                season = season,
-                week = startWeek,
-                teamIds = nationalCupTeams.map { it.id }
-                    .shuffled(Random(stableSeed(season, "COPA"))),
-                competitionType = "COPA"
+        // País desconhecido ou identidade virtual não recebe uma competição doméstica inventada.
+        if (countryRules?.domesticCompetitionsAllowed == true) {
+            val nationalCupTeams = selectNationalCupTeams(
+                teams = teams,
+                userTeamId = userTeamId,
+                userCountry = actualUserCountry
             )
+            if (nationalCupTeams.size >= 2) {
+                val startWeek = NATIONAL_CUP_FINAL_WEEK - roundsToChampion(nationalCupTeams.size) + 1
+                fixtures += generateKnockoutRound(
+                    season = season,
+                    week = startWeek,
+                    teamIds = nationalCupTeams.map { it.id }
+                        .shuffled(Random(stableSeed(season, "COPA"))),
+                    competitionType = "COPA"
+                )
+            }
         }
 
-        val userConfederation = GlobalFootballSystem.getConfederationForCountry(actualUserCountry)
+        // A ausência de confederação é um estado válido e fail-safe: não gera continental.
+        val userConfederation = countryRules?.confederation
+        if (userConfederation == null) {
+            FixtureScheduleValidator.requireValid(fixtures)
+            return fixtures
+        }
+
         val continentalCandidates = continentalTeams
             .asSequence()
-            .filter { GlobalFootballSystem.getConfederationForCountry(it.country) == userConfederation }
+            .filter {
+                CountryFootballRulesRegistry.isContinentalCompetitionEligible(it.country) &&
+                    CountryFootballRulesRegistry.confederationFor(it.country) == userConfederation
+            }
             .distinctBy { it.id }
             .sortedWith(
                 compareBy<Team> { it.division }
@@ -70,16 +83,18 @@ object CupCompetitionSystem {
 
         val fields = selectContinentalFields(
             candidates = continentalCandidates,
-            confederation = userConfederation
+            confederation = userConfederation.code
         )
 
-        if (userConfederation.equals("CONMEBOL", ignoreCase = true)) {
+        if (userConfederation == FootballConfederation.CONMEBOL) {
             fixtures += ConmebolCompetitionSystem.generateOpeningFixtures(
                 season = season,
                 libertadoresTeams = fields.tier1,
                 sudamericanaTeams = fields.tier2
             )
         } else {
+            // Compatibilidade temporária: as regras reais destas confederações entram nas fases
+            // 9.10B2/C/D. O registry identifica explicitamente esse engine como LEGACY_GENERIC.
             if (fields.tier1.size >= 8 && fields.tier1.size % 4 == 0) {
                 fixtures += generateLegacyGroupStage(
                     season = season,
