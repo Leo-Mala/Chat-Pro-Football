@@ -29,6 +29,15 @@
       "source": "https://www.premierleague.com/en/clubs/94/brentford/stadium"
     }
   ],
+  "squadMemberships": [
+    {
+      "club": "Manchester City",
+      "clubWikipediaPage": "Manchester City F.C.",
+      "fullName": "Rodri",
+      "wikipediaTitle": "Rodri (footballer, born 1996)",
+      "source": "https://www.mancity.com/news/mens/man-city-fpl-prices-2026-27-revealed-haaland-rodri-foden-63920330"
+    }
+  ],
   "loans": [
     {
       "fullName": "Alejandro Garnacho",
