@@ -35,13 +35,7 @@ def _excluded_nested_heading(line: Any) -> bool:
 
 
 def install_current_squad_only_discovery(provider: Any) -> None:
-    """Discover the active first-team body while excluding explicit non-active subsections.
-
-    ``prop=links`` expands MediaWiki squad templates, which is required for many club pages. Parent
-    sections may also include nested headings. We keep active nested headings (for example position
-    groups) and subtract only clearly non-active headings such as ``Out on loan``, ``B Team`` or
-    academy/reserve sections. This avoids both historical loan contamination and false empty squads.
-    """
+    """Discover the active first-team body while excluding explicit non-active subsections."""
     client = provider.client
 
     def current_squad_links(title: str) -> tuple[str, list[str]]:
@@ -83,28 +77,23 @@ def install_current_squad_only_discovery(provider: Any) -> None:
             {"action": "parse", "page": title, "section": section_index, "prop": "links"},
         )
         links = _page_links(parent)
-
         for nested_index in excluded_indices:
             nested = client.get(
                 ENWIKI_API,
                 {"action": "parse", "page": title, "section": nested_index, "prop": "links"},
             )
             links.difference_update(_page_links(nested))
-
         return str(chosen.get("line") or ""), sorted(links)
 
     client.current_squad_links = current_squad_links
 
 
 def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
-    """Bridge only safe transient discovery facts.
+    """Bridge only safe transient discovery facts and officially verified memberships.
 
-    Two discovery-only bridges are allowed:
-    1. a current, unambiguous P1532 can stand in for missing P27 during the legacy preliminary gate;
-    2. a QID tied to an explicitly verified ``squadMembership`` can receive that official fullName
-       only when Wikidata omits its English label.
-
-    Neither bridge changes canonical identity or bypasses occupation/birth/position validation.
+    Verified player pages are resolved with ``qids_for_titles`` so MediaWiki normalization and
+    redirects are honored. Their official names may fill a missing English Wikidata label only for
+    that exact QID. All occupation, birth, nationality and position validation remains mandatory.
     """
     overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
     as_of_iso = str(overrides.get("verifiedAsOfIso") or "").strip()
@@ -115,21 +104,32 @@ def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
 
     client = provider.client
     verified_name_by_qid: dict[str, dict[str, str]] = {}
+    verified_pages_by_club: dict[str, list[str]] = {}
     for row in overrides.get("squadMemberships", []) or []:
+        club_page = str(row.get("clubWikipediaPage") or "").strip()
         player_page = str(row.get("wikipediaTitle") or "").strip()
         full_name = str(row.get("fullName") or "").strip()
         source = str(row.get("source") or "").strip()
-        if not all((player_page, full_name, source)):
-            raise RuntimeError(f"Incomplete verified squad membership label bridge: {row}")
-        qid = client.page_qid(player_page)
+        if not all((club_page, player_page, full_name, source)):
+            raise RuntimeError(f"Incomplete verified squad membership bridge: {row}")
+        resolved = client.qids_for_titles([player_page])
+        resolved_qids = sorted(set(resolved.values()))
+        if len(resolved_qids) != 1:
+            raise RuntimeError(
+                f"Verified squad membership page must resolve exactly one QID: "
+                f"{player_page} (resolved={resolved_qids})"
+            )
+        qid = resolved_qids[0]
         existing = verified_name_by_qid.get(qid)
         if existing and existing["fullName"] != full_name:
             raise RuntimeError(
                 f"Conflicting verified squad names for {qid}: {existing['fullName']} vs {full_name}"
             )
         verified_name_by_qid[qid] = {"fullName": full_name, "source": source}
+        verified_pages_by_club.setdefault(club_page, []).append(player_page)
 
     original_entities = client.entities
+    original_current_squad_links = client.current_squad_links
     bridged_qids: set[str] = set()
     label_fallback_qids: set[str] = set()
 
@@ -142,8 +142,7 @@ def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
             has_non_deprecated_p27 = any(
                 claim.get("rank") != "deprecated"
                 and isinstance(
-                    ((claim.get("mainsnak") or {}).get("datavalue") or {}).get("value"),
-                    dict,
+                    ((claim.get("mainsnak") or {}).get("datavalue") or {}).get("value"), dict
                 )
                 and (((claim.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {}).get("id")
                 for claim in claims.get("P27", [])
@@ -168,11 +167,16 @@ def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
                     "value": verified_name["fullName"],
                 }
                 label_fallback_qids.add(str(qid))
-
             result[str(qid)] = entity
         return result
 
+    def current_squad_links(title: str) -> tuple[str, list[str]]:
+        section, links = original_current_squad_links(title)
+        forced = verified_pages_by_club.get(title, [])
+        return section, sorted(set(links).union(forced))
+
     client.entities = entities
+    client.current_squad_links = current_squad_links
     provider.p1532_discovery_bridged_qids = bridged_qids
     provider.verified_squad_label_fallback_qids = label_fallback_qids
     provider.verified_squad_label_sources_by_qid = verified_name_by_qid
