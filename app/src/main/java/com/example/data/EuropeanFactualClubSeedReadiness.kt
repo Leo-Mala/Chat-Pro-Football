@@ -41,6 +41,7 @@ object EuropeanFactualClubSeedReadiness {
         val template = DefaultData.originalMap[country]
             ?.teams
             ?.firstOrNull { it.name.equals(clubName, ignoreCase = true) }
+            ?: EuropeanAdditionalClubTemplates2026_27.find(country, clubName)?.template
 
         if (template == null) {
             return EuropeanFactualClubSeedAssessment(

@@ -108,8 +108,9 @@ object GlobalFootballSystem {
      * Resolve o ID global de clube.
      *
      * O registry estável só é aplicado a templates factuais explicitamente cadastrados em
-     * [DefaultData.originalMap]. Um clube procedural que, por coincidência, receba um nome igual a
-     * um alias histórico nunca herda a identidade do clube real.
+     * [DefaultData.originalMap] ou [EuropeanAdditionalClubTemplates2026_27]. Um clube procedural
+     * que, por coincidência, receba um nome igual a um alias histórico nunca herda a identidade do
+     * clube real.
      *
      * Para os demais templates do catálogo, os slots livres do bloco de 200 IDs do país são
      * atribuídos em ordem determinística, pulando IDs congelados. Isso evita colisões sem transformar
@@ -146,8 +147,9 @@ object GlobalFootballSystem {
     /**
      * Materializa um clube a partir do ID global.
      *
-     * A resolução reversa procura pelo ID canônico calculado para cada template atual. Assim, IDs
-     * congelados e slots livres coexistem sem depender de decodificar o índice atual da lista.
+     * A resolução reversa procura primeiro o template factual explícito, incluindo o catálogo
+     * adicional. Assim, endpoints de empréstimo fora da liga importada preservam o mesmo ID estável
+     * sem precisar transformar toda a associação em seed factual de uma só vez.
      */
     fun getTeamByGlobalId(id: Long?): Team? {
         if (id == null) return null
@@ -156,6 +158,9 @@ object GlobalFootballSystem {
             val template = DefaultData.originalMap[identity.country]
                 ?.teams
                 ?.firstOrNull { stableSeedIdFor(identity.country, it.name) == id }
+                ?: EuropeanAdditionalClubTemplates2026_27
+                    .find(identity.country, identity.canonicalName)
+                    ?.template
                 ?: return@let
             return template.toPersistedTeam(id = id, country = identity.country)
         }
@@ -186,11 +191,12 @@ object GlobalFootballSystem {
     }
 
     private fun stableSeedIdFor(country: String, teamName: String): Long? {
-        val isExplicitSeed = DefaultData.originalMap[country]
+        val isOriginalExplicitSeed = DefaultData.originalMap[country]
             ?.teams
             ?.any { it.name.equals(teamName, ignoreCase = true) }
             ?: false
-        if (!isExplicitSeed) return null
+        val isAdditionalExplicitSeed = EuropeanAdditionalClubTemplates2026_27.find(country, teamName) != null
+        if (!isOriginalExplicitSeed && !isAdditionalExplicitSeed) return null
         return StableTeamIdentityRegistry.idFor(country, teamName)
     }
 
