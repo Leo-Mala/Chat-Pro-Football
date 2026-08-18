@@ -33,9 +33,16 @@ class ImporterPipelineTest(unittest.TestCase):
             self.assertEqual("FIXTURE_ONLY", manifest["validationStatus"])
             self.assertEqual(20, len(manifest["datasetFiles"]))
             self.assertEqual(21, len(list(Path(temp).glob("*.json"))))
+            loan = result.dataset["loans"][0]
+            self.assertEqual("Manchester United", loan["ownerClubName"])
+            self.assertEqual("Inglaterra", loan["ownerCountry"])
+            self.assertEqual("Trabzonspor", loan["borrowerClubName"])
+            self.assertEqual("Turquia", loan["borrowerCountry"])
             serialized = json.dumps(result.dataset)
             self.assertNotIn('"teamId"', serialized)
             self.assertNotIn('"playerId"', serialized)
+            self.assertNotIn("29001", serialized)
+            self.assertNotIn("199999", serialized)
             self.assertNotIn("photo", serialized)
             self.assertNotIn("logo", serialized)
             self.assertNotIn("rating", serialized.lower())
@@ -45,6 +52,7 @@ class ImporterPipelineTest(unittest.TestCase):
                               generated_at="2026-08-18T14:00:00Z", dataset_kind="FIXTURE")
         text = json.dumps(result.dataset)
         self.assertNotIn("9001", text)
+        self.assertNotIn("29001", text)
         self.assertNotIn("199999", text)
         self.assertEqual(2, self.contract.id_for("Inglaterra", "Arsenal FC"))
 
@@ -63,11 +71,20 @@ class ImporterPipelineTest(unittest.TestCase):
         self.assertTrue(any("two clubs" in e for e in errors))
         self.assertTrue(any("without goalkeepers" in e for e in errors))
 
-    def test_inconsistent_loan_is_rejected(self):
+    def test_inconsistent_cross_league_loan_is_rejected(self):
         normalized = normalize(build_premier_league_api_fixture(), REQUEST)
-        normalized["loans"][0]["borrowerProviderTeamId"] = normalized["loans"][0]["ownerProviderTeamId"]
+        normalized["loans"][0]["borrower"] = copy.deepcopy(normalized["loans"][0]["owner"])
         errors = validate(normalized, self.contract)
         self.assertTrue(any("owner=borrower" in e for e in errors))
+
+    def test_historical_loan_is_not_imported_as_active_2026_27_loan(self):
+        fixture = build_premier_league_api_fixture()
+        historical = copy.deepcopy(fixture["transfersResponse"]["response"][0])
+        historical["transfers"][0]["date"] = "2025-08-18"
+        fixture["transfersResponse"]["response"].append(historical)
+        normalized = normalize(fixture, REQUEST)
+        self.assertEqual(1, len(normalized["loans"]))
+        self.assertEqual("2026-08-18", normalized["loans"][0]["verifiedAsOfIso"])
 
 if __name__ == "__main__":
     unittest.main()
