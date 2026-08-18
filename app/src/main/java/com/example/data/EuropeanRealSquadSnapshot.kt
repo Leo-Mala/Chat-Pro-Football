@@ -81,6 +81,11 @@ enum class EuropeanSquadCoverage {
 /**
  * Catálogo imutável de snapshots factuais. Os lotes por país são concatenados na construção;
  * nenhuma execução de save pode registrar/alterar dados globais em runtime.
+ *
+ * IMPORTANTE: aliases do StableTeamIdentityRegistry não são aceitos para localizar snapshots.
+ * Um clube procedural pode, por coincidência, receber um nome que seja alias histórico de um clube
+ * real (ex.: "Liverpool"). Esse placeholder não pode herdar o elenco factual de "Liverpool FC".
+ * Só o nome canônico factual, dentro do país correto, entra neste catálogo.
  */
 class EuropeanRealSquadCatalog(
     snapshots: List<EuropeanRealSquadSnapshot>
@@ -104,7 +109,7 @@ class EuropeanRealSquadCatalog(
     }
 
     fun find(country: String, clubName: String): EuropeanRealSquadSnapshot? =
-        snapshotsByClub[canonicalKey(country, clubName)]
+        snapshotsByClub[exactLookupKey(country, clubName)]
 
     fun all(): List<EuropeanRealSquadSnapshot> = snapshotsByClub.values.toList()
 
@@ -119,6 +124,11 @@ class EuropeanRealSquadCatalog(
         return expected - snapshotsByClub.keys
     }
 
+    private fun exactLookupKey(country: String, clubName: String): Pair<String, String> {
+        val canonicalCountry = CountryFootballRulesRegistry.resolve(country)?.canonicalCountry ?: country
+        return canonicalCountry.trim().lowercase() to clubName.trim().lowercase()
+    }
+
     private fun canonicalKey(country: String, clubName: String): Pair<String, String> {
         val canonicalCountry = CountryFootballRulesRegistry.resolve(country)?.canonicalCountry ?: country
         val canonicalClub = StableTeamIdentityRegistry.canonicalNameFor(canonicalCountry, clubName) ?: clubName
@@ -127,9 +137,8 @@ class EuropeanRealSquadCatalog(
 }
 
 /**
- * Source of truth incremental do seed factual. Apenas snapshots auditados entram nesta lista.
- * Em 2026-08-18 existe um único clube cadastrado: Manchester United. A diferença para os 320
- * clubes factuais da primeira divisão permanece mensurável por `missingTopFlightClubs()`.
+ * Source of truth incremental do seed factual legado. O loader canônico dos assets `FACTUAL`
+ * constrói seu próprio catálogo para novos saves; este objeto permanece para testes/compatibilidade.
  */
 object EuropeanRealSquads {
     val catalog = EuropeanRealSquadCatalog(
