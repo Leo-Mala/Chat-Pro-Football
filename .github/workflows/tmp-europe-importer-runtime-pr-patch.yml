@@ -1,0 +1,98 @@
+name: Temporary European Importer Runtime PR Patch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch-target:
+    if: github.head_ref == 'agent/v3-europe-bulk-data-importer-b2-1b2'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout phase branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/v3-europe-bulk-data-importer-b2-1b2
+          fetch-depth: 0
+
+      - name: Apply new-save-only importer integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          text = path.read_text(encoding='utf-8')
+
+          old_seed = '''        val dbTeams = newTeamsToSeed
+
+        // 2. Geração limpa de jogadores para todos os times
+        val allPlayersToSave = mutableListOf<Player>()
+        for (t in dbTeams) {
+            val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
+            allPlayersToSave.addAll(roster)
+        }
+'''
+          new_seed = '''        // Somente FACTUAL + VALIDATED é elegível no runtime. O fixture versionado de testes
+        // retorna null aqui e, portanto, nunca altera uma carreira real.
+        val factualDataset = EuropeanCanonicalDatasetLoader.loadValidatedFactualOrNull(
+            getApplication<Application>().assets
+        )
+        val dbTeams = factualDataset?.applyClubFacts(newTeamsToSeed) ?: newTeamsToSeed
+
+        // 2. O planner substitui apenas elencos cobertos pelo dataset factual. Clubes/divisões
+        // ainda não cobertos continuam usando exatamente o fallback procedural existente.
+        val factualSeedPlan = factualDataset?.buildSeedPlan(
+            teams = dbTeams,
+            proceduralRosterFactory = { team ->
+                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            }
+        )
+        require(factualSeedPlan?.blockedLoans.orEmpty().isEmpty()) {
+            "Dataset factual contém empréstimos que não podem ser materializados no novo save: " +
+                factualSeedPlan?.blockedLoans.orEmpty().joinToString { it.reason }
+        }
+        val allPlayersToSave = factualSeedPlan?.players ?: dbTeams.flatMap { team ->
+            DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+        }
+        val allLoansToSave = factualSeedPlan?.loans.orEmpty()
+'''
+          if text.count(old_seed) != 1:
+              raise SystemExit(f'Expected exactly one new-save roster block, found {text.count(old_seed)}')
+          text = text.replace(old_seed, new_seed, 1)
+
+          old_persist = '''            repo.saveTeams(dbTeams)
+            repo.savePlayers(allPlayersToSave)
+            repo.saveFixtures(allGeneratedFixtures)
+'''
+          new_persist = '''            repo.saveTeams(dbTeams)
+            repo.savePlayers(allPlayersToSave)
+            if (allLoansToSave.isNotEmpty()) {
+                repo.saveLoans(allLoansToSave)
+            }
+            repo.saveFixtures(allGeneratedFixtures)
+'''
+          if text.count(old_persist) != 1:
+              raise SystemExit(f'Expected exactly one new-save persist block, found {text.count(old_persist)}')
+          text = text.replace(old_persist, new_persist, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git rm .github/workflows/tmp-europe-importer-runtime-pr-patch.yml
+          git diff --check
+          git diff -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+
+      - name: Commit and push phase branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          git commit -m "feat: seed validated European facts in new saves"
+          git push origin HEAD:agent/v3-europe-bulk-data-importer-b2-1b2
