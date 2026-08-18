@@ -30,28 +30,20 @@ class _Client:
     def get(self, endpoint, params):
         self.calls.append((endpoint, params))
         if params.get("prop") == "sections":
-            return {
-                "parse": {
-                    "sections": [
-                        {"index": "5", "line": "First Team", "level": "2"},
-                        {"index": "6", "line": "Goalkeepers", "level": "3"},
-                        {"index": "7", "line": "First Team out on loan", "level": "3"},
-                        {"index": "8", "line": "Club staff", "level": "2"},
-                    ]
-                }
-            }
+            return {"parse": {"sections": [
+                {"index": "5", "line": "First Team", "level": "2"},
+                {"index": "6", "line": "Goalkeepers", "level": "3"},
+                {"index": "7", "line": "First Team out on loan", "level": "3"},
+                {"index": "8", "line": "Club staff", "level": "2"},
+            ]}}
         if params.get("prop") == "links" and params.get("section") == "5":
-            return {
-                "parse": {
-                    "links": [
-                        {"ns": 0, "title": "Active One"},
-                        {"ns": 0, "title": "Active Two"},
-                        {"ns": 0, "title": "Active Goalkeeper"},
-                        {"ns": 0, "title": "Loaned Player"},
-                        {"ns": 14, "title": "Category:Example"},
-                    ]
-                }
-            }
+            return {"parse": {"links": [
+                {"ns": 0, "title": "Active One"},
+                {"ns": 0, "title": "Active Two"},
+                {"ns": 0, "title": "Active Goalkeeper"},
+                {"ns": 0, "title": "Loaned Player"},
+                {"ns": 14, "title": "Category:Example"},
+            ]}}
         if params.get("prop") == "links" and params.get("section") == "7":
             return {"parse": {"links": [{"ns": 0, "title": "Loaned Player"}]}}
         raise AssertionError(params)
@@ -69,7 +61,10 @@ class _Client:
             }},
             "Q4": {"claims": {"P27": [{"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q20"}}}}]}, "labels": {}},
             "Q5": {"claims": {}, "labels": {}},
-            "Q6": {"claims": {"P27": [{"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q20"}}}}]}, "labels": {"en": {"value": "Zach Abbott"}}},
+            "Q6": {"claims": {
+                "P27": [{"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q20"}}}}],
+                "P569": [{"rank": "normal", "mainsnak": {"datavalue": {"value": {"time": "+2006-00-00T00:00:00Z", "precision": 9}}}}],
+            }, "labels": {"en": {"value": "Zach Abbott"}}},
         }
         return {qid: payload[qid] for qid in qids if qid in payload}
 
@@ -122,7 +117,7 @@ class AuditedDiscoveryTest(unittest.TestCase):
         self.assertEqual("Issa Diop", entities["Q4"]["labels"]["en"]["value"])
         self.assertNotIn("en", entities["Q5"]["labels"])
 
-    def test_verified_birth_date_fills_only_missing_p569_for_exact_qid(self):
+    def test_verified_birth_date_replaces_only_imprecise_p569_for_exact_qid(self):
         provider = _Provider()
         overrides = {
             "verifiedAsOfIso": "2026-08-18",
@@ -141,6 +136,7 @@ class AuditedDiscoveryTest(unittest.TestCase):
             entities = provider.client.entities(["Q5", "Q6"])
         birth = entities["Q6"]["claims"]["P569"][0]["mainsnak"]["datavalue"]["value"]
         self.assertEqual("+2006-05-13T00:00:00Z", birth["time"])
+        self.assertEqual(11, birth["precision"])
         self.assertNotIn("P569", entities["Q5"]["claims"])
         self.assertEqual({"Q6"}, provider.verified_birth_date_fallback_qids)
 
