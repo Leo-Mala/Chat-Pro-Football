@@ -44,6 +44,7 @@ def build_premier_league_api_fixture() -> dict[str, Any]:
             "team": {
                 "id": provider_team_id,
                 "name": club_name,
+                "country": "England",
                 "logo": "https://invalid.fixture/logo.png",
             },
             "venue": {
@@ -73,32 +74,20 @@ def build_premier_league_api_fixture() -> dict[str, Any]:
                 }],
             })
 
-    # One synthetic loan identity is present in the borrower raw squad and then removed by
-    # normalization, proving it is materialized exactly once through PlayerLoan.
+    # Synthetic equivalent of an outgoing Premier League loan to a club in another modeled UEFA
+    # association. The player is not in the Premier League roster response, so the provider must
+    # enrich both the external borrower and the external-loan player profile.
     loan_provider_player_id = 199999
-    borrower = provider_team_ids["Manchester United"]
-    owner = provider_team_ids["Arsenal FC"]
-    players.append({
-        "player": {
-            "id": loan_provider_player_id,
-            "name": "Fixture Loan Player",
-            "birth": {"date": "2001-06-15"},
-            "nationality": "Fixture",
-            "photo": "https://invalid.fixture/player.png",
-        },
-        "statistics": [{
-            "team": {"id": borrower},
-            "games": {"position": "Midfielder", "number": 99, "rating": "8.8"},
-        }],
-    })
+    owner = provider_team_ids["Manchester United"]
+    borrower = 29001
     transfers = [{
-        "player": {"id": loan_provider_player_id, "name": "Fixture Loan Player"},
+        "player": {"id": loan_provider_player_id, "name": "Fixture Cross League Loan"},
         "transfers": [{
             "date": "2026-08-18",
             "type": "Loan",
             "teams": {
-                "out": {"id": owner, "name": "Arsenal FC", "logo": "https://invalid.fixture/logo.png"},
-                "in": {"id": borrower, "name": "Manchester United", "logo": "https://invalid.fixture/logo.png"},
+                "out": {"id": owner, "name": "Manchester United", "logo": "https://invalid.fixture/logo.png"},
+                "in": {"id": borrower, "name": "Trabzonspor", "logo": "https://invalid.fixture/logo.png"},
             },
         }],
     }]
@@ -108,4 +97,38 @@ def build_premier_league_api_fixture() -> dict[str, Any]:
         "teamsResponse": {"response": teams},
         "playersResponse": {"response": players},
         "transfersResponse": {"response": transfers},
+        "externalTeamsById": {
+            str(borrower): {
+                "response": [{
+                    "team": {
+                        "id": borrower,
+                        "name": "Trabzonspor",
+                        "country": "Turkey",
+                        "logo": "https://invalid.fixture/external-logo.png",
+                    },
+                    "venue": {
+                        "name": "Papara Park",
+                        "city": "Trabzon",
+                        "image": "https://invalid.fixture/external-stadium.png",
+                    },
+                }]
+            }
+        },
+        "externalPlayersById": {
+            str(loan_provider_player_id): {
+                "response": [{
+                    "player": {
+                        "id": loan_provider_player_id,
+                        "name": "Fixture Cross League Loan",
+                        "birth": {"date": "2001-06-15"},
+                        "nationality": "Fixture",
+                        "photo": "https://invalid.fixture/external-player.png",
+                    },
+                    "statistics": [{
+                        "team": {"id": borrower},
+                        "games": {"position": "Goalkeeper", "number": 99, "rating": "8.8"},
+                    }],
+                }]
+            }
+        },
     }
