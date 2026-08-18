@@ -23,6 +23,9 @@ data class EuropeanRealPlayerTemplate(
         require(shirtNumber == null || shirtNumber in 1..99) { "Camisa fora do intervalo 1..99." }
         // Valida nome/data e congela a regra de identidade sem depender do clube.
         RealPlayerIdentityKey(fullName, birthDateIso, identityDisambiguator)
+        // O domínio de gameplay trabalha com jogadores a partir de 15 anos; dados factuais não
+        // podem ser silenciosamente promovidos a essa idade por `coerceAtLeast`.
+        ageAt2026SeasonStart()
     }
 
     val stableId: Long
@@ -31,7 +34,11 @@ data class EuropeanRealPlayerTemplate(
     fun ageAt2026SeasonStart(): Int {
         val birthDate = parseStrictIsoDate(birthDateIso, "Data factual")
         val birthdayAlreadyOccurred = birthDate.month < 8 || (birthDate.month == 8 && birthDate.day <= 1)
-        return (2026 - birthDate.year - if (birthdayAlreadyOccurred) 0 else 1).coerceAtLeast(15)
+        val age = 2026 - birthDate.year - if (birthdayAlreadyOccurred) 0 else 1
+        require(age >= MIN_FACTUAL_PLAYER_AGE) {
+            "Jogador factual fora da idade mínima em 2026-08-01: $fullName ($birthDateIso)."
+        }
+        return age
     }
 
     fun toGameplayPlayer(teamId: Long, teamRating: Int): Player {
@@ -121,6 +128,7 @@ data class EuropeanRealPlayerTemplate(
     }
 
     companion object {
+        const val MIN_FACTUAL_PLAYER_AGE = 15
         val VALID_POSITIONS: Set<String> = setOf("GOL", "ZAG", "LAT", "VOL", "MEI", "ATA")
     }
 }
