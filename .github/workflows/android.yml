@@ -26,9 +26,9 @@ concurrency:
 
 jobs:
   validation:
-    # Drafts não alocam runner. O checkpoint consolidado pode ser disparado manualmente
-    # via workflow_dispatch; PRs não-draft só executam em novos commits/reaberturas.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Drafts normally do not allocate a runner. This one audit branch is allowed to execute
+    # while factual review is still open; the exception is removed before the final merge gate.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false || github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
