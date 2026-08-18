@@ -26,9 +26,9 @@ object StableTeamIdentityRegistry {
     private const val COUNTRY_WINDOW_SIZE = 5_000L
 
     /**
-     * Janelas fixas por associação. Nunca reorganizar esta tabela: o índice é parte do contrato de
-     * identidade para novos saves. Se uma associação futura entrar no catálogo, atribua uma nova
-     * janela explícita sem mover as existentes.
+     * Janelas fixas por associação. Nunca reorganizar esta tabela: o início de cada janela é parte
+     * do contrato de identidade para novos saves. Se uma associação futura entrar no catálogo,
+     * atribua uma nova janela explícita sem mover as existentes.
      */
     private val baselineCountryWindows = linkedMapOf(
         "Itália" to 100_000L,
@@ -49,6 +49,17 @@ object StableTeamIdentityRegistry {
         "Croácia" to 175_000L,
         "Sérvia" to 180_000L,
         "Grécia" to 185_000L
+    )
+
+    /**
+     * Overrides são raros e deliberadamente explícitos. O hash-base continua sendo a regra; quando
+     * dois clubes caem no mesmo slot, um deles recebe um slot congelado documentado aqui.
+     *
+     * 2026-08-18: Ajax e Go Ahead Eagles produzem o mesmo hash-slot 122151 dentro da janela
+     * neerlandesa. Ajax mantém o snapshot 122151 e Go Ahead Eagles fica congelado em 122152.
+     */
+    private val baselineIdOverrides: Map<Pair<String, String>, Long> = mapOf(
+        ("Países Baixos" to "Go Ahead Eagles") to 122_152L
     )
 
     private val legacyIdentities: List<StableTeamIdentity> = listOf(
@@ -144,6 +155,13 @@ object StableTeamIdentityRegistry {
     private fun normalize(value: String): String = value.trim().lowercase()
 
     private fun stableBaselineId(windowStart: Long, country: String, canonicalName: String): Long {
+        baselineIdOverrides[country to canonicalName]?.let { overridden ->
+            require(overridden in windowStart + 1 until windowStart + COUNTRY_WINDOW_SIZE) {
+                "Override fora da janela de $country: $canonicalName -> $overridden"
+            }
+            return overridden
+        }
+
         var hash = 1469598103934665603L
         "${normalize(country)}|${normalize(canonicalName)}".forEach { ch ->
             hash = (hash xor ch.code.toLong()) * 1099511628211L
@@ -170,7 +188,11 @@ object StableTeamIdentityRegistry {
 
     private val byId: Map<Long, StableTeamIdentity> = identities.associateBy { it.id }.also { map ->
         require(map.size == identities.size) {
-            "Há colisão de IDs estáveis. Adicione override explícito; nunca resolva por ordem de lista."
+            val collisions = identities.groupBy { it.id }
+                .filterValues { it.size > 1 }
+                .entries
+                .joinToString { (id, clubs) -> "$id=${clubs.joinToString { "${it.country}/${it.canonicalName}" }}" }
+            "Há colisão de IDs estáveis: $collisions. Adicione override explícito; nunca resolva por ordem de lista."
         }
     }
 
