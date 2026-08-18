@@ -134,6 +134,30 @@ class EuropeanFactualSeedPlannerTest {
     }
 
     @Test
+    fun `planner rejects non persistable zero team id before roster creation`() {
+        val unsaved = team(0L, "Unsaved Club", "Inglaterra", 70)
+        var fallbackCalled = false
+
+        var failed = false
+        try {
+            EuropeanFactualSeedPlanner.build(
+                teams = listOf(unsaved),
+                squadCatalog = EuropeanRealSquadCatalog(emptyList()),
+                loanCatalog = EuropeanRealLoanCatalog(emptyList()),
+                proceduralRosterFactory = { team ->
+                    fallbackCalled = true
+                    listOf(proceduralPlayer(team, 918_000_001L))
+                }
+            )
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+
+        assertTrue(failed)
+        assertFalse(fallbackCalled)
+    }
+
+    @Test
     fun `planner rejects duplicate player ids across fallback rosters`() {
         val first = team(201L, "Real Madrid", "Espanha", 90)
         val second = team(202L, "FC Barcelona", "Espanha", 89)
