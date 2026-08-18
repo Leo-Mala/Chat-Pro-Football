@@ -241,13 +241,16 @@ object EuropeanCanonicalDatasetLoader {
             }
         }
 
-        val factIds = facts.map { it.teamId }.toSet()
+        // O dataset pode representar apenas uma liga. Endpoints de empréstimo fora dela são
+        // permitidos desde que tenham identidade factual estável; o coordenador de novo save
+        // materializa os clubes ausentes pelo resolvedor global antes de chamar o planner.
+        val knownStableTeamIds = StableTeamIdentityRegistry.all.mapTo(hashSetOf()) { it.id }
         loans.forEach { loan ->
-            require(loan.ownerTeamId in factIds) {
-                "Empréstimo inconsistente: owner fora do dataset ${loan.ownerCountry}/${loan.ownerClubName}"
+            require(loan.ownerTeamId in knownStableTeamIds) {
+                "Empréstimo inconsistente: owner sem identidade estável ${loan.ownerCountry}/${loan.ownerClubName}"
             }
-            require(loan.borrowerTeamId in factIds) {
-                "Empréstimo inconsistente: borrower fora do dataset ${loan.borrowerCountry}/${loan.borrowerClubName}"
+            require(loan.borrowerTeamId in knownStableTeamIds) {
+                "Empréstimo inconsistente: borrower sem identidade estável ${loan.borrowerCountry}/${loan.borrowerClubName}"
             }
         }
 
