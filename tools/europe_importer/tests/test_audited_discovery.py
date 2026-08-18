@@ -15,6 +15,12 @@ class _Client:
     def __init__(self):
         self.calls = []
 
+    def page_qid(self, title):
+        mapping = {"Issa Diop (footballer)": "Q4"}
+        if title not in mapping:
+            raise AssertionError(title)
+        return mapping[title]
+
     def get(self, endpoint, params):
         self.calls.append((endpoint, params))
         if params.get("prop") == "sections":
@@ -71,6 +77,15 @@ class _Client:
                     ],
                 }
             },
+            "Q4": {
+                "claims": {
+                    "P27": [
+                        {"rank": "normal", "mainsnak": {"datavalue": {"value": {"id": "Q20"}}}}
+                    ]
+                },
+                "labels": {},
+            },
+            "Q5": {"claims": {}, "labels": {}},
         }
         return {qid: payload[qid] for qid in qids if qid in payload}
 
@@ -110,6 +125,28 @@ class AuditedDiscoveryTest(unittest.TestCase):
         self.assertNotIn("P27", entities["Q2"]["claims"])
         self.assertEqual("Q20", entities["Q3"]["claims"]["P27"][0]["mainsnak"]["datavalue"]["value"]["id"])
         self.assertEqual({"Q1"}, provider.p1532_discovery_bridged_qids)
+
+    def test_verified_membership_can_supply_only_missing_label_for_same_qid(self):
+        provider = _Provider()
+        overrides = {
+            "verifiedAsOfIso": "2026-08-18",
+            "squadMemberships": [{
+                "club": "Ipswich Town",
+                "clubWikipediaPage": "Ipswich Town F.C.",
+                "fullName": "Issa Diop",
+                "wikipediaTitle": "Issa Diop (footballer)",
+                "source": "https://example.test/ipswich-official",
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "overrides.json"
+            path.write_text(json.dumps(overrides), encoding="utf-8")
+            install_p1532_discovery_bridge(provider, path)
+            entities = provider.client.entities(["Q4", "Q5"])
+
+        self.assertEqual("Issa Diop", entities["Q4"]["labels"]["en"]["value"])
+        self.assertNotIn("en", entities["Q5"]["labels"])
+        self.assertEqual({"Q4"}, provider.verified_squad_label_fallback_qids)
 
 
 if __name__ == "__main__":
