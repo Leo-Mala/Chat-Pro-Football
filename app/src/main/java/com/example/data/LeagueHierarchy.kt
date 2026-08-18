@@ -93,6 +93,29 @@ object LeagueHierarchyLoader {
         LeagueDivision("SERIE_D", "", 4, promotionSpots = 2, relegationSpots = 0)
     )
 
+    /**
+     * Inglaterra 2026/27 na granularidade suportada pelo jogo: três clubes trocam entre Premier
+     * League/Championship e três entre Championship/League One. O jogo ainda não representa o
+     * playoff de acesso como competição separada; esta regra preserva o número factual de clubes
+     * que mudam de nível ao final da temporada.
+     */
+    private val englandDivisions = listOf(
+        LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 3),
+        LeagueDivision("SERIE_B", "", 2, promotionSpots = 3, relegationSpots = 3),
+        LeagueDivision("SERIE_C", "", 3, promotionSpots = 3, relegationSpots = 0)
+    )
+
+    /**
+     * Espanha 2026/27 na granularidade suportada pelo jogo: três trocas entre La Liga/Segunda e
+     * quatro entre Segunda/terceiro nível. Playoffs ainda não são materializados separadamente;
+     * a fronteira aplica o total factual de promovidos/rebaixados.
+     */
+    private val spainDivisions = listOf(
+        LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 3),
+        LeagueDivision("SERIE_B", "", 2, promotionSpots = 3, relegationSpots = 4),
+        LeagueDivision("SERIE_C", "", 3, promotionSpots = 4, relegationSpots = 0)
+    )
+
     private val staticHierarchies = mapOf(
         "Brasil" to listOf(
             LeagueDivision("SERIE_A", "", 1, promotionSpots = 0, relegationSpots = 4),
@@ -100,8 +123,8 @@ object LeagueHierarchyLoader {
             LeagueDivision("SERIE_C", "", 3, promotionSpots = 4, relegationSpots = 4),
             LeagueDivision("SERIE_D", "", 4, promotionSpots = 4, relegationSpots = 0)
         ),
-        "Inglaterra" to genericDivisions,
-        "Espanha" to genericDivisions,
+        "Inglaterra" to englandDivisions,
+        "Espanha" to spainDivisions,
         "Argentina" to genericDivisions,
         "Estados Unidos / Canadá" to genericDivisions,
         // Alias legado mantido para saves/dados antigos que ainda usem a denominação anterior.
@@ -121,11 +144,17 @@ object LeagueHierarchyLoader {
     fun getHierarchyForCountry(country: String): LeagueHierarchy {
         val baseDivisions = staticHierarchies[country] ?: genericDivisions
         val activeDivisions = adaptToConfiguredDivisionCount(country, baseDivisions)
+        val europeanBaseline = EuropeanDomesticBaseline2026_27.forCountry(country)
         val resolvedDivisions = activeDivisions.map { div ->
-            val resolvedName = DefaultData.getCompetitionName(div.code, country)
+            val resolvedName = if (div.divisionLevel == 1 && europeanBaseline != null) {
+                europeanBaseline.topDivisionName
+            } else {
+                DefaultData.getCompetitionName(div.code, country)
+            }
             div.copy(name = resolvedName)
         }
-        val resolvedCupName = DefaultData.getCompetitionName("ESTADUAL", country)
+        val resolvedCupName = europeanBaseline?.nationalCupName
+            ?: DefaultData.getCompetitionName("COPA", country)
         val resolvedContinentalName = DefaultData.getCompetitionName("CONTINENTAL", country)
 
         return LeagueHierarchy(
