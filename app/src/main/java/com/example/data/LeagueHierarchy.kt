@@ -144,11 +144,17 @@ object LeagueHierarchyLoader {
     fun getHierarchyForCountry(country: String): LeagueHierarchy {
         val baseDivisions = staticHierarchies[country] ?: genericDivisions
         val activeDivisions = adaptToConfiguredDivisionCount(country, baseDivisions)
+        val europeanBaseline = EuropeanDomesticBaseline2026_27.forCountry(country)
         val resolvedDivisions = activeDivisions.map { div ->
-            val resolvedName = DefaultData.getCompetitionName(div.code, country)
+            val resolvedName = if (div.divisionLevel == 1 && europeanBaseline != null) {
+                europeanBaseline.topDivisionName
+            } else {
+                DefaultData.getCompetitionName(div.code, country)
+            }
             div.copy(name = resolvedName)
         }
-        val resolvedCupName = DefaultData.getCompetitionName("ESTADUAL", country)
+        val resolvedCupName = europeanBaseline?.nationalCupName
+            ?: DefaultData.getCompetitionName("COPA", country)
         val resolvedContinentalName = DefaultData.getCompetitionName("CONTINENTAL", country)
 
         return LeagueHierarchy(
