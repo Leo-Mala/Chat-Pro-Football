@@ -25,9 +25,7 @@ data class EuropeanRealLoanSnapshot(
         require(season > 0)
         require(startWeek in 1..GameCalendar.WEEKS_PER_SEASON)
         require(durationWeeks > 0)
-        require(ISO_DATE.matches(verifiedAsOfIso)) {
-            "verifiedAsOfIso deve usar YYYY-MM-DD: $verifiedAsOfIso"
-        }
+        parseStrictIsoDate(verifiedAsOfIso, "verifiedAsOfIso")
         require(sourceRefs.isNotEmpty() && sourceRefs.none { it.isBlank() }) {
             "Empréstimo factual precisa registrar ao menos uma fonte."
         }
@@ -66,10 +64,6 @@ data class EuropeanRealLoanSnapshot(
         requireNotNull(StableTeamIdentityRegistry.idFor(country, club)) {
             "Clube $role sem teamId factual estável: $country/$club"
         }
-
-    companion object {
-        private val ISO_DATE = Regex("\\d{4}-\\d{2}-\\d{2}")
-    }
 }
 
 /** Catálogo imutável que impede dois empréstimos ativos para a mesma identidade factual. */
