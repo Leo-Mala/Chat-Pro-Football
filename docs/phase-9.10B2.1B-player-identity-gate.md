@@ -48,18 +48,25 @@ simultaneamente.
 Em 2026-08-18 foi transcrito o primeiro snapshot factual, a partir da página atual do Men's Team e
 dos perfis individuais oficiais do Manchester United.
 
-Cobertura do snapshot:
+Após uma segunda auditoria da própria página oficial, o snapshot foi corrigido antes do checkpoint:
 
-- 30 jogadores ativos;
-- 4 goleiros;
-- 10 defensores (`ZAG` + `LAT`);
+- 32 jogadores ativos;
+- 5 goleiros;
+- 11 defensores (`ZAG` + `LAT`);
 - 9 meio-campistas (`MEI` + `VOL`);
 - 7 atacantes;
 - status `GAMEPLAY_READY_FACTUAL_SNAPSHOT`.
 
-Altay Bayindir e Andre Onana aparecem na seção `On Loan` da página oficial em 2026-08-18 e não são
-materializados como membros ativos neste snapshot. A futura camada factual de empréstimos deverá
-preservar clube proprietário e clube tomador separadamente.
+A correção factual incluiu:
+
+- Altay Bayindir como goleiro ativo, camisa 1;
+- Tyler Fredricson como zagueiro, camisa 33;
+- Senne Lammens com camisa 31;
+- Andre Onana como `On Loan`, portanto fora do elenco ativo do snapshot.
+
+O perfil oficial de Onana informa empréstimo ao Trabzonspor para 2026/27. A futura camada factual de
+empréstimos deverá preservar clube proprietário e clube tomador separadamente usando a estrutura
+`PlayerLoan` já existente.
 
 A janela de transferências inglesa ainda está aberta em 2026-08-18 e fecha em 2026-09-01. Portanto,
 o lote é deliberadamente um snapshot datado, não um elenco declarado como final da temporada.
@@ -80,8 +87,8 @@ Em 2026-08-18 esta branch foi sincronizada por merge commit normal com o head va
 `be57c82c028c45259dec296ad211b4b75d55616b`.
 
 O PR #28 passou build, suíte core, stress 20/100 e verificação Room V21 no CI #381. A sincronização
-não usou rebase, squash nem force-push e preserva os sete arquivos exclusivos desta fase sobre a
-base doméstica validada.
+não usou rebase, squash nem force-push e preserva os arquivos exclusivos desta fase sobre a base
+doméstica validada.
 
 ## Comportamento esperado
 
