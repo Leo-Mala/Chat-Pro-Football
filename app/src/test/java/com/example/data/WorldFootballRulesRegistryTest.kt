@@ -222,7 +222,7 @@ class WorldFootballRulesRegistryTest {
     }
 
     @Test
-    fun `CONMEBOL remains dedicated while UEFA real rules remain explicitly pending`() {
+    fun `CONMEBOL and UEFA are dedicated engines`() {
         assertEquals(
             ConfederationEngineKind.DEDICATED_CONMEBOL,
             CompetitionRulesRegistry.engineForConfederation(FootballConfederation.CONMEBOL)
@@ -230,13 +230,13 @@ class WorldFootballRulesRegistryTest {
         assertTrue(CompetitionRulesRegistry.hasRealDedicatedRules(FootballConfederation.CONMEBOL))
 
         assertEquals(
-            ConfederationEngineKind.LEGACY_GENERIC,
+            ConfederationEngineKind.DEDICATED_UEFA,
             CompetitionRulesRegistry.engineForConfederation(FootballConfederation.UEFA)
         )
-        assertFalse(CompetitionRulesRegistry.hasRealDedicatedRules(FootballConfederation.UEFA))
+        assertTrue(CompetitionRulesRegistry.hasRealDedicatedRules(FootballConfederation.UEFA))
         assertTrue(
             CompetitionRulesRegistry.continentalCatalogFor(FootballConfederation.UEFA)
-                .all { it.implementationStatus == CompetitionImplementationStatus.REAL_RULES_NOT_IMPLEMENTED }
+                .all { it.implementationStatus == CompetitionImplementationStatus.DEDICATED }
         )
     }
 
