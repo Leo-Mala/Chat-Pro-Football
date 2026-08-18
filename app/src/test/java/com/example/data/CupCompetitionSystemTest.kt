@@ -130,38 +130,40 @@ class CupCompetitionSystemTest {
     }
 
     @Test
-    fun `legacy tier three still progresses idempotently outside explicit quota policies`() = runBlocking {
-        val teams = legacyUefaUniverse()
+    fun `legacy tier three still progresses idempotently for historical fixtures`() = runBlocking {
+        val teams = legacyUefaUniverse().take(8)
         repository.saveTeams(teams)
 
-        val opening = CupCompetitionSystem.generateSeasonOpeningFixtures(
-            season = 2026,
-            teams = teams,
-            userTeamId = 1L,
-            userCountry = "Inglaterra"
+        // A UEFA nova usa UEFA_CL/EL/ECL. Este cenário representa explicitamente um save antigo
+        // que já possuía um bracket CONTINENTAL_T3 em andamento antes da migração arquitetural.
+        repository.saveFixtures(
+            teams.map { it.id }.chunked(2).map { pair ->
+                Fixture(
+                    season = 2026,
+                    week = 33,
+                    matchSlot = MatchSlot.MIDWEEK,
+                    homeTeamId = pair[0],
+                    awayTeamId = pair[1],
+                    competitionType = "CONTINENTAL_T3"
+                )
+            }
         )
-        repository.saveFixtures(opening)
 
         completeRound(week = 33, competitionType = "CONTINENTAL_T3", tied = false)
         CupCompetitionSystem.processProgression(2026, 33, repository)
         CupCompetitionSystem.processProgression(2026, 33, repository)
-        assertEquals(4, round(34, "CONTINENTAL_T3").size)
+        assertEquals(2, round(34, "CONTINENTAL_T3").size)
 
         completeRound(week = 34, competitionType = "CONTINENTAL_T3", tied = false)
         CupCompetitionSystem.processProgression(2026, 34, repository)
         CupCompetitionSystem.processProgression(2026, 34, repository)
-        assertEquals(2, round(35, "CONTINENTAL_T3").size)
+        assertEquals(1, round(35, "CONTINENTAL_T3").size)
 
-        completeRound(week = 35, competitionType = "CONTINENTAL_T3", tied = false)
+        completeRound(week = 35, competitionType = "CONTINENTAL_T3", tied = true)
         CupCompetitionSystem.processProgression(2026, 35, repository)
         CupCompetitionSystem.processProgression(2026, 35, repository)
-        assertEquals(1, round(36, "CONTINENTAL_T3").size)
 
-        completeRound(week = 36, competitionType = "CONTINENTAL_T3", tied = true)
-        CupCompetitionSystem.processProgression(2026, 36, repository)
-        CupCompetitionSystem.processProgression(2026, 36, repository)
-
-        val finalFixture = round(36, "CONTINENTAL_T3").single()
+        val finalFixture = round(35, "CONTINENTAL_T3").single()
         assertNotNull(finalFixture.homePenalties)
         assertNotNull(finalFixture.awayPenalties)
         assertFalse(finalFixture.homePenalties == finalFixture.awayPenalties)

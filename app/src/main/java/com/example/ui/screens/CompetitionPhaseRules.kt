@@ -4,12 +4,19 @@ import com.example.data.ConmebolCompetitionSystem
 import com.example.data.CupCompetitionSystem
 import com.example.data.GameCalendar
 import com.example.data.SuperMundialSystem
+import com.example.data.UefaCompetitionSystem
 
 internal fun isCompetitionFinalWeek(
     selectedLeague: String,
     week: Int,
     confederation: String? = null
 ): Boolean = when {
+    selectedLeague in setOf(
+        UefaCompetitionSystem.CHAMPIONS_LEAGUE,
+        UefaCompetitionSystem.EUROPA_LEAGUE,
+        UefaCompetitionSystem.CONFERENCE_LEAGUE
+    ) -> week == UefaCompetitionSystem.FINAL_WEEK
+
     selectedLeague in setOf("CONTINENTAL_T1", "CONTINENTAL_T2", "LIBERTADORES", "SULAMERICANA") &&
         confederation.equals("CONMEBOL", ignoreCase = true) ->
         week == ConmebolCompetitionSystem.FINAL_WEEK
@@ -28,6 +35,35 @@ internal fun competitionPhaseTitle(
     week: Int,
     confederation: String? = null
 ): String {
+    if (selectedLeague in setOf(
+            UefaCompetitionSystem.CHAMPIONS_LEAGUE,
+            UefaCompetitionSystem.EUROPA_LEAGUE,
+            UefaCompetitionSystem.CONFERENCE_LEAGUE
+        )
+    ) {
+        return when (UefaCompetitionSystem.phaseFor(selectedLeague, week)) {
+            UefaCompetitionSystem.Phase.LEAGUE_PHASE -> "Fase de Liga — Jornada UEFA"
+            UefaCompetitionSystem.Phase.KNOCKOUT_PLAYOFF -> when (week) {
+                UefaCompetitionSystem.PLAYOFF_LEG_1_WEEK -> "Playoff Eliminatório — Jogo de Ida"
+                else -> "Playoff Eliminatório — Jogo de Volta"
+            }
+            UefaCompetitionSystem.Phase.ROUND_OF_16 -> when (week) {
+                UefaCompetitionSystem.ROUND_OF_16_LEG_1_WEEK -> "Oitavas de Final — Jogo de Ida"
+                else -> "Oitavas de Final — Jogo de Volta"
+            }
+            UefaCompetitionSystem.Phase.QUARTERFINAL -> when (week) {
+                UefaCompetitionSystem.QUARTERFINAL_LEG_1_WEEK -> "Quartas de Final — Jogo de Ida"
+                else -> "Quartas de Final — Jogo de Volta"
+            }
+            UefaCompetitionSystem.Phase.SEMIFINAL -> when (week) {
+                UefaCompetitionSystem.SEMIFINAL_LEG_1_WEEK -> "Semifinais — Jogo de Ida"
+                else -> "Semifinais — Jogo de Volta"
+            }
+            UefaCompetitionSystem.Phase.FINAL -> "🏆 GRANDE FINAL — Jogo Único"
+            null -> "Competição UEFA (Semana $week)"
+        }
+    }
+
     val isTier1 = selectedLeague == "CONTINENTAL_T1" || selectedLeague == "LIBERTADORES"
     val isTier2 = selectedLeague == "CONTINENTAL_T2" || selectedLeague == "SULAMERICANA"
     val isConmebol = confederation.equals("CONMEBOL", ignoreCase = true)

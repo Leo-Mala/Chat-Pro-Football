@@ -198,20 +198,22 @@ class WorldFootballRulesHardeningTest {
     }
 
     @Test
-    fun `UEFA catalog stays pending and is not naively treated as global knockout`() {
+    fun `UEFA is dedicated without naively treating whole competitions as knockout`() {
         assertEquals(
             ConfederationEngineKind.DEDICATED_CONMEBOL,
             CompetitionRulesRegistry.engineForConfederation(FootballConfederation.CONMEBOL)
         )
         assertEquals(
-            ConfederationEngineKind.LEGACY_GENERIC,
+            ConfederationEngineKind.DEDICATED_UEFA,
             CompetitionRulesRegistry.engineForConfederation(FootballConfederation.UEFA)
         )
         assertTrue(
             CompetitionRulesRegistry.continentalCatalogFor(FootballConfederation.UEFA)
-                .all { it.implementationStatus == CompetitionImplementationStatus.REAL_RULES_NOT_IMPLEMENTED }
+                .all { it.implementationStatus == CompetitionImplementationStatus.DEDICATED }
         )
 
+        val uefa = CompetitionRulesRegistry.continentalCatalogFor(FootballConfederation.UEFA)
+        assertTrue(uefa.all { it.endWeek == UefaCompetitionSystem.FINAL_WEEK })
         assertFalse(CompetitionRules.isKnockoutCompetition("UEFA_CL"))
         assertFalse(CompetitionRules.isKnockoutCompetition("UEFA_EL"))
         assertFalse(CompetitionRules.isKnockoutCompetition("UEFA_ECL"))
