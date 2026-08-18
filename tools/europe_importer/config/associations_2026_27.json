@@ -1,0 +1,25 @@
+{
+  "season": "2026/27",
+  "associations": [
+    {"country":"Inglaterra","league":"Premier League","domesticSeasonLabel":"2026/27"},
+    {"country":"Espanha","league":"La Liga","domesticSeasonLabel":"2026/27"},
+    {"country":"Itália","league":"Serie A","domesticSeasonLabel":"2026/27"},
+    {"country":"Alemanha","league":"Bundesliga","domesticSeasonLabel":"2026/27"},
+    {"country":"França","league":"Ligue 1","domesticSeasonLabel":"2026/27"},
+    {"country":"Portugal","league":"Liga Portugal Betclic","domesticSeasonLabel":"2026/27"},
+    {"country":"Países Baixos","league":"Eredivisie","domesticSeasonLabel":"2026/27"},
+    {"country":"Bélgica","league":"Jupiler Pro League","domesticSeasonLabel":"2026/27"},
+    {"country":"Turquia","league":"Süper Lig","domesticSeasonLabel":"2026/27"},
+    {"country":"Escócia","league":"Scottish Premiership","domesticSeasonLabel":"2026/27"},
+    {"country":"Áustria","league":"ADMIRAL Bundesliga","domesticSeasonLabel":"2026/27"},
+    {"country":"Suíça","league":"Brack Super League","domesticSeasonLabel":"2026/27"},
+    {"country":"Dinamarca","league":"3F Superliga","domesticSeasonLabel":"2026/27"},
+    {"country":"Noruega","league":"Eliteserien","domesticSeasonLabel":"2026"},
+    {"country":"Suécia","league":"Allsvenskan","domesticSeasonLabel":"2026"},
+    {"country":"Polônia","league":"Ekstraklasa","domesticSeasonLabel":"2026/27"},
+    {"country":"Tchéquia","league":"Chance Liga","domesticSeasonLabel":"2026/27"},
+    {"country":"Croácia","league":"SuperSport HNL","domesticSeasonLabel":"2026/27"},
+    {"country":"Sérvia","league":"Mozzart Bet SuperLiga","domesticSeasonLabel":"2026/27"},
+    {"country":"Grécia","league":"Stoiximan Super League","domesticSeasonLabel":"2026/27"}
+  ]
+}
