@@ -6,6 +6,10 @@ import unittest
 from pathlib import Path
 
 from tools.europe_importer.open_data_postprocess import apply_verified_open_data_facts
+from tools.europe_importer.real_pilot import (
+    _apply_verified_loan_provenance,
+    _rewrite_open_data_provenance,
+)
 
 
 class _FakeClient:
@@ -92,6 +96,41 @@ class OpenDataPostprocessTest(unittest.TestCase):
             provider.last_audit["loanCandidates"][0]["status"],
         )
         self.assertEqual(1, provider.last_audit["sportNationality"]["playersUsingSportCountry"])
+        self.assertEqual(1, provider.last_audit["sportNationality"]["playersChangedFromCitizenship"])
+        self.assertEqual(0, provider.last_audit["sportNationality"]["playersUsingCitizenshipFallback"])
+
+    def test_canonical_provenance_rewrites_provider_and_keeps_official_loan_source(self):
+        dataset = {
+            "provider": "api-football",
+            "leagues": [{"sourceRefs": ["provider://api-football/Inglaterra/Premier League/2026_27"]}],
+            "loans": [{
+                "player": {"fullName": "Test Player"},
+                "sourceRefs": ["provider://api-football/Inglaterra/Premier League/2026_27"],
+            }],
+        }
+        rewritten = _rewrite_open_data_provenance(dataset)
+        rewritten["provider"] = "wikimedia-open-data"
+
+        overrides = {
+            "loans": [{
+                "fullName": "Test Player",
+                "source": "https://example.test/official",
+            }]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "overrides.json"
+            path.write_text(json.dumps(overrides), encoding="utf-8")
+            _apply_verified_loan_provenance(rewritten, path)
+
+        self.assertEqual("wikimedia-open-data", rewritten["provider"])
+        self.assertEqual(
+            ["provider://wikimedia-open-data/Inglaterra/Premier League/2026_27"],
+            rewritten["leagues"][0]["sourceRefs"],
+        )
+        self.assertEqual(
+            ["https://example.test/official"],
+            rewritten["loans"][0]["sourceRefs"],
+        )
 
 
 if __name__ == "__main__":
