@@ -41,7 +41,7 @@
     {"fullName":"Jack Fletcher","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
     {"fullName":"Ayden Heaven","position":"Defender","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
     {"fullName":"Shea Lacey","position":"Forward","source":"https://www.premierleague.com/en/clubs/1/manchester-united/squad"},
-    {"fullName":"Ewen Jaouen","position":"Goalkeeper","source":"https://www.premierleague.com/en/players/"},
+    {"fullName":"Ewen Jaouen","position":"Goalkeeper","source":"https://www.newcastleunited.com/en/teams/mens-team/ewen-jaouen"},
     {"fullName":"Murillo","position":"Defender","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
     {"fullName":"Jair Cunha","position":"Defender","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
     {"fullName":"Omari Hutchinson","position":"Forward","source":"https://www.premierleague.com/en/clubs/17/nottingham-forest/squad"},
@@ -60,7 +60,12 @@
     {"club":"Ipswich Town","clubWikipediaPage":"Ipswich Town F.C.","fullName":"Issa Diop","wikipediaTitle":"Issa Diop (footballer)","source":"https://www.itfc.co.uk/news/2026/july/22/issa-diop-is-a-blue/"}
   ],
   "nationalities": [
-    {"fullName":"Declan Rice","nationality":"England","source":"https://www.premierleague.com/en/players/204480/"}
+    {"fullName":"Declan Rice","nationality":"England","source":"https://www.premierleague.com/en/players/204480/"},
+    {"fullName":"Evann Guessand","nationality":"Cote d’Ivoire","source":"https://www.premierleague.com/en/news/4372808/aston-villa-sign-ivorian-forward-evann-guessand-from-ogc-nice"},
+    {"fullName":"Ferdi Kadıoğlu","nationality":"Turkey","source":"https://www.premierleague.com/en/players/231416/ferdi-kadioglu/career"},
+    {"fullName":"Habib Diarra","nationality":"Senegal","source":"https://www.premierleague.com/en/players/547027/habib-diarra/overview"},
+    {"fullName":"Mamadou Sarr","nationality":"Senegal","source":"https://www.premierleague.com/en/players/574458/mamadou-sarr/overview"},
+    {"fullName":"Semi Ajayi","nationality":"Nigeria","source":"https://thenff.com/international-friendlies-bassey-joins-team-as-super-eagles-go-for-victory-against-white-reds/"}
   ],
   "playerNames": [
     {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","birthDateIso":"2003-02-03","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"}
