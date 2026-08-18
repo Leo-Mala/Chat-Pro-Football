@@ -97,7 +97,15 @@ def install_current_squad_only_discovery(provider: Any) -> None:
 
 
 def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
-    """Let P1532-only players pass preliminary discovery without weakening final nationality rules."""
+    """Bridge only safe transient discovery facts.
+
+    Two discovery-only bridges are allowed:
+    1. a current, unambiguous P1532 can stand in for missing P27 during the legacy preliminary gate;
+    2. a QID tied to an explicitly verified ``squadMembership`` can receive that official fullName
+       only when Wikidata omits its English label.
+
+    Neither bridge changes canonical identity or bypasses occupation/birth/position validation.
+    """
     overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
     as_of_iso = str(overrides.get("verifiedAsOfIso") or "").strip()
     try:
@@ -106,8 +114,24 @@ def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
         raise RuntimeError(f"verifiedAsOfIso must be YYYY-MM-DD: {as_of_iso!r}") from exc
 
     client = provider.client
+    verified_name_by_qid: dict[str, dict[str, str]] = {}
+    for row in overrides.get("squadMemberships", []) or []:
+        player_page = str(row.get("wikipediaTitle") or "").strip()
+        full_name = str(row.get("fullName") or "").strip()
+        source = str(row.get("source") or "").strip()
+        if not all((player_page, full_name, source)):
+            raise RuntimeError(f"Incomplete verified squad membership label bridge: {row}")
+        qid = client.page_qid(player_page)
+        existing = verified_name_by_qid.get(qid)
+        if existing and existing["fullName"] != full_name:
+            raise RuntimeError(
+                f"Conflicting verified squad names for {qid}: {existing['fullName']} vs {full_name}"
+            )
+        verified_name_by_qid[qid] = {"fullName": full_name, "source": source}
+
     original_entities = client.entities
     bridged_qids: set[str] = set()
+    label_fallback_qids: set[str] = set()
 
     def entities(qids: list[str]) -> dict[str, dict[str, Any]]:
         source = original_entities(qids)
@@ -133,8 +157,22 @@ def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
                         "mainsnak": {"datavalue": {"value": {"id": selected}}},
                     }]
                     bridged_qids.add(str(qid))
+
+            verified_name = verified_name_by_qid.get(str(qid))
+            current_label = str(((entity.get("labels") or {}).get("en") or {}).get("value") or "").strip()
+            if verified_name and not current_label:
+                if entity is original_entity:
+                    entity = copy.deepcopy(entity)
+                entity.setdefault("labels", {})["en"] = {
+                    "language": "en",
+                    "value": verified_name["fullName"],
+                }
+                label_fallback_qids.add(str(qid))
+
             result[str(qid)] = entity
         return result
 
     client.entities = entities
     provider.p1532_discovery_bridged_qids = bridged_qids
+    provider.verified_squad_label_fallback_qids = label_fallback_qids
+    provider.verified_squad_label_sources_by_qid = verified_name_by_qid
