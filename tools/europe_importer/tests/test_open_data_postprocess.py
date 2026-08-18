@@ -42,6 +42,11 @@ class _FakeClient:
             "P27": [_item("Q20")],
         }
 
+    def page_qid(self, title):
+        if title == "Rodri (footballer, born 1996)":
+            return "Q1"
+        raise AssertionError(title)
+
     def entities(self, qids):
         payload = {
             "Q1": {
