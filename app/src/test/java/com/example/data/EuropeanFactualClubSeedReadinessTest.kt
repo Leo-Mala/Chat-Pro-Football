@@ -45,6 +45,9 @@ class EuropeanFactualClubSeedReadinessTest {
     fun `Manchester United is ready while Trabzonspor template waits for global id resolver`() {
         val united = EuropeanFactualClubSeedReadiness.assess("Inglaterra", "Manchester United")
         val trabzonspor = EuropeanFactualClubSeedReadiness.assess("Turquia", "Trabzonspor")
+        val record = requireNotNull(
+            EuropeanAdditionalClubTemplates2026_27.find("Turquia", "Trabzonspor")
+        )
 
         assertEquals(EuropeanFactualClubSeedStatus.READY, united.status)
         assertEquals(5L, united.stableTeamId)
@@ -53,8 +56,14 @@ class EuropeanFactualClubSeedReadinessTest {
 
         assertEquals(EuropeanFactualClubSeedStatus.GLOBAL_ID_MISMATCH, trabzonspor.status)
         assertEquals(130_395L, trabzonspor.stableTeamId)
+        assertEquals(130_395L, record.stableTeamId)
+        assertEquals("2026/27", record.domesticSeasonLabel)
+        assertEquals("2026-08-18", record.verifiedAsOfIso)
+        assertTrue(record.sourceRefs.isNotEmpty())
+        assertTrue(record.sourceRefs.all { it.contains("trabzonspor.org.tr") })
         assertNotNull(trabzonspor.template)
         assertEquals("Trabzon", trabzonspor.template?.city)
+        assertEquals("TRA", trabzonspor.template?.state)
         assertEquals("Papara Park", trabzonspor.template?.stadium)
         assertEquals(78, trabzonspor.template?.rating)
         assertNotNull(trabzonspor.resolvedGlobalId)
