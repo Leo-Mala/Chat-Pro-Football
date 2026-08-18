@@ -46,6 +46,18 @@ class EuropeanRealLoanSnapshotTest {
     }
 
     @Test
+    fun `loan snapshot rejects impossible verification date`() {
+        val valid = AndreOnanaLoan2026_27.snapshot
+        var failed = false
+        try {
+            valid.copy(verifiedAsOfIso = "2026-02-31")
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
     fun `loan catalog rejects two active loans for same factual player`() {
         val first = AndreOnanaLoan2026_27.snapshot
         val duplicated = first.copy(

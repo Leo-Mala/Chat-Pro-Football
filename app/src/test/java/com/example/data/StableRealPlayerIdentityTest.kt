@@ -19,6 +19,52 @@ class StableRealPlayerIdentityTest {
     }
 
     @Test
+    fun `identity transliterates european letters that NFKD does not decompose`() {
+        val variants = listOf(
+            Triple("Martin Ødegaard", "Martin Odegaard", "1998-12-17"),
+            Triple("Altay Bayındır", "Altay Bayindir", "1998-04-14"),
+            Triple("Łukasz Skorupski", "Lukasz Skorupski", "1991-05-05"),
+            Triple("Đorđe Petrović", "Dorde Petrovic", "1999-10-08"),
+            Triple("Jørgen Strand Larsen", "Jorgen Strand Larsen", "2000-02-06")
+        )
+
+        variants.forEach { (nativeSpelling, asciiSpelling, birthDate) ->
+            assertEquals(
+                "Grafias equivalentes divergiram para $nativeSpelling",
+                StableRealPlayerIdentity.idFor(nativeSpelling, birthDate),
+                StableRealPlayerIdentity.idFor(asciiSpelling, birthDate)
+            )
+        }
+    }
+
+    @Test
+    fun `identity rejects impossible calendar birth dates`() {
+        val invalidDates = listOf(
+            "2001-02-29",
+            "2000-02-30",
+            "2002-04-31",
+            "2002-13-01",
+            "2002-00-10",
+            "2002-01-00"
+        )
+
+        invalidDates.forEach { invalidDate ->
+            var failed = false
+            try {
+                StableRealPlayerIdentity.idFor("Invalid Date", invalidDate)
+            } catch (_: IllegalArgumentException) {
+                failed = true
+            }
+            assertTrue("Data impossível foi aceita: $invalidDate", failed)
+        }
+
+        // 2000 é bissexto; esta data precisa continuar válida.
+        assertTrue(StableRealPlayerIdentity.isRealPlayerId(
+            StableRealPlayerIdentity.idFor("Leap Year", "2000-02-29")
+        ))
+    }
+
+    @Test
     fun `birth date and explicit disambiguator separate different people`() {
         val first = StableRealPlayerIdentity.idFor("Alex Silva", "2001-01-01")
         val second = StableRealPlayerIdentity.idFor("Alex Silva", "2002-01-01")

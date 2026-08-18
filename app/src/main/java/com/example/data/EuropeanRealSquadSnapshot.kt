@@ -28,15 +28,17 @@ data class EuropeanRealSquadSnapshot(
         require(domesticSeasonLabel == baseline.domesticSeasonLabel) {
             "Temporada doméstica divergente para $country/$clubName: $domesticSeasonLabel != ${baseline.domesticSeasonLabel}"
         }
-        require(ISO_DATE.matches(verifiedAsOfIso)) {
-            "verifiedAsOfIso deve usar YYYY-MM-DD: $verifiedAsOfIso"
-        }
+        parseStrictIsoDate(verifiedAsOfIso, "verifiedAsOfIso")
         require(sourceRefs.isNotEmpty() && sourceRefs.none { it.isBlank() }) {
             "Snapshot factual precisa registrar ao menos uma fonte."
         }
         val playerIds = players.map { it.stableId }
         require(playerIds.size == playerIds.distinct().size) {
             "Jogador factual duplicado no elenco de $clubName."
+        }
+        val assignedShirtNumbers = players.mapNotNull { it.shirtNumber }
+        require(assignedShirtNumbers.size == assignedShirtNumbers.distinct().size) {
+            "Número de camisa factual duplicado no elenco de $clubName."
         }
     }
 
@@ -68,7 +70,6 @@ data class EuropeanRealSquadSnapshot(
 
     companion object {
         const val MIN_GAMEPLAY_READY_PLAYERS = 18
-        private val ISO_DATE = Regex("\\d{4}-\\d{2}-\\d{2}")
     }
 }
 

@@ -20,9 +20,7 @@ data class RealPlayerIdentityKey(
 ) {
     init {
         require(fullName.isNotBlank()) { "Nome real do jogador não pode ser vazio." }
-        require(BIRTH_DATE_REGEX.matches(birthDateIso)) {
-            "Data de nascimento deve usar YYYY-MM-DD: '$birthDateIso'."
-        }
+        parseStrictIsoDate(birthDateIso, "Data de nascimento")
     }
 
     internal fun canonicalValue(): String = listOf(
@@ -30,11 +28,37 @@ data class RealPlayerIdentityKey(
         birthDateIso,
         normalizeIdentityText(disambiguator)
     ).joinToString("|")
-
-    companion object {
-        private val BIRTH_DATE_REGEX = Regex("\\d{4}-\\d{2}-\\d{2}")
-    }
 }
+
+internal data class StrictIsoDate(
+    val year: Int,
+    val month: Int,
+    val day: Int
+)
+
+/** Validação ISO simples e determinística, sem depender do relógio nem de APIs Android de data. */
+internal fun parseStrictIsoDate(value: String, fieldName: String): StrictIsoDate {
+    val match = ISO_DATE_REGEX.matchEntire(value)
+        ?: throw IllegalArgumentException("$fieldName deve usar YYYY-MM-DD: '$value'.")
+    val year = match.groupValues[1].toInt()
+    val month = match.groupValues[2].toInt()
+    val day = match.groupValues[3].toInt()
+
+    require(year >= 1) { "$fieldName possui ano inválido: '$value'." }
+    require(month in 1..12) { "$fieldName possui mês inválido: '$value'." }
+
+    val leapYear = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    val daysInMonth = when (month) {
+        2 -> if (leapYear) 29 else 28
+        4, 6, 9, 11 -> 30
+        else -> 31
+    }
+    require(day in 1..daysInMonth) { "$fieldName possui dia inválido: '$value'." }
+
+    return StrictIsoDate(year, month, day)
+}
+
+private val ISO_DATE_REGEX = Regex("(\\d{4})-(\\d{2})-(\\d{2})")
 
 object StableRealPlayerIdentity {
     const val REAL_PLAYER_ID_FLOOR = 100_000_000_000_000L
@@ -55,8 +79,31 @@ object StableRealPlayerIdentity {
     fun isRealPlayerId(id: Long): Boolean = id >= REAL_PLAYER_ID_FLOOR
 }
 
+/**
+ * NFKD cobre marcas combináveis (á, š, ğ etc.), mas alguns caracteres europeus não se decompõem
+ * para ASCII. Eles são transliterados explicitamente antes da normalização para que grafias como
+ * `Ødegaard`/`Odegaard`, `Bayındır`/`Bayindir` e `Łukasz`/`Lukasz` preservem a mesma identidade.
+ */
 private fun normalizeIdentityText(value: String): String {
-    val decomposed = Normalizer.normalize(value.trim(), Normalizer.Form.NFKD)
+    val transliterated = value.trim()
+        .replace("Ø", "O")
+        .replace("ø", "o")
+        .replace("Ł", "L")
+        .replace("ł", "l")
+        .replace("Đ", "D")
+        .replace("đ", "d")
+        .replace("Ð", "D")
+        .replace("ð", "d")
+        .replace("Þ", "Th")
+        .replace("þ", "th")
+        .replace("Æ", "Ae")
+        .replace("æ", "ae")
+        .replace("Œ", "Oe")
+        .replace("œ", "oe")
+        .replace("ß", "ss")
+        .replace("ı", "i")
+
+    val decomposed = Normalizer.normalize(transliterated, Normalizer.Form.NFKD)
     return decomposed
         .replace(Regex("\\p{M}+"), "")
         .lowercase(Locale.ROOT)
