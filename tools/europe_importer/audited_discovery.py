@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -10,18 +9,23 @@ from typing import Any
 from .open_data_postprocess import _select_current_sport_country
 from .wikimedia_open_data import ENWIKI_API, SECTION_PRIORITIES
 
-_NESTED_HEADING_RE = re.compile(r"(?m)^={3,}\s*.*?\s*={3,}\s*$")
-_WIKILINK_RE = re.compile(r"\[\[([^\[\]|#]+)")
+
+def _page_links(parsed: dict[str, Any]) -> set[str]:
+    return {
+        str(row["title"])
+        for row in ((parsed.get("parse") or {}).get("links") or [])
+        if int(row.get("ns", -1)) == 0 and row.get("title")
+    }
 
 
 def install_current_squad_only_discovery(provider: Any) -> None:
-    """Keep only the selected current/first-team section body, excluding nested subsections.
+    """Discover only the selected current/first-team section body.
 
-    MediaWiki's `prop=links` for a section can include links from nested subsections such as
-    "Out on loan". For a factual active-squad snapshot that is unsafe: a loaned-out player can be
-    rediscovered as active. This wrapper reads the selected section wikitext and stops at the first
-    nested heading before extracting links. Player eligibility is still decided later by Wikidata
-    occupation/fact validation.
+    MediaWiki expands squad templates when ``prop=links`` is requested. Asking for links on the
+    parent section alone can also include nested subsections such as ``Out on loan``. We therefore
+    keep the expanded parent links and subtract links contributed by every nested subsection until
+    the next section at the same or higher level. This preserves template-based squad tables while
+    preventing loaned-out players from being rediscovered as active squad members.
     """
     client = provider.client
 
@@ -29,36 +33,49 @@ def install_current_squad_only_discovery(provider: Any) -> None:
         sections = client.get(ENWIKI_API, {"action": "parse", "page": title, "prop": "sections"})
         rows = ((sections.get("parse") or {}).get("sections") or [])
         chosen = None
+        chosen_pos = -1
         for wanted in SECTION_PRIORITIES:
-            chosen = next(
-                (row for row in rows if str(row.get("line") or "").strip().casefold() == wanted),
-                None,
-            )
+            for index, row in enumerate(rows):
+                if str(row.get("line") or "").strip().casefold() == wanted:
+                    chosen = row
+                    chosen_pos = index
+                    break
             if chosen:
                 break
         if chosen is None:
             raise RuntimeError(f"No current/first-team squad section found on {title}")
 
         section_index = str(chosen["index"])
-        parsed = client.get(
-            ENWIKI_API,
-            {"action": "parse", "page": title, "section": section_index, "prop": "wikitext"},
-        )
-        wikitext = (parsed.get("parse") or {}).get("wikitext") or ""
-        if isinstance(wikitext, dict):
-            wikitext = wikitext.get("*") or ""
-        text = str(wikitext)
-        first_nested = _NESTED_HEADING_RE.search(text)
-        if first_nested:
-            text = text[: first_nested.start()]
+        try:
+            chosen_level = int(chosen.get("level") or chosen.get("toclevel") or 0)
+        except (TypeError, ValueError):
+            chosen_level = 0
 
-        links: list[str] = []
-        for raw_target in _WIKILINK_RE.findall(text):
-            target = raw_target.strip().replace("_", " ")
-            if not target or ":" in target:
-                continue
-            links.append(target)
-        return str(chosen.get("line") or ""), sorted(set(links))
+        nested_indices: list[str] = []
+        for row in rows[chosen_pos + 1 :]:
+            try:
+                level = int(row.get("level") or row.get("toclevel") or 0)
+            except (TypeError, ValueError):
+                level = 0
+            if chosen_level and level and level <= chosen_level:
+                break
+            if row.get("index") is not None:
+                nested_indices.append(str(row["index"]))
+
+        parent = client.get(
+            ENWIKI_API,
+            {"action": "parse", "page": title, "section": section_index, "prop": "links"},
+        )
+        links = _page_links(parent)
+
+        for nested_index in nested_indices:
+            nested = client.get(
+                ENWIKI_API,
+                {"action": "parse", "page": title, "section": nested_index, "prop": "links"},
+            )
+            links.difference_update(_page_links(nested))
+
+        return str(chosen.get("line") or ""), sorted(links)
 
     client.current_squad_links = current_squad_links
 
