@@ -55,8 +55,31 @@ object StableRealPlayerIdentity {
     fun isRealPlayerId(id: Long): Boolean = id >= REAL_PLAYER_ID_FLOOR
 }
 
+/**
+ * NFKD cobre marcas combináveis (á, š, ğ etc.), mas alguns caracteres europeus não se decompõem
+ * para ASCII. Eles são transliterados explicitamente antes da normalização para que grafias como
+ * `Ødegaard`/`Odegaard`, `Bayındır`/`Bayindir` e `Łukasz`/`Lukasz` preservem a mesma identidade.
+ */
 private fun normalizeIdentityText(value: String): String {
-    val decomposed = Normalizer.normalize(value.trim(), Normalizer.Form.NFKD)
+    val transliterated = value.trim()
+        .replace("Ø", "O")
+        .replace("ø", "o")
+        .replace("Ł", "L")
+        .replace("ł", "l")
+        .replace("Đ", "D")
+        .replace("đ", "d")
+        .replace("Ð", "D")
+        .replace("ð", "d")
+        .replace("Þ", "Th")
+        .replace("þ", "th")
+        .replace("Æ", "Ae")
+        .replace("æ", "ae")
+        .replace("Œ", "Oe")
+        .replace("œ", "oe")
+        .replace("ß", "ss")
+        .replace("ı", "i")
+
+    val decomposed = Normalizer.normalize(transliterated, Normalizer.Form.NFKD)
     return decomposed
         .replace(Regex("\\p{M}+"), "")
         .lowercase(Locale.ROOT)
