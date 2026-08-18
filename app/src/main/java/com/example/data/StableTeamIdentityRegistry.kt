@@ -5,11 +5,13 @@ package com.example.data
  *
  * O sistema legado calculava o ID por `countryIndex * 200 + teamIndex + 1`. Isso torna promoção,
  * rebaixamento e simples reordenação de `DefaultData` capazes de trocar a identidade de um clube.
- * Este registry preserva os IDs já conhecidos dos clubes existentes e reserva slots do mesmo bloco
- * legado para novos clubes reais, sem alterar o schema Room.
  *
- * Nesta primeira fatia somente Inglaterra/Espanha são integradas ao seed real 2026/27. Os demais
- * países receberão IDs explícitos quando suas listas oficiais forem transcritas para DefaultData.
+ * Inglaterra/Espanha preservam os IDs históricos já existentes. Para as outras associações UEFA
+ * do baseline factual, os clubes recebem IDs em janelas determinísticas reservadas abaixo do piso
+ * de clubes virtuais. O ID depende de país + nome canônico, nunca da posição na tabela/lista.
+ *
+ * Reservar o ID aqui NÃO significa que o clube já está materializado no seed. A integração ao
+ * `DefaultData` acontece separadamente e pode avançar país a país sem trocar a identidade factual.
  */
 data class StableTeamIdentity(
     val country: String,
@@ -19,7 +21,37 @@ data class StableTeamIdentity(
 )
 
 object StableTeamIdentityRegistry {
-    private val identities: List<StableTeamIdentity> = listOf(
+    const val BASELINE_REAL_TEAM_ID_FLOOR = 100_000L
+    const val BASELINE_REAL_TEAM_ID_CEILING_EXCLUSIVE = 190_000L
+    private const val COUNTRY_WINDOW_SIZE = 5_000L
+
+    /**
+     * Janelas fixas por associação. Nunca reorganizar esta tabela: o índice é parte do contrato de
+     * identidade para novos saves. Se uma associação futura entrar no catálogo, atribua uma nova
+     * janela explícita sem mover as existentes.
+     */
+    private val baselineCountryWindows = linkedMapOf(
+        "Itália" to 100_000L,
+        "Alemanha" to 105_000L,
+        "França" to 110_000L,
+        "Portugal" to 115_000L,
+        "Países Baixos" to 120_000L,
+        "Bélgica" to 125_000L,
+        "Turquia" to 130_000L,
+        "Escócia" to 135_000L,
+        "Áustria" to 140_000L,
+        "Suíça" to 145_000L,
+        "Dinamarca" to 150_000L,
+        "Noruega" to 155_000L,
+        "Suécia" to 160_000L,
+        "Polônia" to 165_000L,
+        "Tchéquia" to 170_000L,
+        "Croácia" to 175_000L,
+        "Sérvia" to 180_000L,
+        "Grécia" to 185_000L
+    )
+
+    private val legacyIdentities: List<StableTeamIdentity> = listOf(
         // Inglaterra — IDs preservados do baseline legado quando o clube já existia.
         StableTeamIdentity("Inglaterra", "Manchester City", 1L),
         StableTeamIdentity("Inglaterra", "Arsenal FC", 2L, setOf("Arsenal")),
@@ -91,7 +123,35 @@ object StableTeamIdentityRegistry {
         StableTeamIdentity("Espanha", "Málaga CF", 244L)
     )
 
+    private val baselineGeneratedIdentities: List<StableTeamIdentity> = baselineCountryWindows.flatMap { (country, windowStart) ->
+        val baseline = requireNotNull(EuropeanDomesticBaseline2026_27.forCountry(country)) {
+            "Baseline UEFA ausente para $country"
+        }
+        require(baseline.coverage == EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT) {
+            "IDs reais só podem ser reservados para baseline factual verificado: $country"
+        }
+        baseline.verifiedTopFlightClubs.map { canonicalName ->
+            StableTeamIdentity(
+                country = country,
+                canonicalName = canonicalName,
+                id = stableBaselineId(windowStart, country, canonicalName)
+            )
+        }
+    }
+
+    private val identities: List<StableTeamIdentity> = legacyIdentities + baselineGeneratedIdentities
+
     private fun normalize(value: String): String = value.trim().lowercase()
+
+    private fun stableBaselineId(windowStart: Long, country: String, canonicalName: String): Long {
+        var hash = 1469598103934665603L
+        "${normalize(country)}|${normalize(canonicalName)}".forEach { ch ->
+            hash = (hash xor ch.code.toLong()) * 1099511628211L
+        }
+        val positive = hash and Long.MAX_VALUE
+        // Slot zero fica reservado para facilitar inspeção/debug do começo de cada janela.
+        return windowStart + 1L + (positive % (COUNTRY_WINDOW_SIZE - 1L))
+    }
 
     private val byCountryAndName: Map<Pair<String, String>, StableTeamIdentity> = buildMap {
         identities.forEach { identity ->
@@ -109,7 +169,9 @@ object StableTeamIdentityRegistry {
     }
 
     private val byId: Map<Long, StableTeamIdentity> = identities.associateBy { it.id }.also { map ->
-        require(map.size == identities.size) { "Há IDs estáveis de clubes duplicados." }
+        require(map.size == identities.size) {
+            "Há colisão de IDs estáveis. Adicione override explícito; nunca resolva por ordem de lista."
+        }
     }
 
     fun idFor(country: String, teamName: String): Long? {
