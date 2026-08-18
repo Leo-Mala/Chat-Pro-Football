@@ -9,6 +9,7 @@ from .audited_discovery import (
     install_current_squad_only_discovery,
     install_p1532_discovery_bridge,
 )
+from .audited_exclusions import apply_verified_squad_exclusions, without_squad_exclusions
 from .identity import StableTeamIdentityContract
 from .open_data_postprocess import (
     apply_canonical_name_overrides,
@@ -61,6 +62,7 @@ def main() -> int:
 
     contract_path = HERE / "config" / "stable_team_identity_premier_league.json"
     overrides_path = HERE / "config" / "open_data_verified_overrides_2026_27.json"
+    overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
     contract_doc = json.loads(contract_path.read_text(encoding="utf-8"))
     team_names = [str(team["name"]) for team in contract_doc["teams"]]
 
@@ -92,7 +94,13 @@ def main() -> int:
         provider.last_audit["p1532DiscoveryBridgeCount"] = len(
             getattr(provider, "p1532_discovery_bridged_qids", set())
         )
-        raw = apply_verified_open_data_facts(provider, raw, overrides_path)
+
+        # Exclusions are applied before the legacy postprocessor and are idempotent: if the safer
+        # discovery path already removed a false association, the rule becomes an audited no-op.
+        apply_verified_squad_exclusions(raw, provider.last_audit, overrides)
+        with without_squad_exclusions(overrides_path) as runtime_overrides_path:
+            raw = apply_verified_open_data_facts(provider, raw, runtime_overrides_path)
+
         audit_path.write_text(
             json.dumps(provider.last_audit, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
