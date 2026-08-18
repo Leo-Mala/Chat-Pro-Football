@@ -3,7 +3,14 @@ package com.example.data
 import kotlin.math.max
 
 /**
- * Regras de coeficiente UEFA 2026/27 em milésimos de ponto.
+ * Regras necessárias para reconstruir os rankings de coeficiente usados na temporada UEFA 2026/27,
+ * sempre em milésimos de ponto.
+ *
+ * A access list 2026/27 usa os coeficientes de associação de 2020/21..2024/25 e o ranking de clubes
+ * usa os coeficientes de clube de 2021/22..2025/26. Nos Regulamentos 2026/27, os valores de pontos
+ * de clube de D.4.1..D.4.3 referem-se expressamente aos pontos atribuídos em 2025/26. Portanto esta
+ * classe é a fundação do ranking de entrada/seeding 2026/27; uma temporada futura deve usar as
+ * regras do regulamento daquela própria temporada em vez de assumir que estes pesos nunca mudam.
  *
  * Long evita erro binário de Double em valores como 0.125/0.250 e aplica naturalmente a regra
  * UEFA de calcular até o milésimo sem arredondar para cima.
@@ -27,7 +34,7 @@ object UefaCoefficientRules {
         MatchResult.LOSS -> 0L
     }
 
-    /** Pontos de resultado do clube da league phase em diante; shoot-out não altera o resultado. */
+    /** Pontos de clube da league phase em diante na época de referência; shoot-out não conta. */
     fun clubLeaguePhaseMatchPoints(resultBeforeShootout: MatchResult): Long = when (resultBeforeShootout) {
         MatchResult.WIN -> 2_000L
         MatchResult.DRAW -> 1_000L
@@ -80,7 +87,7 @@ object UefaCoefficientRules {
         UefaCompetitionCode.UECL -> 2_500L
     }
 
-    /** Bonus pela posição final da league phase, Annex D.5. */
+    /** Bônus pela posição final da league phase, Annex D.5. */
     fun leaguePositionBonus(competition: UefaCompetitionCode, position: Int): Long {
         require(position in 1..36)
         return when (competition) {
@@ -106,10 +113,14 @@ object UefaCoefficientRules {
     fun knockoutMilestoneBonus(
         competition: UefaCompetitionCode,
         milestone: KnockoutMilestone
-    ): Long = when (competition) {
-        UefaCompetitionCode.UCL -> 1_500L
-        UefaCompetitionCode.UEL -> 1_000L
-        UefaCompetitionCode.UECL -> 500L
+    ): Long {
+        // Todos os quatro milestones têm o mesmo valor dentro de cada competição no Annex D.5.
+        check(milestone in KnockoutMilestone.entries)
+        return when (competition) {
+            UefaCompetitionCode.UCL -> 1_500L
+            UefaCompetitionCode.UEL -> 1_000L
+            UefaCompetitionCode.UECL -> 500L
+        }
     }
 
     fun formatMilli(milli: Long): String {
