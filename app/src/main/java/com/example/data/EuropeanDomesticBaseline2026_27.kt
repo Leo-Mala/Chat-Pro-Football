@@ -235,6 +235,128 @@ object EuropeanDomesticBaseline2026_27 {
         "St Mirren"
     )
 
+    // Österreichische Fußball-Bundesliga — rodada inaugural 2026/27 e páginas oficiais dos clubes.
+    private val austriaClubs = listOf(
+        "LASK",
+        "Grazer AK 1902",
+        "WSG Tirol",
+        "SK Sturm Graz",
+        "FC Red Bull Salzburg",
+        "TSV Hartberg",
+        "Wolfsberger AC",
+        "FK Austria Wien",
+        "SC Austria Lustenau",
+        "SV Ried",
+        "SK Rapid Wien",
+        "SCR Altach"
+    )
+
+    // Swiss Football League — os seis jogos da 1ª rodada oficial fecham os 12 participantes.
+    private val switzerlandClubs = listOf(
+        "FC Lausanne-Sport",
+        "Grasshopper Club Zürich",
+        "Servette FC",
+        "FC Basel 1893",
+        "FC Luzern",
+        "FC Thun",
+        "BSC Young Boys",
+        "FC Sion",
+        "FC Lugano",
+        "FC Vaduz",
+        "FC St.Gallen 1879",
+        "FC Zürich"
+    )
+
+    // 3F Superliga — os seis jogos da 1ª rodada oficial fecham os 12 participantes.
+    private val denmarkClubs = listOf(
+        "Viborg FF",
+        "OB",
+        "AGF",
+        "Brøndby IF",
+        "Sønderjyske Fodbold",
+        "FC Midtjylland",
+        "Randers FC",
+        "Silkeborg IF",
+        "AC Horsens",
+        "FC Nordsjælland",
+        "FC København",
+        "Lyngby BK"
+    )
+
+    // Eliteserien — calendário oficial de julho/agosto de 2026 fecha o conjunto de 16 clubes.
+    private val norwayClubs = listOf(
+        "Vålerenga",
+        "HamKam",
+        "Bodø/Glimt",
+        "Lillestrøm",
+        "Fredrikstad",
+        "Sandefjord Fotball",
+        "Start",
+        "Viking",
+        "KFUM",
+        "Kristiansund",
+        "Molde",
+        "Sarpsborg 08",
+        "Aalesund",
+        "Tromsø",
+        "Brann",
+        "Rosenborg"
+    )
+
+    // Ekstraklasa — tabela oficial 2026/27 com 18 participantes.
+    private val polandClubs = listOf(
+        "Zagłębie Lubin",
+        "Wisła Płock",
+        "Wisła Kraków",
+        "Górnik Zabrze",
+        "Radomiak Radom",
+        "Legia Warszawa",
+        "Jagiellonia Białystok",
+        "Motor Lublin",
+        "Widzew Łódź",
+        "Lech Poznań",
+        "Cracovia",
+        "Raków Częstochowa",
+        "Śląsk Wrocław",
+        "GKS Katowice",
+        "Wieczysta Kraków",
+        "Korona Kielce",
+        "Pogoń Szczecin",
+        "Piast Gliwice"
+    )
+
+    // HNS / SuperSport HNL — tabela e sorteio oficial da temporada 2026/27.
+    private val croatiaClubs = listOf(
+        "Dinamo Zagreb",
+        "Gorica",
+        "Hajduk Split",
+        "Rijeka",
+        "Istra 1961",
+        "Lokomotiva Zagreb",
+        "Osijek",
+        "Rudeš",
+        "Slaven Belupo",
+        "Varaždin"
+    )
+
+    // SuperLiga Srbije — tabela oficial 2026/27 confirma formato de 14 clubes.
+    private val serbiaClubs = listOf(
+        "IMT",
+        "Crvena zvezda",
+        "Čukarički",
+        "Partizan",
+        "OFK Beograd",
+        "Novi Pazar",
+        "Vojvodina",
+        "Železničar Pančevo",
+        "Radnički Niš",
+        "Mladost Lučani",
+        "Radnik Surdulica",
+        "Zemun",
+        "Radnički 1923",
+        "Mačva Šabac"
+    )
+
     val associations: List<EuropeanDomesticAssociationBaseline> = listOf(
         EuropeanDomesticAssociationBaseline(
             "Inglaterra", "Premier League", "FA Cup", 20,
@@ -277,20 +399,20 @@ object EuropeanDomesticBaseline2026_27 {
             EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, scotlandClubs
         ),
         EuropeanDomesticAssociationBaseline(
-            "Áustria", "Austrian Bundesliga", "ÖFB-Cup", 12,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            "Áustria", "ADMIRAL Bundesliga", "UNIQA ÖFB-Cup", 12,
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, austriaClubs
         ),
         EuropeanDomesticAssociationBaseline(
-            "Suíça", "Swiss Super League", "Swiss Cup", 12,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            "Suíça", "Brack Super League", "Swiss Cup", 12,
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, switzerlandClubs
         ),
         EuropeanDomesticAssociationBaseline(
-            "Dinamarca", "Danish Superliga", "DBU Pokalen", 12,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            "Dinamarca", "3F Superliga", "DBU Pokalen", 12,
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, denmarkClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Noruega", "Eliteserien", "Norwegian Football Cup", 16,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, norwayClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Suécia", "Allsvenskan", "Svenska Cupen", 16,
@@ -298,19 +420,19 @@ object EuropeanDomesticBaseline2026_27 {
         ),
         EuropeanDomesticAssociationBaseline(
             "Polônia", "Ekstraklasa", "Puchar Polski", 18,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, polandClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Tchéquia", "Czech First League", "Czech Cup", 16,
             EuropeanDomesticCoverage.STRUCTURE_ONLY
         ),
         EuropeanDomesticAssociationBaseline(
-            "Croácia", "Croatian Football League", "Croatian Football Cup", 10,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            "Croácia", "SuperSport HNL", "Croatian Football Cup", 10,
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, croatiaClubs
         ),
         EuropeanDomesticAssociationBaseline(
-            "Sérvia", "Serbian SuperLiga", "Serbian Cup", 16,
-            EuropeanDomesticCoverage.STRUCTURE_ONLY
+            "Sérvia", "Mozzart Bet SuperLiga", "Serbian Cup", 14,
+            EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, serbiaClubs
         ),
         EuropeanDomesticAssociationBaseline(
             "Grécia", "Super League Greece", "Greek Cup", 14,
