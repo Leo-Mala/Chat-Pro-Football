@@ -34,6 +34,18 @@ class EuropeanRealLoanSnapshotTest {
     }
 
     @Test
+    fun `factual loan owner and borrower are verified baseline clubs`() {
+        val loan = AndreOnanaLoan2026_27.snapshot
+        val ownerBaseline = requireNotNull(EuropeanDomesticBaseline2026_27.forCountry(loan.ownerCountry))
+        val borrowerBaseline = requireNotNull(EuropeanDomesticBaseline2026_27.forCountry(loan.borrowerCountry))
+
+        assertTrue(ownerBaseline.verifiedTopFlightClubs.contains(loan.ownerClubName))
+        assertTrue(borrowerBaseline.verifiedTopFlightClubs.contains(loan.borrowerClubName))
+        assertEquals(EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, ownerBaseline.coverage)
+        assertEquals(EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT, borrowerBaseline.coverage)
+    }
+
+    @Test
     fun `loan catalog rejects two active loans for same factual player`() {
         val first = AndreOnanaLoan2026_27.snapshot
         val duplicated = first.copy(
