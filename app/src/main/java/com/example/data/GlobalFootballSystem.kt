@@ -32,6 +32,7 @@ object GlobalFootballSystem {
      * preservar fixtures já existentes.
      */
     const val VIRTUAL_TEAM_ID_FLOOR = 200_000L
+    private const val STABLE_COLLISION_FALLBACK_FLOOR = 1_000_000_000L
 
     fun isGeneratedVirtualTeamId(id: Long): Boolean = id >= VIRTUAL_TEAM_ID_FLOOR
 
@@ -107,8 +108,9 @@ object GlobalFootballSystem {
      *
      * Clubes reais já congelados no [StableTeamIdentityRegistry] deixam de depender da posição na
      * lista. Isso permite mudar de divisão ou reorganizar DefaultData sem trocar a identidade. Os
-     * clubes ainda não migrados continuam no algoritmo legado até sua associação receber baseline
-     * real explícito.
+     * clubes ainda não migrados continuam no algoritmo legado quando o slot posicional não colide
+     * com um ID real congelado. Em caso de colisão, o fallback procedural recebe um ID hash em um
+     * namespace alto e nunca toma o ID histórico de outro clube.
      */
     fun getGlobalId(country: String, teamName: String): Long {
         StableTeamIdentityRegistry.idFor(country, teamName)?.let { return it }
@@ -119,23 +121,23 @@ object GlobalFootballSystem {
             if (teams != null) {
                 val teamIndex = teams.indexOfFirst { it.name.equals(teamName, ignoreCase = true) }
                 if (teamIndex != -1) {
-                    return (countryIndex * 200 + teamIndex + 1).toLong()
+                    val positionalId = (countryIndex * 200 + teamIndex + 1).toLong()
+                    if (StableTeamIdentityRegistry.identityForId(positionalId) == null) {
+                        return positionalId
+                    }
+                    return collisionSafeGeneratedTeamId(country, teamName)
                 }
             }
         }
-        val h1 = country.hashCode().toLong()
-        val h2 = teamName.hashCode().toLong()
-        val combined = (h1 shl 16) xor h2
-        val positiveHash = (combined and 0x7FFFFFFF_FFFFFFFFL) % 800_000L
-        return VIRTUAL_TEAM_ID_FLOOR + positiveHash
+        return legacyVirtualTeamId(country, teamName)
     }
 
     /**
      * Materializa um clube a partir do ID global.
      *
      * IDs congelados são resolvidos primeiro pelo registry e depois pelo nome atual no DefaultData.
-     * O decoder posicional legado permanece como fallback para saves/associações ainda não
-     * migrados para identidade explícita.
+     * IDs gerados no namespace virtual são procurados de volta no catálogo atual antes do fallback
+     * genérico. O decoder posicional legado permanece para saves/associações ainda não migrados.
      */
     fun getTeamByGlobalId(id: Long?): Team? {
         if (id == null) return null
@@ -150,13 +152,28 @@ object GlobalFootballSystem {
             return template.toPersistedTeam(id = id, country = identity.country)
         }
 
+        if (isGeneratedVirtualTeamId(id)) {
+            for (country in keys) {
+                val template = DefaultData.countriesMap[country]
+                    ?.teams
+                    ?.firstOrNull { getGlobalId(country, it.name) == id }
+                if (template != null) {
+                    return template.toPersistedTeam(id = id, country = country)
+                }
+            }
+            return null
+        }
+
         val countryIndex = ((id - 1) / 200).toInt()
         val teamIndex = ((id - 1) % 200).toInt()
         if (countryIndex < 0 || countryIndex >= keys.size) return null
         val country = keys[countryIndex]
         val teams = DefaultData.countriesMap[country]?.teams ?: return null
         if (teamIndex < 0 || teamIndex >= teams.size) return null
-        return teams[teamIndex].toPersistedTeam(id = id, country = country)
+        val template = teams[teamIndex]
+        val canonicalId = getGlobalId(country, template.name)
+        if (canonicalId != id) return null
+        return template.toPersistedTeam(id = id, country = country)
     }
 
     private fun DefaultData.TeamTemplate.toPersistedTeam(id: Long, country: String): Team = Team(
@@ -171,6 +188,24 @@ object GlobalFootballSystem {
         logoUrl = DefaultData.getLogoForTeam(name, country),
         isPlayerControlled = false
     )
+
+    private fun collisionSafeGeneratedTeamId(country: String, teamName: String): Long {
+        var hash = 1469598103934665603L
+        "$country|$teamName".forEach { ch ->
+            hash = (hash xor ch.code.toLong()) * 1099511628211L
+        }
+        val positive = hash and Long.MAX_VALUE
+        return STABLE_COLLISION_FALLBACK_FLOOR + (positive % 8_000_000_000L)
+    }
+
+    /** Mantém o algoritmo virtual legado para entradas que nunca tiveram posição no catálogo. */
+    private fun legacyVirtualTeamId(country: String, teamName: String): Long {
+        val h1 = country.hashCode().toLong()
+        val h2 = teamName.hashCode().toLong()
+        val combined = (h1 shl 16) xor h2
+        val positiveHash = (combined and 0x7FFFFFFF_FFFFFFFFL) % 800_000L
+        return VIRTUAL_TEAM_ID_FLOOR + positiveHash
+    }
 
     fun getVirtualTeam(id: Long): Team {
         return getTeamByGlobalId(id) ?: Team(
