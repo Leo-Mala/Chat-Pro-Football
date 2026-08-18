@@ -2,6 +2,7 @@ package com.example.usecase
 
 import com.example.data.ContinentalQualificationRules
 import com.example.data.CupCompetitionSystem
+import com.example.data.EuropeanNewSaveSeedCoordinator
 import com.example.data.Fixture
 import com.example.data.FixtureScheduleValidator
 import com.example.data.GameCalendar
@@ -104,6 +105,11 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
         userCountry: String = "BRASIL",
         qualificationStandings: List<GlobalLeagueStanding> = emptyList()
     ): List<Fixture> {
+        // Este método é o checkpoint usado por performStartNewGameInternal imediatamente antes da
+        // transação inicial. Se não existir dataset FACTUAL + VALIDATED, o coordenador não prepara
+        // override algum e o seed procedural permanece exatamente como antes.
+        EuropeanNewSaveSeedCoordinator.prepare(repository, teams)
+
         val allFixtures = mutableListOf<Fixture>()
         val userTeam = teams.find { it.id == userTeamId }
         val targetCountry = userTeam?.country ?: userCountry
