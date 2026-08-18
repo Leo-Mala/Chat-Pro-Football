@@ -38,6 +38,7 @@ enum class CompetitionImplementationStatus {
 }
 
 enum class ConfederationEngineKind {
+    DEDICATED_UEFA,
     DEDICATED_CONMEBOL,
     LEGACY_GENERIC,
     NONE
@@ -76,14 +77,7 @@ data class ContinentalCompetitionSet(
     }
 }
 
-/**
- * Registry canônico para identidade/metadados de competições.
- *
- * Os códigos persistidos atuais continuam válidos. As identidades continentais reais já podem ser
- * registradas sem fingir que seus formatos esportivos estão implementados: nesta fase somente a
- * CONMEBOL possui engine dedicada; UEFA/CONCACAF/CAF/AFC/OFC continuam explicitamente no engine
- * genérico legado até suas respectivas fases.
- */
+/** Registry canônico para identidade/metadados de competições. */
 object CompetitionRulesRegistry {
 
     private val compatibilityDefinitions = listOf(
@@ -169,7 +163,7 @@ object CompetitionRulesRegistry {
         )
     )
 
-    /** Catálogo exposto pelo GlobalFootballSystem, agora derivado de uma única definição. */
+    /** Catálogo exposto pelo GlobalFootballSystem, derivado de uma única definição. */
     val catalogDefinitions: List<CompetitionRuleDefinition> = listOf(
         CompetitionRuleDefinition(
             CompetitionIdentity.SUPER_MUNDIAL,
@@ -194,27 +188,33 @@ object CompetitionRulesRegistry {
         ),
         continental(
             CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE,
-            "UEFA_CL",
+            UefaCompetitionSystem.CHAMPIONS_LEAGUE,
             "UEFA Champions League 🇪🇺",
             1,
             FootballConfederation.UEFA,
-            CompetitionImplementationStatus.REAL_RULES_NOT_IMPLEMENTED
+            CompetitionImplementationStatus.DEDICATED,
+            startWeek = UefaCompetitionSystem.CHAMPIONS_EUROPA_LEAGUE_WEEKS.first(),
+            endWeek = UefaCompetitionSystem.FINAL_WEEK
         ),
         continental(
             CompetitionIdentity.UEFA_EUROPA_LEAGUE,
-            "UEFA_EL",
+            UefaCompetitionSystem.EUROPA_LEAGUE,
             "UEFA Europa League 🇪🇺",
             2,
             FootballConfederation.UEFA,
-            CompetitionImplementationStatus.REAL_RULES_NOT_IMPLEMENTED
+            CompetitionImplementationStatus.DEDICATED,
+            startWeek = UefaCompetitionSystem.CHAMPIONS_EUROPA_LEAGUE_WEEKS.first(),
+            endWeek = UefaCompetitionSystem.FINAL_WEEK
         ),
         continental(
             CompetitionIdentity.UEFA_CONFERENCE_LEAGUE,
-            "UEFA_ECL",
+            UefaCompetitionSystem.CONFERENCE_LEAGUE,
             "UEFA Conference League 🇪🇺",
             3,
             FootballConfederation.UEFA,
-            CompetitionImplementationStatus.REAL_RULES_NOT_IMPLEMENTED
+            CompetitionImplementationStatus.DEDICATED,
+            startWeek = UefaCompetitionSystem.CONFERENCE_LEAGUE_WEEKS.first(),
+            endWeek = UefaCompetitionSystem.FINAL_WEEK
         ),
         continental(
             CompetitionIdentity.CONMEBOL_LIBERTADORES,
@@ -362,23 +362,24 @@ object CompetitionRulesRegistry {
         return Triple(tier1, tier2, tier3)
     }
 
-    /**
-     * Adaptador legado estrito. Novos consumidores devem usar [continentalCompetitionSet].
-     */
+    /** Adaptador legado estrito. Novos consumidores devem usar [continentalCompetitionSet]. */
     fun continentalCatalogCodes(confederation: FootballConfederation): Triple<String, String, String> =
         requireNotNull(continentalCatalogCodesOrNull(confederation)) {
             "Confederação ${confederation.code} não possui três tiers continentais registrados."
         }
 
     fun engineForConfederation(confederation: FootballConfederation): ConfederationEngineKind =
-        if (confederation == FootballConfederation.CONMEBOL) {
-            ConfederationEngineKind.DEDICATED_CONMEBOL
-        } else {
-            ConfederationEngineKind.LEGACY_GENERIC
+        when (confederation) {
+            FootballConfederation.UEFA -> ConfederationEngineKind.DEDICATED_UEFA
+            FootballConfederation.CONMEBOL -> ConfederationEngineKind.DEDICATED_CONMEBOL
+            else -> ConfederationEngineKind.LEGACY_GENERIC
         }
 
     fun hasRealDedicatedRules(confederation: FootballConfederation): Boolean =
-        engineForConfederation(confederation) == ConfederationEngineKind.DEDICATED_CONMEBOL
+        engineForConfederation(confederation) in setOf(
+            ConfederationEngineKind.DEDICATED_UEFA,
+            ConfederationEngineKind.DEDICATED_CONMEBOL
+        )
 
     private fun continental(
         identity: CompetitionIdentity,
