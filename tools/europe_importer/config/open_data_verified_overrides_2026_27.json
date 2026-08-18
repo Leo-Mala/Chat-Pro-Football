@@ -1,0 +1,32 @@
+{
+  "verifiedAsOfIso": "2026-08-18",
+  "positions": [
+    {
+      "fullName": "Michael Kayode",
+      "position": "Defender",
+      "source": "https://www.premierleague.com/en/players/607464/michael-kayode/overview"
+    },
+    {
+      "fullName": "Bart Verbruggen",
+      "position": "Goalkeeper",
+      "source": "https://www.premierleague.com/en/clubs/36/brighton-and-hove-albion/squad"
+    },
+    {
+      "fullName": "Thierno Barry",
+      "position": "Forward",
+      "source": "https://www.premierleague.com/en/players/586309/thierno-barry/stats"
+    },
+    {
+      "fullName": "Tarik Muharemović",
+      "position": "Defender",
+      "source": "https://www.leedsunited.com/en/news/tarik-muharemovic-signs-for-leeds-united"
+    }
+  ],
+  "stadiums": [
+    {
+      "club": "Brentford FC",
+      "stadium": "Gtech Community Stadium",
+      "source": "https://www.premierleague.com/en/clubs/94/brentford/stadium"
+    }
+  ]
+}
