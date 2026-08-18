@@ -9,6 +9,17 @@ from typing import Any
 from .open_data_postprocess import _select_current_sport_country
 from .wikimedia_open_data import ENWIKI_API, SECTION_PRIORITIES
 
+_EXCLUDED_NESTED_TOKENS = (
+    "out on loan",
+    "on loan",
+    "b team",
+    "under-21",
+    "under 21",
+    "academy",
+    "reserves",
+    "reserve team",
+)
+
 
 def _page_links(parsed: dict[str, Any]) -> set[str]:
     return {
@@ -18,14 +29,18 @@ def _page_links(parsed: dict[str, Any]) -> set[str]:
     }
 
 
-def install_current_squad_only_discovery(provider: Any) -> None:
-    """Discover only the selected current/first-team section body.
+def _excluded_nested_heading(line: Any) -> bool:
+    value = str(line or "").strip().casefold()
+    return any(token in value for token in _EXCLUDED_NESTED_TOKENS)
 
-    MediaWiki expands squad templates when ``prop=links`` is requested. Asking for links on the
-    parent section alone can also include nested subsections such as ``Out on loan``. We therefore
-    keep the expanded parent links and subtract links contributed by every nested subsection until
-    the next section at the same or higher level. This preserves template-based squad tables while
-    preventing loaned-out players from being rediscovered as active squad members.
+
+def install_current_squad_only_discovery(provider: Any) -> None:
+    """Discover the active first-team body while excluding explicit non-active subsections.
+
+    ``prop=links`` expands MediaWiki squad templates, which is required for many club pages. Parent
+    sections may also include nested headings. We keep active nested headings (for example position
+    groups) and subtract only clearly non-active headings such as ``Out on loan``, ``B Team`` or
+    academy/reserve sections. This avoids both historical loan contamination and false empty squads.
     """
     client = provider.client
 
@@ -34,7 +49,8 @@ def install_current_squad_only_discovery(provider: Any) -> None:
         rows = ((sections.get("parse") or {}).get("sections") or [])
         chosen = None
         chosen_pos = -1
-        for wanted in SECTION_PRIORITIES:
+        priorities = tuple(SECTION_PRIORITIES) + ("first team",)
+        for wanted in priorities:
             for index, row in enumerate(rows):
                 if str(row.get("line") or "").strip().casefold() == wanted:
                     chosen = row
@@ -51,7 +67,7 @@ def install_current_squad_only_discovery(provider: Any) -> None:
         except (TypeError, ValueError):
             chosen_level = 0
 
-        nested_indices: list[str] = []
+        excluded_indices: list[str] = []
         for row in rows[chosen_pos + 1 :]:
             try:
                 level = int(row.get("level") or row.get("toclevel") or 0)
@@ -59,8 +75,8 @@ def install_current_squad_only_discovery(provider: Any) -> None:
                 level = 0
             if chosen_level and level and level <= chosen_level:
                 break
-            if row.get("index") is not None:
-                nested_indices.append(str(row["index"]))
+            if row.get("index") is not None and _excluded_nested_heading(row.get("line")):
+                excluded_indices.append(str(row["index"]))
 
         parent = client.get(
             ENWIKI_API,
@@ -68,7 +84,7 @@ def install_current_squad_only_discovery(provider: Any) -> None:
         )
         links = _page_links(parent)
 
-        for nested_index in nested_indices:
+        for nested_index in excluded_indices:
             nested = client.get(
                 ENWIKI_API,
                 {"action": "parse", "page": title, "section": nested_index, "prop": "links"},
@@ -81,15 +97,7 @@ def install_current_squad_only_discovery(provider: Any) -> None:
 
 
 def install_p1532_discovery_bridge(provider: Any, overrides_path: Path) -> None:
-    """Let P1532-only players pass preliminary discovery without weakening final nationality rules.
-
-    The legacy collector historically required P27 before the post-processing stage. For a player
-    whose only structured nationality is a current, unambiguous P1532, that caused an early false
-    rejection. This wrapper mirrors the selected P1532 into a transient P27 claim *only in the
-    in-memory discovery response*. The final nationality is still re-resolved from original P1532
-    semantics (preferred/deprecated/time qualifiers/ambiguity) and official overrides later.
-    Nothing synthetic is persisted to canonical data.
-    """
+    """Let P1532-only players pass preliminary discovery without weakening final nationality rules."""
     overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
     as_of_iso = str(overrides.get("verifiedAsOfIso") or "").strip()
     try:
