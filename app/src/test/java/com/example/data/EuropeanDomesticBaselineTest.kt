@@ -20,7 +20,7 @@ class EuropeanDomesticBaselineTest {
     }
 
     @Test
-    fun `verified top flights have complete unique 2026 27 club lists`() {
+    fun `verified top flights have complete unique factual club lists`() {
         val expectedCounts = linkedMapOf(
             "Inglaterra" to 20,
             "Espanha" to 20,
@@ -35,7 +35,9 @@ class EuropeanDomesticBaselineTest {
             "Suíça" to 12,
             "Dinamarca" to 12,
             "Noruega" to 16,
+            "Suécia" to 16,
             "Polônia" to 18,
+            "Tchéquia" to 16,
             "Croácia" to 10,
             "Sérvia" to 14
         )
@@ -53,13 +55,21 @@ class EuropeanDomesticBaselineTest {
     }
 
     @Test
-    fun `only four UEFA associations remain structure only`() {
+    fun `only Portugal and Greece remain structure only`() {
         val remaining = EuropeanDomesticBaseline2026_27.associations
             .filter { it.coverage == EuropeanDomesticCoverage.STRUCTURE_ONLY }
             .map { it.country }
             .toSet()
 
-        assertEquals(setOf("Portugal", "Suécia", "Tchéquia", "Grécia"), remaining)
+        assertEquals(setOf("Portugal", "Grécia"), remaining)
+    }
+
+    @Test
+    fun `calendar year leagues keep their domestic season label`() {
+        assertEquals("2026", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Noruega")).domesticSeasonLabel)
+        assertEquals("2026", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Suécia")).domesticSeasonLabel)
+        assertEquals("2026/27", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Inglaterra")).domesticSeasonLabel)
+        assertEquals("2026/27", requireNotNull(EuropeanDomesticBaseline2026_27.forCountry("Tchéquia")).domesticSeasonLabel)
     }
 
     @Test
