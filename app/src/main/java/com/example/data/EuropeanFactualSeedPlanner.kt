@@ -41,6 +41,9 @@ object EuropeanFactualSeedPlanner {
         loanCatalog: EuropeanRealLoanCatalog = EuropeanRealLoans.catalog,
         proceduralRosterFactory: (Team) -> List<Player>
     ): Plan {
+        require(teams.all { it.id > 0L }) {
+            "Seed europeu exige teamId persistível maior que zero."
+        }
         val teamsById = teams.associateBy { it.id }
         require(teamsById.size == teams.size) { "Seed de clubes contém teamId duplicado." }
 
