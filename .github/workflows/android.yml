@@ -7,6 +7,7 @@ on:
     paths:
       - 'app/**'
       - '!app/schemas/**'
+      - 'tools/europe_importer/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
@@ -44,6 +45,12 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+
+      - name: Run European bulk importer tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/europe_importer/tests -t .
 
       - name: Setup google-services.json
         env:
