@@ -38,7 +38,7 @@ class EuropeanDomesticHierarchyTest {
             "Itália" to ("Serie A" to "Coppa Italia"),
             "Alemanha" to ("Bundesliga" to "DFB-Pokal"),
             "França" to ("Ligue 1" to "Coupe de France"),
-            "Portugal" to ("Primeira Liga" to "Taça de Portugal"),
+            "Portugal" to ("Liga Portugal Betclic" to "Taça de Portugal"),
             "Países Baixos" to ("Eredivisie" to "KNVB Beker")
         )
 
