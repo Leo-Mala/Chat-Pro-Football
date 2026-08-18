@@ -15,11 +15,16 @@ class _Client:
     def __init__(self):
         self.calls = []
 
-    def page_qid(self, title):
-        mapping = {"Issa Diop (footballer)": "Q4"}
-        if title not in mapping:
-            raise AssertionError(title)
-        return mapping[title]
+    def qids_for_titles(self, titles):
+        mapping = {
+            "Issa Diop (footballer)": ("Issa Diop", "Q4"),
+        }
+        result = {}
+        for title in titles:
+            if title in mapping:
+                canonical, qid = mapping[title]
+                result[canonical] = qid
+        return result
 
     def get(self, endpoint, params):
         self.calls.append((endpoint, params))
