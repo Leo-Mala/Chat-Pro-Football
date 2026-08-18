@@ -8,8 +8,8 @@ package com.example.data
  *
  * Algumas associações UEFA usam temporada por ano civil. Por isso [domesticSeasonLabel] pertence à
  * associação e não deve ser inferido da temporada UEFA. `VERIFIED_TOP_FLIGHT` significa que a lista
- * de participantes da primeira divisão foi conferida em fonte oficial/primária; `STRUCTURE_ONLY`
- * deixa explícito que a associação ainda não possui lista factual fechada nesta fatia.
+ * de participantes da primeira divisão foi conferida/derivada exclusivamente de fontes oficiais ou
+ * primárias; `STRUCTURE_ONLY` permanece disponível para futuras associações ainda não fechadas.
  */
 enum class EuropeanDomesticCoverage {
     VERIFIED_TOP_FLIGHT,
@@ -78,6 +78,15 @@ object EuropeanDomesticBaseline2026_27 {
         "RC Lens", "FC Lorient", "LOSC", "Olympique Lyonnais", "Olympique de Marseille",
         "AS Monaco", "OGC Nice", "Paris FC", "Paris Saint-Germain", "Stade Rennais FC",
         "RC Strasbourg Alsace", "Toulouse FC", "ESTAC Troyes"
+    )
+
+    // Derivado apenas de fontes Liga Portugal: tabela final 2025/26 + promoções diretas de
+    // Marítimo/Académico + permanência do Casa Pia no playoff de acesso 2026/27.
+    private val portugalClubs = listOf(
+        "FC Porto", "Sporting CP", "SL Benfica", "SC Braga", "FC Famalicão",
+        "Gil Vicente FC", "Moreirense FC", "FC Arouca", "Vitória SC", "Estoril Praia",
+        "FC Alverca", "Rio Ave FC", "Santa Clara", "CD Nacional", "Estrela Amadora",
+        "Casa Pia AC", "Marítimo M.", "Académico"
     )
 
     private val netherlandsClubs = listOf(
@@ -161,13 +170,21 @@ object EuropeanDomesticBaseline2026_27 {
         "Radnik Surdulica", "Zemun", "Radnički 1923", "Mačva Šabac"
     )
 
+    // Derivado apenas de fontes das ligas gregas: composição oficial 2025/26; Iraklis/Kalamata
+    // campeões dos grupos da Super League 2; AEL e Panserraikos registrados como novos membros da
+    // Super League 2 em julho de 2026.
+    private val greeceClubs = listOf(
+        "AEK", "Aris", "Asteras Aktor", "Atromitos", "Volos NFC", "Kifisia", "Levadiakos",
+        "Olympiacos", "OFI", "Panathinaikos", "Panetolikos", "PAOK", "Iraklis", "Kalamata"
+    )
+
     val associations: List<EuropeanDomesticAssociationBaseline> = listOf(
         verified("Inglaterra", "Premier League", "FA Cup", 20, englandClubs),
         verified("Espanha", "La Liga", "Copa del Rey", 20, spainClubs),
         verified("Itália", "Serie A", "Coppa Italia", 20, italyClubs),
         verified("Alemanha", "Bundesliga", "DFB-Pokal", 18, germanyClubs),
         verified("França", "Ligue 1", "Coupe de France", 18, franceClubs),
-        structureOnly("Portugal", "Primeira Liga", "Taça de Portugal", 18),
+        verified("Portugal", "Liga Portugal Betclic", "Taça de Portugal", 18, portugalClubs),
         verified("Países Baixos", "Eredivisie", "KNVB Beker", 18, netherlandsClubs),
         verified("Bélgica", "Jupiler Pro League", "Croky Cup", 18, belgiumClubs),
         verified("Turquia", "Süper Lig", "Türkiye Kupası", 18, turkeyClubs),
@@ -181,7 +198,7 @@ object EuropeanDomesticBaseline2026_27 {
         verified("Tchéquia", "Chance Liga", "MOL Cup", 16, czechiaClubs),
         verified("Croácia", "SuperSport HNL", "Croatian Football Cup", 10, croatiaClubs),
         verified("Sérvia", "Mozzart Bet SuperLiga", "Serbian Cup", 14, serbiaClubs),
-        structureOnly("Grécia", "Super League Greece", "Greek Cup", 14)
+        verified("Grécia", "Stoiximan Super League", "Greek Cup", 14, greeceClubs)
     )
 
     private val byCountry = associations.associateBy { it.country }
@@ -210,21 +227,6 @@ object EuropeanDomesticBaseline2026_27 {
         topDivisionClubCount = count,
         coverage = EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT,
         verifiedTopFlightClubs = clubs,
-        domesticSeasonLabel = domesticSeasonLabel
-    )
-
-    private fun structureOnly(
-        country: String,
-        league: String,
-        cup: String,
-        count: Int,
-        domesticSeasonLabel: String = UEFA_SEASON
-    ) = EuropeanDomesticAssociationBaseline(
-        country = country,
-        topDivisionName = league,
-        nationalCupName = cup,
-        topDivisionClubCount = count,
-        coverage = EuropeanDomesticCoverage.STRUCTURE_ONLY,
         domesticSeasonLabel = domesticSeasonLabel
     )
 }
