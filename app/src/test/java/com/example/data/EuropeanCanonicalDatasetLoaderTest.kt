@@ -3,7 +3,7 @@ package com.example.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,18 +16,23 @@ class EuropeanCanonicalDatasetLoaderTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private fun readAsset(fileName: String): String = context.assets.open("${EuropeanCanonicalDatasetLoader.DEFAULT_BASE_PATH}/$fileName").bufferedReader().use { it.readText() }
 
-    @Test fun `production loader refuses fixture-only dataset`() {
-        assertNull(EuropeanCanonicalDatasetLoader.loadValidatedFactualOrNull(context.assets))
+    @Test fun `production loader accepts validated factual Premier League dataset`() {
+        val dataset = EuropeanCanonicalDatasetLoader.loadValidatedFactualOrNull(context.assets)
+        assertNotNull(dataset)
+        assertEquals("VALIDATED", dataset?.manifest?.validationStatus)
+        assertEquals("wikimedia-open-data", dataset?.manifest?.provider)
+        assertEquals(20, dataset?.clubFacts?.size)
+        assertEquals(1, dataset?.loans?.size)
     }
 
-    @Test fun `test loader materializes checked-in Premier League fixture subset`() {
+    @Test fun `test loader materializes checked-in Premier League factual dataset`() {
         val dataset = EuropeanCanonicalDatasetLoader.loadForTesting(context.assets)
         assertEquals("2026/27", dataset.manifest.season)
-        assertEquals("FIXTURE_ONLY", dataset.manifest.validationStatus)
-        assertEquals(5, dataset.clubFacts.size)
-        assertEquals(5, dataset.squads.size)
+        assertEquals("VALIDATED", dataset.manifest.validationStatus)
+        assertEquals(20, dataset.clubFacts.size)
+        assertEquals(20, dataset.squads.size)
         assertEquals(1, dataset.loans.size)
-        assertEquals(91, dataset.squads.sumOf { it.players.size } + dataset.loans.size)
+        assertEquals(486, dataset.squads.sumOf { it.players.size } + dataset.loans.size)
         assertTrue(dataset.squads.all { it.coverage() == EuropeanSquadCoverage.GAMEPLAY_READY_FACTUAL_SNAPSHOT })
     }
 
