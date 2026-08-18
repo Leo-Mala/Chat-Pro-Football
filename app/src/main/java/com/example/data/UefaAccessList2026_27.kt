@@ -101,7 +101,13 @@ object UefaDomesticAccessPlanner {
         competition: CompetitionIdentity
     ): UefaDomesticEntryCandidate? {
         if (teamId <= 0L) return null
-        require(competition in setOf(CompetitionIdentity.UEFA_CL, CompetitionIdentity.UEFA_EL, CompetitionIdentity.UEFA_ECL))
+        require(
+            competition in setOf(
+                CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE,
+                CompetitionIdentity.UEFA_EUROPA_LEAGUE,
+                CompetitionIdentity.UEFA_CONFERENCE_LEAGUE
+            )
+        )
         val rules = CountryFootballRulesRegistry.resolve(country) ?: return null
         if (rules.confederation != FootballConfederation.UEFA || rules.kind != CountryRuleKind.NATIONAL_ASSOCIATION) {
             return null
