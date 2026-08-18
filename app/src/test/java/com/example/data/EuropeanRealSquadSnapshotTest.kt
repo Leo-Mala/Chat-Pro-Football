@@ -32,6 +32,40 @@ class EuropeanRealSquadSnapshotTest {
     }
 
     @Test
+    fun `snapshot rejects duplicate assigned shirt numbers`() {
+        val duplicateShirts = listOf(
+            EuropeanRealPlayerTemplate("Player A", "2000-01-01", "England", "GOL", 1),
+            EuropeanRealPlayerTemplate("Player B", "2001-01-01", "England", "ZAG", 1)
+        )
+
+        var failed = false
+        try {
+            snapshot("Manchester United", duplicateShirts)
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
+    fun `snapshot rejects impossible verification date`() {
+        var failed = false
+        try {
+            EuropeanRealSquadSnapshot(
+                country = "Inglaterra",
+                clubName = "Manchester United",
+                domesticSeasonLabel = "2026/27",
+                verifiedAsOfIso = "2026-02-31",
+                sourceRefs = listOf("official:test-fixture"),
+                players = emptyList()
+            )
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
     fun `catalog rejects same factual player in two clubs`() {
         val shared = player("Same Person", "2000-01-01", "MEI")
         val united = snapshot("Manchester United", listOf(shared))
