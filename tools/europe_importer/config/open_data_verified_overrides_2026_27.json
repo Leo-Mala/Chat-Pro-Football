@@ -95,10 +95,13 @@
     {"fullName":"Ferdi Kadıoğlu","nationality":"Turkey","source":"https://www.premierleague.com/en/players/231416/ferdi-kadioglu/career"},
     {"fullName":"Habib Diarra","nationality":"Senegal","source":"https://www.premierleague.com/en/players/547027/habib-diarra/overview"},
     {"fullName":"Mamadou Sarr","nationality":"Senegal","source":"https://www.premierleague.com/en/players/574458/mamadou-sarr/overview"},
-    {"fullName":"Semi Ajayi","nationality":"Nigeria","source":"https://thenff.com/international-friendlies-bassey-joins-team-as-super-eagles-go-for-victory-against-white-reds/"}
+    {"fullName":"Semi Ajayi","nationality":"Nigeria","source":"https://thenff.com/international-friendlies-bassey-joins-team-as-super-eagles-go-for-victory-against-white-reds/"},
+    {"fullName":"Tommy Setford","nationality":"England","source":"https://www.premierleague.com/en/players/551221/tommy-setford/stats"},
+    {"fullName":"Jack Fletcher","nationality":"England","source":"https://www.premierleague.com/en/players/547037/jack-fletcher/overview"}
   ],
   "playerNames": [
-    {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","birthDateIso":"2003-02-03","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"}
+    {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","birthDateIso":"2003-02-03","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"},
+    {"currentName":"Calvin Ramsey","officialName":"Calvin Ramsay","birthDateIso":"2003-07-31","source":"https://www.liverpoolfc.com/team/mens/player/calvin-ramsay"}
   ],
   "squadExclusions": [
     {"club":"Liverpool FC","fullName":"Ronald Araújo","birthDateIso":"1999-03-07","reason":"Current FC Barcelona first-team player; false Liverpool squad association from collaborative discovery.","source":"https://www.fcbarcelona.com/en/football/first-team/players/66133/ronaldaraujo"},
