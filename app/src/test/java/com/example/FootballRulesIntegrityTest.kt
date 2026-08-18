@@ -70,9 +70,15 @@ class FootballRulesIntegrityTest {
 
         val england = LeagueHierarchyLoader.getHierarchyForCountry("Inglaterra")
         assertEquals(listOf(1, 2, 3), england.divisions.map { it.divisionLevel })
-        assertEquals(2, england.movementSpotsBetween(1, 2))
-        assertEquals(2, england.movementSpotsBetween(2, 3))
+        assertEquals(3, england.movementSpotsBetween(1, 2))
+        assertEquals(3, england.movementSpotsBetween(2, 3))
         assertEquals(0, england.movementSpotsBetween(3, 4))
+
+        val spain = LeagueHierarchyLoader.getHierarchyForCountry("Espanha")
+        assertEquals(listOf(1, 2, 3), spain.divisions.map { it.divisionLevel })
+        assertEquals(3, spain.movementSpotsBetween(1, 2))
+        assertEquals(4, spain.movementSpotsBetween(2, 3))
+        assertEquals(0, spain.movementSpotsBetween(3, 4))
     }
 
     @Test
@@ -113,6 +119,8 @@ class FootballRulesIntegrityTest {
             afterTeams.getValue(id).division != oldDivision
         }
 
+        // With only four test clubs in each division, safeMovementSpotsBetween caps both countries
+        // at two movements each way so promoted and relegated groups cannot overlap.
         assertEquals(4, englandChanged)
         assertEquals(4, spainChanged)
         assertEquals(4, afterTeams.values.count { it.country == "Inglaterra" && it.division == 1 })
