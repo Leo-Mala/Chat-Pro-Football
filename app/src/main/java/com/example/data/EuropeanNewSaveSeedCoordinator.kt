@@ -42,9 +42,15 @@ object EuropeanNewSaveSeedCoordinator {
     private val lock = Any()
     private val pendingByRepository = WeakHashMap<Any, PendingSeed>()
 
+    private fun Team.matchesIdentity(id: Long, country: String, name: String): Boolean =
+        this.id == id &&
+            this.country.equals(country, ignoreCase = true) &&
+            this.name.equals(name, ignoreCase = true)
+
     /**
      * Chamado exclusivamente pelo gerador de temporada usado na criação inicial do novo save.
-     * Sem dataset VALIDATED, limpa qualquer estado anterior e preserva 100% do fluxo procedural.
+     * Sem dataset VALIDATED, ou quando nenhum clube do dataset participa do seed recebido, limpa
+     * qualquer estado anterior e preserva 100% do fluxo procedural.
      */
     fun prepare(repository: GameRepository, teams: List<Team>) {
         val dataset = EuropeanFactualAssetRuntime.loadValidatedFactualOrNull()
@@ -60,17 +66,40 @@ object EuropeanNewSaveSeedCoordinator {
         teams: List<Team>,
         dataset: EuropeanCanonicalDataset
     ) {
-        val existingIds = teams.mapTo(hashSetOf()) { it.id }
-        val loanEndpointIds = dataset.loans
-            .flatMap { listOf(it.ownerTeamId, it.borrowerTeamId) }
-            .distinct()
-        val externalLoanTeams = loanEndpointIds
-            .filterNot(existingIds::contains)
-            .map { teamId ->
-                requireNotNull(GlobalFootballSystem.getTeamByGlobalId(teamId)) {
-                    "Endpoint de empréstimo factual não pode ser materializado pelo resolvedor global: teamId=$teamId"
-                }
+        // Um ID numérico isolado não identifica um clube. Testes e fluxos legados podem usar IDs
+        // locais que coincidem com IDs factuais de outra associação. O overlay só é ativado quando
+        // pelo menos um clube recebido corresponde integralmente a uma identidade do dataset.
+        if (teams.none(dataset::appliesTo)) {
+            clearForKey(repositoryKey)
+            return
+        }
+
+        val loanEndpoints = dataset.loans.flatMap { loan ->
+            listOf(
+                Triple(loan.ownerTeamId, loan.ownerCountry, loan.ownerClubName),
+                Triple(loan.borrowerTeamId, loan.borrowerCountry, loan.borrowerClubName)
+            )
+        }.distinct()
+
+        val externalLoanTeams = loanEndpoints.mapNotNull { (teamId, country, name) ->
+            val exact = teams.firstOrNull { it.matchesIdentity(teamId, country, name) }
+            if (exact != null) return@mapNotNull null
+
+            val conflicting = teams.firstOrNull { it.id == teamId }
+            require(conflicting == null) {
+                "Endpoint factual $country/$name usa teamId=$teamId, mas o seed já contém " +
+                    "${conflicting?.country}/${conflicting?.name} com o mesmo ID."
             }
+
+            val materialized = requireNotNull(GlobalFootballSystem.getTeamByGlobalId(teamId)) {
+                "Endpoint de empréstimo factual não pode ser materializado pelo resolvedor global: teamId=$teamId"
+            }
+            require(materialized.matchesIdentity(teamId, country, name)) {
+                "Resolvedor global retornou identidade divergente para endpoint factual: " +
+                    "$country/$name teamId=$teamId -> ${materialized.country}/${materialized.name}"
+            }
+            materialized
+        }
 
         val seedTeams = teams + externalLoanTeams
         require(seedTeams.map { it.id }.distinct().size == seedTeams.size) {

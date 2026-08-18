@@ -3,6 +3,8 @@ package com.example.data
 import java.text.Normalizer
 import java.util.Locale
 
+private const val IDENTITY_NAME_PREFIX = "identity-name-v1:"
+
 /**
  * Namespace determinístico para jogadores factuais da base inicial.
  *
@@ -11,7 +13,10 @@ import java.util.Locale
  * expansão da base real não colida com rosters legados ou reparos de integridade.
  *
  * Chave factual mínima: nome canônico + data de nascimento ISO. O desambiguador só deve ser usado
- * quando duas pessoas reais ainda colidirem depois desses dois campos.
+ * quando duas pessoas reais ainda colidirem depois desses dois campos. O prefixo interno
+ * `identity-name-v1:` é reservado exclusivamente para preservar o mesmo ID quando uma fonte
+ * oficial corrige a grafia do nome já versionado; ele carrega a grafia histórica da identidade,
+ * nunca um ID externo.
  */
 data class RealPlayerIdentityKey(
     val fullName: String,
@@ -21,13 +26,26 @@ data class RealPlayerIdentityKey(
     init {
         require(fullName.isNotBlank()) { "Nome real do jogador não pode ser vazio." }
         parseStrictIsoDate(birthDateIso, "Data de nascimento")
+        if (disambiguator.startsWith(IDENTITY_NAME_PREFIX)) {
+            require(disambiguator.removePrefix(IDENTITY_NAME_PREFIX).isNotBlank()) {
+                "Alias de nome da identidade factual não pode ser vazio."
+            }
+        }
     }
 
-    internal fun canonicalValue(): String = listOf(
-        normalizeIdentityText(fullName),
-        birthDateIso,
-        normalizeIdentityText(disambiguator)
-    ).joinToString("|")
+    internal fun canonicalValue(): String {
+        val identityName = if (disambiguator.startsWith(IDENTITY_NAME_PREFIX)) {
+            disambiguator.removePrefix(IDENTITY_NAME_PREFIX).trim()
+        } else {
+            fullName
+        }
+        val effectiveDisambiguator = if (disambiguator.startsWith(IDENTITY_NAME_PREFIX)) "" else disambiguator
+        return listOf(
+            normalizeIdentityText(identityName),
+            birthDateIso,
+            normalizeIdentityText(effectiveDisambiguator)
+        ).joinToString("|")
+    }
 }
 
 internal data class StrictIsoDate(

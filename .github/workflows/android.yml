@@ -26,10 +26,9 @@ concurrency:
 
 jobs:
   validation:
-    # Drafts não alocam runner. O checkpoint consolidado pode ser disparado manualmente
-    # via workflow_dispatch; PRs não-draft só executam em novos commits/reaberturas.
-    # Este é o head candidato final da Fase 9.1-9.3 para merge.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Drafts normally do not allocate a runner. This one audit branch is allowed to execute
+    # while factual review is still open; the exception is removed before the final merge gate.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false || github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -51,6 +50,25 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/europe_importer/tests -t .
+
+      - name: Generate Premier League open-data pilot
+        id: open_data_pilot
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
+        continue-on-error: true
+        env:
+          PREMIER_LEAGUE_PILOT_OUTPUT: build/premier-league-real-pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.europe_importer.real_pilot
+
+      - name: Upload Premier League open-data audit
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: premier-league-open-data-pilot-${{ github.sha }}
+          path: build/premier-league-real-pilot/
+          if-no-files-found: error
 
       - name: Setup google-services.json
         env:
@@ -156,6 +174,13 @@ jobs:
           name: room-schema-${{ github.sha }}
           path: ${{ steps.room_schema.outputs.schema_file }}
           if-no-files-found: error
+
+      - name: Fail if Premier League open-data pilot failed
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/premier-league-real-data-pilot' && steps.open_data_pilot.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::error::Premier League open-data pilot did not reach FACTUAL + VALIDATED. Inspect the uploaded audit artifact."
+          exit 1
 
       - name: Upload test report on failure
         if: failure()

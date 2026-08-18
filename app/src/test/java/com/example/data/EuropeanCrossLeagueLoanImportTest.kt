@@ -22,7 +22,7 @@ class EuropeanCrossLeagueLoanImportTest {
             .use { it.readText() }
         val loan = """[{"player":{"fullName":"Fixture Cross League Loan","birthDateIso":"2001-06-15","nationality":"Fixture","position":"GOL","shirtNumber":99,"identityDisambiguator":""},"ownerCountry":"Inglaterra","ownerClubName":"Manchester United","borrowerCountry":"Turquia","borrowerClubName":"Trabzonspor","season":2026,"startWeek":1,"durationWeeks":48,"verifiedAsOfIso":"2026-08-18","sourceRefs":["fixture://cross-league-loan"]}]"""
         val canonical = original.replace("\"loans\":[]", "\"loans\":$loan")
-        val manifest = """{"provider":"api-football","season":"2026/27","generatedAt":"2026-08-18T14:00:00Z","countries":["Inglaterra"],"leagues":["Premier League"],"clubCount":1,"playerCount":19,"loanCount":1,"validationStatus":"FIXTURE_ONLY","datasetFiles":["mu.json"]}"""
+        val manifest = """{"provider":"wikimedia-open-data","season":"2026/27","generatedAt":"2026-08-18T17:36:22Z","countries":["Inglaterra"],"leagues":["Premier League"],"clubCount":1,"playerCount":22,"loanCount":1,"validationStatus":"FIXTURE_ONLY","datasetFiles":["mu.json"]}"""
         return EuropeanCanonicalDatasetLoader.loadFromStrings(
             manifestJson = manifest,
             datasetJsonByFile = mapOf("mu.json" to canonical),
