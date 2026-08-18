@@ -1,6 +1,7 @@
 package com.example.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,6 +55,37 @@ class EuropeanRealSquadSnapshotTest {
         assertEquals(expected, catalog.missingTopFlightClubs().size)
         assertTrue(catalog.gameplayReadyClubs().isEmpty())
         assertTrue(catalog.all().isEmpty())
+    }
+
+    @Test
+    fun `Manchester United official snapshot is gameplay ready and excludes active loan list`() {
+        val snapshot = ManchesterUnitedSquad2026_27.snapshot
+
+        assertEquals(30, snapshot.players.size)
+        assertEquals(30, snapshot.players.map { it.stableId }.distinct().size)
+        assertEquals(EuropeanSquadCoverage.GAMEPLAY_READY_FACTUAL_SNAPSHOT, snapshot.coverage())
+        assertEquals(4, snapshot.players.count { it.position == "GOL" })
+        assertEquals(7, snapshot.players.count { it.position == "ATA" })
+        assertEquals(10, snapshot.players.count { it.position == "ZAG" || it.position == "LAT" })
+        assertEquals(9, snapshot.players.count { it.position == "MEI" || it.position == "VOL" })
+        assertFalse(snapshot.players.any { it.fullName == "Altay Bayindir" })
+        assertFalse(snapshot.players.any { it.fullName == "Andre Onana" })
+        assertEquals(1, snapshot.players.single { it.fullName == "Senne Lammens" }.shirtNumber)
+    }
+
+    @Test
+    fun `global factual catalog exposes one audited club and leaves the rest visibly missing`() {
+        val expectedTotal = EuropeanDomesticBaseline2026_27.associations
+            .sumOf { it.verifiedTopFlightClubs.size }
+        val catalog = EuropeanRealSquads.catalog
+
+        assertEquals(1, catalog.all().size)
+        assertEquals(1, catalog.gameplayReadyClubs().size)
+        assertEquals(expectedTotal - 1, catalog.missingTopFlightClubs().size)
+        assertEquals(
+            ManchesterUnitedSquad2026_27.snapshot,
+            catalog.find("Inglaterra", "Manchester United")
+        )
     }
 
     private fun snapshot(
