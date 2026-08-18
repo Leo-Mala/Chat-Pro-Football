@@ -2,12 +2,14 @@ package com.example
 
 import android.app.Application
 import android.database.CursorWindow
+import com.example.data.EuropeanFactualAssetRuntime
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
 class MainApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        EuropeanFactualAssetRuntime.initialize(assets)
         fixCursorWindowSize()
     }
 
