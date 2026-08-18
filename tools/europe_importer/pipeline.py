@@ -18,6 +18,29 @@ POSITION_MAP = {
     "forward":"ATA", "attacker":"ATA", "striker":"ATA", "winger":"ATA",
 }
 
+PROJECT_COUNTRY_ALIASES = {
+    "england":"Inglaterra", "inglaterra":"Inglaterra",
+    "spain":"Espanha", "espanha":"Espanha",
+    "italy":"Itália", "italia":"Itália", "itália":"Itália",
+    "germany":"Alemanha", "alemanha":"Alemanha",
+    "france":"França", "franca":"França", "frança":"França",
+    "portugal":"Portugal",
+    "netherlands":"Países Baixos", "the netherlands":"Países Baixos", "paises baixos":"Países Baixos", "países baixos":"Países Baixos",
+    "belgium":"Bélgica", "belgica":"Bélgica", "bélgica":"Bélgica",
+    "turkey":"Turquia", "türkiye":"Turquia", "turkiye":"Turquia", "turquia":"Turquia",
+    "scotland":"Escócia", "escocia":"Escócia", "escócia":"Escócia",
+    "austria":"Áustria", "austria":"Áustria", "áustria":"Áustria",
+    "switzerland":"Suíça", "suica":"Suíça", "suíça":"Suíça",
+    "denmark":"Dinamarca", "dinamarca":"Dinamarca",
+    "norway":"Noruega", "noruega":"Noruega",
+    "sweden":"Suécia", "suecia":"Suécia", "suécia":"Suécia",
+    "poland":"Polônia", "polonia":"Polônia", "polônia":"Polônia",
+    "czech republic":"Tchéquia", "czechia":"Tchéquia", "tchequia":"Tchéquia", "tchéquia":"Tchéquia",
+    "croatia":"Croácia", "croacia":"Croácia", "croácia":"Croácia",
+    "serbia":"Sérvia", "servia":"Sérvia", "sérvia":"Sérvia",
+    "greece":"Grécia", "grecia":"Grécia", "grécia":"Grécia",
+}
+
 class ValidationError(ValueError):
     pass
 
@@ -26,6 +49,7 @@ class PipelineResult:
     dataset: dict[str, Any]
     manifest: dict[str, Any]
     validation_errors: tuple[str, ...]
+
 
 def normalize_position(raw: str | None) -> str:
     value = (raw or "").strip().casefold()
@@ -36,16 +60,53 @@ def normalize_position(raw: str | None) -> str:
             return normalized
     raise ValidationError(f"unsupported position: {raw!r}")
 
-def _api_player(entry: dict[str, Any], team_by_provider: dict[int, dict[str, Any]]) -> tuple[int, dict[str, Any]]:
+
+def _project_country(raw: str | None) -> str:
+    value = (raw or "").strip()
+    if not value:
+        raise ValidationError("external loan club without country")
+    return PROJECT_COUNTRY_ALIASES.get(value.casefold(), value)
+
+
+def _transfer_type_name(transfer: dict[str, Any]) -> str:
+    value = transfer.get("type") or {}
+    return str(value.get("name") if isinstance(value, dict) else value or "")
+
+
+def _is_current_season_transfer(transfer: dict[str, Any], request: ProviderRequest) -> bool:
+    return str(transfer.get("date") or "").startswith(str(request.api_season))
+
+
+def _latest_transfer_by_player(rows: list[dict[str, Any]], request: ProviderRequest) -> list[tuple[int, dict[str, Any]]]:
+    latest: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        player_id = (row.get("player") or {}).get("id") or row.get("player_id")
+        if player_id is None:
+            continue
+        for transfer in row.get("transfers") or [row]:
+            if not _is_current_season_transfer(transfer, request):
+                continue
+            pid = int(player_id)
+            previous = latest.get(pid)
+            if previous is None or str(transfer.get("date") or "") > str(previous.get("date") or ""):
+                latest[pid] = transfer
+    return sorted(latest.items())
+
+
+def _api_player(entry: dict[str, Any], preferred_team_id: int | None = None) -> tuple[int | None, dict[str, Any]]:
     player = entry.get("player") or {}
     statistics = entry.get("statistics") or []
-    stat = statistics[0] if statistics else {}
+    stat = next(
+        (
+            candidate for candidate in statistics
+            if preferred_team_id is not None and int(((candidate.get("team") or {}).get("id") or -1)) == preferred_team_id
+        ),
+        statistics[0] if statistics else {},
+    )
     team_id = ((stat.get("team") or {}).get("id"))
-    if team_id is None or int(team_id) not in team_by_provider:
-        raise ValidationError(f"player without known club: {player.get('name')}")
     games = stat.get("games") or {}
     birth = player.get("birth") or {}
-    return int(team_id), {
+    return (int(team_id) if team_id is not None else None), {
         "providerPlayerId": player.get("id"),
         "fullName": player.get("name"),
         "birthDateIso": birth.get("date"),
@@ -54,6 +115,36 @@ def _api_player(entry: dict[str, Any], team_by_provider: dict[int, dict[str, Any
         "shirtNumber": games.get("number"),
         "identityDisambiguator":"",
     }
+
+
+def _api_external_team_refs(raw: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for key, document in (raw.get("externalTeamsById") or {}).items():
+        entries = document.get("response") or []
+        if not entries:
+            continue
+        item = entries[0]
+        team = item.get("team") or {}
+        provider_id = int(team.get("id") or key)
+        result[provider_id] = {
+            "providerTeamId": provider_id,
+            "name": team.get("name"),
+            "country": _project_country(team.get("country")),
+        }
+    return result
+
+
+def _api_external_players(raw: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for key, document in (raw.get("externalPlayersById") or {}).items():
+        entries = document.get("response") or []
+        if not entries:
+            continue
+        _, player = _api_player(entries[0])
+        provider_id = int(player.get("providerPlayerId") or key)
+        result[provider_id] = player
+    return result
+
 
 def normalize_api_football(raw: dict[str, Any], request: ProviderRequest) -> dict[str, Any]:
     teams: list[dict[str, Any]] = []
@@ -75,48 +166,55 @@ def normalize_api_football(raw: dict[str, Any], request: ProviderRequest) -> dic
 
     player_by_provider: dict[int, dict[str, Any]] = {}
     for entry in (raw.get("playersResponse") or {}).get("response", []):
-        team_id, player = _api_player(entry, team_by_provider)
+        team_id, player = _api_player(entry)
+        if team_id is None or team_id not in team_by_provider:
+            raise ValidationError(f"player without known club: {player.get('fullName')}")
         if player["providerPlayerId"] is not None:
             player_by_provider[int(player["providerPlayerId"])] = player
         team_by_provider[team_id]["players"].append(player)
 
+    external_teams = _api_external_team_refs(raw)
+    external_players = _api_external_players(raw)
+    all_team_refs = {
+        **{provider_id: {"providerTeamId": provider_id, "name": club["name"], "country": club["country"]}
+           for provider_id, club in team_by_provider.items()},
+        **external_teams,
+    }
+
     loans: list[dict[str, Any]] = []
     seen_transfer_keys: set[tuple] = set()
-    for item in (raw.get("transfersResponse") or {}).get("response", []):
-        player_ref = item.get("player") or {}
-        provider_player_id = player_ref.get("id")
-        player = player_by_provider.get(int(provider_player_id)) if provider_player_id is not None else None
-        if player is None:
+    transfer_rows = (raw.get("transfersResponse") or {}).get("response", [])
+    for provider_player_id, transfer in _latest_transfer_by_player(transfer_rows, request):
+        if "loan" not in _transfer_type_name(transfer).casefold():
             continue
-        for transfer in item.get("transfers") or []:
-            transfer_type = str(transfer.get("type") or "").casefold()
-            if "loan" not in transfer_type:
-                continue
-            tteams = transfer.get("teams") or {}
-            owner = (tteams.get("out") or {}).get("id")
-            borrower = (tteams.get("in") or {}).get("id")
-            if owner is None or borrower is None:
-                continue
-            owner, borrower = int(owner), int(borrower)
-            if owner not in team_by_provider or borrower not in team_by_provider:
-                continue
-            key = (int(provider_player_id), owner, borrower, transfer.get("date"))
-            if key in seen_transfer_keys:
-                continue
-            seen_transfer_keys.add(key)
-            # A loan is materialized separately by the Android planner. Remove the borrower-roster
-            # copy so the same factual identity can never be seeded twice.
-            for club in teams:
-                club["players"] = [p for p in club["players"] if p.get("providerPlayerId") != provider_player_id]
-            loans.append({
-                "player":copy.deepcopy(player),
-                "ownerProviderTeamId":owner,
-                "borrowerProviderTeamId":borrower,
-                "season":2026,
-                "startWeek":1,
-                "durationWeeks":48,
-                "verifiedAsOfIso":transfer.get("date") or "2026-08-18",
-            })
+        tteams = transfer.get("teams") or {}
+        owner = (tteams.get("out") or {}).get("id")
+        borrower = (tteams.get("in") or {}).get("id")
+        if owner is None or borrower is None:
+            raise ValidationError(f"current loan without both clubs for provider player {provider_player_id}")
+        owner, borrower = int(owner), int(borrower)
+        owner_ref = all_team_refs.get(owner)
+        borrower_ref = all_team_refs.get(borrower)
+        if owner_ref is None or borrower_ref is None:
+            raise ValidationError(f"current loan endpoint metadata unavailable for provider player {provider_player_id}")
+        player = player_by_provider.get(provider_player_id) or external_players.get(provider_player_id)
+        if player is None:
+            raise ValidationError(f"current loan player factual profile unavailable: {provider_player_id}")
+        key = (provider_player_id, owner, borrower, transfer.get("date"))
+        if key in seen_transfer_keys:
+            continue
+        seen_transfer_keys.add(key)
+        for club in teams:
+            club["players"] = [p for p in club["players"] if p.get("providerPlayerId") != provider_player_id]
+        loans.append({
+            "player":copy.deepcopy(player),
+            "owner":copy.deepcopy(owner_ref),
+            "borrower":copy.deepcopy(borrower_ref),
+            "season":request.api_season,
+            "startWeek":1,
+            "durationWeeks":48,
+            "verifiedAsOfIso":transfer.get("date") or f"{request.api_season}-01-01",
+        })
     return {
         "provider":"api-football",
         "country":request.country,
@@ -126,19 +224,59 @@ def normalize_api_football(raw: dict[str, Any], request: ProviderRequest) -> dic
         "loans":loans,
     }
 
-def _sportmonks_position(squad: dict[str, Any]) -> str:
-    player = squad.get("player") or {}
-    # API v3 exposes position information through the player/details relationship. We only whitelist
-    # textual position metadata and deliberately ignore statistics/ratings.
+
+def _sportmonks_position(source: dict[str, Any]) -> str:
+    player = source.get("player") or source
     candidates = [
-        (squad.get("position") or {}).get("name") if isinstance(squad.get("position"), dict) else None,
+        (source.get("position") or {}).get("name") if isinstance(source.get("position"), dict) else None,
         (player.get("position") or {}).get("name") if isinstance(player.get("position"), dict) else None,
         player.get("position_name"),
     ]
     for candidate in candidates:
         if candidate:
             return normalize_position(candidate)
-    raise ValidationError(f"Sportmonks squad entry lacks supported position for {player.get('name')}")
+    raise ValidationError(f"Sportmonks player lacks supported position for {player.get('name')}")
+
+
+def _sportmonks_player(source: dict[str, Any], provider_id: int | None = None) -> dict[str, Any]:
+    player = source.get("player") or source
+    nationality = player.get("nationality")
+    return {
+        "providerPlayerId": player.get("id") or source.get("player_id") or provider_id,
+        "fullName": player.get("name") or player.get("display_name"),
+        "birthDateIso": player.get("date_of_birth"),
+        "nationality": nationality.get("name") if isinstance(nationality, dict) else player.get("nationality_name") or "",
+        "position": _sportmonks_position(source),
+        "shirtNumber": source.get("jersey_number"),
+        "identityDisambiguator":"",
+    }
+
+
+def _sportmonks_external_team_refs(raw: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for key, document in (raw.get("externalTeamsById") or {}).items():
+        item = document.get("data") or {}
+        if not isinstance(item, dict) or not item:
+            continue
+        provider_id = int(item.get("id") or key)
+        country = item.get("country") or {}
+        result[provider_id] = {
+            "providerTeamId":provider_id,
+            "name":item.get("name"),
+            "country":_project_country(country.get("name") if isinstance(country, dict) else item.get("country_name")),
+        }
+    return result
+
+
+def _sportmonks_external_players(raw: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for key, document in (raw.get("externalPlayersById") or {}).items():
+        item = document.get("data") or {}
+        if isinstance(item, dict) and item:
+            player = _sportmonks_player(item, int(key))
+            result[int(player["providerPlayerId"])] = player
+    return result
+
 
 def normalize_sportmonks(raw: dict[str, Any], request: ProviderRequest) -> dict[str, Any]:
     teams: list[dict[str, Any]] = []
@@ -159,53 +297,55 @@ def normalize_sportmonks(raw: dict[str, Any], request: ProviderRequest) -> dict[
         team_by_provider[pid] = club
         squad_doc = (raw.get("squadsByTeam") or {}).get(str(pid), {})
         for squad in squad_doc.get("data", []):
-            player = squad.get("player") or {}
-            pp_id = player.get("id") or squad.get("player_id")
-            normalized = {
-                "providerPlayerId":pp_id,
-                "fullName":player.get("name") or player.get("display_name"),
-                "birthDateIso":player.get("date_of_birth"),
-                "nationality":(player.get("nationality") or {}).get("name") if isinstance(player.get("nationality"), dict) else player.get("nationality_name") or "",
-                "position":_sportmonks_position(squad),
-                "shirtNumber":squad.get("jersey_number"),
-                "identityDisambiguator":"",
-            }
-            club["players"].append(normalized)
+            player = _sportmonks_player(squad)
+            club["players"].append(player)
+            pp_id = player.get("providerPlayerId")
             if pp_id is not None:
-                player_by_provider[int(pp_id)] = normalized
+                player_by_provider[int(pp_id)] = player
 
+    external_teams = _sportmonks_external_team_refs(raw)
+    external_players = _sportmonks_external_players(raw)
+    all_team_refs = {
+        **{provider_id: {"providerTeamId": provider_id, "name": club["name"], "country": club["country"]}
+           for provider_id, club in team_by_provider.items()},
+        **external_teams,
+    }
+
+    transfer_rows: list[dict[str, Any]] = []
+    for document in (raw.get("transfersByTeam") or {}).values():
+        transfer_rows.extend(document.get("data", []))
     loans: list[dict[str, Any]] = []
-    seen = set()
-    # Sportmonks transfer type is included by live adapter when available. Only explicit loan types
-    # are promoted into PlayerLoan; ordinary transfers remain provenance, not a runtime transfer event.
-    for _, doc in (raw.get("transfersByTeam") or {}).items():
-        for tr in doc.get("data", []):
-            tr_type = tr.get("type") or {}
-            type_name = tr_type.get("name") if isinstance(tr_type, dict) else str(tr_type or "")
-            if "loan" not in str(type_name).casefold():
-                continue
-            pp_id = tr.get("player_id")
-            owner, borrower = tr.get("from_team_id"), tr.get("to_team_id")
-            if pp_id is None or owner is None or borrower is None:
-                continue
-            pp_id, owner, borrower = int(pp_id), int(owner), int(borrower)
-            if pp_id not in player_by_provider or owner not in team_by_provider or borrower not in team_by_provider:
-                continue
-            key = (pp_id, owner, borrower, tr.get("date"))
-            if key in seen:
-                continue
-            seen.add(key)
-            for club in teams:
-                club["players"] = [p for p in club["players"] if p.get("providerPlayerId") != pp_id]
-            loans.append({
-                "player":copy.deepcopy(player_by_provider[pp_id]),
-                "ownerProviderTeamId":owner,
-                "borrowerProviderTeamId":borrower,
-                "season":2026,
-                "startWeek":1,
-                "durationWeeks":48,
-                "verifiedAsOfIso":tr.get("date") or "2026-08-18",
-            })
+    seen: set[tuple] = set()
+    for pp_id, transfer in _latest_transfer_by_player(transfer_rows, request):
+        if "loan" not in _transfer_type_name(transfer).casefold():
+            continue
+        owner = transfer.get("from_team_id")
+        borrower = transfer.get("to_team_id")
+        if owner is None or borrower is None:
+            raise ValidationError(f"current Sportmonks loan without both clubs for player {pp_id}")
+        owner, borrower = int(owner), int(borrower)
+        owner_ref = all_team_refs.get(owner)
+        borrower_ref = all_team_refs.get(borrower)
+        if owner_ref is None or borrower_ref is None:
+            raise ValidationError(f"current Sportmonks loan endpoint metadata unavailable for player {pp_id}")
+        player = player_by_provider.get(pp_id) or external_players.get(pp_id)
+        if player is None:
+            raise ValidationError(f"current Sportmonks loan player factual profile unavailable: {pp_id}")
+        key = (pp_id, owner, borrower, transfer.get("date"))
+        if key in seen:
+            continue
+        seen.add(key)
+        for club in teams:
+            club["players"] = [p for p in club["players"] if p.get("providerPlayerId") != pp_id]
+        loans.append({
+            "player":copy.deepcopy(player),
+            "owner":copy.deepcopy(owner_ref),
+            "borrower":copy.deepcopy(borrower_ref),
+            "season":request.api_season,
+            "startWeek":1,
+            "durationWeeks":48,
+            "verifiedAsOfIso":transfer.get("date") or f"{request.api_season}-01-01",
+        })
     return {
         "provider":"sportmonks",
         "country":request.country,
@@ -215,18 +355,20 @@ def normalize_sportmonks(raw: dict[str, Any], request: ProviderRequest) -> dict[
         "loans":loans,
     }
 
+
 def normalize(raw: dict[str, Any], request: ProviderRequest) -> dict[str, Any]:
     provider = raw.get("provider")
     if provider in ("fixture", "api-football"):
-        # Fixtures intentionally use API-Football-shaped raw responses to exercise the real adapter.
         return normalize_api_football(raw, request)
     if provider == "sportmonks":
         return normalize_sportmonks(raw, request)
     raise ValidationError(f"unsupported provider payload: {provider!r}")
 
+
 def _required(value: Any, label: str, errors: list[str]) -> None:
     if value is None or (isinstance(value, str) and not value.strip()):
         errors.append(f"missing {label}")
+
 
 def validate(normalized: dict[str, Any], team_contract: StableTeamIdentityContract) -> list[str]:
     errors: list[str] = []
@@ -235,7 +377,6 @@ def validate(normalized: dict[str, Any], team_contract: StableTeamIdentityContra
     stable_team_ids: set[int] = set()
     player_keys: dict[tuple[str,str,str], str] = {}
     stable_player_ids: set[int] = set()
-    provider_team_map: dict[int, dict[str, Any]] = {}
 
     for club in clubs:
         _required(club.get("country"), f"country for club {club.get('name')}", errors)
@@ -251,9 +392,6 @@ def validate(normalized: dict[str, Any], team_contract: StableTeamIdentityContra
             stable_team_ids.add(team_id)
         except Exception as exc:
             errors.append(str(exc))
-        provider_team_id = club.get("providerTeamId")
-        if provider_team_id is not None:
-            provider_team_map[int(provider_team_id)] = club
 
         positions: list[str] = []
         shirts: set[int] = set()
@@ -295,14 +433,18 @@ def validate(normalized: dict[str, Any], team_contract: StableTeamIdentityContra
             errors.append(f"squad below gameplay-ready size: {club.get('name')} ({len(positions)}/18)")
 
     for loan in normalized.get("loans", []):
-        owner = int(loan.get("ownerProviderTeamId", -1))
-        borrower = int(loan.get("borrowerProviderTeamId", -1))
         player = loan.get("player") or {}
-        if owner == borrower:
+        owner = loan.get("owner") or {}
+        borrower = loan.get("borrower") or {}
+        for endpoint_label, endpoint in (("owner", owner), ("borrower", borrower)):
+            _required(endpoint.get("country"), f"loan.{endpoint_label}.country for {player.get('fullName')}", errors)
+            _required(endpoint.get("name"), f"loan.{endpoint_label}.name for {player.get('fullName')}", errors)
+        owner_id = owner.get("providerTeamId")
+        borrower_id = borrower.get("providerTeamId")
+        owner_key = (str(owner.get("country") or "").casefold(), str(owner.get("name") or "").casefold())
+        borrower_key = (str(borrower.get("country") or "").casefold(), str(borrower.get("name") or "").casefold())
+        if (owner_id is not None and borrower_id is not None and int(owner_id) == int(borrower_id)) or owner_key == borrower_key:
             errors.append(f"inconsistent loan owner=borrower for {player.get('fullName')}")
-        if owner not in provider_team_map or borrower not in provider_team_map:
-            errors.append(f"inconsistent loan with unknown club for {player.get('fullName')}")
-            continue
         pkey = (str(player.get("fullName") or "").casefold(), str(player.get("birthDateIso") or ""), str(player.get("identityDisambiguator") or "").casefold())
         if pkey in player_keys:
             errors.append(f"loan player is also active in a club snapshot: {player.get('fullName')}")
@@ -316,6 +458,7 @@ def validate(normalized: dict[str, Any], team_contract: StableTeamIdentityContra
 
     return errors
 
+
 def canonicalize(normalized: dict[str, Any], generated_at: str, dataset_kind: str) -> dict[str, Any]:
     provider = normalized["provider"]
     source_ref = (
@@ -324,9 +467,7 @@ def canonicalize(normalized: dict[str, Any], generated_at: str, dataset_kind: st
         else f"provider://{provider}/{normalized['country']}/{normalized['league']}/2026_27"
     )
     clubs = []
-    team_by_provider = {}
     for club in normalized["teams"]:
-        team_by_provider[int(club["providerTeamId"])] = club
         players = []
         for p in club["players"]:
             players.append({
@@ -346,8 +487,8 @@ def canonicalize(normalized: dict[str, Any], generated_at: str, dataset_kind: st
     loans = []
     for loan in normalized.get("loans", []):
         p = loan["player"]
-        owner = team_by_provider[int(loan["ownerProviderTeamId"])]
-        borrower = team_by_provider[int(loan["borrowerProviderTeamId"])]
+        owner = loan["owner"]
+        borrower = loan["borrower"]
         loans.append({
             "player":{
                 "fullName":p["fullName"],
@@ -384,6 +525,7 @@ def canonicalize(normalized: dict[str, Any], generated_at: str, dataset_kind: st
         "loans":loans,
     }
 
+
 def build_manifest(dataset: dict[str, Any], validation_status: str, dataset_files: list[str]) -> dict[str, Any]:
     countries = sorted({league["country"] for league in dataset["leagues"]})
     leagues = sorted({league["name"] for league in dataset["leagues"]})
@@ -401,6 +543,7 @@ def build_manifest(dataset: dict[str, Any], validation_status: str, dataset_file
         "validationStatus":validation_status,
         "datasetFiles":dataset_files,
     }
+
 
 def run_pipeline(
     provider: DataProvider,
