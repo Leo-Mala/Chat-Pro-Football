@@ -187,23 +187,35 @@ object GlobalFootballSystem {
         competitions.find { it.code.equals(code, ignoreCase = true) }
 
     /**
-     * Resolução segura. null significa que o país não possui uma confederação/rota continental
-     * válida nesta camada. O agregado MIXED mantém somente o mapeamento mundial legado explícito.
+     * Resolução tipada para código novo. Apenas associações nacionais elegíveis recebem conjunto
+     * continental; agregados legados, Mundial e entradas desconhecidas retornam null.
      */
-    fun getContinentalTournamentsForCountryOrNull(country: String): Triple<String, String, String>? {
+    fun getContinentalCompetitionSetForCountryOrNull(country: String): ContinentalCompetitionSet? {
         val rules = CountryFootballRulesRegistry.resolve(country) ?: return null
-        if (rules.legacyConfederationCode == "MIXED") {
-            return Triple("WORLD_CUP", "WORLD_INTERCONTINENTAL", "WORLD_CUP")
-        }
+        if (!rules.continentalCompetitionsAllowed) return null
         val confederation = rules.confederation ?: return null
-        return CompetitionRulesRegistry.continentalCatalogCodes(confederation)
+        return CompetitionRulesRegistry.continentalCompetitionSet(confederation)
     }
 
     /**
-     * Adaptador legado com falha explícita: nunca substitui uma associação desconhecida por outra.
+     * Adaptador legado de três strings. Como Triple não representa ausência de T2/T3, retorna null
+     * quando a confederação não possui os três tiers. Novos consumidores devem usar
+     * [getContinentalCompetitionSetForCountryOrNull].
      */
+    @Deprecated("Use getContinentalCompetitionSetForCountryOrNull para preservar tiers ausentes.")
+    fun getContinentalTournamentsForCountryOrNull(country: String): Triple<String, String, String>? {
+        val rules = CountryFootballRulesRegistry.resolve(country) ?: return null
+        if (!rules.continentalCompetitionsAllowed) return null
+        val confederation = rules.confederation ?: return null
+        return CompetitionRulesRegistry.continentalCatalogCodesOrNull(confederation)
+    }
+
+    /**
+     * Adaptador legado estrito: nunca substitui uma associação ou tier ausente por outro torneio.
+     */
+    @Deprecated("Use getContinentalCompetitionSetForCountryOrNull para preservar tiers ausentes.")
     fun getContinentalTournamentsForCountry(country: String): Triple<String, String, String> =
         requireNotNull(getContinentalTournamentsForCountryOrNull(country)) {
-            "País/região sem competição continental registrada: '$country'."
+            "País/região sem três tiers continentais representáveis no adaptador legado: '$country'."
         }
 }

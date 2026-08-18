@@ -18,11 +18,11 @@ data class CountryFootballRules(
     val confederation: FootballConfederation?,
     val kind: CountryRuleKind,
     val aliases: Set<String> = emptySet(),
-    val domesticCompetitionsAllowed: Boolean = true,
+    val domesticCompetitionsAllowed: Boolean = kind == CountryRuleKind.NATIONAL_ASSOCIATION,
     val legacyConfederationCode: String? = confederation?.code
 ) {
     val continentalCompetitionsAllowed: Boolean
-        get() = confederation != null && kind != CountryRuleKind.VIRTUAL_WORLD
+        get() = confederation != null && kind == CountryRuleKind.NATIONAL_ASSOCIATION
 }
 
 /**

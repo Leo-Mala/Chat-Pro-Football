@@ -1,5 +1,6 @@
 package com.example.usecase
 
+import com.example.data.CountryFootballRulesRegistry
 import com.example.data.DetailedGroupTopology
 import com.example.data.Fixture
 import com.example.data.GlobalLeagueStanding
@@ -24,6 +25,7 @@ class GlobalLeagueSimulationUseCase {
         detailedCountry: String
     ): List<GlobalLeagueStanding> {
         return teams
+            .filter { CountryFootballRulesRegistry.isDomesticCompetitionEligible(it.country) }
             .groupBy { it.country }
             .toSortedMap()
             .flatMap { (country, countryTeams) ->

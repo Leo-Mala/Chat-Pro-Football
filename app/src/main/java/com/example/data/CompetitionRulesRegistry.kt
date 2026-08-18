@@ -57,6 +57,26 @@ data class CompetitionRuleDefinition(
 )
 
 /**
+ * Representação tipada dos tiers realmente registrados por uma confederação.
+ * Ausência permanece null; nenhum tier é substituído silenciosamente por outro torneio.
+ */
+data class ContinentalCompetitionSet(
+    val tier1: CompetitionRuleDefinition?,
+    val tier2: CompetitionRuleDefinition?,
+    val tier3: CompetitionRuleDefinition?
+) {
+    val all: List<CompetitionRuleDefinition>
+        get() = listOfNotNull(tier1, tier2, tier3)
+
+    init {
+        val levels = all.map { it.level }
+        require(levels.size == levels.toSet().size) {
+            "Conjunto continental contém níveis duplicados: $levels"
+        }
+    }
+}
+
+/**
  * Registry canônico para identidade/metadados de competições.
  *
  * Os códigos persistidos atuais continuam válidos. As identidades continentais reais já podem ser
@@ -202,7 +222,9 @@ object CompetitionRulesRegistry {
             "Copa Libertadores 🏆",
             1,
             FootballConfederation.CONMEBOL,
-            CompetitionImplementationStatus.DEDICATED
+            CompetitionImplementationStatus.DEDICATED,
+            startWeek = ConmebolCompetitionSystem.GROUP_WEEKS.first(),
+            endWeek = ConmebolCompetitionSystem.FINAL_WEEK
         ),
         continental(
             CompetitionIdentity.CONMEBOL_SUDAMERICANA,
@@ -210,7 +232,9 @@ object CompetitionRulesRegistry {
             "Copa Sudamericana 🥈",
             2,
             FootballConfederation.CONMEBOL,
-            CompetitionImplementationStatus.DEDICATED
+            CompetitionImplementationStatus.DEDICATED,
+            startWeek = ConmebolCompetitionSystem.GROUP_WEEKS.first(),
+            endWeek = ConmebolCompetitionSystem.FINAL_WEEK
         ),
         continental(
             CompetitionIdentity.CONCACAF_CHAMPIONS_CUP,
@@ -310,21 +334,41 @@ object CompetitionRulesRegistry {
         }
     }
 
-    fun continentalCatalogFor(confederation: FootballConfederation): List<CompetitionRuleDefinition> =
-        catalogDefinitions
+    fun continentalCompetitionSet(confederation: FootballConfederation): ContinentalCompetitionSet {
+        val byLevel = catalogDefinitions
             .filter { it.confederation == confederation }
-            .sortedBy { it.level }
+            .associateBy { it.level }
+        return ContinentalCompetitionSet(
+            tier1 = byLevel[1],
+            tier2 = byLevel[2],
+            tier3 = byLevel[3]
+        )
+    }
 
-    /** Mantém o Triple legado sem inventar um torneio de outra confederação. */
-    fun continentalCatalogCodes(confederation: FootballConfederation): Triple<String, String, String> {
-        val byLevel = continentalCatalogFor(confederation).associateBy { it.level }
-        val tier1 = requireNotNull(byLevel[1]) {
-            "Confederação ${confederation.code} sem competição continental Tier 1 registrada."
-        }.code
-        val tier2 = byLevel[2]?.code ?: tier1
-        val tier3 = byLevel[3]?.code ?: tier1
+    fun continentalCatalogFor(confederation: FootballConfederation): List<CompetitionRuleDefinition> =
+        continentalCompetitionSet(confederation).all
+
+    /**
+     * Adaptador legado de três tiers. Retorna null quando a confederação não possui exatamente os
+     * três níveis; ausência nunca é substituída pelo Tier 1.
+     */
+    fun continentalCatalogCodesOrNull(
+        confederation: FootballConfederation
+    ): Triple<String, String, String>? {
+        val set = continentalCompetitionSet(confederation)
+        val tier1 = set.tier1?.code ?: return null
+        val tier2 = set.tier2?.code ?: return null
+        val tier3 = set.tier3?.code ?: return null
         return Triple(tier1, tier2, tier3)
     }
+
+    /**
+     * Adaptador legado estrito. Novos consumidores devem usar [continentalCompetitionSet].
+     */
+    fun continentalCatalogCodes(confederation: FootballConfederation): Triple<String, String, String> =
+        requireNotNull(continentalCatalogCodesOrNull(confederation)) {
+            "Confederação ${confederation.code} não possui três tiers continentais registrados."
+        }
 
     fun engineForConfederation(confederation: FootballConfederation): ConfederationEngineKind =
         if (confederation == FootballConfederation.CONMEBOL) {
@@ -342,7 +386,9 @@ object CompetitionRulesRegistry {
         name: String,
         level: Int,
         confederation: FootballConfederation,
-        status: CompetitionImplementationStatus
+        status: CompetitionImplementationStatus,
+        startWeek: Int = 33,
+        endWeek: Int = 36
     ): CompetitionRuleDefinition = CompetitionRuleDefinition(
         identity = identity,
         code = code,
@@ -350,8 +396,8 @@ object CompetitionRulesRegistry {
         category = "CONTINENTAL",
         level = level,
         confederation = confederation,
-        startWeek = 33,
-        endWeek = 36,
+        startWeek = startWeek,
+        endWeek = endWeek,
         implementationStatus = status
     )
 

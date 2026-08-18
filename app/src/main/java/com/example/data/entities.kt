@@ -388,6 +388,7 @@ enum class CompetitionType(val code: String, val displayName: String, val level:
     STATE("STATE", "Campeonato Estadual", 0),
     CONTINENTAL_T1("CONTINENTAL_T1", "Copa Libertadores", 0),
     CONTINENTAL_T2("CONTINENTAL_T2", "Copa Sul-Americana", 0),
+    CONTINENTAL_T3("CONTINENTAL_T3", "Continental Tier 3", 0),
     WORLD_CUP("WORLD_CUP", "Super Mundial de Clubes", 0);
 
     companion object {
@@ -400,6 +401,11 @@ enum class CompetitionType(val code: String, val displayName: String, val level:
                 "DIV_2" -> SERIE_B
                 "DIV_3" -> SERIE_C
                 "DIV_4" -> SERIE_D
+                "COPA" -> CUP
+                "ESTADUAL" -> STATE
+                "LIBERTADORES" -> CONTINENTAL_T1
+                "SULAMERICANA" -> CONTINENTAL_T2
+                "WORLD" -> WORLD_CUP
                 else -> null
             }
         }
