@@ -14,7 +14,6 @@ from .identity import StableTeamIdentityContract
 from .open_data_postprocess import (
     apply_canonical_name_overrides,
     apply_verified_open_data_facts,
-    install_verified_squad_discovery_overrides,
 )
 from .pipeline import run_pipeline
 from .providers import FixtureProvider, ProviderRequest
@@ -77,22 +76,21 @@ def main() -> int:
         HERE / ".cache" / "wikimedia-open-data",
         team_names=team_names,
     )
-    # Order matters: first constrain collaborative discovery to the active squad body, then bridge
-    # P1532-only structured facts for preliminary discovery, then add explicitly verified members.
+    # Order matters. First constrain collaborative discovery to the active squad body; then the
+    # audited bridge handles P1532-only facts plus explicitly verified membership links/labels.
     install_current_squad_only_discovery(provider)
     install_p1532_discovery_bridge(provider, overrides_path)
-    install_verified_squad_discovery_overrides(provider, overrides_path)
 
     summary_path = output_dir / "pilot_summary.json"
     audit_path = output_dir / "open_data_audit.json"
 
     try:
-        # Collection is intentionally separate from canonicalization so the audit survives even if
-        # validation fails. Verified squad memberships only affect discovery; every player fact is
-        # still required to pass the normal collector and post-processing validation path.
         raw = provider.collect(request)
         provider.last_audit["p1532DiscoveryBridgeCount"] = len(
             getattr(provider, "p1532_discovery_bridged_qids", set())
+        )
+        provider.last_audit["verifiedSquadLabelFallbackCount"] = len(
+            getattr(provider, "verified_squad_label_fallback_qids", set())
         )
 
         # Exclusions are applied before the legacy postprocessor and are idempotent: if the safer
@@ -106,8 +104,6 @@ def main() -> int:
             encoding="utf-8",
         )
 
-        # The open-data collector emits the same transient raw shape as the tested fixture
-        # normalizer. QIDs and provider-like transient identifiers are stripped by canonicalize.
         raw["provider"] = "fixture"
         contract = StableTeamIdentityContract.from_json(contract_path)
         result = run_pipeline(
@@ -158,6 +154,7 @@ def main() -> int:
         summary = {
             "provider": "wikimedia-open-data",
             "seasonLabel": "2026/27",
+            "verifiedAsOfIso": str(overrides.get("verifiedAsOfIso") or ""),
             "clubCount": manifest.get("clubCount"),
             "playerCount": manifest.get("playerCount"),
             "loanCount": manifest.get("loanCount"),
@@ -165,10 +162,11 @@ def main() -> int:
             "verifiedLoanCount": verified_loan_count,
             "canonicalNameCorrectionCount": len(name_corrections),
             "p1532DiscoveryBridgeCount": provider.last_audit.get("p1532DiscoveryBridgeCount", 0),
+            "verifiedSquadLabelFallbackCount": provider.last_audit.get("verifiedSquadLabelFallbackCount", 0),
             "validationStatus": manifest.get("validationStatus"),
             "datasetFiles": manifest.get("datasetFiles"),
             "sourcePolicy": {
-                "squadDiscovery": "English Wikipedia current/first-team squad body only (nested subsections excluded) plus explicit official membership overrides",
+                "squadDiscovery": "English Wikipedia active first-team body plus explicit official membership overrides",
                 "structuredFacts": "Wikidata CC0",
                 "sportNationality": "Current/ranked Wikidata P1532; official override for unresolved ambiguity; P27 only when P1532 is absent",
                 "verifiedOverrides": "Official club/league sources",
@@ -193,6 +191,7 @@ def main() -> int:
                 {
                     "provider": "wikimedia-open-data",
                     "seasonLabel": "2026/27",
+                    "verifiedAsOfIso": str(overrides.get("verifiedAsOfIso") or ""),
                     "validationStatus": "FAILED",
                     "error": str(exc),
                     "auditAvailable": audit_path.exists(),
