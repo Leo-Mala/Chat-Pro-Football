@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.europe_importer.open_data_postprocess import apply_verified_open_data_facts
+from tools.europe_importer.open_data_postprocess import (
+    apply_verified_open_data_facts,
+    install_verified_squad_discovery_overrides,
+)
 from tools.europe_importer.real_pilot import (
     _apply_verified_loan_provenance,
     _rewrite_open_data_provenance,
@@ -31,6 +34,9 @@ class _FakeClient:
         }
         return {qid: payload[qid] for qid in qids if qid in payload}
 
+    def current_squad_links(self, title):
+        return "First-team squad", ["Existing Player"]
+
 
 class _FakeProvider:
     def __init__(self):
@@ -46,6 +52,29 @@ class _FakeProvider:
 
 
 class OpenDataPostprocessTest(unittest.TestCase):
+    def test_verified_membership_augments_discovery_without_replacing_existing_links(self):
+        overrides = {
+            "squadMemberships": [{
+                "club": "Manchester City",
+                "clubWikipediaPage": "Manchester City F.C.",
+                "fullName": "Rodri",
+                "wikipediaTitle": "Rodri (footballer, born 1996)",
+                "source": "https://example.test/official-city",
+            }]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "overrides.json"
+            path.write_text(json.dumps(overrides), encoding="utf-8")
+            provider = _FakeProvider()
+            install_verified_squad_discovery_overrides(provider, path)
+            section, links = provider.client.current_squad_links("Manchester City F.C.")
+
+        self.assertEqual("First-team squad", section)
+        self.assertEqual(
+            ["Existing Player", "Rodri (footballer, born 1996)"],
+            links,
+        )
+
     def test_prefers_sport_country_and_materializes_only_verified_loan(self):
         raw = {
             "teamsResponse": {"response": [
