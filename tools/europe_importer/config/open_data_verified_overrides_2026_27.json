@@ -80,7 +80,14 @@
     {"fullName":"Kevin","position":"Forward","source":"https://www.fulhamfc.com/teams/"},
     {"fullName":"Joshua King","position":"Midfielder","source":"https://www.fulhamfc.com/teams/"},
     {"fullName":"Cameron Humphreys","position":"Midfielder","source":"https://www.premierleague.com/en/clubs/40/ipswich-town/squad"},
-    {"fullName":"Guglielmo Vicario","position":"Goalkeeper","source":"https://www.tottenhamhotspur.com/player/184254/guglielmo-vicario"}
+    {"fullName":"Guglielmo Vicario","position":"Goalkeeper","source":"https://www.tottenhamhotspur.com/player/184254/guglielmo-vicario"},
+    {"fullName":"Harry Amass","position":"Defender","source":"https://www.manutd.com/en/teams/mens-team"},
+    {"fullName":"Toby Collyer","position":"Midfielder","source":"https://www.manutd.com/en/teams/mens-team"},
+    {"fullName":"Dermot Mee","position":"Goalkeeper","source":"https://www.manutd.com/en/teams/mens-team"},
+    {"fullName":"Omari Kellyman","position":"Midfielder","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
+    {"fullName":"Landon Emenalo","position":"Midfielder","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
+    {"fullName":"Reggie Walsh","position":"Midfielder","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"},
+    {"fullName":"Reggie Watson","position":"Midfielder","source":"https://www.chelseafc.com/en/teams/mens-profiles?tab=mensteam"}
   ],
   "stadiums": [
     {"club":"Brentford FC","stadium":"Gtech Community Stadium","source":"https://www.premierleague.com/en/clubs/94/brentford/stadium"},
@@ -103,7 +110,8 @@
     {"fullName":"Mamadou Sarr","nationality":"Senegal","source":"https://www.premierleague.com/en/players/574458/mamadou-sarr/overview"},
     {"fullName":"Semi Ajayi","nationality":"Nigeria","source":"https://thenff.com/international-friendlies-bassey-joins-team-as-super-eagles-go-for-victory-against-white-reds/"},
     {"fullName":"Tommy Setford","nationality":"England","source":"https://www.premierleague.com/en/players/551221/tommy-setford/stats"},
-    {"fullName":"Jack Fletcher","nationality":"England","source":"https://www.premierleague.com/en/players/547037/jack-fletcher/overview"}
+    {"fullName":"Jack Fletcher","nationality":"England","source":"https://www.premierleague.com/en/players/547037/jack-fletcher/overview"},
+    {"fullName":"Reggie Watson","nationality":"England","source":"https://www.chelseafc.com/en/news/article/introducing-our-academy-scholars-for-the-2026-27-season"}
   ],
   "playerNames": [
     {"currentName":"Emanuel Emegha","officialName":"Emmanuel Emegha","birthDateIso":"2003-02-03","source":"https://www.chelseafc.com/en/news/article/chelsea-agree-deal-to-sign-emanuel-emegha"},
