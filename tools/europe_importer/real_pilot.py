@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .identity import StableTeamIdentityContract
+from .open_data_postprocess import apply_verified_open_data_facts
 from .pipeline import run_pipeline
 from .providers import FixtureProvider, ProviderRequest
 from .sharding import write_sharded_dataset
@@ -20,7 +21,11 @@ def _rewrite_open_data_provenance(value: Any) -> Any:
     if isinstance(value, list):
         return [_rewrite_open_data_provenance(v) for v in value]
     if isinstance(value, str):
-        return value.replace("provider://fixture/", "provider://wikimedia-open-data/")
+        return (
+            value
+            .replace("provider://fixture/", "provider://wikimedia-open-data/")
+            .replace("provider://api-football/", "provider://wikimedia-open-data/")
+        )
     return value
 
 
@@ -33,6 +38,7 @@ def main() -> int:
         path.unlink()
 
     contract_path = HERE / "config" / "stable_team_identity_premier_league.json"
+    overrides_path = HERE / "config" / "open_data_verified_overrides_2026_27.json"
     contract_doc = json.loads(contract_path.read_text(encoding="utf-8"))
     team_names = [str(team["name"]) for team in contract_doc["teams"]]
 
@@ -55,13 +61,15 @@ def main() -> int:
         # Collection is intentionally separate from canonicalization so the
         # audit survives even if validation fails.
         raw = provider.collect(request)
+        raw = apply_verified_open_data_facts(provider, raw, overrides_path)
         audit_path.write_text(
             json.dumps(provider.last_audit, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
 
         # The open-data collector emits the same transient raw shape as the
-        # tested fixture normalizer. Provider/QIDs are stripped by canonicalize.
+        # tested API-Football/fixture normalizer. External/QIDs are stripped by
+        # canonicalize; only explicitly verified loan rows are synthesized.
         raw["provider"] = "fixture"
         contract = StableTeamIdentityContract.from_json(contract_path)
         result = run_pipeline(
@@ -96,6 +104,12 @@ def main() -> int:
                 + ", ".join(low_coverage)
             )
 
+        verified_loan_count = int(provider.last_audit.get("verifiedLoanCount") or 0)
+        if int(manifest.get("loanCount", 0)) != verified_loan_count:
+            raise RuntimeError(
+                f"Canonical loanCount={manifest.get('loanCount')} differs from verified open-data loans={verified_loan_count}"
+            )
+
         summary = {
             "provider": "wikimedia-open-data",
             "seasonLabel": "2026/27",
@@ -103,11 +117,14 @@ def main() -> int:
             "playerCount": manifest.get("playerCount"),
             "loanCount": manifest.get("loanCount"),
             "loanCandidatesDetected": len(provider.last_audit.get("loanCandidates") or []),
+            "verifiedLoanCount": verified_loan_count,
             "validationStatus": manifest.get("validationStatus"),
             "datasetFiles": manifest.get("datasetFiles"),
             "sourcePolicy": {
                 "squadDiscovery": "English Wikipedia current/first-team squad section",
                 "structuredFacts": "Wikidata CC0",
+                "sportNationality": "Wikidata P1532 with P27 fallback",
+                "verifiedOverrides": "Official club/league sources",
                 "providerIdsPersisted": False,
                 "wikipediaTextPersisted": False,
             },
