@@ -47,7 +47,8 @@ def _apply_sport_nationalities(provider: Any, raw: dict[str, Any], audit: dict[s
         for qid, entity in country_entities.items()
     }
 
-    changed = 0
+    sport_country_used = 0
+    nationality_changed = 0
     fallback_citizenship = 0
     for row in rows:
         player = row.get("player") or {}
@@ -57,16 +58,18 @@ def _apply_sport_nationalities(provider: Any, raw: dict[str, Any], audit: dict[s
         qid = _qid_from_transient_id(provider_id)
         country_qid = sport_country_by_player.get(qid)
         if country_qid:
+            sport_country_used += 1
             label = country_labels.get(country_qid, country_qid)
             if label and label != player.get("nationality"):
                 player["nationality"] = label
-                changed += 1
+                nationality_changed += 1
         else:
             fallback_citizenship += 1
 
     audit["sportNationality"] = {
         "property": "P1532",
-        "playersUsingSportCountry": changed,
+        "playersUsingSportCountry": sport_country_used,
+        "playersChangedFromCitizenship": nationality_changed,
         "playersUsingCitizenshipFallback": fallback_citizenship,
         "fallbackProperty": "P27",
     }
