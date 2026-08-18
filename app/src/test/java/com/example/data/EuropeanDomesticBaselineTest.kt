@@ -30,7 +30,14 @@ class EuropeanDomesticBaselineTest {
             "Países Baixos" to 18,
             "Bélgica" to 18,
             "Turquia" to 18,
-            "Escócia" to 12
+            "Escócia" to 12,
+            "Áustria" to 12,
+            "Suíça" to 12,
+            "Dinamarca" to 12,
+            "Noruega" to 16,
+            "Polônia" to 18,
+            "Croácia" to 10,
+            "Sérvia" to 14
         )
 
         assertEquals(expectedCounts.keys, EuropeanDomesticBaseline2026_27.verifiedTopFlightCountries)
@@ -43,6 +50,16 @@ class EuropeanDomesticBaselineTest {
             assertEquals(expectedCount, baseline.verifiedTopFlightClubs.size)
             assertEquals(expectedCount, baseline.verifiedTopFlightClubs.distinct().size)
         }
+    }
+
+    @Test
+    fun `only four UEFA associations remain structure only`() {
+        val remaining = EuropeanDomesticBaseline2026_27.associations
+            .filter { it.coverage == EuropeanDomesticCoverage.STRUCTURE_ONLY }
+            .map { it.country }
+            .toSet()
+
+        assertEquals(setOf("Portugal", "Suécia", "Tchéquia", "Grécia"), remaining)
     }
 
     @Test
