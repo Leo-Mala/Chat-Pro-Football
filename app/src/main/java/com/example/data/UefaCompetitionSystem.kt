@@ -11,7 +11,11 @@ import kotlin.random.Random
  * - liga única: 1..8 -> oitavas, 9..24 -> playoff, 25..36 -> eliminados;
  * - playoff, oitavas, quartas e semifinais em ida/volta; final em jogo único;
  * - desempates da liga até os critérios suportados pelo domínio atual;
- * - sorteio/potes determinístico e calendário compatível com as 48 semanas da carreira.
+ * - sorteio/potes determinístico e calendário compatível com as 48 semanas da carreira;
+ * - alternância de mando preserva 1H/1A nas duas primeiras e últimas jornadas e evita três mandos
+ *   consecutivos iguais;
+ * - caminhos do mata-mata preservam a posição de seed: 1..4 recebem a volta das quartas e 1..2
+ *   recebem a volta das semifinais, inclusive quando o clube original é eliminado.
  *
  * Disciplinary points e club coefficient ainda não são persistidos no save. Portanto os nove
  * primeiros critérios esportivos disponíveis são aplicados e [teamId] é usado somente como último
@@ -315,10 +319,13 @@ object UefaCompetitionSystem {
         matchdays: List<List<NodeEdge>>,
         competitionType: String
     ): Map<EdgeKey, Pair<Int, Int>> {
+        // Cada bloco de duas jornadas forma um grafo de grau 2. Orientá-lo por circuitos de Euler
+        // garante exatamente um mando e uma visita por bloco. Assim, além do 1H/1A obrigatório nas
+        // duas primeiras e duas últimas jornadas, nenhum clube consegue acumular HHH ou AAA.
         val blocks: List<List<Int>> = if (competitionType == CONFERENCE_LEAGUE) {
             listOf(listOf(0, 1), listOf(2, 3), listOf(4, 5))
         } else {
-            listOf(listOf(0, 1), listOf(2, 3, 4, 5), listOf(6, 7))
+            listOf(listOf(0, 1), listOf(2, 3), listOf(4, 5), listOf(6, 7))
         }
 
         return buildMap {
@@ -392,6 +399,14 @@ object UefaCompetitionSystem {
             val lastTwo = appearances.filter { it.week in weeks.takeLast(2) }
             check(firstTwo.count { it.homeTeamId == team.id } == 1)
             check(lastTwo.count { it.homeTeamId == team.id } == 1)
+
+            val venueSequence = weeks.map { week ->
+                val fixture = appearances.single { it.week == week }
+                fixture.homeTeamId == team.id
+            }
+            check(venueSequence.windowed(3).none { window -> window.all { it == window.first() } }) {
+                "$competitionType gerou três mandos consecutivos iguais para o clube ${team.id}."
+            }
         }
     }
 
@@ -547,13 +562,7 @@ object UefaCompetitionSystem {
         val ranking = leagueRanking(fixtures, competitionType)
         if (ranking.size != FIELD_SIZE) return
         val topEight = ranking.take(8).map { it.teamId }
-
-        // Bandas oficiais: 1/2 recebem vencedores do caminho 15/16 x 17/18; 3/4 do caminho
-        // 13/14 x 19/20; 5/6 do caminho 11/12 x 21/22; 7/8 do caminho 9/10 x 23/24.
-        val winnerIndexes = listOf(7, 6, 5, 4, 3, 2, 1, 0)
-        val pairs = topEight.indices.map { index ->
-            winners[winnerIndexes[index]] to topEight[index]
-        }
+        val pairs = buildRoundOf16Pairs(topEight, winners)
 
         repository.saveFixtures(
             generateTwoLegRound(
@@ -564,6 +573,28 @@ object UefaCompetitionSystem {
                 pairs
             )
         )
+    }
+
+    /**
+     * Materializa uma escolha determinística válida dentro das posições permitidas pelo Annex B.
+     * A lista é armazenada em ordem de caminho, pois [progressAggregateRound] preserva essa ordem:
+     * QF = 1/8, 4/5, 2/7, 3/6; SF = caminho 1 contra 4 e caminho 2 contra 3.
+     * Assim 1..4 (ou seus algozes) recebem a volta das quartas e 1..2 recebem a volta das semis.
+     */
+    internal fun buildRoundOf16Pairs(
+        topEight: List<Long>,
+        playoffWinners: List<Long>
+    ): List<Pair<Long, Long>> {
+        require(topEight.size == 8)
+        require(playoffWinners.size == 8)
+
+        // winner index por seed: 1->caminho 16/17, 2->15/18, ... 8->9/24.
+        val winnerIndexBySeed = listOf(7, 6, 5, 4, 3, 2, 1, 0)
+        val bracketSeedOrder = listOf(0, 7, 3, 4, 1, 6, 2, 5) // 1,8,4,5,2,7,3,6
+
+        return bracketSeedOrder.map { seedIndex ->
+            playoffWinners[winnerIndexBySeed[seedIndex]] to topEight[seedIndex]
+        }
     }
 
     private suspend fun progressAggregateRound(
