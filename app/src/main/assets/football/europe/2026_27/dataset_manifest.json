@@ -1,0 +1,18 @@
+{
+  "provider":"api-football",
+  "season":"2026/27",
+  "generatedAt":"2026-08-18T14:00:00Z",
+  "countries":["Inglaterra"],
+  "leagues":["Premier League"],
+  "clubCount":5,
+  "playerCount":91,
+  "loanCount":1,
+  "validationStatus":"FIXTURE_ONLY",
+  "datasetFiles":[
+    "inglaterra__premier-league__arsenal-fc.json",
+    "inglaterra__premier-league__aston-villa.json",
+    "inglaterra__premier-league__afc-bournemouth.json",
+    "inglaterra__premier-league__brentford-fc.json",
+    "inglaterra__premier-league__manchester-united.json"
+  ]
+}

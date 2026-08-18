@@ -19,3 +19,4 @@ local.properties
 /tmp/
 assets/.aistudio/
 debug.keystore
+tools/europe_importer/.cache/

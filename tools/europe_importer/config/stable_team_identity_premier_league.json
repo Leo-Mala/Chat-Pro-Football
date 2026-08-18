@@ -1,0 +1,18 @@
+{
+  "season":"2026/27",
+  "country":"Inglaterra",
+  "league":"Premier League",
+  "source":"StableTeamIdentityRegistry",
+  "teams":[
+    {"name":"Arsenal FC","teamId":2},{"name":"Aston Villa","teamId":7},
+    {"name":"AFC Bournemouth","teamId":11},{"name":"Brentford FC","teamId":12},
+    {"name":"Brighton & Hove Albion","teamId":13},{"name":"Chelsea FC","teamId":4},
+    {"name":"Coventry City","teamId":27},{"name":"Crystal Palace","teamId":14},
+    {"name":"Everton FC","teamId":10},{"name":"Fulham FC","teamId":15},
+    {"name":"Hull City","teamId":29},{"name":"Ipswich Town","teamId":24},
+    {"name":"Leeds United","teamId":22},{"name":"Liverpool FC","teamId":3},
+    {"name":"Manchester City","teamId":1},{"name":"Manchester United","teamId":5},
+    {"name":"Newcastle United","teamId":8},{"name":"Nottingham Forest","teamId":16},
+    {"name":"Sunderland AFC","teamId":30},{"name":"Tottenham Hotspur","teamId":6}
+  ]
+}
