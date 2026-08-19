@@ -17,6 +17,9 @@ class EuropeanFactualClubTargetMaterializerTest {
 
     private fun installedReport(): EuropeanFactualClubTargetMaterializer2026_27.InstallationReport {
         ApplicationProvider.getApplicationContext<Context>()
+        // This class validates the historical Phase 9.11A1 contract. MainApplication now installs
+        // Phase 9.11A2 as well, so remove only A2 before asserting the A1 catalog snapshot.
+        EuropeanAuditedLowerTierClubTargetMaterializer2026_27.resetForTests()
         return requireNotNull(EuropeanFactualClubTargetMaterializer2026_27.currentInstallationReport()) {
             "MainApplication deve instalar os alvos factuais antes do uso do catálogo."
         }
