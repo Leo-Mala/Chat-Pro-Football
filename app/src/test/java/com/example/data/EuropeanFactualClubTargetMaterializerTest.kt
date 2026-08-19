@@ -53,35 +53,43 @@ class EuropeanFactualClubTargetMaterializerTest {
     }
 
     @Test
-    fun `league sizes follow verified baseline without rewriting lower division layers`() {
+    fun `league sizes follow baseline and only exact or explicit promoted lower duplicates are removed`() {
         val report = installedReport()
-        val before = EuropeanDomesticBaseline2026_27.associations.associate { baseline ->
+        var expectedTotalAfter = report.targetTeamsBefore
+
+        EuropeanDomesticBaseline2026_27.associations.forEach { baseline ->
             val legacy = requireNotNull(
                 EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(baseline.country)
             )
-            baseline.country to legacy.groupingBy { it.division }.eachCount()
-        }
+            val legacyTopCount = legacy.count { it.division == 1 }
+            val explicitTemplates = DefaultData.originalMap[baseline.country]?.teams.orEmpty()
+            val promotedIds = baseline.verifiedTopFlightClubs.mapNotNullTo(hashSetOf()) { club ->
+                StableTeamIdentityRegistry.idFor(baseline.country, club)
+            }
+            val expectedLower = legacy.filter { template ->
+                if (template.division == 1) return@filter false
+                val exactCanonicalDuplicate = baseline.verifiedTopFlightClubs.any {
+                    it.equals(template.name, ignoreCase = true)
+                }
+                if (exactCanonicalDuplicate) return@filter false
+                val isExplicitTemplate = explicitTemplates.any { it == template }
+                if (!isExplicitTemplate) return@filter true
+                val stableId = StableTeamIdentityRegistry.idFor(baseline.country, template.name)
+                stableId == null || stableId !in promotedIds
+            }
 
-        EuropeanDomesticBaseline2026_27.associations.forEach { baseline ->
             val actualTeams = DefaultData.countriesMap.getValue(baseline.country).teams
-            val afterByDivision = actualTeams.groupingBy { it.division }.eachCount()
-            assertEquals(baseline.topDivisionClubCount, afterByDivision[1])
-            before.getValue(baseline.country)
-                .filterKeys { it != 1 }
-                .forEach { (division, count) -> assertEquals(count, afterByDivision[division]) }
+            val actualTop = actualTeams.filter { it.division == 1 }
+            val actualLower = actualTeams.filter { it.division > 1 }
 
-            val legacyLower = requireNotNull(
-                EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(baseline.country)
-            ).filter { it.division > 1 }
-            val materializedLower = actualTeams.filter { it.division > 1 }
-            assertEquals(legacyLower, materializedLower)
+            assertEquals(baseline.topDivisionClubCount, actualTop.size)
+            assertEquals(expectedLower, actualLower)
+
+            expectedTotalAfter += baseline.topDivisionClubCount - legacyTopCount
+            expectedTotalAfter -= legacy.count { it.division > 1 } - expectedLower.size
         }
 
-        val expectedAfter = report.targetTeamsBefore + EuropeanDomesticBaseline2026_27.associations.sumOf { baseline ->
-            val oldTop = before.getValue(baseline.country)[1] ?: 0
-            baseline.topDivisionClubCount - oldTop
-        }
-        assertEquals(expectedAfter, report.targetTeamsAfter)
+        assertEquals(expectedTotalAfter, report.targetTeamsAfter)
         assertEquals(18, DefaultData.countriesMap.getValue("Bélgica").teams.count { it.division == 1 })
         assertEquals(18, DefaultData.countriesMap.getValue("Turquia").teams.count { it.division == 1 })
         assertEquals(14, DefaultData.countriesMap.getValue("Sérvia").teams.count { it.division == 1 })
