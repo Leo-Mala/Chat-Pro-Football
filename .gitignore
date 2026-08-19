@@ -20,3 +20,12 @@ local.properties
 assets/.aistudio/
 debug.keystore
 tools/europe_importer/.cache/
+# Local source snapshots / detailed eFootball identity derivatives.
+PlayersDB_*.csv
+PlayersDB_*.jsonl
+reports/fc26_efootball_secure_matches.json
+reports/fc26_efootball_probable_matches.json
+reports/efootball_only_candidates.json
+reports/efootball_rejected_records.json
+reports/efootball_indeterminate_records.json
+reports/fc26_efootball_performance.json

@@ -1,0 +1,95 @@
+name: eFootball Identity Reconciliation
+
+on:
+  pull_request:
+    branches: [ "main", "master" ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'tools/efootball/**'
+      - 'reports/fc26_efootball_identity_report.json'
+      - 'reports/fc26_efootball_identity_summary.md'
+      - 'reports/fc26_efootball_validation_note.md'
+      - '.github/workflows/efootball-identity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: efootball-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run eFootball reconciliation unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/efootball/tests -t .
+          python3 -m py_compile tools/efootball/*.py tools/efootball/tests/*.py
+
+      - name: Validate committed reconciliation summary invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('reports/fc26_efootball_identity_report.json').read_text(encoding='utf-8')
+          )
+          classes = report['classification']
+
+          assert classes['sum'] == report['efootball2026']['total']
+          assert sum(
+              classes[key]
+              for key in ('groupA', 'groupB', 'groupC1', 'groupC2', 'groupC3', 'groupD', 'groupE')
+          ) == classes['sum']
+
+          # Audited source/result checkpoint. These values describe the committed
+          # 2026-08-19 reconciliation report; the algorithm itself is exercised by
+          # the synthetic unit tests and the full report is regenerated only when
+          # the external user-supplied datasets are intentionally provided.
+          assert report['fc26']['playerCount'] == 18405
+          assert report['playersDb']['totalRecords'] == 103559
+          assert report['efootball2026']['total'] == 35956
+          assert report['efootball2026']['nonSystem'] == 35553
+          assert classes['groupA'] == 9234
+          assert report['matching']['secureByLevel'] == {'A1': 5609, 'A2': 3599, 'A3': 26}
+
+          assert report['anomalies']['duplicateKonamiIds'] == 0
+          assert report['anomalies']['duplicateSecureFc26Ids'] == 0
+          assert report['anomalies']['duplicateSecureKonamiIds'] == 0
+          assert report['playersDb']['baseKonamiIdStatus'] == 'BASE_KONAMI_ID_NOT_AVAILABLE'
+          assert report['playersDb']['jsonlCsvEquivalent'] is True
+          assert report['playersDb']['semanticMismatchCount'] == 0
+
+          assert report['policy']['fc26RemainsPrimary'] is True
+          assert report['policy']['importsEfootballOnlyPlayers'] is False
+          assert report['policy']['mutatesFc26RatingsPotentialAttributesOrClubs'] is False
+          assert report['sourceMetadata']['fc26']['sha256'] == (
+              '4399cb2bcc2a14a2872e76a118f8f4bf64d7954503949c75751a14f33863e3b2'
+          )
+
+          print('eFootball reconciliation summary invariants validated')
+          PY
+
+      - name: Enforce redistribution boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e PlayersDB_20260819.csv
+          test ! -e PlayersDB_20260819.jsonl
+          if git ls-files | grep -E '(^|/)PlayersDB_.*\.(csv|jsonl)$'; then
+            echo 'Raw PlayersDB export must not be committed while redistribution permission is unresolved.' >&2
+            exit 1
+          fi
+          echo 'Raw PlayersDB redistribution boundary validated.'
