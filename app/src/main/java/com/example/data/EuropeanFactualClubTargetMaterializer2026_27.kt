@@ -56,8 +56,7 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         synchronized(installationLock) {
             installationReport?.let { return it }
 
-            val catalog = DefaultData.countriesMap
-            val mutableCatalog = catalog as? MutableMap<String, DefaultData.CountryData>
+            val mutableCatalog = DefaultData.countriesMap as? MutableMap<String, DefaultData.CountryData>
                 ?: error("DefaultData.countriesMap precisa manter backing MutableMap para materialização factual.")
             val totalBefore = mutableCatalog.values.sumOf { it.teams.size }
             val origins = linkedMapOf<MetadataOrigin, Int>().apply {
@@ -105,6 +104,22 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
 
     fun currentInstallationReport(): InstallationReport? = installationReport
 
+    /** Restaura o catálogo legado depois de testes JVM para não vazar estado entre classes de teste. */
+    internal fun resetForTests() {
+        synchronized(installationLock) {
+            if (!installed && legacyTeamsByCountry.isEmpty()) return
+            val mutableCatalog = DefaultData.countriesMap as? MutableMap<String, DefaultData.CountryData>
+                ?: error("DefaultData.countriesMap deixou de possuir backing MutableMap.")
+            legacyTeamsByCountry.forEach { (country, legacyTeams) ->
+                val current = mutableCatalog[country] ?: return@forEach
+                mutableCatalog[country] = current.copy(teams = legacyTeams)
+            }
+            legacyTeamsByCountry.clear()
+            installationReport = null
+            installed = false
+        }
+    }
+
     fun materialize(
         country: String,
         legacyTeams: List<DefaultData.TeamTemplate>
@@ -122,8 +137,11 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         }
 
         val promotedStableIds = targets.mapTo(hashSetOf()) { it.stableTeamId }
+        val explicitTemplates = DefaultData.originalMap[country]?.teams.orEmpty()
         val lowerDivisions = legacyTeams.filter { template ->
             if (template.division == 1) return@filter false
+            val isExplicitTemplate = explicitTemplates.any { it == template }
+            if (!isExplicitTemplate) return@filter true
             val stableId = StableTeamIdentityRegistry.idFor(country, template.name)
             stableId == null || stableId !in promotedStableIds
         }
