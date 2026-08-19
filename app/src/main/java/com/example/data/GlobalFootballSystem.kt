@@ -112,9 +112,9 @@ object GlobalFootballSystem {
      * baseline factual 2026/27. Um clube procedural que, por coincidência, receba um alias histórico
      * nunca herda a identidade do clube real.
      *
-     * Para clubes não estáveis preservamos a ordem de slots anterior à materialização factual. Isso
-     * evita renumerar clubes das divisões inferiores em novos saves apenas porque a primeira divisão
-     * passou a usar IDs estáveis reservados.
+     * Para clubes não estáveis preservamos a ordem E as regras de elegibilidade do catálogo anterior
+     * à materialização factual. Isso evita renumerar clubes das divisões inferiores apenas porque
+     * outros clubes passaram a usar IDs estáveis reservados.
      */
     fun getGlobalId(country: String, teamName: String): Long {
         stableSeedIdFor(country, teamName)?.let { return it }
@@ -124,7 +124,7 @@ object GlobalFootballSystem {
             val teams = EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(country)
                 ?: DefaultData.countriesMap[country]?.teams
             if (teams != null) {
-                val nonStableTeams = teams.filter { stableSeedIdFor(country, it.name) == null }
+                val nonStableTeams = teams.filter { legacyExplicitStableSeedIdFor(country, it.name) == null }
                 val teamIndex = nonStableTeams.indexOfFirst { it.name.equals(teamName, ignoreCase = true) }
                 if (teamIndex != -1) {
                     val blockStart = countryIndex * TEAM_IDS_PER_COUNTRY + 1L
@@ -205,6 +205,17 @@ object GlobalFootballSystem {
         val isAdditionalExplicitSeed = EuropeanAdditionalClubTemplates2026_27.find(country, teamName) != null
         val isMaterializedFactualTarget = EuropeanFactualClubTargetMaterializer2026_27.contains(country, teamName)
         if (!isOriginalExplicitSeed && !isAdditionalExplicitSeed && !isMaterializedFactualTarget) return null
+        return StableTeamIdentityRegistry.idFor(country, teamName)
+    }
+
+    /** Exatamente a regra de estabilidade que existia antes da fase 9.11A1. */
+    private fun legacyExplicitStableSeedIdFor(country: String, teamName: String): Long? {
+        val isOriginalExplicitSeed = DefaultData.originalMap[country]
+            ?.teams
+            ?.any { it.name.equals(teamName, ignoreCase = true) }
+            ?: false
+        val isAdditionalExplicitSeed = EuropeanAdditionalClubTemplates2026_27.find(country, teamName) != null
+        if (!isOriginalExplicitSeed && !isAdditionalExplicitSeed) return null
         return StableTeamIdentityRegistry.idFor(country, teamName)
     }
 
