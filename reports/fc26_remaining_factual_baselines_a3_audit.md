@@ -27,7 +27,7 @@ This report is the pre-implementation factual gate for Phase 9.11A3. Text simila
 - `FACTUAL_COUNTRY_BASELINE_MISSING`: **163 clubs / 4,428 players**
 - `AMBIGUOUS`: **2 clubs / 53 players**
 
-The complete 277-row audit is committed in `reports/fc26_remaining_factual_baselines_a3_audit.tsv`.
+The 277-case classification was reproduced from the validated Phase 9.11A2 report. The Phase 9.11A3 acceptance test writes the complete post-A3 remaining-club detail to `reports/fc26_remaining_factual_baselines_a3_report.json`, which is uploaded by the dedicated CI workflow as an audit artifact.
 
 ## Phase 9.11A3 implementation decision
 
