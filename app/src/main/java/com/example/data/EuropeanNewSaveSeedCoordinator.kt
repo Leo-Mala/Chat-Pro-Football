@@ -6,9 +6,8 @@ import java.util.WeakHashMap
 /**
  * Ponte mínima entre os assets canônicos e o fluxo de criação de uma carreira.
  *
- * O runtime só expõe datasets FACTUAL + VALIDATED. O estado preparado é efêmero, associado à
- * instância do repositório do slot e consumido uma única vez pela transação inicial de Team/Player.
- * Reparos, carregamentos e saves existentes não preparam este estado.
+ * O runtime europeu continua disponível como fallback. Quando o snapshot FC26 VALIDATED está
+ * presente, ele assume o seed de jogadores do novo save, sem reimportar dados em saves existentes.
  */
 object EuropeanFactualAssetRuntime {
     @Volatile
@@ -44,15 +43,44 @@ object EuropeanNewSaveSeedCoordinator {
 
     /**
      * Chamado exclusivamente pelo gerador de temporada usado na criação inicial do novo save.
-     * Sem dataset VALIDATED, limpa qualquer estado anterior e preserva 100% do fluxo procedural.
+     * FC26 é a primeira opção. Se o asset não existir/estiver desativado, o seed factual europeu
+     * anterior permanece como fallback; sem ambos, preserva 100% o fluxo procedural legado.
      */
     fun prepare(repository: GameRepository, teams: List<Team>) {
+        val fc26 = Fc26FactualAssetRuntime.loadValidatedOrNull()
+        if (fc26 != null) {
+            prepareForFc26(repository, teams, fc26)
+            return
+        }
+
         val dataset = EuropeanFactualAssetRuntime.loadValidatedFactualOrNull()
         if (dataset == null) {
             clear(repository)
             return
         }
         prepareForDataset(repository, teams, dataset)
+    }
+
+    internal fun prepareForFc26(
+        repositoryKey: Any,
+        teams: List<Team>,
+        dataset: Fc26Dataset
+    ): Fc26SeedReport {
+        val plan = Fc26SeedPlanner.build(
+            teams = teams,
+            dataset = dataset,
+            proceduralRosterFactory = { team ->
+                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            }
+        )
+        synchronized(lock) {
+            pendingByRepository[repositoryKey] = PendingSeed(
+                teams = teams,
+                players = plan.players,
+                loans = plan.loans
+            )
+        }
+        return plan.report
     }
 
     internal fun prepareForDataset(
