@@ -20,7 +20,8 @@ EXPECTED_SOURCE_SIZE = 10_576_203
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IMPORTER = REPO_ROOT / "tools/fc26/import_fc26.py"
 VALIDATOR = REPO_ROOT / "tools/fc26/validate_fc26.py"
-DEFAULT_ASSET = REPO_ROOT / "app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.gz"
+# O conteúdo continua gzip. A extensão neutra evita tratamento especial/inconsistente pelo AssetManager/Robolectric.
+DEFAULT_ASSET = REPO_ROOT / "app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin"
 DEFAULT_MANIFEST = REPO_ROOT / "app/src/main/assets/football/fc26/fc26_manifest.json"
 DEFAULT_REPORT = REPO_ROOT / "reports/fc26_import_report.json"
 
