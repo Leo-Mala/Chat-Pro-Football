@@ -217,7 +217,7 @@ class Fc26FactualTargetMaterializationReportTest {
         )
     }
 
-    private fun buildPlan(teams: List<Team>, dataset: Fc26Dataset): Fc26SeedPlan =
+    private fun buildPlan(teams: List<Team>, dataset: Fc26Dataset): Fc26SeedPlanner.Plan =
         Fc26SeedPlanner.build(
             teams = teams,
             dataset = dataset,
