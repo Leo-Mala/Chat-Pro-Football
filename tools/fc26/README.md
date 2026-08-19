@@ -10,10 +10,12 @@ The pipeline expects the `FC26_20250921.csv` column family used by the 2025-09-1
 
 ```bash
 python3 tools/fc26/import_fc26.py FC26_20250921.csv \
-  --output app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.gz \
+  --output app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
   --manifest app/src/main/assets/football/fc26/fc26_manifest.json \
   --report reports/fc26_import_report.json
 ```
+
+The `.bin` file contains a deterministic gzip-compressed TSV payload. The neutral extension avoids special/inconsistent asset handling while the manifest records the exact file and SHA-256.
 
 The importer uses only Python's standard library. It validates the expected 18,405 rows, unique source player IDs, required source columns, 1..99 ratings and all 35 mapped Pro Football attributes.
 
@@ -21,7 +23,7 @@ The importer uses only Python's standard library. It validates the expected 18,4
 
 ```bash
 python3 tools/fc26/validate_fc26.py \
-  app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.gz \
+  app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
   app/src/main/assets/football/fc26/fc26_manifest.json
 ```
 
@@ -37,6 +39,7 @@ python3 tools/fc26/validate_fc26.py \
 - `club_loaned_from` is retained as metadata/reporting only. Because the snapshot has no reliable loan duration, no `PlayerLoan` row is fabricated.
 - The source monetary fields are EUR and are converted centrally to the game's BRL values using the manifest's snapshot reference rate.
 - Existing saves are never reimported; the asset participates only in new-save seeding.
+- Calendar generation only registers a lazy seed request; the 18,405-player asset is read when the initial new-save `saveTeams -> savePlayers` persistence sequence begins. Season transitions do not reimport FC26.
 
 ## CI bootstrap
 
