@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import android.database.CursorWindow
 import com.example.data.EuropeanFactualAssetRuntime
+import com.example.data.EuropeanFactualClubTargetMaterializer2026_27
 import com.example.data.Fc26FactualAssetRuntime
 import dagger.hilt.android.HiltAndroidApp
 
@@ -10,6 +11,7 @@ import dagger.hilt.android.HiltAndroidApp
 class MainApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
         Fc26FactualAssetRuntime.initialize(assets)
         EuropeanFactualAssetRuntime.initialize(assets)
         fixCursorWindowSize()
