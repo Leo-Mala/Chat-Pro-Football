@@ -7,18 +7,19 @@ players. It produces offline identity reports only.
 from __future__ import annotations
 
 import argparse
-import gc
 import hashlib
 import json
-import resource
-import shutil
 import sys
-import tempfile
 import time
+import resource
+import gc
+import tempfile
+import shutil
 from pathlib import Path
 from typing import Any
 
 if __package__ in {None, ""}:
+    # Allow `python tools/efootball/reconcile_playersdb.py ...` from repository root.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from tools.efootball.classification import age_consistency, classify, classification_reason
     from tools.efootball.crosswalks import derive_nationality_crosswalk, derive_position_crosswalk, validate_position_crosswalk
@@ -34,6 +35,7 @@ else:
 
 DATASET_VERSION = "2026-08-19"
 FC26_EXPECTED_SHA256 = "4399cb2bcc2a14a2872e76a118f8f4bf64d7954503949c75751a14f33863e3b2"
+
 REPORT_FILENAMES = {
     "summary": "fc26_efootball_identity_report.json",
     "secure": "fc26_efootball_secure_matches.json",
@@ -123,7 +125,9 @@ def build_reconciliation(
     playersdb_jsonl_path: str | Path,
     playersdb_csv_path: str | Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return deterministic reports plus volatile performance metadata."""
     total_started = time.perf_counter()
+
     read_started = time.perf_counter()
     fc_records = read_fc26(fc26_path)
     playersdb_total = 0
@@ -154,14 +158,17 @@ def build_reconciliation(
     read_seconds = time.perf_counter() - read_started
 
     efootball_non_system = [record for record in efootball_all if not record.get("is_system")]
+
     match_started = time.perf_counter()
     secure_rows, matched_fc_ids, matched_player_ids = secure_matches(fc_records, efootball_non_system)
     fc_by_id = {str(record["player_id"]): record for record in fc_records}
     player_by_id = {str(record["konamiID"]): record for record in efootball_non_system}
     secure_pairs = {(row["fc26PlayerId"], row["konamiId"]) for row in secure_rows}
+
     position_crosswalk = derive_position_crosswalk(secure_pairs, fc_by_id, player_by_id)
     validate_position_crosswalk(position_crosswalk)
     nationality_crosswalk = derive_nationality_crosswalk(secure_pairs, fc_by_id, player_by_id)
+
     probable_rows, probable_player_ids, probable_metrics = probable_matches(
         fc_records, efootball_non_system, matched_fc_ids, matched_player_ids, position_crosswalk
     )
@@ -169,9 +176,14 @@ def build_reconciliation(
 
     classify_started = time.perf_counter()
     groups, classification_data = classify(
-        efootball_all, efootball_non_system, matched_player_ids, probable_player_ids, fc_records
+        efootball_all,
+        efootball_non_system,
+        matched_player_ids,
+        probable_player_ids,
+        fc_records,
     )
     classify_seconds = time.perf_counter() - classify_started
+
     if sum(classification_data["counts"].values()) != len(efootball_all):
         raise AssertionError("A-E classification total does not equal eFootball 2026 total")
     if len({row["fc26PlayerId"] for row in secure_rows}) != len(secure_rows):
@@ -180,11 +192,13 @@ def build_reconciliation(
         raise AssertionError("Secure matches contain duplicate Konami IDs")
 
     quality = quality_metrics(secure_rows, fc_by_id, player_by_id, nationality_crosswalk, position_crosswalk)
+
     secure_detail = [
         _secure_detail(row, fc_by_id[row["fc26PlayerId"]], player_by_id[row["konamiId"]])
         for row in sorted(secure_rows, key=lambda item: (item["matchLevel"], int(item["fc26PlayerId"]), int(item["konamiId"])))
     ]
     probable_detail = sorted(probable_rows, key=lambda item: int(item["konamiId"]))
+
     candidates: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     player_all_by_id = {str(record["konamiID"]): record for record in efootball_all}
@@ -199,10 +213,10 @@ def build_reconciliation(
     probable_count = classification_data["counts"]["B"]
     auto_nationalities = sum(1 for value in nationality_crosswalk.values() if value["autoAccepted"])
     age_counts = classification_data["ageStatusCounts"]
+
     fc_sha = sha256_file(fc26_path)
     json_sha = sha256_file(playersdb_jsonl_path)
     csv_sha = sha256_file(playersdb_csv_path) if playersdb_csv_path else None
-
     summary = {
         "schemaVersion": 1,
         "phase": "9.11A0",
@@ -277,6 +291,13 @@ def build_reconciliation(
             "duplicateKonamiIds": len(duplicate_konami_ids),
             "duplicateSecureFc26Ids": len(secure_rows) - len({row["fc26PlayerId"] for row in secure_rows}),
             "duplicateSecureKonamiIds": len(secure_rows) - len({row["konamiId"] for row in secure_rows}),
+            # Post-resolution reverse conflicts in Group A. The secure matcher applies
+            # the 1:1 gate at every level, so any non-zero value here is a hard bug.
+            "reverseMatchConflicts": (
+                len(secure_rows) - len({row["fc26PlayerId"] for row in secure_rows})
+            ) + (
+                len(secure_rows) - len({row["konamiId"] for row in secure_rows})
+            ),
             "probableRecordsWithMultipleCandidates": sum(len(row["candidates"]) > 1 for row in probable_rows),
         },
         "deterministicReports": [
@@ -297,6 +318,7 @@ def build_reconciliation(
         "peakResidentSetKiB": peak_rss_kib,
         "memoryMeasurement": "resource.getrusage(RUSAGE_SELF).ru_maxrss (Linux KiB)",
     }
+
     reports = {
         "summary": summary,
         "secure": {"schemaVersion": 1, "count": len(secure_detail), "matches": secure_detail},
@@ -366,6 +388,8 @@ def main(argv: list[str] | None = None) -> int:
     expected_hashes = {name: hashes[name] for name in deterministic_names}
 
     if args.verify_determinism:
+        # Do not keep two 30+ MB report trees alive simultaneously. Persist the
+        # first run, release it, rebuild into a temporary directory, compare hashes.
         del reports
         gc.collect()
         second, second_performance = build_reconciliation(args.fc26, args.playersdb_jsonl, args.playersdb_csv)
