@@ -57,9 +57,15 @@ object StableTeamIdentityRegistry {
      *
      * 2026-08-18: Ajax e Go Ahead Eagles produzem o mesmo hash-slot 122151 dentro da janela
      * neerlandesa. Ajax mantém o snapshot 122151 e Go Ahead Eagles fica congelado em 122152.
+     *
+     * 2026-08-19 / Phase 9.11A2: MSV Duisburg colide com Borussia Dortmund no slot alemão 105143;
+     * Dortmund mantém o snapshot e MSV Duisburg fica em 105144. TSV Havelse e SSV Jahn Regensburg
+     * colidem em 108961; Havelse mantém o hash e Jahn Regensburg fica em 108962.
      */
     private val baselineIdOverrides: Map<Pair<String, String>, Long> = mapOf(
-        ("Países Baixos" to "Go Ahead Eagles") to 122_152L
+        ("Países Baixos" to "Go Ahead Eagles") to 122_152L,
+        ("Alemanha" to "MSV Duisburg") to 105_144L,
+        ("Alemanha" to "SSV Jahn Regensburg") to 108_962L
     )
 
     private val legacyIdentities: List<StableTeamIdentity> = listOf(
@@ -150,7 +156,24 @@ object StableTeamIdentityRegistry {
         }
     }
 
-    private val identities: List<StableTeamIdentity> = legacyIdentities + baselineGeneratedIdentities
+    /**
+     * Phase 9.11A2 reuses each country's already-reserved window. Only organizer-verified lower-tier
+     * identities are appended; the deterministic hash and explicit collision policy stay unchanged.
+     */
+    private val auditedLowerTierIdentities: List<StableTeamIdentity> =
+        Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets.map { target ->
+            val windowStart = requireNotNull(baselineCountryWindows[target.country]) {
+                "Lower-tier factual target has no stable country window: ${target.country}/${target.canonicalName}"
+            }
+            StableTeamIdentity(
+                country = target.country,
+                canonicalName = target.canonicalName,
+                id = stableBaselineId(windowStart, target.country, target.canonicalName)
+            )
+        }
+
+    private val identities: List<StableTeamIdentity> =
+        legacyIdentities + baselineGeneratedIdentities + auditedLowerTierIdentities
 
     private fun normalize(value: String): String = value.trim().lowercase()
 

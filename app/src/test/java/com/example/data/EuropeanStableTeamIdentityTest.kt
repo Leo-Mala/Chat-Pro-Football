@@ -24,6 +24,27 @@ class EuropeanStableTeamIdentityTest {
     }
 
     @Test
+    fun `audited 9_11A2 lower-tier clubs have unique stable ids in existing country windows`() {
+        val targets = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets
+        val ids = targets.map { target ->
+            val id = StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)
+            assertNotNull("Sem teamId estável para ${target.country}/${target.canonicalName}", id)
+            requireNotNull(id).also { resolved ->
+                assertTrue(
+                    "${target.country}/${target.canonicalName} caiu fora do namespace reservado: $resolved",
+                    resolved in StableTeamIdentityRegistry.BASELINE_REAL_TEAM_ID_FLOOR until
+                        StableTeamIdentityRegistry.BASELINE_REAL_TEAM_ID_CEILING_EXCLUSIVE
+                )
+            }
+        }
+
+        assertEquals(47, targets.size)
+        assertEquals(ids.size, ids.distinct().size)
+        val allKnownIds = StableTeamIdentityRegistry.all.map { it.id }
+        assertEquals(allKnownIds.size, allKnownIds.distinct().size)
+    }
+
+    @Test
     fun `new factual identities live below the virtual namespace and outside legacy team blocks`() {
         val generatedCountries = EuropeanDomesticBaseline2026_27.verifiedTopFlightCountries -
             setOf("Inglaterra", "Espanha")
@@ -51,13 +72,18 @@ class EuropeanStableTeamIdentityTest {
     }
 
     @Test
-    fun `baseline hash snapshots and explicit collision override do not drift`() {
+    fun `baseline hash snapshots and explicit collision overrides do not drift`() {
         assertEquals(103474L, StableTeamIdentityRegistry.idFor("Itália", "Atalanta"))
         assertEquals(105115L, StableTeamIdentityRegistry.idFor("Alemanha", "FC Bayern München"))
         assertEquals(117552L, StableTeamIdentityRegistry.idFor("Portugal", "FC Porto"))
         assertEquals(122151L, StableTeamIdentityRegistry.idFor("Países Baixos", "Ajax"))
         assertEquals(122152L, StableTeamIdentityRegistry.idFor("Países Baixos", "Go Ahead Eagles"))
         assertEquals(186494L, StableTeamIdentityRegistry.idFor("Grécia", "Olympiacos"))
+
+        assertEquals(105143L, StableTeamIdentityRegistry.idFor("Alemanha", "Borussia Dortmund"))
+        assertEquals(105144L, StableTeamIdentityRegistry.idFor("Alemanha", "MSV Duisburg"))
+        assertEquals(108961L, StableTeamIdentityRegistry.idFor("Alemanha", "TSV Havelse"))
+        assertEquals(108962L, StableTeamIdentityRegistry.idFor("Alemanha", "SSV Jahn Regensburg"))
     }
 
     @Test
