@@ -8,6 +8,7 @@ on:
       - 'app/src/main/java/com/example/data/Fc26ClubMatcher.kt'
       - 'app/src/main/java/com/example/data/Fc26ClubMappingRegistry.kt'
       - 'app/src/test/java/com/example/data/Fc26ClubMatcherTest.kt'
+      - 'app/src/test/java/com/example/data/Fc26ExplicitTemplateMappingTest.kt'
       - 'app/src/test/java/com/example/data/Fc26ClubCandidateReportTest.kt'
       - 'reports/fc26_unmatched_candidates.json'
       - 'reports/fc26_missing_target_clubs.json'
@@ -83,6 +84,7 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest \
             --tests com.example.data.Fc26ClubMatcherTest \
+            --tests com.example.data.Fc26ExplicitTemplateMappingTest \
             --tests com.example.data.Fc26ClubCandidateReportTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
             --stacktrace
