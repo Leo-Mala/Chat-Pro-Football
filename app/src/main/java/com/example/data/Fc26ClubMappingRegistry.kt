@@ -18,7 +18,7 @@ internal object Fc26ClubMappingRegistry {
         val reason: String
     )
 
-    private val explicitMappings = listOf(
+    private val baseExplicitMappings = listOf(
         // Stable England/Spain identities.
         ExplicitMapping(9L, setOf("Liverpool"), "Inglaterra", "Liverpool FC", 3L, "FC26 source id + stable legacy identity"),
         ExplicitMapping(448L, setOf("Athletic Club"), "Espanha", "Athletic Club", 206L, "FC26 source id + stable legacy identity"),
@@ -27,52 +27,6 @@ internal object Fc26ClubMappingRegistry {
         ExplicitMapping(452L, setOf("RCD Espanyol"), "Espanha", "RCD Espanyol de Barcelona", 221L, "FC26 source id + audited canonical variant"),
         ExplicitMapping(459L, setOf("Real Sporting de Gijón"), "Espanha", "Sporting de Gijón", 226L, "FC26 source id + audited canonical variant"),
         ExplicitMapping(242L, setOf("RC Deportivo de La Coruña"), "Espanha", "RC Deportivo", 243L, "FC26 source id + audited canonical variant"),
-
-        // Phase 9.11A2 — audited FC26 spelling/name variants for already-materialized stable targets.
-        // These entries do not create aliases globally: the bridge is scoped to exact FC26 source id
-        // plus an accepted source spelling, country, canonical target and immutable stable Team.id.
-        ExplicitMapping(10029L, setOf("TSG 1899 Hoffenheim"), "Alemanha", "TSG Hoffenheim", 109159L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(231L, setOf("Club Brugge KV"), "Bélgica", "Club Brugge", 125386L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(100087L, setOf("Oud-Heverlee Leuven"), "Bélgica", "OH Leuven", 126961L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(1750L, setOf("Cercle Brugge KSV"), "Bélgica", "Cercle Brugge", 129618L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(2014L, setOf("Union Saint-Gilloise"), "Bélgica", "Royale Union Saint-Gilloise", 129911L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(670L, setOf("Royal Charleroi Sporting Club"), "Bélgica", "Sporting Charleroi", 125962L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(680L, setOf("Sint-Truidense VV"), "Bélgica", "STVV", 125175L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(272L, setOf("Odense Boldklub"), "Dinamarca", "OB", 152058L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(271L, setOf("Aarhus Gymnastikforening"), "Dinamarca", "AGF", 153818L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(80L, setOf("Hearts"), "Escócia", "Heart of Midlothian", 138407L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(65L, setOf("Lille OSC"), "França", "LOSC", 110617L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(278L, setOf("AEK Athens"), "Grécia", "AEK", 187739L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(112199L, setOf("Sarpsborg 08 FF"), "Noruega", "Sarpsborg 08", 157447L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(1756L, setOf("Hamarkameratene"), "Noruega", "HamKam", 155363L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(113459L, setOf("Kristiansund BK"), "Noruega", "Kristiansund", 158592L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(417L, setOf("Molde FK"), "Noruega", "Molde", 159335L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(300L, setOf("Viking FK"), "Noruega", "Viking", 158076L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(918L, setOf("FK Bodø/Glimt"), "Noruega", "Bodø/Glimt", 159807L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(919L, setOf("SK Brann"), "Noruega", "Brann", 158664L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(2041L, setOf("Fredrikstad FK"), "Noruega", "Fredrikstad", 155816L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(131491L, setOf("KFUM-Kameratene Oslo"), "Noruega", "KFUM", 155493L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(418L, setOf("Tromsø IL"), "Noruega", "Tromsø", 157255L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(920L, setOf("Vålerenga Fotball"), "Noruega", "Vålerenga", 155648L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(298L, setOf("Rosenborg BK"), "Noruega", "Rosenborg", 157083L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(1910L, setOf("NEC Nijmegen"), "Países Baixos", "N.E.C. Nijmegen", 124287L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(1906L, setOf("AZ Alkmaar"), "Países Baixos", "AZ", 121607L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(1971L, setOf("Excelsior"), "Países Baixos", "Excelsior Rotterdam", 124898L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(10020L, setOf("GD Estoril Praia"), "Portugal", "Estoril Praia", 115416L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(718L, setOf("Estrela da Amadora"), "Portugal", "Estrela Amadora", 116785L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(1896L, setOf("Sporting Clube de Braga"), "Portugal", "SC Braga", 119084L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(710L, setOf("Djurgårdens IF"), "Suécia", "Djurgården", 163519L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(708L, setOf("Hammarby Fotboll"), "Suécia", "Hammarby", 160477L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(101025L, setOf("Gençlerbirliği SK"), "Turquia", "Gençlerbirliği", 133808L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(326L, setOf("Fenerbahçe SK"), "Turquia", "Fenerbahçe", 133151L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(101014L, setOf("Medipol Başakşehir FK"), "Turquia", "İstanbul Başakşehir FK", 133903L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(327L, setOf("Beşiktaş JK"), "Turquia", "Beşiktaş", 133360L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(325L, setOf("Galatasaray SK"), "Turquia", "Galatasaray", 133729L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(111339L, setOf("Kasımpaşa SK"), "Turquia", "Kasımpaşa", 134751L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(101026L, setOf("Göztepe SK"), "Turquia", "Göztepe", 131924L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(254L, setOf("SK Rapid"), "Áustria", "SK Rapid Wien", 142359L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(252L, setOf("LASK Linz"), "Áustria", "LASK", 140300L, "FC26 source id + audited 2026/27 stable target variant"),
-        ExplicitMapping(15009L, setOf("SC Rheindorf Altach"), "Áustria", "SCR Altach", 140821L, "FC26 source id + audited 2026/27 stable target variant"),
 
         // Explicit (non-procedural) templates already materialized in DefaultData.
         ExplicitMapping(100852L, setOf("CD Castellón"), "Espanha", "Castellón", reason = "FC26 source id + explicit Spain TeamTemplate"),
@@ -91,8 +45,48 @@ internal object Fc26ClubMappingRegistry {
         ExplicitMapping(112670L, setOf("Talleres"), "Argentina", "Talleres Córdoba", reason = "FC26 source id + explicit Argentina TeamTemplate")
     )
 
-    private val bySourceId = explicitMappings.associateBy { it.sourceClubTeamId }.also { map ->
-        require(map.size == explicitMappings.size) { "Duplicate FC26 source club override." }
+    /**
+     * Phase 9.11A2 mappings are activated only while its materializer is installed. This makes the
+     * 9.11A1 baseline reproducible in tests and guarantees that a report can compare before/after
+     * without the new mappings leaking into the historical side of the comparison.
+     */
+    private val phaseA2Mappings: List<ExplicitMapping> by lazy {
+        val variants = Fc26RemainingClubCoverage2026_27.existingTargetNameVariants.map { variant ->
+            ExplicitMapping(
+                sourceClubTeamId = variant.sourceClubTeamId,
+                acceptedSourceNames = setOf(variant.sourceName),
+                targetCountry = variant.country,
+                targetCanonicalName = variant.targetCanonicalName,
+                targetTeamId = requireNotNull(
+                    StableTeamIdentityRegistry.idFor(variant.country, variant.targetCanonicalName)
+                ) { "Missing stable Phase 9.11A2 target: ${variant.country}/${variant.targetCanonicalName}" },
+                reason = "FC26 source id + audited 2026/27 stable target name variant"
+            )
+        }
+        val lowerTier = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets.map { target ->
+            ExplicitMapping(
+                sourceClubTeamId = target.sourceClubTeamId,
+                acceptedSourceNames = setOf(target.sourceName),
+                targetCountry = target.country,
+                targetCanonicalName = target.canonicalName,
+                targetTeamId = requireNotNull(
+                    StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)
+                ) { "Missing stable Phase 9.11A2 lower-tier target: ${target.country}/${target.canonicalName}" },
+                reason = "FC26 source id + organizer-verified ${target.competitionName} 2026/27 identity"
+            )
+        }
+        (variants + lowerTier).also { mappings ->
+            require(mappings.size == 89)
+            require(mappings.map { it.sourceClubTeamId }.distinct().size == mappings.size)
+        }
+    }
+
+    private val baseBySourceId = baseExplicitMappings.associateBy { it.sourceClubTeamId }.also { map ->
+        require(map.size == baseExplicitMappings.size) { "Duplicate FC26 source club override." }
+    }
+
+    private val phaseA2BySourceId: Map<Long, ExplicitMapping> by lazy {
+        phaseA2Mappings.associateBy { it.sourceClubTeamId }
     }
 
     private val leagueCountries = mapOf(
@@ -144,12 +138,23 @@ internal object Fc26ClubMappingRegistry {
     fun countryFor(source: Fc26SourceClub): String? = source.leagueId?.let(leagueCountries::get)
 
     fun explicitMappingFor(source: Fc26SourceClub): ExplicitMapping? {
-        val mapping = bySourceId[source.sourceClubTeamId] ?: return null
+        val mapping = baseBySourceId[source.sourceClubTeamId]
+            ?: if (EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled()) {
+                phaseA2BySourceId[source.sourceClubTeamId]
+            } else {
+                null
+            }
+            ?: return null
         val normalizedSource = Fc26ClubMatcher.normalize(source.clubName)
         return mapping.takeIf { candidate ->
             candidate.acceptedSourceNames.any { Fc26ClubMatcher.normalize(it) == normalizedSource }
         }
     }
 
-    fun allExplicitMappings(): List<ExplicitMapping> = explicitMappings.toList()
+    fun allExplicitMappings(): List<ExplicitMapping> =
+        if (EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled()) {
+            baseExplicitMappings + phaseA2Mappings
+        } else {
+            baseExplicitMappings.toList()
+        }
 }
