@@ -10,8 +10,10 @@ import java.util.Random
  * determinístico (ou cria um slot interno determinístico quando a liga factual possui mais clubes
  * que o catálogo legado). Nome, divisão e identidade estável vêm do baseline factual.
  *
- * O objetivo é permitir que o FC26 encontre o Team real correto sem fuzzy matching e sem criar uma
- * segunda fonte de verdade para ratings/atributos de jogadores.
+ * A instalação preserva uma fotografia da ordem do catálogo anterior. O GlobalFootballSystem usa
+ * essa fotografia apenas para continuar atribuindo os mesmos IDs aos clubes não estáveis das
+ * divisões inferiores; os clubes factuais materializados passam a usar exclusivamente os IDs do
+ * StableTeamIdentityRegistry.
  */
 object EuropeanFactualClubTargetMaterializer2026_27 {
     enum class MetadataOrigin {
@@ -28,6 +30,80 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         val template: DefaultData.TeamTemplate,
         val metadataOrigin: MetadataOrigin
     )
+
+    data class InstallationReport(
+        val countries: Int,
+        val factualTopFlightClubs: Int,
+        val targetTeamsBefore: Int,
+        val targetTeamsAfter: Int,
+        val metadataOrigins: Map<MetadataOrigin, Int>
+    )
+
+    private val installationLock = Any()
+    @Volatile private var installed = false
+    @Volatile private var installationReport: InstallationReport? = null
+    private val legacyTeamsByCountry = linkedMapOf<String, List<DefaultData.TeamTemplate>>()
+
+    /**
+     * Instala o catálogo factual no backing map já construído pelo DefaultData.
+     *
+     * `countriesMap` é deliberadamente exposto como Map, mas sua construção retorna o MutableMap
+     * interno. Fazemos cast fail-fast aqui para não depender de reflexão nem substituir a API pública
+     * de DefaultData nesta fase.
+     */
+    fun installIntoDefaultData(): InstallationReport {
+        installationReport?.let { return it }
+        synchronized(installationLock) {
+            installationReport?.let { return it }
+
+            val catalog = DefaultData.countriesMap
+            val mutableCatalog = catalog as? MutableMap<String, DefaultData.CountryData>
+                ?: error("DefaultData.countriesMap precisa manter backing MutableMap para materialização factual.")
+            val totalBefore = mutableCatalog.values.sumOf { it.teams.size }
+            val origins = linkedMapOf<MetadataOrigin, Int>().apply {
+                MetadataOrigin.entries.forEach { put(it, 0) }
+            }
+            var factualClubCount = 0
+            var countryCount = 0
+
+            EuropeanDomesticBaseline2026_27.associations
+                .filter { it.coverage == EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT }
+                .forEach { baseline ->
+                    val countryData = mutableCatalog[baseline.country]
+                        ?: error("País verificado ausente do DefaultData: ${baseline.country}")
+                    val legacyTeams = countryData.teams.toList()
+                    legacyTeamsByCountry[baseline.country] = legacyTeams
+                    val targets = materializedTargets(baseline.country, legacyTeams)
+                    targets.forEach { target ->
+                        origins[target.metadataOrigin] = origins.getValue(target.metadataOrigin) + 1
+                    }
+                    factualClubCount += targets.size
+                    countryCount += 1
+                    mutableCatalog[baseline.country] = countryData.copy(
+                        teams = materialize(baseline.country, legacyTeams)
+                    )
+                }
+
+            val report = InstallationReport(
+                countries = countryCount,
+                factualTopFlightClubs = factualClubCount,
+                targetTeamsBefore = totalBefore,
+                targetTeamsAfter = mutableCatalog.values.sumOf { it.teams.size },
+                metadataOrigins = origins.toMap()
+            )
+            installed = true
+            installationReport = report
+            return report
+        }
+    }
+
+    fun isInstalled(): Boolean = installed
+
+    /** Ordem anterior à instalação, usada somente para preservar IDs de clubes não estáveis. */
+    fun legacyTeamsForIdAllocation(country: String): List<DefaultData.TeamTemplate>? =
+        synchronized(installationLock) { legacyTeamsByCountry[country]?.toList() }
+
+    fun currentInstallationReport(): InstallationReport? = installationReport
 
     fun materialize(
         country: String,
@@ -65,23 +141,24 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
 
         val firstDivisionSlots = legacyTeams.filter { it.division == 1 }
         val consumedSlots = hashSetOf<Int>()
+        val explicitTemplates = DefaultData.originalMap[country]?.teams.orEmpty()
 
         return baseline.verifiedTopFlightClubs.mapIndexed { factualIndex, canonicalName ->
             val stableTeamId = requireNotNull(StableTeamIdentityRegistry.idFor(country, canonicalName)) {
                 "Baseline factual sem identidade estável: $country / $canonicalName"
             }
 
-            val existingExplicit = legacyTeams.withIndex().firstOrNull { (_, template) ->
+            val existingExplicit = explicitTemplates.firstOrNull { template ->
                 StableTeamIdentityRegistry.idFor(country, template.name) == stableTeamId
             }
             if (existingExplicit != null) {
-                val firstDivisionIndex = firstDivisionSlots.indexOf(existingExplicit.value)
+                val firstDivisionIndex = firstDivisionSlots.indexOf(existingExplicit)
                 if (firstDivisionIndex >= 0) consumedSlots += firstDivisionIndex
                 return@mapIndexed MaterializedTarget(
                     country = country,
                     stableTeamId = stableTeamId,
                     canonicalName = canonicalName,
-                    template = existingExplicit.value.copy(name = canonicalName, division = 1),
+                    template = existingExplicit.copy(name = canonicalName, division = 1),
                     metadataOrigin = MetadataOrigin.EXISTING_EXPLICIT_TEMPLATE
                 )
             }
