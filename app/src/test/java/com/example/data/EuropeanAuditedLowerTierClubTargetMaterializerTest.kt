@@ -16,6 +16,9 @@ class EuropeanAuditedLowerTierClubTargetMaterializerTest {
 
     private fun installedReport(): EuropeanAuditedLowerTierClubTargetMaterializer2026_27.InstallationReport {
         ApplicationProvider.getApplicationContext<Context>()
+        if (!EuropeanFactualClubTargetMaterializer2026_27.isInstalled()) {
+            EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+        }
         return EuropeanAuditedLowerTierClubTargetMaterializer2026_27.currentInstallationReport()
             ?: EuropeanAuditedLowerTierClubTargetMaterializer2026_27.installIntoDefaultData()
     }
@@ -56,19 +59,31 @@ class EuropeanAuditedLowerTierClubTargetMaterializerTest {
     }
 
     @Test
-    fun `materialization preserves configured division sizes and replaces slots in place`() {
-        val report = installedReport()
+    fun `materialization preserves phase 9_11A1 division sizes and replaces slots in place`() {
+        ApplicationProvider.getApplicationContext<Context>()
+        EuropeanAuditedLowerTierClubTargetMaterializer2026_27.resetForTests()
+        if (!EuropeanFactualClubTargetMaterializer2026_27.isInstalled()) {
+            EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+        }
+
+        val beforeByCountryAndDivision = listOf("Alemanha", "Itália").associateWith { country ->
+            DefaultData.countriesMap.getValue(country).teams
+                .groupingBy { it.division }
+                .eachCount()
+        }
+        val beforeTotal = DefaultData.countriesMap.values.sumOf { it.teams.size }
+
+        val report = EuropeanAuditedLowerTierClubTargetMaterializer2026_27.installIntoDefaultData()
+        val afterTotal = DefaultData.countriesMap.values.sumOf { it.teams.size }
+
+        assertEquals(beforeTotal, afterTotal)
         assertEquals(report.targetTeamsBefore, report.targetTeamsAfter)
-
-        val germany = DefaultData.countriesMap.getValue("Alemanha").teams
-        assertEquals(18, germany.count { it.division == 1 })
-        assertEquals(18, germany.count { it.division == 2 })
-        assertEquals(20, germany.count { it.division == 3 })
-
-        val italy = DefaultData.countriesMap.getValue("Itália").teams
-        assertEquals(20, italy.count { it.division == 1 })
-        assertEquals(20, italy.count { it.division == 2 })
-        assertEquals(60, italy.count { it.division == 3 })
+        listOf("Alemanha", "Itália").forEach { country ->
+            val after = DefaultData.countriesMap.getValue(country).teams
+                .groupingBy { it.division }
+                .eachCount()
+            assertEquals("Division sizes drifted for $country", beforeByCountryAndDivision.getValue(country), after)
+        }
     }
 
     @Test
