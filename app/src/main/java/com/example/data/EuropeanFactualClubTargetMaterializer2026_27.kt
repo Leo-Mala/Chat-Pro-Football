@@ -140,6 +140,7 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         val explicitTemplates = DefaultData.originalMap[country]?.teams.orEmpty()
         val lowerDivisions = legacyTeams.filter { template ->
             if (template.division == 1) return@filter false
+            if (contains(country, template.name)) return@filter false
             val isExplicitTemplate = explicitTemplates.any { it == template }
             if (!isExplicitTemplate) return@filter true
             val stableId = StableTeamIdentityRegistry.idFor(country, template.name)
