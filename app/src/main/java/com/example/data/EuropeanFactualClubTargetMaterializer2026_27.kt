@@ -44,13 +44,6 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
     @Volatile private var installationReport: InstallationReport? = null
     private val legacyTeamsByCountry = linkedMapOf<String, List<DefaultData.TeamTemplate>>()
 
-    /**
-     * Instala o catálogo factual no backing map já construído pelo DefaultData.
-     *
-     * `countriesMap` é deliberadamente exposto como Map, mas sua construção retorna o MutableMap
-     * interno. Fazemos cast fail-fast aqui para não depender de reflexão nem substituir a API pública
-     * de DefaultData nesta fase.
-     */
     fun installIntoDefaultData(): InstallationReport {
         installationReport?.let { return it }
         synchronized(installationLock) {
@@ -73,14 +66,10 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
                     val legacyTeams = countryData.teams.toList()
                     legacyTeamsByCountry[baseline.country] = legacyTeams
                     val targets = materializedTargets(baseline.country, legacyTeams)
-                    targets.forEach { target ->
-                        origins[target.metadataOrigin] = origins.getValue(target.metadataOrigin) + 1
-                    }
+                    targets.forEach { target -> origins[target.metadataOrigin] = origins.getValue(target.metadataOrigin) + 1 }
                     factualClubCount += targets.size
                     countryCount += 1
-                    mutableCatalog[baseline.country] = countryData.copy(
-                        teams = materialize(baseline.country, legacyTeams)
-                    )
+                    mutableCatalog[baseline.country] = countryData.copy(teams = materialize(baseline.country, legacyTeams))
                 }
 
             val report = InstallationReport(
@@ -98,13 +87,11 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
 
     fun isInstalled(): Boolean = installed
 
-    /** Ordem anterior à instalação, usada somente para preservar IDs de clubes não estáveis. */
     fun legacyTeamsForIdAllocation(country: String): List<DefaultData.TeamTemplate>? =
         synchronized(installationLock) { legacyTeamsByCountry[country]?.toList() }
 
     fun currentInstallationReport(): InstallationReport? = installationReport
 
-    /** Restaura o catálogo legado depois de testes JVM para não vazar estado entre classes de teste. */
     internal fun resetForTests() {
         synchronized(installationLock) {
             if (!installed && legacyTeamsByCountry.isEmpty()) return
@@ -120,10 +107,7 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         }
     }
 
-    fun materialize(
-        country: String,
-        legacyTeams: List<DefaultData.TeamTemplate>
-    ): List<DefaultData.TeamTemplate> {
+    fun materialize(country: String, legacyTeams: List<DefaultData.TeamTemplate>): List<DefaultData.TeamTemplate> {
         val baseline = EuropeanDomesticBaseline2026_27.forCountry(country)
             ?.takeIf { it.coverage == EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT }
             ?: return legacyTeams
@@ -146,14 +130,10 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
             val stableId = StableTeamIdentityRegistry.idFor(country, template.name)
             stableId == null || stableId !in promotedStableIds
         }
-
         return targets.map { it.template } + lowerDivisions
     }
 
-    fun materializedTargets(
-        country: String,
-        legacyTeams: List<DefaultData.TeamTemplate>
-    ): List<MaterializedTarget> {
+    fun materializedTargets(country: String, legacyTeams: List<DefaultData.TeamTemplate>): List<MaterializedTarget> {
         val baseline = EuropeanDomesticBaseline2026_27.forCountry(country)
             ?.takeIf { it.coverage == EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT }
             ?: return emptyList()
@@ -214,14 +194,12 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         }
     }
 
-    /**
-     * Installed stable targets exposed to the global ID resolver. Phase 9.11A2 lower-tier targets
-     * join this surface only while their dedicated materializer is installed.
-     */
+    /** Stable target surface used by GlobalFootballSystem, extended only while phase materializers are installed. */
     fun contains(country: String, teamName: String): Boolean =
         installed && (
             isVerifiedCanonicalTarget(country, teamName) ||
-                EuropeanAuditedLowerTierClubTargetMaterializer2026_27.contains(country, teamName)
+                EuropeanAuditedLowerTierClubTargetMaterializer2026_27.contains(country, teamName) ||
+                EuropeanAuditedFactualBaselinesA3Materializer2026_27.contains(country, teamName)
         )
 
     fun stableIdForMaterializedTarget(country: String, teamName: String): Long? =
