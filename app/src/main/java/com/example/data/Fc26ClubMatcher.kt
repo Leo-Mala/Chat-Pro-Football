@@ -53,7 +53,7 @@ data class Fc26ClubCandidateAudit(
  * Conservative club matching.
  *
  * Automatic matching remains restricted to:
- *  1. audited source `club_team_id` -> existing Pro Football `Team.id`;
+ *  1. audited source `club_team_id` -> audited materialized target identity;
  *  2. already-reserved stable club identity when that exact stable target is materialized;
  *  3. the pre-existing exact/explicit-name and unique designator-normalized rules.
  *
@@ -80,9 +80,18 @@ object Fc26ClubMatcher {
         return dataset.sourceClubs.map { source ->
             val explicit = Fc26ClubMappingRegistry.explicitMappingFor(source)
             if (explicit != null) {
-                val target = targetById[explicit.targetTeamId]
-                if (target != null && targetMatchesExplicitIdentity(target, explicit)) {
-                    return@map target.toMatch(source, "explicit source club id: ${explicit.reason}")
+                val explicitCandidates = targets.filter { targetMatchesExplicitIdentity(it, explicit) }
+                when (explicitCandidates.size) {
+                    1 -> return@map explicitCandidates.single().toMatch(
+                        source,
+                        "explicit source club id: ${explicit.reason}"
+                    )
+                    0 -> Unit
+                    else -> return@map ambiguous(
+                        source,
+                        explicitCandidates,
+                        "audited source mapping resolved to multiple targets"
+                    )
                 }
             }
 
@@ -201,11 +210,8 @@ object Fc26ClubMatcher {
         target: Target,
         explicit: Fc26ClubMappingRegistry.ExplicitMapping
     ): Boolean {
-        if (target.team.id != explicit.targetTeamId) return false
-        val stable = StableTeamIdentityRegistry.identityForId(target.team.id)
-        if (stable != null) {
-            return normalize(stable.canonicalName) == normalize(explicit.targetCanonicalName)
-        }
+        if (normalize(target.team.country) != normalize(explicit.targetCountry)) return false
+        if (explicit.targetTeamId != null && target.team.id != explicit.targetTeamId) return false
         return target.names.any { it == normalize(explicit.targetCanonicalName) }
     }
 
