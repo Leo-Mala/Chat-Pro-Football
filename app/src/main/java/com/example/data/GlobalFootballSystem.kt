@@ -112,16 +112,17 @@ object GlobalFootballSystem {
      * baseline factual 2026/27. Um clube procedural que, por coincidência, receba um alias histórico
      * nunca herda a identidade do clube real.
      *
-     * Para os demais templates do catálogo, os slots livres do bloco de 200 IDs do país são
-     * atribuídos em ordem determinística, pulando IDs congelados. Isso evita colisões sem transformar
-     * placeholders domésticos conhecidos em clubes virtuais.
+     * Para clubes não estáveis preservamos a ordem de slots anterior à materialização factual. Isso
+     * evita renumerar clubes das divisões inferiores em novos saves apenas porque a primeira divisão
+     * passou a usar IDs estáveis reservados.
      */
     fun getGlobalId(country: String, teamName: String): Long {
         stableSeedIdFor(country, teamName)?.let { return it }
 
         val countryIndex = keys.indexOf(country)
         if (countryIndex != -1) {
-            val teams = DefaultData.countriesMap[country]?.teams
+            val teams = EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(country)
+                ?: DefaultData.countriesMap[country]?.teams
             if (teams != null) {
                 val nonStableTeams = teams.filter { stableSeedIdFor(country, it.name) == null }
                 val teamIndex = nonStableTeams.indexOfFirst { it.name.equals(teamName, ignoreCase = true) }
@@ -161,8 +162,9 @@ object GlobalFootballSystem {
                 ?: EuropeanAdditionalClubTemplates2026_27
                     .find(identity.country, identity.canonicalName)
                     ?.template
-                ?: DefaultData.getTeamsForCountry(identity.country)
-                    .firstOrNull { template ->
+                ?: DefaultData.countriesMap[identity.country]
+                    ?.teams
+                    ?.firstOrNull { template ->
                         EuropeanFactualClubTargetMaterializer2026_27
                             .stableIdForMaterializedTarget(identity.country, template.name) == id
                     }
