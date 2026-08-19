@@ -58,7 +58,7 @@ object Fc26NormalizedDatasetLoader {
         require(manifest.datasetSource == "FC26") { "FC26 datasetSource inesperado: ${manifest.datasetSource}" }
         require(manifest.datasetVersion.isNotBlank()) { "FC26 datasetVersion vazio." }
         require(manifest.playerCount > 0) { "FC26 manifest sem jogadores." }
-        require(manifest.assetFile.endsWith(".tsv.gz")) { "FC26 assetFile inválido: ${manifest.assetFile}" }
+        require(manifest.assetFile.endsWith(".bin")) { "FC26 assetFile inválido: ${manifest.assetFile}" }
         Fc26MoneyPolicy.requireCompatible(manifest)
 
         val assetPath = "$basePath/${manifest.assetFile}"
