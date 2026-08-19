@@ -19,7 +19,6 @@ internal object Fc26ClubMappingRegistry {
     )
 
     private val baseExplicitMappings = listOf(
-        // Stable England/Spain identities.
         ExplicitMapping(9L, setOf("Liverpool"), "Inglaterra", "Liverpool FC", 3L, "FC26 source id + stable legacy identity"),
         ExplicitMapping(448L, setOf("Athletic Club"), "Espanha", "Athletic Club", 206L, "FC26 source id + stable legacy identity"),
         ExplicitMapping(449L, setOf("Real Betis Balompié"), "Espanha", "Real Betis", 207L, "FC26 source id + audited canonical variant"),
@@ -27,8 +26,6 @@ internal object Fc26ClubMappingRegistry {
         ExplicitMapping(452L, setOf("RCD Espanyol"), "Espanha", "RCD Espanyol de Barcelona", 221L, "FC26 source id + audited canonical variant"),
         ExplicitMapping(459L, setOf("Real Sporting de Gijón"), "Espanha", "Sporting de Gijón", 226L, "FC26 source id + audited canonical variant"),
         ExplicitMapping(242L, setOf("RC Deportivo de La Coruña"), "Espanha", "RC Deportivo", 243L, "FC26 source id + audited canonical variant"),
-
-        // Explicit (non-procedural) templates already materialized in DefaultData.
         ExplicitMapping(100852L, setOf("CD Castellón"), "Espanha", "Castellón", reason = "FC26 source id + explicit Spain TeamTemplate"),
         ExplicitMapping(569L, setOf("Vasco da Gama"), "Brasil", "Vasco", reason = "FC26 source id + explicit Brazil TeamTemplate"),
         ExplicitMapping(1035L, setOf("Atlético Mineiro"), "Brasil", "Atlético-MG", reason = "FC26 source id + explicit Brazil TeamTemplate"),
@@ -45,11 +42,6 @@ internal object Fc26ClubMappingRegistry {
         ExplicitMapping(112670L, setOf("Talleres"), "Argentina", "Talleres Córdoba", reason = "FC26 source id + explicit Argentina TeamTemplate")
     )
 
-    /**
-     * Phase 9.11A2 mappings are activated only while its materializer is installed. This makes the
-     * 9.11A1 baseline reproducible in tests and guarantees that a report can compare before/after
-     * without the new mappings leaking into the historical side of the comparison.
-     */
     private val phaseA2Mappings: List<ExplicitMapping> by lazy {
         val variants = Fc26RemainingClubCoverage2026_27.existingTargetNameVariants.map { variant ->
             ExplicitMapping(
@@ -57,9 +49,9 @@ internal object Fc26ClubMappingRegistry {
                 acceptedSourceNames = setOf(variant.sourceName),
                 targetCountry = variant.country,
                 targetCanonicalName = variant.targetCanonicalName,
-                targetTeamId = requireNotNull(
-                    StableTeamIdentityRegistry.idFor(variant.country, variant.targetCanonicalName)
-                ) { "Missing stable Phase 9.11A2 target: ${variant.country}/${variant.targetCanonicalName}" },
+                targetTeamId = requireNotNull(StableTeamIdentityRegistry.idFor(variant.country, variant.targetCanonicalName)) {
+                    "Missing stable Phase 9.11A2 target: ${variant.country}/${variant.targetCanonicalName}"
+                },
                 reason = "FC26 source id + audited 2026/27 stable target name variant"
             )
         }
@@ -69,9 +61,9 @@ internal object Fc26ClubMappingRegistry {
                 acceptedSourceNames = setOf(target.sourceName),
                 targetCountry = target.country,
                 targetCanonicalName = target.canonicalName,
-                targetTeamId = requireNotNull(
-                    StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)
-                ) { "Missing stable Phase 9.11A2 lower-tier target: ${target.country}/${target.canonicalName}" },
+                targetTeamId = requireNotNull(StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)) {
+                    "Missing stable Phase 9.11A2 lower-tier target: ${target.country}/${target.canonicalName}"
+                },
                 reason = "FC26 source id + organizer-verified ${target.competitionName} 2026/27 identity"
             )
         }
@@ -81,13 +73,30 @@ internal object Fc26ClubMappingRegistry {
         }
     }
 
+    /** Phase 9.11A3 remains exact-id/name scoped and is active only with its materializer. */
+    private val phaseA3Mappings: List<ExplicitMapping> by lazy {
+        Fc26RemainingFactualBaselinesA3_2026_27.factualTargets.map { target ->
+            ExplicitMapping(
+                sourceClubTeamId = target.sourceClubTeamId,
+                acceptedSourceNames = setOf(target.sourceName),
+                targetCountry = target.country,
+                targetCanonicalName = target.canonicalName,
+                targetTeamId = requireNotNull(StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)) {
+                    "Missing stable Phase 9.11A3 target: ${target.country}/${target.canonicalName}"
+                },
+                reason = "FC26 source id + LFP-verified ${target.competitionName} 2026/27 identity"
+            )
+        }.also { mappings ->
+            require(mappings.size == 15)
+            require(mappings.map { it.sourceClubTeamId }.distinct().size == mappings.size)
+        }
+    }
+
     private val baseBySourceId = baseExplicitMappings.associateBy { it.sourceClubTeamId }.also { map ->
         require(map.size == baseExplicitMappings.size) { "Duplicate FC26 source club override." }
     }
-
-    private val phaseA2BySourceId: Map<Long, ExplicitMapping> by lazy {
-        phaseA2Mappings.associateBy { it.sourceClubTeamId }
-    }
+    private val phaseA2BySourceId: Map<Long, ExplicitMapping> by lazy { phaseA2Mappings.associateBy { it.sourceClubTeamId } }
+    private val phaseA3BySourceId: Map<Long, ExplicitMapping> by lazy { phaseA3Mappings.associateBy { it.sourceClubTeamId } }
 
     private val leagueCountries = mapOf(
         7L to "Brasil",
@@ -139,11 +148,12 @@ internal object Fc26ClubMappingRegistry {
 
     fun explicitMappingFor(source: Fc26SourceClub): ExplicitMapping? {
         val mapping = baseBySourceId[source.sourceClubTeamId]
+            ?: if (EuropeanAuditedFactualBaselinesA3Materializer2026_27.isInstalled()) {
+                phaseA3BySourceId[source.sourceClubTeamId]
+            } else null
             ?: if (EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled()) {
                 phaseA2BySourceId[source.sourceClubTeamId]
-            } else {
-                null
-            }
+            } else null
             ?: return null
         val normalizedSource = Fc26ClubMatcher.normalize(source.clubName)
         return mapping.takeIf { candidate ->
@@ -151,10 +161,11 @@ internal object Fc26ClubMappingRegistry {
         }
     }
 
-    fun allExplicitMappings(): List<ExplicitMapping> =
-        if (EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled()) {
+    fun allExplicitMappings(): List<ExplicitMapping> = when {
+        EuropeanAuditedFactualBaselinesA3Materializer2026_27.isInstalled() ->
+            baseExplicitMappings + phaseA2Mappings + phaseA3Mappings
+        EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled() ->
             baseExplicitMappings + phaseA2Mappings
-        } else {
-            baseExplicitMappings.toList()
-        }
+        else -> baseExplicitMappings.toList()
+    }
 }
