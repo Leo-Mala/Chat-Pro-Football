@@ -72,9 +72,7 @@ object Fc26SeedPlanner {
         val freeAgents = dataset.freeAgents.map { Fc26PlayerMapper.toPlayer(it, null) }
         players += freeAgents
 
-        val importedStableIds = players.asSequence().filter { StableRealPlayerIdentity.isRealPlayerId(it.id) }.map { it.id }.toSet()
         val importedDatasetPlayers = mappedClubPlayerCount + freeAgents.size
-        val unresolvedImportedLoans = dataset.players.count { it.stableId in importedStableIds && !it.clubLoanedFrom.isNullOrBlank() }
 
         val report = Fc26SeedReport(
             datasetPlayers = dataset.players.size,
@@ -88,7 +86,10 @@ object Fc26SeedPlanner {
             importedFreeAgents = freeAgents.size,
             datasetLoanPlayers = dataset.manifest.loanedPlayerCount,
             successfullyMappedLoans = 0,
-            unresolvedLoans = unresolvedImportedLoans,
+            // O snapshot não informa duração suficiente para reconstruir PlayerLoan com segurança.
+            // Portanto todos os empréstimos de origem permanecem pendentes nesta fase, inclusive os
+            // jogadores cujo clube atual ainda não existe no universo Pro Football.
+            unresolvedLoans = dataset.manifest.loanedPlayerCount,
             fallbackRostersRequired = fallbackCount,
             clubMatches = matches
         )
