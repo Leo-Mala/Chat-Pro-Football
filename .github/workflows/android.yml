@@ -218,26 +218,23 @@ jobs:
             app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
             app/src/main/assets/football/fc26/fc26_manifest.json
 
-      - name: Download validated club mapping report
-        uses: actions/download-artifact@v4
-        with:
-          name: fc26-club-mapping-report
-          path: reports
-
-      - name: Commit generated asset when absent
+      - name: Commit deterministic generated files when absent
         shell: bash
         env:
           HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
+          # The mapping/performance audit is intentionally NOT committed here.
+          # Runtime timings vary between CI executions and would otherwise create
+          # an endless synchronize -> CI -> bot commit loop. It remains available
+          # as the validation job artifact.
           paths=(
             app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin
             app/src/main/assets/football/fc26/fc26_manifest.json
             reports/fc26_import_report.json
-            reports/fc26_club_mapping_report.json
           )
           if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
-            echo "FC26 asset already committed; nothing to materialize."
+            echo "Deterministic FC26 files already committed; nothing to materialize."
             exit 0
           fi
           git config user.name "github-actions[bot]"
