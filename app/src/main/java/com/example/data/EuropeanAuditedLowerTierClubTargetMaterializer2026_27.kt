@@ -10,10 +10,7 @@ package com.example.data
  * the legacy ordering used to allocate IDs for every unchanged club remain untouched.
  */
 object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
-    enum class MetadataOrigin {
-        EXISTING_EXACT_SLOT,
-        INTERNAL_SLOT_METADATA
-    }
+    enum class MetadataOrigin { EXISTING_EXACT_SLOT, INTERNAL_SLOT_METADATA }
 
     data class MaterializedTarget(
         val sourceClubTeamId: Long,
@@ -47,28 +44,20 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
             require(EuropeanFactualClubTargetMaterializer2026_27.isInstalled()) {
                 "Top-flight factual targets must be installed before Phase 9.11A2 lower tiers."
             }
-
             val mutableCatalog = DefaultData.countriesMap as? MutableMap<String, DefaultData.CountryData>
                 ?: error("DefaultData.countriesMap must retain a MutableMap backing store.")
             val totalBefore = mutableCatalog.values.sumOf { it.teams.size }
-            val origins = linkedMapOf<MetadataOrigin, Int>().apply {
-                MetadataOrigin.entries.forEach { put(it, 0) }
-            }
-
-            val countries = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets
-                .map { it.country }
-                .distinct()
+            val origins = linkedMapOf<MetadataOrigin, Int>().apply { MetadataOrigin.entries.forEach { put(it, 0) } }
+            val countries = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets.map { it.country }.distinct()
 
             countries.forEach { country ->
                 val current = mutableCatalog[country]
                     ?: error("Audited lower-tier country missing from DefaultData: $country")
                 preInstallationTeamsByCountry[country] = current.teams.toList()
                 val targets = materializedTargets(country, current.teams)
-                targets.forEach { target ->
-                    origins[target.metadataOrigin] = origins.getValue(target.metadataOrigin) + 1
-                }
+                targets.forEach { origins[it.metadataOrigin] = origins.getValue(it.metadataOrigin) + 1 }
                 val materialized = current.teams.toMutableList()
-                targets.forEach { target -> materialized[target.slotIndex] = target.template }
+                targets.forEach { materialized[it.slotIndex] = it.template }
                 mutableCatalog[country] = current.copy(teams = materialized.toList())
             }
 
@@ -89,7 +78,6 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
     }
 
     fun isInstalled(): Boolean = installed
-
     fun currentInstallationReport(): InstallationReport? = installationReport
 
     fun contains(country: String, teamName: String): Boolean =
@@ -100,14 +88,9 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
     fun stableIdForMaterializedTarget(country: String, teamName: String): Long? =
         if (contains(country, teamName)) StableTeamIdentityRegistry.idFor(country, teamName) else null
 
-    fun materialize(
-        country: String,
-        currentTeams: List<DefaultData.TeamTemplate>
-    ): List<DefaultData.TeamTemplate> {
+    fun materialize(country: String, currentTeams: List<DefaultData.TeamTemplate>): List<DefaultData.TeamTemplate> {
         val mutable = currentTeams.toMutableList()
-        materializedTargets(country, currentTeams).forEach { target ->
-            mutable[target.slotIndex] = target.template
-        }
+        materializedTargets(country, currentTeams).forEach { mutable[it.slotIndex] = it.template }
         return mutable.toList()
     }
 
@@ -117,64 +100,45 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
     ): List<MaterializedTarget> {
         val audited = Fc26RemainingClubCoverage2026_27.lowerTierForCountry(country)
         if (audited.isEmpty()) return emptyList()
-
         val mutableView = currentTeams.toMutableList()
         val consumed = hashSetOf<Int>()
         return audited.map { target ->
             val stableId = requireNotNull(StableTeamIdentityRegistry.idFor(country, target.canonicalName)) {
                 "Audited lower-tier target missing stable identity: $country/${target.canonicalName}"
             }
-
             val exactIndex = mutableView.indices.firstOrNull { index ->
-                index !in consumed &&
-                    mutableView[index].division == target.division &&
+                index !in consumed && mutableView[index].division == target.division &&
                     mutableView[index].name.equals(target.canonicalName, ignoreCase = true)
             }
             if (exactIndex != null) {
                 consumed += exactIndex
-                val exact = mutableView[exactIndex].copy(
-                    name = target.canonicalName,
-                    division = target.division
-                )
+                val exact = mutableView[exactIndex].copy(name = target.canonicalName, division = target.division)
                 mutableView[exactIndex] = exact
-                return@map target.toMaterialized(
-                    stableId = stableId,
-                    slotIndex = exactIndex,
-                    template = exact,
-                    origin = MetadataOrigin.EXISTING_EXACT_SLOT
-                )
+                return@map target.toMaterialized(stableId, exactIndex, exact, MetadataOrigin.EXISTING_EXACT_SLOT)
             }
-
             val slotIndex = mutableView.indices.firstOrNull { index ->
                 val template = mutableView[index]
-                index !in consumed &&
-                    template.division == target.division &&
+                index !in consumed && template.division == target.division &&
                     StableTeamIdentityRegistry.idFor(country, template.name) == null
             } ?: error(
-                "No safe procedural slot available for $country/${target.canonicalName} " +
-                    "in division ${target.division}; refusing synthetic expansion."
+                "No safe procedural slot available for $country/${target.canonicalName} in division ${target.division}; refusing synthetic expansion."
             )
-
             consumed += slotIndex
             val factualIdentityOnInternalMetadata = mutableView[slotIndex].copy(
                 name = target.canonicalName,
                 division = target.division
             )
             mutableView[slotIndex] = factualIdentityOnInternalMetadata
-            target.toMaterialized(
-                stableId = stableId,
-                slotIndex = slotIndex,
-                template = factualIdentityOnInternalMetadata,
-                origin = MetadataOrigin.INTERNAL_SLOT_METADATA
-            )
+            target.toMaterialized(stableId, slotIndex, factualIdentityOnInternalMetadata, MetadataOrigin.INTERNAL_SLOT_METADATA)
         }
     }
 
     /**
-     * Restores the post-9.11A1 catalog snapshot for deterministic before/after tests.
-     * Call this before resetting the top-flight materializer when reproducing the pre-9.11A1 seed.
+     * Restores the post-9.11A1 catalog snapshot for deterministic before/after tests. A3 is removed
+     * first so historical A2/A1 tests cannot inherit newer factual targets through MainApplication.
      */
     internal fun resetForTests() {
+        EuropeanAuditedFactualBaselinesA3Materializer2026_27.resetForTests()
         synchronized(installationLock) {
             if (!installed && preInstallationTeamsByCountry.isEmpty()) return
             val mutableCatalog = DefaultData.countriesMap as? MutableMap<String, DefaultData.CountryData>
