@@ -900,12 +900,12 @@
   "playersWithoutNationality": 0,
   "duplicatePlayerIds": [],
   "performance": {
-    "seedPlanningMillis": 2390,
-    "roomBulkPersistenceMillis": 1530,
+    "seedPlanningMillis": 2447,
+    "roomBulkPersistenceMillis": 1579,
     "databaseBytesAfterClose": 66920448,
-    "heapUsedBeforePlanBytes": 287471096,
-    "heapUsedAfterPlanBytes": 291641152,
-    "heapDeltaDuringPlanBytes": 4170056
+    "heapUsedBeforePlanBytes": 261772936,
+    "heapUsedAfterPlanBytes": 285170064,
+    "heapDeltaDuringPlanBytes": 23397128
   },
   "reloadProof": {
     "sourcePlayerId": 232580,
