@@ -36,7 +36,7 @@ Materialize the already-verified 2026/27 European top-flight club identities int
 
 ## Validated result
 
-The dedicated Phase 9.11A1 CI regenerated the result from the real FC26 asset on head `9e4925addea134c8abf985e5e6d0325e967263b4`.
+The dedicated Phase 9.11A1 CI regenerated the result from the real FC26 asset and the final head passed the full Android gate.
 
 - verified countries: 20
 - factual top-flight clubs materialized: 320
@@ -66,4 +66,14 @@ The detailed deterministic diagnostics remain CI artifacts (`fc26_factual_target
 
 ## Final gate
 
-Phase completion requires the full Android CI checkpoint (Debug APK, unit/regression/migration-save safety, 20/100-season stress and Room schema V21) to pass on the final branch head. The PR must return to Draft after that checkpoint and must not be merged without fresh explicit user authorization.
+Final validated head before this documentation-only marker: `70b74286e85a48c200e2fd4fc35ac92362df4c53`.
+
+- `FC26 Factual Club Target Materialization #11`: SUCCESS
+- `Android CI Build #534`: SUCCESS
+- Debug APK: SUCCESS
+- core regression / migration-save safety: SUCCESS
+- 20/100-season stress: SUCCESS
+- Room schema V21: SUCCESS
+- Room migration: none
+
+This documentation-only marker does not change runtime, matching, IDs, datasets, tests, Room schema, or application behavior. The PR must return to Draft and must not be merged without fresh explicit user authorization.
