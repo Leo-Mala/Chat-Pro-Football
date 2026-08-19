@@ -11,6 +11,7 @@ on:
       - 'app/src/main/java/com/example/data/EuropeanDomesticBaseline2026_27.kt'
       - 'app/src/main/java/com/example/data/StableTeamIdentityRegistry.kt'
       - 'app/src/test/java/com/example/data/EuropeanFactualClubTargetMaterializerTest.kt'
+      - 'app/src/test/java/com/example/data/Fc26LegacyTeamIdPreservationTest.kt'
       - 'app/src/test/java/com/example/data/Fc26FactualTargetMaterializationReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26ClubCandidateReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26FullSeedIntegrationTest.kt'
@@ -88,6 +89,7 @@ jobs:
             --tests com.example.data.EuropeanFactualClubTargetMaterializerTest \
             --tests com.example.data.EuropeanStableTeamIdentityTest \
             --tests com.example.data.Fc26ClubMatcherTest \
+            --tests com.example.data.Fc26LegacyTeamIdPreservationTest \
             --tests com.example.data.Fc26FactualTargetMaterializationReportTest \
             --tests com.example.data.Fc26ClubCandidateReportTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
@@ -110,6 +112,7 @@ jobs:
           assert materialization['verifiedCountries'] == 20
           assert materialization['factualTopFlightClubs'] == 320
           assert after['stableTargetsMissing'] == 0
+          assert after['stableTargetsPresentButUnresolved'] == 0
           assert after['importedPlayers'] >= 4583
           assert safety['fuzzyAutoMatchingIntroduced'] is False
           assert safety['fc26RatingsMutated'] is False
