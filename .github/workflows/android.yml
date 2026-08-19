@@ -8,6 +8,8 @@ on:
       - 'app/**'
       - '!app/schemas/**'
       - 'tools/europe_importer/**'
+      - 'tools/fc26/**'
+      - 'reports/fc26_*'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
@@ -26,9 +28,7 @@ concurrency:
 
 jobs:
   validation:
-    # Drafts não alocam runner. O checkpoint consolidado pode ser disparado manualmente
-    # via workflow_dispatch; PRs não-draft só executam em novos commits/reaberturas.
-    # Este é o head candidato final da Fase 9.1-9.3 para merge.
+    # Drafts não alocam runner. PRs prontos executam o checkpoint consolidado.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -52,6 +52,20 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tools/europe_importer/tests -t .
 
+      - name: Bootstrap deterministic FC26 player asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+
+      - name: Validate checked-in FC26 player asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/validate_fc26.py \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
+            app/src/main/assets/football/fc26/fc26_manifest.json
+
       - name: Setup google-services.json
         env:
           GOOGLE_SERVICES_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -65,7 +79,7 @@ jobs:
               echo "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
             fi
           else
-            cat << 'EOF' > app/google-services.json
+            cat << 'GOOGLE_EOF' > app/google-services.json
           {
             "project_info": {
               "project_number": "1234567890",
@@ -87,7 +101,7 @@ jobs:
             ],
             "configuration_version": "1"
           }
-          EOF
+          GOOGLE_EOF
           fi
 
       - name: Setup Debug Keystore
@@ -119,6 +133,13 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+
+      - name: Upload FC26 mapping and performance audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: fc26-club-mapping-report
+          path: reports/fc26_club_mapping_report.json
+          if-no-files-found: error
 
       - name: Run 20 and 100 season stress tests
         shell: bash
@@ -171,3 +192,53 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+
+  materialize-fc26-asset:
+    name: Materialize deterministic FC26 asset
+    needs: validation
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/fc26-world-player-database'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Materialize exact snapshot asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
+            app/src/main/assets/football/fc26/fc26_manifest.json
+
+      - name: Commit deterministic generated files when absent
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          # The mapping/performance audit is intentionally NOT committed here.
+          # Runtime timings vary between CI executions and would otherwise create
+          # an endless synchronize -> CI -> bot commit loop. It remains available
+          # as the validation job artifact.
+          paths=(
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin
+            app/src/main/assets/football/fc26/fc26_manifest.json
+            reports/fc26_import_report.json
+          )
+          if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
+            echo "Deterministic FC26 files already committed; nothing to materialize."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "${paths[@]}"
+          git commit -m "data: materialize deterministic FC26 player asset"
+          git push origin "HEAD:${HEAD_BRANCH}"

@@ -6,9 +6,8 @@ import java.util.WeakHashMap
 /**
  * Ponte mínima entre os assets canônicos e o fluxo de criação de uma carreira.
  *
- * O runtime só expõe datasets FACTUAL + VALIDATED. O estado preparado é efêmero, associado à
- * instância do repositório do slot e consumido uma única vez pela transação inicial de Team/Player.
- * Reparos, carregamentos e saves existentes não preparam este estado.
+ * O runtime europeu continua disponível como fallback. Quando o snapshot FC26 VALIDATED está
+ * presente, ele assume o seed de jogadores do novo save, sem reimportar dados em saves existentes.
  */
 object EuropeanFactualAssetRuntime {
     @Volatile
@@ -40,19 +39,125 @@ object EuropeanNewSaveSeedCoordinator {
     )
 
     private val lock = Any()
-    private val pendingByRepository = WeakHashMap<Any, PendingSeed>()
+    private val pendingRequestByRepository = WeakHashMap<Any, List<Team>>()
+    private val pendingSeedByRepository = WeakHashMap<Any, PendingSeed>()
 
     /**
-     * Chamado exclusivamente pelo gerador de temporada usado na criação inicial do novo save.
-     * Sem dataset VALIDATED, limpa qualquer estado anterior e preserva 100% do fluxo procedural.
+     * Registra somente uma intenção de seed. Nenhum asset é lido aqui.
+     *
+     * `generateSeasonFixtures()` também é reutilizado por viradas/reinícios de temporada. Carregar
+     * 18 mil jogadores nesse ponto faria o snapshot inicial contaminar a carreira e os testes.
+     * O materialization acontece apenas quando o fluxo de novo save persiste a MESMA lista em
+     * `saveTeams` e, em seguida, consome o resultado em `savePlayers`.
      */
     fun prepare(repository: GameRepository, teams: List<Team>) {
-        val dataset = EuropeanFactualAssetRuntime.loadValidatedFactualOrNull()
-        if (dataset == null) {
-            clear(repository)
-            return
+        synchronized(lock) {
+            pendingRequestByRepository[repository] = teams
+            pendingSeedByRepository.remove(repository)
         }
-        prepareForDataset(repository, teams, dataset)
+    }
+
+    private fun buildPendingSeed(teams: List<Team>): PendingSeed? {
+        val fc26 = Fc26FactualAssetRuntime.loadValidatedOrNull()
+        if (fc26 != null) {
+            val plan = Fc26SeedPlanner.build(
+                teams = teams,
+                dataset = fc26,
+                proceduralRosterFactory = { team ->
+                    DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+                }
+            )
+            return PendingSeed(teams = teams, players = plan.players, loans = plan.loans)
+        }
+
+        val dataset = EuropeanFactualAssetRuntime.loadValidatedFactualOrNull() ?: return null
+        val existingIds = teams.mapTo(hashSetOf()) { it.id }
+        val loanEndpointIds = dataset.loans
+            .flatMap { listOf(it.ownerTeamId, it.borrowerTeamId) }
+            .distinct()
+        val externalLoanTeams = loanEndpointIds
+            .filterNot(existingIds::contains)
+            .map { teamId ->
+                requireNotNull(GlobalFootballSystem.getTeamByGlobalId(teamId)) {
+                    "Endpoint de empréstimo factual não pode ser materializado pelo resolvedor global: teamId=$teamId"
+                }
+            }
+        val seedTeams = teams + externalLoanTeams
+        require(seedTeams.map { it.id }.distinct().size == seedTeams.size) {
+            "Seed de novo save contém teamId duplicado após materializar endpoints de empréstimo."
+        }
+        val factualTeams = dataset.applyClubFacts(seedTeams)
+        val plan = dataset.buildSeedPlan(
+            teams = factualTeams,
+            proceduralRosterFactory = { team ->
+                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            }
+        )
+        require(plan.blockedLoans.isEmpty()) {
+            "Dataset factual contém empréstimos que não podem ser materializados no novo save: " +
+                plan.blockedLoans.joinToString { it.reason }
+        }
+        return PendingSeed(teams = factualTeams, players = plan.players, loans = plan.loans)
+    }
+
+    private fun materializeRequestedSeed(repositoryKey: Any): PendingSeed? {
+        synchronized(lock) {
+            pendingSeedByRepository[repositoryKey]?.let { return it }
+        }
+        val requestedTeams = synchronized(lock) {
+            pendingRequestByRepository.remove(repositoryKey)
+        } ?: return null
+
+        val seed = buildPendingSeed(requestedTeams)
+        synchronized(lock) {
+            if (seed == null) {
+                pendingSeedByRepository.remove(repositoryKey)
+            } else {
+                pendingSeedByRepository[repositoryKey] = seed
+            }
+        }
+        return seed
+    }
+
+    /**
+     * A requisição lazy só é válida se `saveTeams` receber exatamente a mesma instância de lista
+     * registrada pelo checkpoint de novo save. Uma geração de calendário antiga não pode, portanto,
+     * ser consumida por um saveTeams futuro e não relacionado, ainda que contenha os mesmos clubes.
+     */
+    private fun teamsForKey(repositoryKey: Any, fallback: List<Team>): List<Team> {
+        synchronized(lock) {
+            pendingSeedByRepository[repositoryKey]?.let { return it.teams }
+            val requested = pendingRequestByRepository[repositoryKey] ?: return fallback
+            if (requested !== fallback) {
+                pendingRequestByRepository.remove(repositoryKey)
+                pendingSeedByRepository.remove(repositoryKey)
+                return fallback
+            }
+        }
+        return materializeRequestedSeed(repositoryKey)?.teams ?: fallback
+    }
+
+    internal fun prepareForFc26(
+        repositoryKey: Any,
+        teams: List<Team>,
+        dataset: Fc26Dataset
+    ): Fc26SeedReport {
+        val plan = Fc26SeedPlanner.build(
+            teams = teams,
+            dataset = dataset,
+            proceduralRosterFactory = { team ->
+                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            }
+        )
+        synchronized(lock) {
+            pendingRequestByRepository.remove(repositoryKey)
+            pendingSeedByRepository[repositoryKey] = PendingSeed(
+                teams = teams,
+                players = plan.players,
+                loans = plan.loans
+            )
+        }
+        return plan.report
     }
 
     internal fun prepareForDataset(
@@ -89,7 +194,8 @@ object EuropeanNewSaveSeedCoordinator {
                 plan.blockedLoans.joinToString { it.reason }
         }
         synchronized(lock) {
-            pendingByRepository[repositoryKey] = PendingSeed(
+            pendingRequestByRepository.remove(repositoryKey)
+            pendingSeedByRepository[repositoryKey] = PendingSeed(
                 teams = factualTeams,
                 players = plan.players,
                 loans = plan.loans
@@ -98,17 +204,20 @@ object EuropeanNewSaveSeedCoordinator {
     }
 
     fun teamsFor(repository: GameRepository, fallback: List<Team>): List<Team> =
-        synchronized(lock) { pendingByRepository[repository]?.teams ?: fallback }
+        teamsForKey(repository, fallback)
 
     internal fun teamsForTesting(repositoryKey: Any, fallback: List<Team>): List<Team> =
-        synchronized(lock) { pendingByRepository[repositoryKey]?.teams ?: fallback }
+        teamsForKey(repositoryKey, fallback)
 
     fun consumePlayers(repository: GameRepository, fallback: List<Player>): PlayerSeed =
         consumePlayersForKey(repository, fallback)
 
     internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed =
         synchronized(lock) {
-            val pending = pendingByRepository.remove(repositoryKey)
+            // Não materializa a partir de uma requisição crua: somente saveTeams pode fazê-lo.
+            // Isso congela a ordem canônica do novo save: prepare -> saveTeams -> savePlayers.
+            pendingRequestByRepository.remove(repositoryKey)
+            val pending = pendingSeedByRepository.remove(repositoryKey)
                 ?: return@synchronized PlayerSeed(fallback, emptyList(), overridden = false)
             PlayerSeed(pending.players, pending.loans, overridden = true)
         }
@@ -119,7 +228,8 @@ object EuropeanNewSaveSeedCoordinator {
 
     internal fun clearForKey(repositoryKey: Any) {
         synchronized(lock) {
-            pendingByRepository.remove(repositoryKey)
+            pendingRequestByRepository.remove(repositoryKey)
+            pendingSeedByRepository.remove(repositoryKey)
         }
     }
 }
