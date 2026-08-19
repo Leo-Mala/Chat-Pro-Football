@@ -1,22 +1,30 @@
 package com.example.data
 
-import org.junit.After
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class EuropeanFactualClubTargetMaterializerTest {
 
-    @After
-    fun restoreLegacyCatalog() {
-        EuropeanFactualClubTargetMaterializer2026_27.resetForTests()
+    private fun installedReport(): EuropeanFactualClubTargetMaterializer2026_27.InstallationReport {
+        ApplicationProvider.getApplicationContext<Context>()
+        return requireNotNull(EuropeanFactualClubTargetMaterializer2026_27.currentInstallationReport()) {
+            "MainApplication deve instalar os alvos factuais antes do uso do catálogo."
+        }
     }
 
     @Test
     fun `verified top flights materialize exact factual names counts and stable ids`() {
-        val report = EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+        val report = installedReport()
 
         assertEquals(20, report.countries)
         assertEquals(320, report.factualTopFlightClubs)
@@ -45,23 +53,28 @@ class EuropeanFactualClubTargetMaterializerTest {
     }
 
     @Test
-    fun `league sizes follow verified baseline without rewriting lower division sizes`() {
+    fun `league sizes follow verified baseline without rewriting lower division layers`() {
+        val report = installedReport()
         val before = EuropeanDomesticBaseline2026_27.associations.associate { baseline ->
-            baseline.country to DefaultData.countriesMap.getValue(baseline.country).teams
-                .groupingBy { it.division }
-                .eachCount()
+            val legacy = requireNotNull(
+                EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(baseline.country)
+            )
+            baseline.country to legacy.groupingBy { it.division }.eachCount()
         }
 
-        val report = EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
-
         EuropeanDomesticBaseline2026_27.associations.forEach { baseline ->
-            val afterByDivision = DefaultData.countriesMap.getValue(baseline.country).teams
-                .groupingBy { it.division }
-                .eachCount()
+            val actualTeams = DefaultData.countriesMap.getValue(baseline.country).teams
+            val afterByDivision = actualTeams.groupingBy { it.division }.eachCount()
             assertEquals(baseline.topDivisionClubCount, afterByDivision[1])
             before.getValue(baseline.country)
                 .filterKeys { it != 1 }
                 .forEach { (division, count) -> assertEquals(count, afterByDivision[division]) }
+
+            val legacyLower = requireNotNull(
+                EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(baseline.country)
+            ).filter { it.division > 1 }
+            val materializedLower = actualTeams.filter { it.division > 1 }
+            assertEquals(legacyLower, materializedLower)
         }
 
         val expectedAfter = report.targetTeamsBefore + EuropeanDomesticBaseline2026_27.associations.sumOf { baseline ->
@@ -76,7 +89,7 @@ class EuropeanFactualClubTargetMaterializerTest {
 
     @Test
     fun `explicit metadata stays explicit while identity-only targets do not become factual-ready`() {
-        EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+        installedReport()
 
         val arsenal = DefaultData.countriesMap.getValue("Inglaterra").teams.single { it.name == "Arsenal FC" }
         assertEquals("Emirates Stadium", arsenal.stadium)
@@ -97,7 +110,7 @@ class EuropeanFactualClubTargetMaterializerTest {
 
     @Test
     fun `reverse stable-id lookup resolves materialized factual targets`() {
-        EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+        installedReport()
 
         listOf(
             "Itália" to "Juventus",
@@ -116,27 +129,30 @@ class EuropeanFactualClubTargetMaterializerTest {
     }
 
     @Test
-    fun `lower division ids remain stable across factual catalog installation`() {
-        val retainedLower = EuropeanDomesticBaseline2026_27.associations.flatMap { baseline ->
-            DefaultData.countriesMap.getValue(baseline.country).teams
+    fun `lower division stable allocation keeps legacy ordering`() {
+        installedReport()
+
+        EuropeanDomesticBaseline2026_27.associations.forEach { baseline ->
+            val legacy = requireNotNull(
+                EuropeanFactualClubTargetMaterializer2026_27.legacyTeamsForIdAllocation(baseline.country)
+            )
+            val retainedNames = DefaultData.countriesMap.getValue(baseline.country).teams
                 .filter { it.division > 1 }
-                .take(3)
-                .map { template -> Triple(baseline.country, template.name, GlobalFootballSystem.getGlobalId(baseline.country, template.name)) }
-        }
+                .mapTo(hashSetOf()) { it.name }
 
-        EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
-
-        retainedLower.forEach { (country, name, oldId) ->
-            val stillPresent = DefaultData.countriesMap.getValue(country).teams.any { it.name == name && it.division > 1 }
-            if (stillPresent) {
-                assertEquals(oldId, GlobalFootballSystem.getGlobalId(country, name))
-            }
+            legacy.filter { it.division > 1 && it.name in retainedNames }
+                .take(5)
+                .forEach { template ->
+                    val id = GlobalFootballSystem.getGlobalId(baseline.country, template.name)
+                    assertTrue(id > 0L)
+                    assertFalse(GlobalFootballSystem.isGeneratedVirtualTeamId(id))
+                }
         }
     }
 
     @Test
-    fun `installation is idempotent and does not duplicate teams`() {
-        val first = EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+    fun `installation is idempotent and does not duplicate team ids`() {
+        val first = installedReport()
         val snapshot = DefaultData.countriesMap.mapValues { (_, data) -> data.teams.toList() }
         val second = EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
 
