@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/fc26/validate_fc26.py \
-            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.gz \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
             app/src/main/assets/football/fc26/fc26_manifest.json
 
       - name: Setup google-services.json
@@ -208,7 +208,7 @@ jobs:
           set -euo pipefail
           python3 tools/fc26/bootstrap_fc26_asset.py
           python3 tools/fc26/validate_fc26.py \
-            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.gz \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
             app/src/main/assets/football/fc26/fc26_manifest.json
 
       - name: Commit generated asset when absent
@@ -218,7 +218,7 @@ jobs:
         run: |
           set -euo pipefail
           paths=(
-            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.gz
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin
             app/src/main/assets/football/fc26/fc26_manifest.json
             reports/fc26_import_report.json
           )
