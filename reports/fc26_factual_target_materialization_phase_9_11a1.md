@@ -63,3 +63,7 @@ The only lost match is FC26 source club `68` / `FC Metz` (26 players). Its forme
 All 30 redirects detected among previously matched clubs now resolve to stable factual identities; no non-stable club ID is silently redirected.
 
 The detailed deterministic diagnostics remain CI artifacts (`fc26_factual_target_materialization_report.json`, club mapping, unmatched candidates and missing-target report) rather than being permanently versioned as large generated files.
+
+## Final gate
+
+Phase completion requires the full Android CI checkpoint (Debug APK, unit/regression/migration-save safety, 20/100-season stress and Room schema V21) to pass on the final branch head. The PR must return to Draft after that checkpoint and must not be merged without fresh explicit user authorization.
