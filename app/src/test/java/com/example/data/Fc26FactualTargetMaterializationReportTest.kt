@@ -22,13 +22,16 @@ class Fc26FactualTargetMaterializationReportTest {
         assertEquals(18_405, dataset.players.size)
 
         // Reproduz a 9.11A com o catálogo legado e as regras de ID anteriores à materialização.
+        // A fase 9.11A2 precisa ser removida primeiro, pois seu snapshot começa após a instalação A1.
+        EuropeanAuditedLowerTierClubTargetMaterializer2026_27.resetForTests()
         EuropeanFactualClubTargetMaterializer2026_27.resetForTests()
         val beforeTeams = buildCurrentProFootballUniverse()
         assertEquals(beforeTeams.size, beforeTeams.map { it.id }.distinct().size)
         val beforePlan = buildPlan(beforeTeams, dataset)
         val beforeAudits = Fc26ClubMatcher.auditCandidates(dataset, beforeTeams)
         val beforeStableMissing = beforeAudits.filter {
-            it.materializationStatus == Fc26TargetMaterializationStatus.STABLE_TARGET_MISSING
+            it.materializationStatus == Fc26TargetMaterializationStatus.STABLE_TARGET_MISSING &&
+                belongsToPhaseA1TopFlight(it)
         }
 
         assertEquals(2_544, beforeTeams.size)
@@ -49,10 +52,12 @@ class Fc26FactualTargetMaterializationReportTest {
         val plan = buildPlan(teams, dataset)
         val audits = Fc26ClubMatcher.auditCandidates(dataset, teams)
         val stableMissing = audits.filter {
-            it.materializationStatus == Fc26TargetMaterializationStatus.STABLE_TARGET_MISSING
+            it.materializationStatus == Fc26TargetMaterializationStatus.STABLE_TARGET_MISSING &&
+                belongsToPhaseA1TopFlight(it)
         }
         val stablePresentButUnresolved = audits.filter {
-            it.materializationStatus == Fc26TargetMaterializationStatus.STABLE_TARGET_PRESENT
+            it.materializationStatus == Fc26TargetMaterializationStatus.STABLE_TARGET_PRESENT &&
+                belongsToPhaseA1TopFlight(it)
         }
 
         assertTrue("A materialização não pode reduzir cobertura agregada da fase 9.11A", plan.report.matchedClubs >= beforePlan.report.matchedClubs)
@@ -215,6 +220,13 @@ class Fc26FactualTargetMaterializationReportTest {
                 "fallback=${plan.report.fallbackRostersRequired} stableMissing=${stableMissing.size} " +
                 "gained=${gained.size} lost=${lost.size} redirected=${redirected.size}"
         )
+    }
+
+    private fun belongsToPhaseA1TopFlight(audit: Fc26ClubCandidateAudit): Boolean {
+        val country = audit.sourceCountry ?: return false
+        val expectedName = audit.expectedStableTeamName ?: return false
+        val baseline = EuropeanDomesticBaseline2026_27.forCountry(country) ?: return false
+        return baseline.verifiedTopFlightClubs.any { it.equals(expectedName, ignoreCase = true) }
     }
 
     private fun buildPlan(teams: List<Team>, dataset: Fc26Dataset): Fc26SeedPlanner.Plan =
