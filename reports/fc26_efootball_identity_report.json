@@ -1,0 +1,125 @@
+{
+  "anomalies": {
+    "ageDifference0to1": 13219,
+    "ageDifference2to4": 477,
+    "ageDifference5Plus": 96,
+    "ageUnknown": 22164,
+    "duplicateKonamiIds": 0,
+    "duplicateSecureFc26Ids": 0,
+    "duplicateSecureKonamiIds": 0,
+    "probableRecordsWithMultipleCandidates": 5
+  },
+  "classification": {
+    "groupA": 9234,
+    "groupB": 1542,
+    "groupC1": 4281,
+    "groupC2": 16689,
+    "groupC3": 2067,
+    "groupD": 491,
+    "groupE": 1652,
+    "sum": 35956
+  },
+  "crosswalks": {
+    "allPositionCodesValidated": true,
+    "nationalitiesAutoAccepted": 73,
+    "nationalityCodesInferred": 138,
+    "positionsMapped": 13
+  },
+  "deterministicReports": [
+    "fc26_efootball_identity_report.json",
+    "fc26_efootball_secure_matches.json",
+    "fc26_efootball_probable_matches.json",
+    "efootball_only_candidates.json",
+    "efootball_rejected_records.json",
+    "efootball_nationality_crosswalk.json",
+    "efootball_position_crosswalk.json"
+  ],
+  "efootball2026": {
+    "nonSystem": 35553,
+    "system": 403,
+    "total": 35956
+  },
+  "fc26": {
+    "playerCount": 18405,
+    "sourceSha256MatchesExpected": true,
+    "uniquePlayerIds": 18405
+  },
+  "matching": {
+    "baselineCorrection": {
+      "correctB2UniqueRecordCount": 1514,
+      "previousB2Value1519WasCandidatePairCount": true,
+      "reason": "Group counts represent unique PlayersDB people; candidate pairs are reported separately when one record has multiple FC26 candidates."
+    },
+    "efootballNonSystemCoveredBySecureFc26Percent": 25.9725,
+    "probableByLevel": {
+      "B1": 28,
+      "B2": 1514
+    },
+    "probableMetrics": {
+      "b1Records": 28,
+      "b2CandidatePairs": 1519,
+      "b2Records": 1514,
+      "probableCandidatePairs": 1547,
+      "probableRecords": 1542
+    },
+    "secureAndProbableCoverageFc26Percent": 58.5493,
+    "secureByLevel": {
+      "A1": 5609,
+      "A2": 3599,
+      "A3": 26
+    },
+    "secureCoverageFc26Percent": 50.1711
+  },
+  "phase": "9.11A0",
+  "playersDb": {
+    "baseKonamiIdPopulated": 0,
+    "baseKonamiIdStatus": "BASE_KONAMI_ID_NOT_AVAILABLE",
+    "duplicateKonamiIds": [],
+    "fieldCount": 29,
+    "fields": [
+      "konamiID", "playerName", "shirtName", "fullName", "jpPlayerName", "cnPlayerName", "fakeName", "fakeShirtName", "fakeJpPlayerName", "fakeCnPlayerName", "nationalities", "age", "birthdate", "height", "weight", "strongFoot", "strongHand", "starRating", "registeredPosition", "positions", "youthClub", "update_at", "info_id", "added", "source", "game_versions", "real_face", "is_system", "base_konami_id"
+    ],
+    "jsonlCsvEquivalent": true,
+    "semanticMismatchCount": 0,
+    "totalRecords": 103559,
+    "uniqueKonamiIds": 103559
+  },
+  "policy": {
+    "fc26RemainsPrimary": true,
+    "importsEfootballOnlyPlayers": false,
+    "mutatesFc26RatingsPotentialAttributesOrClubs": false,
+    "playersDbUsage": "IDENTITY_COMPLEMENT_ONLY",
+    "redistributionPermission": "UNRESOLVED_DO_NOT_BUNDLE_RAW_PLAYERSDB"
+  },
+  "quality": {
+    "heightExactPercent": 70.4137,
+    "heightWithin1CmPercent": 81.6872,
+    "heightWithin2CmPercent": 88.3691,
+    "nationalityAgreementPercent": 99.1082,
+    "nationalityAgreementSampleCount": 8410,
+    "positionCompatibilityPercent": 99.5776,
+    "preferredFootAgreementPercent": 96.8919,
+    "weightExactPercent": 44.2928,
+    "weightWithin1KgPercent": 55.9129,
+    "weightWithin2KgPercent": 65.2588
+  },
+  "schemaVersion": 1,
+  "sourceMetadata": {
+    "fc26": {
+      "sha256": "4399cb2bcc2a14a2872e76a118f8f4bf64d7954503949c75751a14f33863e3b2",
+      "sourceFile": "FC26_20250921.csv",
+      "sourceVersion": "2025-09-19"
+    },
+    "playersDbCsv": {
+      "sha256": "f4597cdd6d8c4ec0df31f9567f01bd93a7b571fc611b90fd6ab815d3f60dbcda",
+      "sourceFile": "PlayersDB_20260819.csv",
+      "sourceVersion": "2026-08-19"
+    },
+    "playersDbJsonl": {
+      "sha256": "d44718c3b0b16084110d2c2439e0c23f610f3525db3ab233b880b849c34c690c",
+      "sourceFile": "PlayersDB_20260819.jsonl",
+      "sourceVersion": "2026-08-19"
+    }
+  },
+  "volatilePerformanceReport": "fc26_efootball_performance.json"
+}
