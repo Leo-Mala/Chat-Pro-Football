@@ -47,8 +47,8 @@ object EuropeanNewSaveSeedCoordinator {
      *
      * `generateSeasonFixtures()` também é reutilizado por viradas/reinícios de temporada. Carregar
      * 18 mil jogadores nesse ponto faria o snapshot inicial contaminar a carreira e os testes.
-     * O materialization acontece apenas quando o fluxo de novo save persiste `saveTeams`/`savePlayers`
-     * logo depois do calendário em memória.
+     * O materialization acontece apenas quando o fluxo de novo save persiste a MESMA lista em
+     * `saveTeams` e, em seguida, consome o resultado em `savePlayers`.
      */
     fun prepare(repository: GameRepository, teams: List<Team>) {
         synchronized(lock) {
@@ -119,6 +119,24 @@ object EuropeanNewSaveSeedCoordinator {
         return seed
     }
 
+    /**
+     * A requisição lazy só é válida se `saveTeams` receber exatamente a mesma instância de lista
+     * registrada pelo checkpoint de novo save. Uma geração de calendário antiga não pode, portanto,
+     * ser consumida por um saveTeams futuro e não relacionado, ainda que contenha os mesmos clubes.
+     */
+    private fun teamsForKey(repositoryKey: Any, fallback: List<Team>): List<Team> {
+        synchronized(lock) {
+            pendingSeedByRepository[repositoryKey]?.let { return it.teams }
+            val requested = pendingRequestByRepository[repositoryKey] ?: return fallback
+            if (requested !== fallback) {
+                pendingRequestByRepository.remove(repositoryKey)
+                pendingSeedByRepository.remove(repositoryKey)
+                return fallback
+            }
+        }
+        return materializeRequestedSeed(repositoryKey)?.teams ?: fallback
+    }
+
     internal fun prepareForFc26(
         repositoryKey: Any,
         teams: List<Team>,
@@ -186,23 +204,23 @@ object EuropeanNewSaveSeedCoordinator {
     }
 
     fun teamsFor(repository: GameRepository, fallback: List<Team>): List<Team> =
-        materializeRequestedSeed(repository)?.teams ?: fallback
+        teamsForKey(repository, fallback)
 
     internal fun teamsForTesting(repositoryKey: Any, fallback: List<Team>): List<Team> =
-        materializeRequestedSeed(repositoryKey)?.teams ?: fallback
+        teamsForKey(repositoryKey, fallback)
 
     fun consumePlayers(repository: GameRepository, fallback: List<Player>): PlayerSeed =
         consumePlayersForKey(repository, fallback)
 
-    internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed {
-        materializeRequestedSeed(repositoryKey)
-        return synchronized(lock) {
+    internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed =
+        synchronized(lock) {
+            // Não materializa a partir de uma requisição crua: somente saveTeams pode fazê-lo.
+            // Isso congela a ordem canônica do novo save: prepare -> saveTeams -> savePlayers.
             pendingRequestByRepository.remove(repositoryKey)
             val pending = pendingSeedByRepository.remove(repositoryKey)
                 ?: return@synchronized PlayerSeed(fallback, emptyList(), overridden = false)
             PlayerSeed(pending.players, pending.loans, overridden = true)
         }
-    }
 
     fun clear(repository: GameRepository) {
         clearForKey(repository)
