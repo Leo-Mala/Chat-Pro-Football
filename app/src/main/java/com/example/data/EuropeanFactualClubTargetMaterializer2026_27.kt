@@ -140,7 +140,7 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         val explicitTemplates = DefaultData.originalMap[country]?.teams.orEmpty()
         val lowerDivisions = legacyTeams.filter { template ->
             if (template.division == 1) return@filter false
-            if (contains(country, template.name)) return@filter false
+            if (isVerifiedCanonicalTarget(country, template.name)) return@filter false
             val isExplicitTemplate = explicitTemplates.any { it == template }
             if (!isExplicitTemplate) return@filter true
             val stableId = StableTeamIdentityRegistry.idFor(country, template.name)
@@ -214,16 +214,19 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
         }
     }
 
-    /** Somente nomes canônicos efetivamente materializados são elegíveis ao ID estável no seed. */
-    fun contains(country: String, teamName: String): Boolean {
+    /** Somente nomes canônicos que já foram instalados são elegíveis ao ID estável no seed. */
+    fun contains(country: String, teamName: String): Boolean =
+        installed && isVerifiedCanonicalTarget(country, teamName)
+
+    fun stableIdForMaterializedTarget(country: String, teamName: String): Long? =
+        if (contains(country, teamName)) StableTeamIdentityRegistry.idFor(country, teamName) else null
+
+    private fun isVerifiedCanonicalTarget(country: String, teamName: String): Boolean {
         val baseline = EuropeanDomesticBaseline2026_27.forCountry(country)
             ?.takeIf { it.coverage == EuropeanDomesticCoverage.VERIFIED_TOP_FLIGHT }
             ?: return false
         return baseline.verifiedTopFlightClubs.any { it.equals(teamName, ignoreCase = true) }
     }
-
-    fun stableIdForMaterializedTarget(country: String, teamName: String): Long? =
-        if (contains(country, teamName)) StableTeamIdentityRegistry.idFor(country, teamName) else null
 
     private fun syntheticInternalSlot(
         country: String,
