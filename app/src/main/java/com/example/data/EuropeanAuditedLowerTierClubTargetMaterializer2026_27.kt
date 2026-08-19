@@ -22,6 +22,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
         val canonicalName: String,
         val division: Int,
         val competitionName: String,
+        val slotIndex: Int,
         val template: DefaultData.TeamTemplate,
         val metadataOrigin: MetadataOrigin
     )
@@ -66,9 +67,9 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
                 targets.forEach { target ->
                     origins[target.metadataOrigin] = origins.getValue(target.metadataOrigin) + 1
                 }
-                mutableCatalog[country] = current.copy(
-                    teams = materialize(country, current.teams)
-                )
+                val materialized = current.teams.toMutableList()
+                targets.forEach { target -> materialized[target.slotIndex] = target.template }
+                mutableCatalog[country] = current.copy(teams = materialized.toList())
             }
 
             val report = InstallationReport(
@@ -103,13 +104,9 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
         country: String,
         currentTeams: List<DefaultData.TeamTemplate>
     ): List<DefaultData.TeamTemplate> {
-        val replacements = materializedTargets(country, currentTeams)
-        if (replacements.isEmpty()) return currentTeams
-
         val mutable = currentTeams.toMutableList()
-        replacements.forEach { target ->
-            val index = locateTargetSlot(country, currentTeams, target)
-            mutable[index] = target.template
+        materializedTargets(country, currentTeams).forEach { target ->
+            mutable[target.slotIndex] = target.template
         }
         return mutable.toList()
     }
@@ -140,7 +137,12 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
                     division = target.division
                 )
                 mutableView[exactIndex] = exact
-                return@map target.toMaterialized(stableId, exact, MetadataOrigin.EXISTING_EXACT_SLOT)
+                return@map target.toMaterialized(
+                    stableId = stableId,
+                    slotIndex = exactIndex,
+                    template = exact,
+                    origin = MetadataOrigin.EXISTING_EXACT_SLOT
+                )
             }
 
             val slotIndex = mutableView.indices.firstOrNull { index ->
@@ -160,9 +162,10 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
             )
             mutableView[slotIndex] = factualIdentityOnInternalMetadata
             target.toMaterialized(
-                stableId,
-                factualIdentityOnInternalMetadata,
-                MetadataOrigin.INTERNAL_SLOT_METADATA
+                stableId = stableId,
+                slotIndex = slotIndex,
+                template = factualIdentityOnInternalMetadata,
+                origin = MetadataOrigin.INTERNAL_SLOT_METADATA
             )
         }
     }
@@ -186,44 +189,9 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
         }
     }
 
-    private fun locateTargetSlot(
-        country: String,
-        currentTeams: List<DefaultData.TeamTemplate>,
-        target: MaterializedTarget
-    ): Int {
-        val exact = currentTeams.indexOfFirst { template ->
-            template.division == target.division &&
-                template.name.equals(target.canonicalName, ignoreCase = true)
-        }
-        if (exact >= 0) return exact
-
-        val targetsBefore = materializedTargets(country, currentTeams)
-        val ordinal = targetsBefore.indexOfFirst {
-            it.sourceClubTeamId == target.sourceClubTeamId
-        }
-        require(ordinal >= 0)
-
-        val occupiedExact = targetsBefore.take(ordinal).mapNotNull { previous ->
-            currentTeams.indexOfFirst { template ->
-                template.division == previous.division &&
-                    template.name.equals(previous.canonicalName, ignoreCase = true)
-            }.takeIf { it >= 0 }
-        }.toSet()
-
-        var remaining = ordinal
-        for (index in currentTeams.indices) {
-            val template = currentTeams[index]
-            if (index in occupiedExact) continue
-            if (template.division != target.division) continue
-            if (StableTeamIdentityRegistry.idFor(country, template.name) != null) continue
-            if (remaining == 0) return index
-            remaining -= 1
-        }
-        error("Unable to locate deterministic slot for $country/${target.canonicalName}")
-    }
-
     private fun Fc26RemainingClubCoverage2026_27.LowerTierFactualTarget.toMaterialized(
         stableId: Long,
+        slotIndex: Int,
         template: DefaultData.TeamTemplate,
         origin: MetadataOrigin
     ) = MaterializedTarget(
@@ -233,6 +201,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
         canonicalName = canonicalName,
         division = division,
         competitionName = competitionName,
+        slotIndex = slotIndex,
         template = template,
         metadataOrigin = origin
     )
