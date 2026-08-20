@@ -32,7 +32,14 @@ class Phase912WeeklyLifecyclePerformanceTest {
             }
         )
         assertEquals(18_405, plan.report.bulkImportedFc26Players)
-        assertEquals(82_125, plan.players.size)
+        assertEquals(
+            plan.report.datasetPlayers + plan.report.fallbackPlayersGenerated,
+            plan.players.size
+        )
+        assertEquals(
+            plan.report.fallbackRostersRequired * Fc26FallbackRosterPolicy.TARGET_SIZE,
+            plan.report.fallbackPlayersGenerated
+        )
 
         val dbName = "phase_9_13_weekly_lifecycle.db"
         context.deleteDatabase(dbName)
@@ -69,7 +76,7 @@ class Phase912WeeklyLifecyclePerformanceTest {
             val integrityMillis = elapsedMillis(integrityStarted)
 
             val persisted = repository.getAllPlayers()
-            assertEquals(82_125, persisted.size)
+            assertEquals(plan.players.size, persisted.size)
             assertEquals(persisted.size, persisted.map { it.id }.distinct().size)
 
             val realById = persisted
@@ -99,6 +106,8 @@ class Phase912WeeklyLifecyclePerformanceTest {
                 "phase912BaselineCombinedMillis" to 21_874,
                 "persistedPlayers" to persisted.size,
                 "fc26Players" to realById.size,
+                "fallbackRosters" to plan.report.fallbackRostersRequired,
+                "fallbackPlayers" to plan.report.fallbackPlayersGenerated,
                 "renewedContracts" to renewedContracts,
                 "renewalMillis" to renewalMillis,
                 "contractTickMillis" to contractMillis,
@@ -120,6 +129,7 @@ class Phase912WeeklyLifecyclePerformanceTest {
 
             println(
                 "PHASE_9_13_PERF players=${persisted.size} fc26=${realById.size} " +
+                    "fallback=${plan.report.fallbackPlayersGenerated} " +
                     "renewalMs=$renewalMillis contractMs=$contractMillis integrityMs=$integrityMillis " +
                     "combinedMs=${renewalMillis + contractMillis + integrityMillis}"
             )
