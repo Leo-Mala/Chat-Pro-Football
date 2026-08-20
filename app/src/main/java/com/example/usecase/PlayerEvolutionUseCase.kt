@@ -53,6 +53,9 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
 
     /**
      * Processa a evolução mensal dos atletas do clube e de toda a liga.
+     *
+     * O cálculo pesado continua fora da transação. Somente o commit dos novos jogadores e do
+     * respectivo histórico é agrupado, para nunca persistir evolução sem o audit trail (ou vice-versa).
      */
     suspend fun executeMonthlyEvolution(
         save: GameSave,
@@ -66,11 +69,13 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val updatedPlayers = evolutionResults.map { it.player }
         val allLogs = evolutionResults.flatMap { it.historyLogs }
 
-        if (updatedPlayers.isNotEmpty()) {
-            repository.updatePlayers(updatedPlayers)
-        }
-        if (allLogs.isNotEmpty()) {
-            repository.saveHistoricoEvolucaoList(allLogs)
+        repository.withTransaction {
+            if (updatedPlayers.isNotEmpty()) {
+                repository.updatePlayers(updatedPlayers)
+            }
+            if (allLogs.isNotEmpty()) {
+                repository.saveHistoricoEvolucaoList(allLogs)
+            }
         }
 
         return evolutionResults
