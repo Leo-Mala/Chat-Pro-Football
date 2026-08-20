@@ -18,8 +18,16 @@ data class Fc26SeedReport(
     val importedUnmatchedClubPlayers: Int,
     val importedAmbiguousClubPlayers: Int,
     val datasetLoanPlayers: Int,
+    /** ACTIVE gameplay loans. Remains zero while the source snapshot has no duration/end field. */
     val successfullyMappedLoans: Int,
+    /** Loan-marked source players that still cannot be represented as an ACTIVE timed PlayerLoan. */
     val unresolvedLoans: Int,
+    /** Phase 9.14B: borrower + owner identity are safely known, but duration is absent from source. */
+    val resolvedLoanIdentitiesUndated: Int,
+    /** Phase 9.14B: borrower and/or owner identity is still unresolved. */
+    val unresolvedLoanIdentities: Int,
+    /** ACTIVE PlayerLoan rows created from the FC26 snapshot. Must remain zero without duration. */
+    val materializedActiveLoans: Int,
     val fallbackRostersRequired: Int,
     /** Phase 9.14: actual procedural players retained after the FC26 fallback roster policy. */
     val fallbackPlayersGenerated: Int,
@@ -106,6 +114,28 @@ object Fc26SeedPlanner {
         val unassignedClubPlayers = unmatchedClubPlayers + ambiguousClubPlayers
         players += unassignedClubPlayers
 
+        // Phase 9.14B intentionally separates factual loan identity from timed gameplay lifecycle.
+        // Every source loan marker receives a persistent metadata envelope with borrower/owner
+        // resolution and unresolved reason. Because FC26 exposes no loan duration/end date, no
+        // Player.isOnLoan/originalTeamId/loanWeeksRemaining state and no ACTIVE PlayerLoan are set.
+        val loanAudit = Fc26LoanIdentityResolver.audit(dataset, teams)
+        val loanResolutionByPlayerId = loanAudit.resolutions.associateBy { it.stablePlayerId }
+        require(loanResolutionByPlayerId.size == dataset.manifest.loanedPlayerCount)
+        val finalizedPlayers = players.map { player ->
+            loanResolutionByPlayerId[player.id]?.let { resolution ->
+                player.markFc26LoanIdentity(resolution)
+            } ?: player
+        }
+        require(finalizedPlayers.count { it.fc26LoanIdentityMetadataOrNull() != null } == dataset.manifest.loanedPlayerCount) {
+            "FC26 loan identity metadata incompleto no seed."
+        }
+        require(finalizedPlayers.none { player ->
+            player.fc26LoanIdentityMetadataOrNull() != null &&
+                (player.isOnLoan || player.originalTeamId != null || player.loanWeeksRemaining != 0)
+        }) {
+            "FC26 undated loan metadata não pode ativar lifecycle de empréstimo sem duração factual."
+        }
+
         // Preserve the historical A1/A2/A3 coverage counters so their audit reports remain
         // comparable. The new bulkImportedFc26Players field is the actual number inserted.
         val clubCoverageImportedPlayers = mappedClubPlayerCount + freeAgents.size
@@ -134,14 +164,16 @@ object Fc26SeedPlanner {
             importedAmbiguousClubPlayers = ambiguousClubPlayers.size,
             datasetLoanPlayers = dataset.manifest.loanedPlayerCount,
             successfullyMappedLoans = 0,
-            // O snapshot não informa duração suficiente para reconstruir PlayerLoan com segurança.
-            // Portanto todos os empréstimos de origem permanecem pendentes nesta fase, inclusive os
-            // jogadores cujo clube atual ainda não existe no universo Pro Football.
+            // Identity can be partially/fully audited, but the source still cannot create a timed
+            // ACTIVE PlayerLoan because duration/end date is absent for all 1,325 loan markers.
             unresolvedLoans = dataset.manifest.loanedPlayerCount,
+            resolvedLoanIdentitiesUndated = loanAudit.identityResolvedUndated,
+            unresolvedLoanIdentities = loanAudit.unresolvedIdentity,
+            materializedActiveLoans = 0,
             fallbackRostersRequired = fallbackCount,
             fallbackPlayersGenerated = fallbackPlayerCount,
             clubMatches = matches
         )
-        return Plan(players = players, loans = emptyList(), report = report)
+        return Plan(players = finalizedPlayers, loans = emptyList(), report = report)
     }
 }
