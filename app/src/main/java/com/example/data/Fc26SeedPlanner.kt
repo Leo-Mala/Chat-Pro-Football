@@ -84,17 +84,19 @@ object Fc26SeedPlanner {
         // são reclassificados como free agents factuais: teamId=null significa apenas "unassigned"
         // no universo atual. A identidade do clube de origem continua preservada em atributosJson
         // (sourceClubTeamId/sourceClubName/league), permitindo associação futura sem reimportação.
+        // O marcador assignmentStatus separa esse estado de um free agent verdadeiro sem exigir
+        // coluna/migração Room e sem tocar em overall, potential ou Atributos.
         val unmatchedClubPlayers = dataset.sourceClubs
             .asSequence()
             .filter { matchesBySourceId.getValue(it.sourceClubTeamId).status == Fc26ClubMatchStatus.UNMATCHED }
             .flatMap { it.players.asSequence() }
-            .map { Fc26PlayerMapper.toPlayer(it, null) }
+            .map { Fc26PlayerMapper.toPlayer(it, null).markFc26UnassignedSourceClub() }
             .toList()
         val ambiguousClubPlayers = dataset.sourceClubs
             .asSequence()
             .filter { matchesBySourceId.getValue(it.sourceClubTeamId).status == Fc26ClubMatchStatus.AMBIGUOUS }
             .flatMap { it.players.asSequence() }
-            .map { Fc26PlayerMapper.toPlayer(it, null) }
+            .map { Fc26PlayerMapper.toPlayer(it, null).markFc26UnassignedSourceClub() }
             .toList()
         val unassignedClubPlayers = unmatchedClubPlayers + ambiguousClubPlayers
         players += unassignedClubPlayers
