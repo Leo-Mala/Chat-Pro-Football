@@ -82,6 +82,19 @@ class GameRepository(private val db: AppDatabase) {
     suspend fun getPlayerCountByTeam(teamId: Long?): Int = db.playerDao().getPlayerCountByTeam(teamId)
     suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()
     suspend fun getPlayer(id: Long): Player? = db.playerDao().getPlayer(id)
+
+    /**
+     * Aplica a única regressão semanal de contratos sem materializar toda a tabela Player.
+     * A ordem é intencional: contratos em 1 semana expiram antes do decremento dos vínculos > 1,
+     * evitando que um contrato com 2 semanas expire no mesmo tick.
+     */
+    suspend fun processWeeklyPlayerContractTick() = db.withTransaction {
+        val players = db.playerDao()
+        players.expireLoanContractsAtOneWeek()
+        players.expireNonLoanContractsAtOneWeek()
+        players.decrementLongerContractsOneWeek()
+    }
+
     suspend fun insertPlayersIfNotExists(players: List<Player>) = db.withTransaction {
         if (players.size > 100) {
             players.chunked(100).forEach { db.playerDao().insertPlayers(it) }
