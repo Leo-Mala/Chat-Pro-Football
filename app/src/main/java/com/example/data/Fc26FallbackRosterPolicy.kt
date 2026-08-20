@@ -17,8 +17,9 @@ internal object Fc26FallbackRosterPolicy {
         "ZAG" to 4,
         "LAT" to 3,
         "VOL" to 3,
-        "MEI" to 3,
-        "ATA" to 5
+        // 3-2-4-1 is a supported formation and requires four natural MEI players.
+        "MEI" to 4,
+        "ATA" to 4
     )
 
     init {
