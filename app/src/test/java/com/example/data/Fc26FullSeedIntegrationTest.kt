@@ -22,6 +22,7 @@ class Fc26FullSeedIntegrationTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dataset = requireNotNull(Fc26NormalizedDatasetLoader.loadValidatedOrNull(context.assets))
         assertEquals(18_405, dataset.players.size)
+        assertEquals(662, dataset.sourceClubs.size)
 
         val teams = buildCurrentProFootballUniverse()
         assertTrue(teams.isNotEmpty())
@@ -40,9 +41,15 @@ class Fc26FullSeedIntegrationTest {
         val heapAfterPlan = usedHeapBytes()
 
         assertEquals(18_405, plan.report.datasetPlayers)
+        assertEquals(18_405, plan.report.importedFc26Players)
+        assertEquals(0, plan.report.skippedDatasetPlayers)
         assertEquals(
             plan.report.datasetPlayers,
-            plan.report.importedFc26Players + plan.report.skippedDatasetPlayers
+            plan.report.playersWithMappedClub + plan.report.importedFreeAgents + plan.report.importedUnassignedClubPlayers
+        )
+        assertEquals(
+            plan.report.importedUnassignedClubPlayers,
+            plan.report.importedUnmatchedClubPlayers + plan.report.importedAmbiguousClubPlayers
         )
         assertEquals(
             plan.report.datasetClubs,
@@ -50,6 +57,44 @@ class Fc26FullSeedIntegrationTest {
         )
         assertEquals(0, plan.report.successfullyMappedLoans)
         assertTrue(plan.players.map { it.id }.distinct().size == plan.players.size)
+
+        // Bulk contract: every player from the supplied FC26 dataset must exist in the plan exactly once.
+        val importedRealPlayers = plan.players
+            .asSequence()
+            .filter { StableRealPlayerIdentity.isRealPlayerId(it.id) }
+            .associateBy { it.id }
+        assertEquals(dataset.players.size, importedRealPlayers.size)
+
+        var overallMutated = 0
+        var potentialMutated = 0
+        var attributesMutated = 0
+        dataset.players.forEach { source ->
+            val imported = requireNotNull(importedRealPlayers[source.stableId]) {
+                "FC26 player not imported: sourcePlayerId=${source.sourcePlayerId} name=${source.fullName}"
+            }
+            if (source.overall != imported.force) overallMutated += 1
+            if (source.potential != imported.potential) potentialMutated += 1
+            if (source.atributos != imported.atributos) attributesMutated += 1
+            assertEquals(source.stableId, imported.id)
+            assertEquals(source.primaryPosition, imported.sourceMetadataOrNull()?.primaryPosition)
+            assertEquals(source.clubTeamId, imported.sourceMetadataOrNull()?.sourceClubTeamId)
+            assertEquals(source.clubName, imported.sourceMetadataOrNull()?.sourceClubName)
+        }
+        assertEquals(0, overallMutated)
+        assertEquals(0, potentialMutated)
+        assertEquals(0, attributesMutated)
+
+        val unresolvedSourceIds = plan.report.clubMatches
+            .filter { it.status != Fc26ClubMatchStatus.MATCHED }
+            .mapTo(mutableSetOf()) { it.sourceClubTeamId }
+        val unresolvedImported = dataset.players.filter { it.clubTeamId in unresolvedSourceIds }
+        assertEquals(plan.report.importedUnassignedClubPlayers, unresolvedImported.size)
+        unresolvedImported.forEach { source ->
+            val imported = requireNotNull(importedRealPlayers[source.stableId])
+            assertEquals("Unresolved source-club player must remain unassigned", null, imported.teamId)
+            assertEquals(source.clubTeamId, imported.sourceMetadataOrNull()?.sourceClubTeamId)
+            assertEquals(source.clubName, imported.sourceMetadataOrNull()?.sourceClubName)
+        }
 
         val realSample = plan.players.firstOrNull { StableRealPlayerIdentity.isRealPlayerId(it.id) }
         assertNotNull("At least one FC26 player must map into the current game universe", realSample)
@@ -95,7 +140,7 @@ class Fc26FullSeedIntegrationTest {
             assertEquals("FC26 potential must survive Room close/reopen", sourceSample.potential, reloaded.potential)
             assertEquals(sourceSample.primaryPosition, reloaded.sourceMetadataOrNull()?.primaryPosition)
 
-            writeAuditReport(
+            writeAuditReports(
                 dataset = dataset,
                 teams = teams,
                 plan = plan,
@@ -108,7 +153,10 @@ class Fc26FullSeedIntegrationTest {
                 sampleInternalPlayerId = sampledPlayer.id,
                 sampleForce = reloaded.force,
                 samplePotential = reloaded.potential,
-                persistedPlayerCount = persistedCount
+                persistedPlayerCount = persistedCount,
+                overallMutated = overallMutated,
+                potentialMutated = potentialMutated,
+                attributesMutated = attributesMutated
             )
         } finally {
             runCatching { database?.close() }
@@ -137,7 +185,7 @@ class Fc26FullSeedIntegrationTest {
         }
     }
 
-    private fun writeAuditReport(
+    private fun writeAuditReports(
         dataset: Fc26Dataset,
         teams: List<Team>,
         plan: Fc26SeedPlanner.Plan,
@@ -150,31 +198,46 @@ class Fc26FullSeedIntegrationTest {
         sampleInternalPlayerId: Long,
         sampleForce: Int,
         samplePotential: Int,
-        persistedPlayerCount: Int
+        persistedPlayerCount: Int,
+        overallMutated: Int,
+        potentialMutated: Int,
+        attributesMutated: Int
     ) {
+        val gson = GsonBuilder().setPrettyPrinting().create()
         val matchByStatus = plan.report.clubMatches.groupBy { it.status }
         val unmatchedPlayers = matchByStatus[Fc26ClubMatchStatus.UNMATCHED].orEmpty().sumOf { it.playerCount }
         val ambiguousPlayers = matchByStatus[Fc26ClubMatchStatus.AMBIGUOUS].orEmpty().sumOf { it.playerCount }
+        val audits = Fc26ClubMatcher.auditCandidates(dataset, teams, limitPerClub = 5)
+        val matchBySourceId = plan.report.clubMatches.associateBy { it.sourceClubTeamId }
 
         val report = linkedMapOf<String, Any?>(
             "datasetSource" to dataset.manifest.datasetSource,
             "datasetVersion" to dataset.manifest.datasetVersion,
             "datasetPlayers" to plan.report.datasetPlayers,
+            "processedPlayers" to plan.report.datasetPlayers,
             "importedPlayers" to plan.report.importedFc26Players,
             "skippedPlayers" to plan.report.skippedDatasetPlayers,
             "datasetClubs" to plan.report.datasetClubs,
             "proFootballTargetTeams" to teams.size,
-            "matchedClubs" to plan.report.matchedClubs,
+            "resolvedClubs" to plan.report.matchedClubs,
             "unmatchedClubs" to plan.report.unmatchedClubs,
             "ambiguousClubs" to plan.report.ambiguousClubs,
             "playersWithMappedClub" to plan.report.playersWithMappedClub,
-            "freeAgents" to plan.report.importedFreeAgents,
+            "trueDatasetFreeAgents" to plan.report.importedFreeAgents,
+            "unassignedPlayersFromUnresolvedClubs" to plan.report.importedUnassignedClubPlayers,
+            "unassignedPlayersFromUnmatchedClubs" to plan.report.importedUnmatchedClubPlayers,
+            "unassignedPlayersFromAmbiguousClubs" to plan.report.importedAmbiguousClubPlayers,
             "loanPlayers" to plan.report.datasetLoanPlayers,
             "successfullyMappedLoans" to plan.report.successfullyMappedLoans,
             "unresolvedLoans" to plan.report.unresolvedLoans,
             "fallbackRostersRequired" to plan.report.fallbackRostersRequired,
-            "skippedPlayersByUnmatchedClub" to unmatchedPlayers,
-            "skippedPlayersByAmbiguousClub" to ambiguousPlayers,
+            "playersFromUnmatchedClubs" to unmatchedPlayers,
+            "playersFromAmbiguousClubs" to ambiguousPlayers,
+            "duplicatePlayerIds" to 0,
+            "duplicateTeamIds" to 0,
+            "overallMutated" to overallMutated,
+            "potentialMutated" to potentialMutated,
+            "attributesMutated" to attributesMutated,
             "persistedPlayersIncludingFallback" to persistedPlayerCount,
             "playersByCountry" to dataset.players.groupingBy { it.nationality }.eachCount().toSortedMap(),
             "playersByLeague" to dataset.players.groupingBy { it.leagueName ?: "FREE_AGENT" }.eachCount().toSortedMap(),
@@ -187,7 +250,6 @@ class Fc26FullSeedIntegrationTest {
             "averagePotential" to dataset.players.map { it.potential }.average(),
             "playersWithoutPosition" to dataset.players.count { it.positions.isEmpty() },
             "playersWithoutNationality" to dataset.players.count { it.nationality.isBlank() },
-            "duplicatePlayerIds" to emptyList<Long>(),
             "performance" to linkedMapOf(
                 "seedPlanningMillis" to planMillis,
                 "roomBulkPersistenceMillis" to persistMillis,
@@ -205,15 +267,62 @@ class Fc26FullSeedIntegrationTest {
             "clubMatches" to plan.report.clubMatches
         )
 
+        val unresolved = audits.map { audit ->
+            val match = matchBySourceId.getValue(audit.sourceClubTeamId)
+            linkedMapOf<String, Any?>(
+                "club_team_id" to audit.sourceClubTeamId,
+                "source_name" to audit.sourceClubName,
+                "country" to audit.sourceCountry,
+                "league_id" to audit.leagueId,
+                "competition" to audit.leagueName,
+                "players" to audit.playerCount,
+                "status" to audit.currentStatus.name,
+                "reason" to match.reason,
+                "materialization_status" to audit.materializationStatus.name,
+                "expected_stable_team_id" to audit.expectedStableTeamId,
+                "expected_stable_team_name" to audit.expectedStableTeamName,
+                "possible_targets" to audit.candidates.map { candidate ->
+                    linkedMapOf<String, Any?>(
+                        "target_team_id" to candidate.targetTeamId,
+                        "target_name" to candidate.targetTeamName,
+                        "country" to candidate.targetCountry,
+                        "division" to candidate.targetDivision,
+                        "diagnostic_score" to candidate.score,
+                        "reasons" to candidate.reasons
+                    )
+                }
+            )
+        }
+
+        val unresolvedReport = linkedMapOf<String, Any?>(
+            "datasetVersion" to dataset.manifest.datasetVersion,
+            "datasetPlayers" to dataset.players.size,
+            "datasetClubs" to dataset.sourceClubs.size,
+            "playersImported" to plan.report.importedFc26Players,
+            "playersSkipped" to plan.report.skippedDatasetPlayers,
+            "clubsResolved" to plan.report.matchedClubs,
+            "clubsUnmatched" to plan.report.unmatchedClubs,
+            "clubsAmbiguous" to plan.report.ambiguousClubs,
+            "unassignedPlayersFromUnresolvedClubs" to plan.report.importedUnassignedClubPlayers,
+            "note" to "possible_targets are diagnostic only; no fuzzy candidate is auto-promoted to MATCHED",
+            "unresolvedClubs" to unresolved
+        )
+
         val repoRoot = findRepositoryRoot()
-        val output = File(repoRoot, "reports/fc26_club_mapping_report.json")
-        output.parentFile.mkdirs()
-        output.writeText(GsonBuilder().setPrettyPrinting().create().toJson(report) + "\n", Charsets.UTF_8)
+        val mappingOutput = File(repoRoot, "reports/fc26_club_mapping_report.json")
+        val bulkOutput = File(repoRoot, "reports/fc26_bulk_import_report.json")
+        val unresolvedOutput = File(repoRoot, "reports/fc26_bulk_import_unresolved.json")
+        mappingOutput.parentFile.mkdirs()
+        mappingOutput.writeText(gson.toJson(report) + "\n", Charsets.UTF_8)
+        bulkOutput.writeText(gson.toJson(report) + "\n", Charsets.UTF_8)
+        unresolvedOutput.writeText(gson.toJson(unresolvedReport) + "\n", Charsets.UTF_8)
+
         println(
-            "FC26_AUDIT_REPORT dataset=${plan.report.datasetPlayers} imported=${plan.report.importedFc26Players} " +
+            "FC26_BULK_IMPORT dataset=${plan.report.datasetPlayers} imported=${plan.report.importedFc26Players} " +
                 "skipped=${plan.report.skippedDatasetPlayers} clubs=${plan.report.datasetClubs} " +
-                "matched=${plan.report.matchedClubs} unmatched=${plan.report.unmatchedClubs} " +
-                "ambiguous=${plan.report.ambiguousClubs} fallback=${plan.report.fallbackRostersRequired} " +
+                "resolved=${plan.report.matchedClubs} unmatched=${plan.report.unmatchedClubs} " +
+                "ambiguous=${plan.report.ambiguousClubs} unassigned=${plan.report.importedUnassignedClubPlayers} " +
+                "overallMutated=$overallMutated potentialMutated=$potentialMutated attributesMutated=$attributesMutated " +
                 "planMs=$planMillis persistMs=$persistMillis dbBytes=$databaseBytes"
         )
     }
