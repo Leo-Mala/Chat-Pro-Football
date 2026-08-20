@@ -53,10 +53,12 @@ class WeeklyFinalizationAtomicityTest {
     }
 
     @After
-    fun tearDown() = runBlocking {
-        runCatching { saveRepository.closeAllDatabases() }
-        application.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
-        application.deleteDatabase("${SlotDatabaseFactory.databaseNameForSlot(slotId)}_backup")
+    fun tearDown() {
+        runBlocking {
+            runCatching { saveRepository.closeAllDatabases() }
+            application.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+            application.deleteDatabase("${SlotDatabaseFactory.databaseNameForSlot(slotId)}_backup")
+        }
     }
 
     @Test
