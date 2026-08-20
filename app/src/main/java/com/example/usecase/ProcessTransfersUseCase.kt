@@ -341,47 +341,9 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
      * ÚNICA fonte de verdade para expiração de contratos. Empréstimos são decrementados em FinanceUseCase.
      */
     suspend fun processWeeklyContractsAndLoans() {
-        val allPlayers = repository.getAllPlayers()
-        val updatedPlayers = mutableListOf<Player>()
-
-        for (player in allPlayers) {
-            var updated = player
-            var modified = false
-
-            if (updated.contractDurationWeeks > 0) {
-                val newWeeks = updated.contractDurationWeeks - 1
-                if (newWeeks <= 0) {
-                    if (updated.isOnLoan) {
-                        // Se estiver emprestado, zera a duração do contrato sem transformar em Free Agent ainda.
-                        // A virada para Free Agent ocorrerá ao término do empréstimo em FinanceUseCase.
-                        updated = updated.copy(
-                            contractDurationWeeks = 0,
-                            isStarter = false,
-                            salary = 0L
-                        )
-                    } else {
-                        updated = updated.copy(
-                            contractDurationWeeks = 0,
-                            teamId = null,
-                            originalTeamId = null,
-                            isStarter = false,
-                            salary = 0L
-                        )
-                    }
-                } else {
-                    updated = updated.copy(contractDurationWeeks = newWeeks)
-                }
-                modified = true
-            }
-
-            if (modified) {
-                updatedPlayers.add(updated)
-            }
-        }
-
-        if (updatedPlayers.isNotEmpty()) {
-            repository.updatePlayers(updatedPlayers)
-        }
+        // Phase 9.12B: mantém exatamente a semântica canônica usando action sets SQL, sem carregar
+        // e regravar dezenas de milhares de Player pelo Kotlin a cada semana.
+        repository.processWeeklyPlayerContractTick()
     }
 
     /**

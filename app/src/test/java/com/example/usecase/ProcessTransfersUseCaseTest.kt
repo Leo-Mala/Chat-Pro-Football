@@ -114,4 +114,94 @@ class ProcessTransfersUseCaseTest {
         val success = result as ProcessTransfersUseCase.TransferResult.Success
         assertEquals(7_000_000L, success.updatedSave.bankBalance)
     }
+
+    @Test
+    fun weekly_contract_tick_preserves_existing_expiration_semantics() = runTest {
+        repository.saveTeams(
+            listOf(
+                Team(id = 1L, name = "Owner", city = "A", state = "AA", division = 1),
+                Team(id = 2L, name = "Borrower", city = "B", state = "BB", division = 1)
+            )
+        )
+        repository.savePlayers(
+            listOf(
+                Player(
+                    id = 101L,
+                    teamId = 1L,
+                    name = "Two Weeks",
+                    age = 24,
+                    position = "MEI",
+                    force = 70,
+                    salary = 9_000L,
+                    contractDurationWeeks = 2,
+                    isStarter = true
+                ),
+                Player(
+                    id = 102L,
+                    teamId = 1L,
+                    name = "Expires",
+                    age = 25,
+                    position = "ATA",
+                    force = 71,
+                    salary = 10_000L,
+                    contractDurationWeeks = 1,
+                    isStarter = true
+                ),
+                Player(
+                    id = 103L,
+                    teamId = 2L,
+                    originalTeamId = 1L,
+                    name = "Loan Expires",
+                    age = 23,
+                    position = "DEF",
+                    force = 69,
+                    salary = 8_000L,
+                    contractDurationWeeks = 1,
+                    isStarter = true,
+                    isOnLoan = true,
+                    loanWeeksRemaining = 4
+                ),
+                Player(
+                    id = 104L,
+                    teamId = 1L,
+                    name = "Already Zero",
+                    age = 28,
+                    position = "GOL",
+                    force = 68,
+                    salary = 7_000L,
+                    contractDurationWeeks = 0,
+                    isStarter = true
+                )
+            )
+        )
+
+        useCase.processWeeklyContractsAndLoans()
+
+        val twoWeeks = requireNotNull(repository.getPlayer(101L))
+        assertEquals(1, twoWeeks.contractDurationWeeks)
+        assertEquals(1L, twoWeeks.teamId)
+        assertEquals(9_000L, twoWeeks.salary)
+        assertTrue(twoWeeks.isStarter)
+
+        val expired = requireNotNull(repository.getPlayer(102L))
+        assertEquals(0, expired.contractDurationWeeks)
+        assertEquals(null, expired.teamId)
+        assertEquals(null, expired.originalTeamId)
+        assertEquals(0L, expired.salary)
+        assertTrue(!expired.isStarter)
+
+        val loanExpired = requireNotNull(repository.getPlayer(103L))
+        assertEquals(0, loanExpired.contractDurationWeeks)
+        assertEquals(2L, loanExpired.teamId)
+        assertEquals(1L, loanExpired.originalTeamId)
+        assertEquals(0L, loanExpired.salary)
+        assertTrue(loanExpired.isOnLoan)
+        assertTrue(!loanExpired.isStarter)
+
+        val alreadyZero = requireNotNull(repository.getPlayer(104L))
+        assertEquals(0, alreadyZero.contractDurationWeeks)
+        assertEquals(1L, alreadyZero.teamId)
+        assertEquals(7_000L, alreadyZero.salary)
+        assertTrue(alreadyZero.isStarter)
+    }
 }

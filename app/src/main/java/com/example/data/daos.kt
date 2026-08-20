@@ -72,6 +72,38 @@ interface PlayerDao {
     @Query("SELECT * FROM players WHERE id = :id")
     suspend fun getPlayer(id: Long): Player?
 
+    /**
+     * Phase 9.12B: aplica o ciclo semanal de contratos como conjuntos de ações SQL.
+     * As expirações precisam acontecer antes do decremento de contratos > 1 para que um vínculo
+     * com 2 semanas vire 1 — e não expire — em um único tick.
+     */
+    @Query("""
+        UPDATE players
+        SET contractDurationWeeks = 0,
+            isStarter = 0,
+            salary = 0
+        WHERE contractDurationWeeks = 1 AND isOnLoan = 1
+    """)
+    suspend fun expireLoanContractsAtOneWeek(): Int
+
+    @Query("""
+        UPDATE players
+        SET contractDurationWeeks = 0,
+            teamId = NULL,
+            originalTeamId = NULL,
+            isStarter = 0,
+            salary = 0
+        WHERE contractDurationWeeks = 1 AND isOnLoan = 0
+    """)
+    suspend fun expireNonLoanContractsAtOneWeek(): Int
+
+    @Query("""
+        UPDATE players
+        SET contractDurationWeeks = contractDurationWeeks - 1
+        WHERE contractDurationWeeks > 1
+    """)
+    suspend fun decrementLongerContractsOneWeek(): Int
+
     @Transaction
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPlayers(players: List<Player>)
