@@ -85,19 +85,20 @@ jobs:
           GOOGLE_EOF
           fi
 
-      - name: Diagnose CareerFunctionalFlowTest only
+      - name: Validate FC26 planner and full seed integration
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew testDebugUnitTest \
-            --tests com.example.CareerFunctionalFlowTest \
+            --tests com.example.data.Fc26SeedPlannerTest \
+            --tests com.example.data.Fc26FullSeedIntegrationTest \
             --stacktrace
 
-      - name: Upload diagnostic test report on failure
+      - name: Upload targeted test report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fc26-bulk-career-diagnostic-report
+          name: fc26-bulk-targeted-test-report
           path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
