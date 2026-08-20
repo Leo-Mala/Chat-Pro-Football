@@ -72,6 +72,16 @@ class EuropeanStableTeamIdentityTest {
     }
 
     @Test
+    fun `legacy Girona alias resolves to the frozen Girona FC identity`() {
+        assertEquals(204L, StableTeamIdentityRegistry.idFor("Espanha", "Girona"))
+        assertEquals(204L, StableTeamIdentityRegistry.idFor("Espanha", "Girona FC"))
+
+        val identity = requireNotNull(StableTeamIdentityRegistry.identityForId(204L))
+        assertEquals("Espanha", identity.country)
+        assertEquals("Girona FC", identity.canonicalName)
+    }
+
+    @Test
     fun `baseline hash snapshots and explicit collision overrides do not drift`() {
         assertEquals(103474L, StableTeamIdentityRegistry.idFor("Itália", "Atalanta"))
         assertEquals(105115L, StableTeamIdentityRegistry.idFor("Alemanha", "FC Bayern München"))
