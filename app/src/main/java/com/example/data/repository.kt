@@ -3,7 +3,7 @@ package com.example.data
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 
-class GameRepository(private val db: AppDatabase) {
+class GameRepository(internal val db: AppDatabase) {
     suspend fun <R> withTransaction(block: suspend () -> R): R =
         try {
             db.withTransaction(block)
