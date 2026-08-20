@@ -30,8 +30,11 @@ class Fc26FallbackRosterPolicyTest {
         assertEquals(4, byPosition["ZAG"])
         assertEquals(3, byPosition["LAT"])
         assertEquals(3, byPosition["VOL"])
-        assertEquals(3, byPosition["MEI"])
-        assertEquals(5, byPosition["ATA"])
+        assertEquals(4, byPosition["MEI"])
+        assertEquals(4, byPosition["ATA"])
+
+        // The supported 3-2-4-1 shape must be fillable with four natural midfielders.
+        assertTrue((byPosition["MEI"] ?: 0) >= 4)
     }
 
     @Test
