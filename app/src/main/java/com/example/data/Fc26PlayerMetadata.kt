@@ -2,6 +2,8 @@ package com.example.data
 
 import com.google.gson.JsonParser
 
+private const val FC26_UNASSIGNED_SOURCE_CLUB = "UNASSIGNED_SOURCE_CLUB"
+
 data class Fc26PersistedImportMetadata(
     val source: String,
     val sourcePlayerId: Long,
@@ -12,7 +14,8 @@ data class Fc26PersistedImportMetadata(
     val sourceClubTeamId: Long?,
     val sourceClubName: String?,
     val leagueId: Long?,
-    val leagueName: String?
+    val leagueName: String?,
+    val assignmentStatus: String?
 )
 
 /**
@@ -37,7 +40,29 @@ internal fun Player.sourceMetadataOrNull(): Fc26PersistedImportMetadata? {
             sourceClubTeamId = import.get("sourceClubTeamId")?.takeUnless { it.isJsonNull }?.asLong,
             sourceClubName = import.get("sourceClubName")?.takeUnless { it.isJsonNull }?.asString,
             leagueId = import.get("leagueId")?.takeUnless { it.isJsonNull }?.asLong,
-            leagueName = import.get("leagueName")?.takeUnless { it.isJsonNull }?.asString
+            leagueName = import.get("leagueName")?.takeUnless { it.isJsonNull }?.asString,
+            assignmentStatus = import.get("assignmentStatus")?.takeUnless { it.isJsonNull }?.asString
         )
     }.getOrNull()
 }
+
+/**
+ * Marca somente jogadores FC26 cujo clube de origem ainda não possui target seguro no universo do
+ * jogo. O marcador vive no envelope de metadados já persistido, portanto não exige mudança Room e
+ * não toca em overall, potential nem nos atributos de gameplay.
+ */
+internal fun Player.markFc26UnassignedSourceClub(): Player {
+    val json = atributosJson?.takeIf { it.isNotBlank() } ?: return this
+    val updatedJson = runCatching {
+        val root = JsonParser.parseString(json).asJsonObject
+        val import = root.getAsJsonObject("import") ?: return this
+        if (import.get("source")?.asString != "FC26") return this
+        import.addProperty("assignmentStatus", FC26_UNASSIGNED_SOURCE_CLUB)
+        root.toString()
+    }.getOrNull() ?: return this
+    return copy(atributosJson = updatedJson)
+}
+
+/** True apenas para o snapshot FC26 ainda sem associação de clube; não inclui free agents reais. */
+internal fun Player.isFc26UnassignedSourceClub(): Boolean =
+    teamId == null && sourceMetadataOrNull()?.assignmentStatus == FC26_UNASSIGNED_SOURCE_CLUB
