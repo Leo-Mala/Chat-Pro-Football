@@ -215,13 +215,14 @@ object EuropeanFactualClubTargetMaterializer2026_27 {
     }
 
     /**
-     * Installed stable targets exposed to the global ID resolver. Phase 9.11A2 lower-tier targets
-     * join this surface only while their dedicated materializer is installed.
+     * Installed stable targets exposed to the global ID resolver. Phase 9.11A2/A3 lower-tier targets
+     * join this surface only while their dedicated materializers are installed.
      */
     fun contains(country: String, teamName: String): Boolean =
         installed && (
             isVerifiedCanonicalTarget(country, teamName) ||
-                EuropeanAuditedLowerTierClubTargetMaterializer2026_27.contains(country, teamName)
+                EuropeanAuditedLowerTierClubTargetMaterializer2026_27.contains(country, teamName) ||
+                EuropeanAuditedFactualBaselinesA3Materializer2026_27.contains(country, teamName)
         )
 
     fun stableIdForMaterializedTarget(country: String, teamName: String): Long? =

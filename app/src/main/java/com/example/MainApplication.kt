@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.database.CursorWindow
+import com.example.data.EuropeanAuditedFactualBaselinesA3Materializer2026_27
 import com.example.data.EuropeanAuditedLowerTierClubTargetMaterializer2026_27
 import com.example.data.EuropeanFactualAssetRuntime
 import com.example.data.EuropeanFactualClubTargetMaterializer2026_27
@@ -14,6 +15,7 @@ class MainApplication : Application() {
         super.onCreate()
         EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
         EuropeanAuditedLowerTierClubTargetMaterializer2026_27.installIntoDefaultData()
+        EuropeanAuditedFactualBaselinesA3Materializer2026_27.installIntoDefaultData()
         Fc26FactualAssetRuntime.initialize(assets)
         EuropeanFactualAssetRuntime.initialize(assets)
         fixCursorWindowSize()

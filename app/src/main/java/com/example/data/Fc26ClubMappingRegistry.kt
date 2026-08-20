@@ -81,12 +81,35 @@ internal object Fc26ClubMappingRegistry {
         }
     }
 
+    /** Phase 9.11A3 is likewise keyed only by audited FC26 id + exact source name. */
+    private val phaseA3Mappings: List<ExplicitMapping> by lazy {
+        Fc26RemainingFactualBaselinesA3_2026_27.factualTargets.map { target ->
+            ExplicitMapping(
+                sourceClubTeamId = target.sourceClubTeamId,
+                acceptedSourceNames = setOf(target.sourceName),
+                targetCountry = target.country,
+                targetCanonicalName = target.canonicalName,
+                targetTeamId = requireNotNull(
+                    StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)
+                ) { "Missing stable Phase 9.11A3 target: ${target.country}/${target.canonicalName}" },
+                reason = "FC26 source id + LFP-verified ${target.competitionName} 2026/27 identity"
+            )
+        }.also { mappings ->
+            require(mappings.size == 15)
+            require(mappings.map { it.sourceClubTeamId }.distinct().size == mappings.size)
+        }
+    }
+
     private val baseBySourceId = baseExplicitMappings.associateBy { it.sourceClubTeamId }.also { map ->
         require(map.size == baseExplicitMappings.size) { "Duplicate FC26 source club override." }
     }
 
     private val phaseA2BySourceId: Map<Long, ExplicitMapping> by lazy {
         phaseA2Mappings.associateBy { it.sourceClubTeamId }
+    }
+
+    private val phaseA3BySourceId: Map<Long, ExplicitMapping> by lazy {
+        phaseA3Mappings.associateBy { it.sourceClubTeamId }
     }
 
     private val leagueCountries = mapOf(
@@ -139,6 +162,11 @@ internal object Fc26ClubMappingRegistry {
 
     fun explicitMappingFor(source: Fc26SourceClub): ExplicitMapping? {
         val mapping = baseBySourceId[source.sourceClubTeamId]
+            ?: if (EuropeanAuditedFactualBaselinesA3Materializer2026_27.isInstalled()) {
+                phaseA3BySourceId[source.sourceClubTeamId]
+            } else {
+                null
+            }
             ?: if (EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled()) {
                 phaseA2BySourceId[source.sourceClubTeamId]
             } else {
@@ -151,10 +179,11 @@ internal object Fc26ClubMappingRegistry {
         }
     }
 
-    fun allExplicitMappings(): List<ExplicitMapping> =
-        if (EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled()) {
+    fun allExplicitMappings(): List<ExplicitMapping> = when {
+        EuropeanAuditedFactualBaselinesA3Materializer2026_27.isInstalled() ->
+            baseExplicitMappings + phaseA2Mappings + phaseA3Mappings
+        EuropeanAuditedLowerTierClubTargetMaterializer2026_27.isInstalled() ->
             baseExplicitMappings + phaseA2Mappings
-        } else {
-            baseExplicitMappings.toList()
-        }
+        else -> baseExplicitMappings.toList()
+    }
 }

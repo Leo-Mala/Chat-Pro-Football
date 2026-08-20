@@ -172,8 +172,21 @@ object StableTeamIdentityRegistry {
             )
         }
 
+    /** Phase 9.11A3 extends the same frozen country windows; no legacy identity is moved. */
+    private val auditedA3Identities: List<StableTeamIdentity> =
+        Fc26RemainingFactualBaselinesA3_2026_27.factualTargets.map { target ->
+            val windowStart = requireNotNull(baselineCountryWindows[target.country]) {
+                "Phase 9.11A3 target has no stable country window: ${target.country}/${target.canonicalName}"
+            }
+            StableTeamIdentity(
+                country = target.country,
+                canonicalName = target.canonicalName,
+                id = stableBaselineId(windowStart, target.country, target.canonicalName)
+            )
+        }
+
     private val identities: List<StableTeamIdentity> =
-        legacyIdentities + baselineGeneratedIdentities + auditedLowerTierIdentities
+        legacyIdentities + baselineGeneratedIdentities + auditedLowerTierIdentities + auditedA3Identities
 
     private fun normalize(value: String): String = value.trim().lowercase()
 
