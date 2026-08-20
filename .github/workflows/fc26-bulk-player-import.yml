@@ -43,7 +43,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE=d5b50f8ef3b42522a39a7c2a183b7e6a1bf184b3
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            git fetch origin main --no-tags
+            BASE="$(git merge-base origin/main HEAD)"
+          fi
           git cat-file -e "$BASE^{commit}"
           changed="$(git diff --name-only "$BASE"...HEAD)"
           echo "$changed"
