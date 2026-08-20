@@ -134,13 +134,14 @@ jobs:
           set -euo pipefail
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
 
-      - name: Upload FC26 mapping and Phase 9.13 performance audits
+      - name: Upload FC26 and Phase 9.14 audit reports
         uses: actions/upload-artifact@v4
         with:
-          name: fc26-phase-9-13-audit-reports
+          name: fc26-phase-9-14-audit-reports
           path: |
             reports/fc26_club_mapping_report.json
             reports/phase_9_13_weekly_lifecycle_performance.json
+            reports/phase_9_14_fallback_architecture.json
           if-no-files-found: error
 
       - name: Run 20 and 100 season stress tests
