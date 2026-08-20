@@ -41,8 +41,11 @@ class Fc26FullSeedIntegrationTest {
         val heapAfterPlan = usedHeapBytes()
 
         assertEquals(18_405, plan.report.datasetPlayers)
-        assertEquals(18_405, plan.report.importedFc26Players)
-        assertEquals(0, plan.report.skippedDatasetPlayers)
+        assertEquals(18_405, plan.report.bulkImportedFc26Players)
+        assertEquals(
+            plan.report.datasetPlayers,
+            plan.report.importedFc26Players + plan.report.skippedDatasetPlayers
+        )
         assertEquals(
             plan.report.datasetPlayers,
             plan.report.playersWithMappedClub + plan.report.importedFreeAgents + plan.report.importedUnassignedClubPlayers
@@ -51,6 +54,7 @@ class Fc26FullSeedIntegrationTest {
             plan.report.importedUnassignedClubPlayers,
             plan.report.importedUnmatchedClubPlayers + plan.report.importedAmbiguousClubPlayers
         )
+        assertEquals(plan.report.skippedDatasetPlayers, plan.report.importedUnassignedClubPlayers)
         assertEquals(
             plan.report.datasetClubs,
             plan.report.matchedClubs + plan.report.unmatchedClubs + plan.report.ambiguousClubs
@@ -215,13 +219,15 @@ class Fc26FullSeedIntegrationTest {
             "datasetVersion" to dataset.manifest.datasetVersion,
             "datasetPlayers" to plan.report.datasetPlayers,
             "processedPlayers" to plan.report.datasetPlayers,
-            "importedPlayers" to plan.report.importedFc26Players,
-            "skippedPlayers" to plan.report.skippedDatasetPlayers,
+            "playersImported" to plan.report.bulkImportedFc26Players,
+            "playersNotImported" to (plan.report.datasetPlayers - plan.report.bulkImportedFc26Players),
+            "clubCoverageImportedPlayers" to plan.report.importedFc26Players,
+            "clubCoverageUnresolvedPlayers" to plan.report.skippedDatasetPlayers,
             "datasetClubs" to plan.report.datasetClubs,
             "proFootballTargetTeams" to teams.size,
-            "resolvedClubs" to plan.report.matchedClubs,
-            "unmatchedClubs" to plan.report.unmatchedClubs,
-            "ambiguousClubs" to plan.report.ambiguousClubs,
+            "clubsResolved" to plan.report.matchedClubs,
+            "clubsUnmatched" to plan.report.unmatchedClubs,
+            "clubsAmbiguous" to plan.report.ambiguousClubs,
             "playersWithMappedClub" to plan.report.playersWithMappedClub,
             "trueDatasetFreeAgents" to plan.report.importedFreeAgents,
             "unassignedPlayersFromUnresolvedClubs" to plan.report.importedUnassignedClubPlayers,
@@ -298,8 +304,8 @@ class Fc26FullSeedIntegrationTest {
             "datasetVersion" to dataset.manifest.datasetVersion,
             "datasetPlayers" to dataset.players.size,
             "datasetClubs" to dataset.sourceClubs.size,
-            "playersImported" to plan.report.importedFc26Players,
-            "playersSkipped" to plan.report.skippedDatasetPlayers,
+            "playersImported" to plan.report.bulkImportedFc26Players,
+            "playersNotImported" to (plan.report.datasetPlayers - plan.report.bulkImportedFc26Players),
             "clubsResolved" to plan.report.matchedClubs,
             "clubsUnmatched" to plan.report.unmatchedClubs,
             "clubsAmbiguous" to plan.report.ambiguousClubs,
@@ -318,11 +324,12 @@ class Fc26FullSeedIntegrationTest {
         unresolvedOutput.writeText(gson.toJson(unresolvedReport) + "\n", Charsets.UTF_8)
 
         println(
-            "FC26_BULK_IMPORT dataset=${plan.report.datasetPlayers} imported=${plan.report.importedFc26Players} " +
-                "skipped=${plan.report.skippedDatasetPlayers} clubs=${plan.report.datasetClubs} " +
-                "resolved=${plan.report.matchedClubs} unmatched=${plan.report.unmatchedClubs} " +
-                "ambiguous=${plan.report.ambiguousClubs} unassigned=${plan.report.importedUnassignedClubPlayers} " +
-                "overallMutated=$overallMutated potentialMutated=$potentialMutated attributesMutated=$attributesMutated " +
+            "FC26_BULK_IMPORT dataset=${plan.report.datasetPlayers} imported=${plan.report.bulkImportedFc26Players} " +
+                "notImported=${plan.report.datasetPlayers - plan.report.bulkImportedFc26Players} " +
+                "clubs=${plan.report.datasetClubs} resolved=${plan.report.matchedClubs} " +
+                "unmatched=${plan.report.unmatchedClubs} ambiguous=${plan.report.ambiguousClubs} " +
+                "unassigned=${plan.report.importedUnassignedClubPlayers} overallMutated=$overallMutated " +
+                "potentialMutated=$potentialMutated attributesMutated=$attributesMutated " +
                 "planMs=$planMillis persistMs=$persistMillis dbBytes=$databaseBytes"
         )
     }
