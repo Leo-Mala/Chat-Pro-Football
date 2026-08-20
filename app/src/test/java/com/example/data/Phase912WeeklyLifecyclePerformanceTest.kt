@@ -34,7 +34,7 @@ class Phase912WeeklyLifecyclePerformanceTest {
         assertEquals(18_405, plan.report.bulkImportedFc26Players)
         assertEquals(82_125, plan.players.size)
 
-        val dbName = "phase_9_12_weekly_lifecycle.db"
+        val dbName = "phase_9_13_weekly_lifecycle.db"
         context.deleteDatabase(dbName)
         val database = AppDatabase.getDatabaseWithName(context, dbName)
         try {
@@ -45,7 +45,7 @@ class Phase912WeeklyLifecyclePerformanceTest {
                 repository.savePlayers(plan.players)
                 repository.saveGameSave(
                     GameSave(
-                        coachName = "Phase 9.12 Performance",
+                        coachName = "Phase 9.13 Performance",
                         currentSeason = 2026,
                         currentWeek = 2,
                         playerTeamId = userTeamId
@@ -92,7 +92,11 @@ class Phase912WeeklyLifecyclePerformanceTest {
             assertEquals(0, attributesMutated)
 
             val report = linkedMapOf<String, Any?>(
-                "baselineMainSha" to "c970583436edc28c184039146f6607895cb3a0f5",
+                "baselineMainSha" to "400b0faf6a0dbda8657743c6c7bc7fea5b9cff77",
+                "phase912BaselineRenewalMillis" to 21_508,
+                "phase912BaselineContractTickMillis" to 306,
+                "phase912BaselineCpuIntegrityMillis" to 60,
+                "phase912BaselineCombinedMillis" to 21_874,
                 "persistedPlayers" to persisted.size,
                 "fc26Players" to realById.size,
                 "renewedContracts" to renewedContracts,
@@ -110,12 +114,12 @@ class Phase912WeeklyLifecyclePerformanceTest {
                 "roomVersion" to 21
             )
 
-            val output = File(findRepositoryRoot(), "reports/phase_9_12_weekly_lifecycle_performance.json")
+            val output = File(findRepositoryRoot(), "reports/phase_9_13_weekly_lifecycle_performance.json")
             output.parentFile.mkdirs()
             output.writeText(GsonBuilder().setPrettyPrinting().create().toJson(report) + "\n")
 
             println(
-                "PHASE_9_12_PERF players=${persisted.size} fc26=${realById.size} " +
+                "PHASE_9_13_PERF players=${persisted.size} fc26=${realById.size} " +
                     "renewalMs=$renewalMillis contractMs=$contractMillis integrityMs=$integrityMillis " +
                     "combinedMs=${renewalMillis + contractMillis + integrityMillis}"
             )
