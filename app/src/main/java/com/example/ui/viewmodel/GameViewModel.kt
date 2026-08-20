@@ -407,17 +407,22 @@ class GameViewModel @Inject constructor(
 
     fun upgradeTrainingCenter() {
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            val team = repo.getTeam(save.playerTeamId) ?: return@launch
-            val cost = 2_000_000L * team.trainingCenterLevel
-            if (save.bankBalance >= cost && team.trainingCenterLevel < 5) {
-                val updatedTeam = team.copy(trainingCenterLevel = team.trainingCenterLevel + 1)
-                val updatedSave = save.copy(bankBalance = save.bankBalance - cost)
-                repo.updateTeam(updatedTeam)
-                repo.saveGameSave(updatedSave)
-                _toastMessage.emit("Centro de Treinamento evoluído para Nível ${updatedTeam.trainingCenterLevel}!")
-            } else {
-                _toastMessage.emit("Saldo insuficiente ou nível máximo atingido.")
+            val message = repo.withTransaction {
+                val save = repo.getGameSave() ?: return@withTransaction null
+                val team = repo.getTeam(save.playerTeamId) ?: return@withTransaction null
+                val cost = 2_000_000L * team.trainingCenterLevel
+                if (save.bankBalance >= cost && team.trainingCenterLevel < 5) {
+                    val updatedTeam = team.copy(trainingCenterLevel = team.trainingCenterLevel + 1)
+                    val updatedSave = save.copy(bankBalance = save.bankBalance - cost)
+                    repo.updateTeam(updatedTeam)
+                    repo.saveGameSave(updatedSave)
+                    "Centro de Treinamento evoluído para Nível ${updatedTeam.trainingCenterLevel}!"
+                } else {
+                    "Saldo insuficiente ou nível máximo atingido."
+                }
+            }
+            if (message != null) {
+                _toastMessage.emit(message)
             }
         }
     }
@@ -1413,36 +1418,25 @@ class GameViewModel @Inject constructor(
     }
 
     fun restartCurrentSeason() {
+        _isSimulatingSeason.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            
-            // 1. Reset week to 1
-            val updatedSave = save.copy(currentWeek = 1, isGameOver = false)
-            repo.saveGameSave(updatedSave)
-            
-            // 2. Clear and regenerate all fixtures for the current season
-            repo.deleteFixtures()
-            
-            val currentTeams = repo.getAllTeams()
-            val allGeneratedFixtures = generateFixturesForSeason(save.currentSeason, currentTeams, save.playerTeamId)
-            repo.saveFixtures(allGeneratedFixtures)
-            
-            // 3. Reset player stats
-            val allPlayers = repo.allPlayersFlow.first()
-            val resetPlayers = allPlayers.map { p ->
-                p.copy(
-                    energy = 100,
-                    moral = 75,
-                    injuryWeeksRemaining = 0,
-                    suspensionWeeksRemaining = 0,
-                    yellowCardsAccumulated = 0,
-                    careerGoals = 0
+            simulationMutex.withLock {
+                val save = repo.getGameSave() ?: return@withLock
+                val currentTeams = repo.getAllTeams()
+                val allGeneratedFixtures = generateFixturesForSeason(
+                    save.currentSeason,
+                    currentTeams,
+                    save.playerTeamId
                 )
+                val restarted = repo.restartSeasonStateAtomically(
+                    expectedSeason = save.currentSeason,
+                    expectedPlayerTeamId = save.playerTeamId,
+                    replacementFixtures = allGeneratedFixtures
+                )
+                if (!restarted) {
+                    _toastMessage.emit("O estado da carreira mudou durante o reinício. Tente novamente.")
+                }
             }
-            repo.updatePlayers(resetPlayers)
-            
-            // 4. Delete coach offers
-            repo.deleteOffers()
         }
     }
 
