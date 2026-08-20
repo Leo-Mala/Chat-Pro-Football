@@ -4,6 +4,7 @@ import com.example.data.DefaultData
 import com.example.data.GameRepository
 import com.example.data.Player
 import com.example.data.Team
+import com.example.data.isFc26UnassignedSourceClub
 import kotlin.math.abs
 
 /**
@@ -45,7 +46,10 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         val cpuTeams = repository.getAllTeams()
             .filter { it.isManagedCpuClub(save?.playerTeamId) }
             .sortedBy { it.id }
-        val playersByTeam = repository.getAllPlayers().groupBy { it.teamId }
+        val playersByTeam = repository.getAllPlayers()
+            .asSequence()
+            .filter { it.teamId != null }
+            .groupBy { it.teamId }
         val updates = mutableListOf<Player>()
 
         for (team in cpuTeams) {
@@ -104,7 +108,11 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
             .mapValues { (_, players) -> players.toMutableList() }
             .toMutableMap()
         val freeAgents = allPlayers
-            .filter { it.teamId == null && !it.isOnLoan }
+            .filter {
+                it.teamId == null &&
+                    !it.isOnLoan &&
+                    !it.isFc26UnassignedSourceClub()
+            }
             .sortedBy { it.id }
             .toMutableList()
         val pendingUpdates = linkedMapOf<Long, Player>()
