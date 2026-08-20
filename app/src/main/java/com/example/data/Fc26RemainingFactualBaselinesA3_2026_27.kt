@@ -4,15 +4,15 @@ package com.example.data
  * Phase 9.11A3 factual lower-tier identities for the FC26 2025-09-19 snapshot.
  *
  * Every record is keyed by immutable FC26 `club_team_id`. Membership in Ligue 2 BKT 2026/27 is
- * taken from the official LFP calendar published on 2026-06-10; text similarity is never used as
- * identity evidence. Only identity/name/country/division are factual here. Slot city/stadium/rating
+ * taken from the official LFP match calendar published on 2026-06-10; text similarity is never used
+ * as identity evidence. Only identity/name/country/division are factual here. Slot city/stadium/rating
  * remain internal game metadata when materialized.
  */
 object Fc26RemainingFactualBaselinesA3_2026_27 {
     const val FC26_DATASET_VERSION = "2025-09-19"
     const val VERIFIED_AS_OF = "2026-08-19"
     const val LFP_LIGUE_2_2026_27 =
-        "LFP official Ligue 2 BKT 2026/27 calendar, published 2026-06-10"
+        "LFP / Ligue1.com — Saison 26/27 : Le calendrier des matchs de Ligue 2 BKT ! — published 2026-06-10"
 
     data class FactualTarget(
         val sourceClubTeamId: Long,
