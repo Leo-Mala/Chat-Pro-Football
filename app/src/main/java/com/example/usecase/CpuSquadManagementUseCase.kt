@@ -4,18 +4,21 @@ import com.example.data.DefaultData
 import com.example.data.GameRepository
 import com.example.data.Player
 import com.example.data.Team
+import com.example.data.WeeklyRenewalCandidate
+import com.example.data.WeeklyRenewalDecision
+import com.example.data.applyWeeklyRenewals
+import com.example.data.getMaxPersistedPlayerId
+import com.example.data.getWeeklyRenewalCandidates
+import com.example.data.getWeeklyRosterAggregates
 import com.example.data.isFc26UnassignedSourceClub
 import kotlin.math.abs
 
 /**
  * Mantém os clubes controlados pela CPU estruturalmente jogáveis durante todas as 48 semanas.
  *
- * A decisão de renovar/repor atletas é determinística para um mesmo estado persistido. Free Agents
- * são sempre reaproveitados antes da geração de um atleta de emergência.
- *
- * Registros Team com country="Mundial" são participantes virtuais/legados persistidos apenas para
- * integridade referencial de fixtures. Eles não representam clubes domésticos ativos e, portanto,
- * não recebem renovação nem geração automática de elenco.
+ * Phase 9.13 removes full-table Player materialization from the canonical weekly path. Renewal uses
+ * lightweight scalar SQL projections; squad integrity uses roster aggregates and only loads full
+ * Player entities for clubs that are actually unhealthy after the contract tick.
  */
 class CpuSquadManagementUseCase(private val repository: GameRepository) {
 
@@ -36,195 +39,117 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         val invalidActiveLoans: Int
     )
 
-    /**
-     * O fluxo semanal chama renovação -> tick de contratos -> integridade no mesmo objeto.
-     * Com dezenas de milhares de jogadores, reler toda a tabela em cada uma dessas etapas domina o
-     * tempo da rodada. Guardamos somente um snapshot efêmero em memória para a terceira etapa.
-     * Nada é persistido fora do Room e o snapshot nunca atravessa uma instância/use case semanal.
-     */
-    private var predictedPlayersAfterContractTick: List<Player>? = null
-    private var weeklyTeamsSnapshot: List<Team>? = null
-
     private fun Team.isManagedCpuClub(playerTeamId: Long?): Boolean =
         id != playerTeamId &&
             !isPlayerControlled &&
             !country.equals("Mundial", ignoreCase = true)
 
+    /**
+     * Renews only players inside the one-week window. The old implementation loaded all 82k+
+     * Player entities before discovering that only a small action set required a decision.
+     */
     suspend fun renewCpuContractsBeforeWeeklyTick(): Int = repository.withTransaction {
         val save = repository.getGameSave()
-        val allTeams = repository.getAllTeams()
-        val cpuTeams = allTeams
+        val cpuTeams = repository.getAllTeams()
+            .asSequence()
             .filter { it.isManagedCpuClub(save?.playerTeamId) }
             .sortedBy { it.id }
-        val allPlayers = repository.getAllPlayers()
-        val updates = buildRenewalUpdates(allPlayers, cpuTeams)
+            .toList()
+        if (cpuTeams.isEmpty()) return@withTransaction 0
 
-        if (updates.isNotEmpty()) repository.updatePlayers(updates.values.toList())
-
-        // ProcessTransfersUseCase aplica exatamente o tick logo em seguida. Antecipar somente o
-        // estado resultante em memória permite que a integridade CPU reutilize o mesmo universo sem
-        // uma nova leitura integral do Room depois do tick.
-        val renewedPlayers = if (updates.isEmpty()) {
-            allPlayers
-        } else {
-            allPlayers.map { updates[it.id] ?: it }
-        }
-        predictedPlayersAfterContractTick = renewedPlayers.map(::predictWeeklyContractTick)
-        weeklyTeamsSnapshot = allTeams
-        updates.size
-    }
-
-    suspend fun ensureCpuSquadIntegrity(): ManagementReport = repository.withTransaction {
-        predictedPlayersAfterContractTick = null
-        weeklyTeamsSnapshot = null
-        val save = repository.getGameSave()
-        val allTeams = repository.getAllTeams()
-        val allPlayers = repository.getAllPlayers()
-        val activeLoans = repository.getActiveLoans()
-        ensureCpuSquadIntegrityFromSnapshot(
-            playerTeamId = save?.playerTeamId,
-            allTeams = allTeams,
-            allPlayers = allPlayers,
-            activeLoans = activeLoans
-        )
-    }
-
-    /**
-     * Caminho canônico usado após o tick semanal de contratos. Reaproveita o snapshot calculado na
-     * renovação imediatamente anterior e evita duas leituras integrais adicionais de players/teams.
-     */
-    suspend fun processWeeklyAfterContracts(): ManagementReport {
-        val cachedPlayers = predictedPlayersAfterContractTick
-        val cachedTeams = weeklyTeamsSnapshot
-        return try {
-            if (cachedPlayers != null && cachedTeams != null) {
-                repository.withTransaction {
-                    val save = repository.getGameSave()
-                    val activeLoans = repository.getActiveLoans()
-                    ensureCpuSquadIntegrityFromSnapshot(
-                        playerTeamId = save?.playerTeamId,
-                        allTeams = cachedTeams,
-                        allPlayers = cachedPlayers,
-                        activeLoans = activeLoans
-                    )
-                }
-            } else {
-                ensureCpuSquadIntegrity()
-            }
-        } finally {
-            predictedPlayersAfterContractTick = null
-            weeklyTeamsSnapshot = null
-        }
-    }
-
-    private fun buildRenewalUpdates(
-        allPlayers: List<Player>,
-        cpuTeams: List<Team>
-    ): LinkedHashMap<Long, Player> {
-        val playersByTeam = allPlayers
-            .asSequence()
-            .filter { it.teamId != null }
+        val aggregateByTeam = repository.getWeeklyRosterAggregates()
+        val expiringByTeam = repository.getWeeklyRenewalCandidates(RENEWAL_WINDOW_WEEKS)
             .groupBy { it.teamId }
-        val updates = linkedMapOf<Long, Player>()
+        val decisions = ArrayList<WeeklyRenewalDecision>()
 
         for (team in cpuTeams) {
-            val roster = playersByTeam[team.id].orEmpty()
-            if (roster.isEmpty()) continue
-
-            val expiring = roster
-                .filter {
-                    !it.isOnLoan &&
-                        it.contractDurationWeeks in 1..RENEWAL_WINDOW_WEEKS
-                }
+            val expiring = expiringByTeam[team.id].orEmpty()
                 .sortedWith(
-                    compareByDescending<Player> { retentionScore(it, team) }
+                    compareByDescending<WeeklyRenewalCandidate> { retentionScore(it, team) }
                         .thenBy { it.id }
                 )
             if (expiring.isEmpty()) continue
 
-            val survivorsWithoutRenewal = roster.size - expiring.size
+            val aggregate = aggregateByTeam[team.id]
+            val rosterSize = aggregate?.rosterSize ?: 0
+            val survivorsWithoutRenewal = rosterSize - expiring.size
             val mandatoryForSize = (MIN_SQUAD_SIZE - survivorsWithoutRenewal).coerceAtLeast(0)
-            val onlyGoalkeeper = roster.filter { it.position == "GOL" }
-                .singleOrNull()
-                ?.takeIf { it in expiring }
+            val onlyGoalkeeper = if (aggregate?.goalkeeperCount == 1) {
+                expiring.singleOrNull { it.position == "GOL" }
+            } else {
+                null
+            }
 
-            val mustRenewIds = expiring.take(mandatoryForSize).map { it.id }.toMutableSet()
+            val mustRenewIds = expiring.take(mandatoryForSize).mapTo(mutableSetOf()) { it.id }
             onlyGoalkeeper?.let { mustRenewIds.add(it.id) }
 
             for (player in expiring) {
                 val sportingKeep = player.age <= 32 &&
                     (player.force >= team.rating - 5 || player.potential >= 85)
                 if (player.id in mustRenewIds || sportingKeep) {
-                    updates[player.id] = player.copy(
-                        contractDurationWeeks = renewalDuration(player),
-                        salary = player.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L)
+                    decisions += WeeklyRenewalDecision(
+                        playerId = player.id,
+                        contractDurationWeeks = renewalDuration(player.age),
+                        salary = calculateSalary(player.force, team.rating)
                     )
                 }
             }
         }
-        return updates
+
+        repository.applyWeeklyRenewals(decisions)
     }
 
-    /** Mantém em memória a mesma transformação persistida pelo tick semanal de contratos. */
-    private fun predictWeeklyContractTick(player: Player): Player {
-        if (player.contractDurationWeeks <= 0) return player
-        val newWeeks = player.contractDurationWeeks - 1
-        if (newWeeks > 0) return player.copy(contractDurationWeeks = newWeeks)
-
-        return if (player.isOnLoan) {
-            player.copy(
-                contractDurationWeeks = 0,
-                isStarter = false,
-                salary = 0L
-            )
-        } else {
-            player.copy(
-                contractDurationWeeks = 0,
-                teamId = null,
-                originalTeamId = null,
-                isStarter = false,
-                salary = 0L
-            )
-        }
-    }
-
-    private suspend fun ensureCpuSquadIntegrityFromSnapshot(
-        playerTeamId: Long?,
-        allTeams: List<Team>,
-        allPlayers: List<Player>,
-        activeLoans: List<com.example.data.PlayerLoan>
-    ): ManagementReport {
+    /**
+     * Canonical post-contract integrity check. Healthy CPU clubs are represented only by three
+     * scalar aggregate values; full rosters and free agents are loaded only if a repair is needed.
+     */
+    suspend fun ensureCpuSquadIntegrity(): ManagementReport = repository.withTransaction {
+        val save = repository.getGameSave()
+        val allTeams = repository.getAllTeams()
         val cpuTeams = allTeams
-            .filter { it.isManagedCpuClub(playerTeamId) }
+            .filter { it.isManagedCpuClub(save?.playerTeamId) }
             .sortedBy { it.id }
+        val aggregateByTeam = repository.getWeeklyRosterAggregates()
+        val activeLoans = repository.getActiveLoans()
 
-        val rosters = allPlayers
-            .asSequence()
-            .filter { it.teamId != null }
-            .groupBy { it.teamId }
-            .mapValues { (_, players) -> players.toMutableList() }
-            .toMutableMap()
-        val freeAgents = allPlayers
-            .asSequence()
-            .filter {
-                it.teamId == null &&
-                    !it.isOnLoan &&
-                    !it.isFc26UnassignedSourceClub()
+        if (cpuTeams.isEmpty()) {
+            return@withTransaction ManagementReport(0, 0, 0, 0, 0, 0, 0, validateActiveLoans(activeLoans, allTeams))
+        }
+
+        val unhealthyTeamIds = cpuTeams.asSequence()
+            .filter { team ->
+                val aggregate = aggregateByTeam[team.id]
+                val size = aggregate?.rosterSize ?: 0
+                val goalkeepers = aggregate?.goalkeeperCount ?: 0
+                size < MIN_SQUAD_SIZE || size > MAX_SQUAD_SIZE || goalkeepers == 0
             }
-            .sortedBy { it.id }
-            .toMutableList()
+            .map { it.id }
+            .toSet()
+
+        val rosters = unhealthyTeamIds.associateWith { teamId ->
+            repository.getPlayersByTeam(teamId).toMutableList()
+        }.toMutableMap()
+
+        val freeAgents = if (unhealthyTeamIds.isNotEmpty()) {
+            repository.getFreeAgents()
+                .asSequence()
+                .filter { !it.isOnLoan && !it.isFc26UnassignedSourceClub() }
+                .sortedBy { it.id }
+                .toMutableList()
+        } else {
+            mutableListOf()
+        }
+
         val pendingUpdates = linkedMapOf<Long, Player>()
         val generatedPlayers = mutableListOf<Player>()
-        val finalPlayersById = allPlayers.associateBy { it.id }.toMutableMap()
-
-        var nextPlayerId = ((allPlayers.maxOfOrNull { it.id } ?: 99_999L) + 1L)
-            .coerceAtLeast(100_000L)
-        val occupiedIds = allPlayers.mapTo(mutableSetOf()) { it.id }
+        var nextPlayerId = if (unhealthyTeamIds.isEmpty()) 100_000L else
+            (repository.getMaxPersistedPlayerId() + 1L).coerceAtLeast(100_000L)
+        val occupiedGeneratedIds = mutableSetOf<Long>()
 
         fun nextCollisionSafeId(): Long {
-            while (nextPlayerId in occupiedIds || nextPlayerId <= 0L) nextPlayerId++
+            while (nextPlayerId <= 0L || nextPlayerId in occupiedGeneratedIds) nextPlayerId++
             return nextPlayerId.also {
-                occupiedIds.add(it)
+                occupiedGeneratedIds.add(it)
                 nextPlayerId++
             }
         }
@@ -234,8 +159,18 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         var released = 0
         var minRoster = Int.MAX_VALUE
         var maxRoster = 0
+        var teamsWithoutGoalkeeper = 0
 
         for (team in cpuTeams) {
+            if (team.id !in unhealthyTeamIds) {
+                val aggregate = aggregateByTeam[team.id]
+                val size = aggregate?.rosterSize ?: 0
+                minRoster = minOf(minRoster, size)
+                maxRoster = maxOf(maxRoster, size)
+                if ((aggregate?.goalkeeperCount ?: 0) == 0) teamsWithoutGoalkeeper++
+                continue
+            }
+
             val roster = rosters.getOrPut(team.id) { mutableListOf() }
 
             if (roster.size > MAX_SQUAD_SIZE) {
@@ -262,7 +197,6 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                             loanWeeksRemaining = 0
                         )
                         pendingUpdates[player.id] = freeAgent
-                        finalPlayersById[player.id] = freeAgent
                         freeAgents.add(freeAgent)
                     }
                     released += toRelease.size
@@ -284,15 +218,14 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                 val signedPlayer = candidate.copy(
                     teamId = team.id,
                     originalTeamId = null,
-                    contractDurationWeeks = renewalDuration(candidate),
-                    salary = candidate.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L),
+                    contractDurationWeeks = renewalDuration(candidate.age),
+                    salary = calculateSalary(candidate.force, team.rating),
                     isStarter = false,
                     isOnLoan = false,
                     loanWeeksRemaining = 0,
                     moral = candidate.moral.coerceAtLeast(70)
                 )
                 pendingUpdates[candidate.id] = signedPlayer
-                finalPlayersById[candidate.id] = signedPlayer
                 freeAgents.removeAll { it.id == candidate.id }
                 roster.add(signedPlayer)
                 signed++
@@ -316,14 +249,13 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                     id = nextCollisionSafeId(),
                     teamId = team.id,
                     originalTeamId = null,
-                    contractDurationWeeks = renewalDuration(template),
-                    salary = template.calculateSalary(team.rating.toDouble()).coerceAtLeast(3_000L),
+                    contractDurationWeeks = renewalDuration(template.age),
+                    salary = calculateSalary(template.force, team.rating),
                     isStarter = false,
                     isOnLoan = false,
                     loanWeeksRemaining = 0
                 )
                 generatedPlayers.add(generatedPlayer)
-                finalPlayersById[generatedPlayer.id] = generatedPlayer
                 roster.add(generatedPlayer)
                 generated++
                 return true
@@ -347,19 +279,36 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
 
             minRoster = minOf(minRoster, roster.size)
             maxRoster = maxOf(maxRoster, roster.size)
+            if (roster.none { it.position == "GOL" }) teamsWithoutGoalkeeper++
         }
 
-        if (pendingUpdates.isNotEmpty()) {
-            repository.updatePlayers(pendingUpdates.values.toList())
-        }
-        if (generatedPlayers.isNotEmpty()) {
-            repository.savePlayers(generatedPlayers)
-        }
+        if (pendingUpdates.isNotEmpty()) repository.updatePlayers(pendingUpdates.values.toList())
+        if (generatedPlayers.isNotEmpty()) repository.savePlayers(generatedPlayers)
 
+        ManagementReport(
+            teamsChecked = cpuTeams.size,
+            freeAgentsSigned = signed,
+            emergencyPlayersGenerated = generated,
+            excessPlayersReleased = released,
+            minimumRosterSize = minRoster,
+            maximumRosterSize = maxRoster,
+            teamsWithoutGoalkeeper = teamsWithoutGoalkeeper,
+            invalidActiveLoans = validateActiveLoans(activeLoans, allTeams)
+        )
+    }
+
+    /** Canonical path after the SQL contract tick; no full Player snapshot is retained anymore. */
+    suspend fun processWeeklyAfterContracts(): ManagementReport = ensureCpuSquadIntegrity()
+
+    private suspend fun validateActiveLoans(
+        activeLoans: List<com.example.data.PlayerLoan>,
+        allTeams: List<Team>
+    ): Int {
+        if (activeLoans.isEmpty()) return 0
         val duplicateActiveLoans = activeLoans.size - activeLoans.map { it.playerId }.toSet().size
         val validTeamIds = allTeams.mapTo(mutableSetOf()) { it.id }
         val invalidLoanRows = activeLoans.count { loan ->
-            val player = finalPlayersById[loan.playerId]
+            val player = repository.getPlayer(loan.playerId)
             player == null ||
                 !player.isOnLoan ||
                 player.teamId != loan.borrowerTeamId ||
@@ -368,20 +317,14 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                 loan.borrowerTeamId !in validTeamIds ||
                 loan.remainingWeeks <= 0
         }
-        val teamsWithoutGoalkeeper = cpuTeams.count { team ->
-            rosters[team.id].orEmpty().none { it.position == "GOL" }
-        }
+        return duplicateActiveLoans + invalidLoanRows
+    }
 
-        return ManagementReport(
-            teamsChecked = cpuTeams.size,
-            freeAgentsSigned = signed,
-            emergencyPlayersGenerated = generated,
-            excessPlayersReleased = released,
-            minimumRosterSize = if (cpuTeams.isEmpty()) 0 else minRoster,
-            maximumRosterSize = if (cpuTeams.isEmpty()) 0 else maxRoster,
-            teamsWithoutGoalkeeper = teamsWithoutGoalkeeper,
-            invalidActiveLoans = duplicateActiveLoans + invalidLoanRows
-        )
+    private fun retentionScore(player: WeeklyRenewalCandidate, team: Team): Int {
+        val agePenalty = (player.age - 29).coerceAtLeast(0) * 3
+        val goalkeeperBonus = if (player.position == "GOL") 20 else 0
+        val levelFit = 20 - abs(player.force - team.rating).coerceAtMost(20)
+        return player.force * 3 + player.potential + goalkeeperBonus + levelFit - agePenalty
     }
 
     private fun retentionScore(player: Player, team: Team): Int {
@@ -391,10 +334,13 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         return player.force * 3 + player.potential + goalkeeperBonus + levelFit - agePenalty
     }
 
-    private fun renewalDuration(player: Player): Int = when {
-        player.age <= 24 -> 156
-        player.age <= 29 -> 104
-        player.age <= 33 -> 78
+    private fun calculateSalary(force: Int, teamRating: Int): Long =
+        ((teamRating / 100.0) * force * 1500.0).toLong().coerceAtLeast(3_000L)
+
+    private fun renewalDuration(age: Int): Int = when {
+        age <= 24 -> 156
+        age <= 29 -> 104
+        age <= 33 -> 78
         else -> 52
     }
 }
