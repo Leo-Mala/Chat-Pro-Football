@@ -3,6 +3,8 @@ package com.example.data
 import com.google.gson.JsonParser
 
 private const val FC26_UNASSIGNED_SOURCE_CLUB = "UNASSIGNED_SOURCE_CLUB"
+private const val FC26_UNASSIGNED_SOURCE_CLUB_JSON_MARKER =
+    "\"assignmentStatus\":\"UNASSIGNED_SOURCE_CLUB\""
 
 data class Fc26PersistedImportMetadata(
     val source: String,
@@ -81,6 +83,12 @@ internal fun Player.markFc26UnassignedSourceClub(): Player {
     )
 }
 
-/** True apenas para o snapshot FC26 ainda sem associação de clube; não inclui free agents reais. */
+/**
+ * True apenas para o snapshot FC26 ainda sem associação de clube; não inclui free agents reais.
+ *
+ * Este predicado fica em hot paths semanais. O marcador é escrito por [markFc26UnassignedSourceClub]
+ * usando JsonObject.toString(), então uma busca textual exata evita milhares de parses Gson sem mudar
+ * o envelope persistido nem a semântica de [sourceMetadataOrNull].
+ */
 internal fun Player.isFc26UnassignedSourceClub(): Boolean =
-    teamId == null && sourceMetadataOrNull()?.assignmentStatus == FC26_UNASSIGNED_SOURCE_CLUB
+    teamId == null && atributosJson?.contains(FC26_UNASSIGNED_SOURCE_CLUB_JSON_MARKER) == true
