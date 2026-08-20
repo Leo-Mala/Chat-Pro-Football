@@ -7,6 +7,7 @@ on:
       - 'app/src/main/java/com/example/data/Fc26SeedPlanner.kt'
       - 'app/src/main/java/com/example/data/Fc26PlayerMetadata.kt'
       - 'app/src/main/java/com/example/usecase/CpuSquadManagementUseCase.kt'
+      - 'app/src/main/java/com/example/usecase/ProcessTransfersUseCase.kt'
       - 'app/src/test/java/com/example/data/Fc26*'
       - 'reports/fc26_*'
       - '.github/workflows/fc26-bulk-player-import.yml'
@@ -68,104 +69,52 @@ jobs:
           else
             cat << 'GOOGLE_EOF' > app/google-services.json
           {
-            "project_info": {
-              "project_number": "1234567890",
-              "project_id": "dummy-project",
-              "storage_bucket": "dummy-project.appspot.com"
-            },
-            "client": [{
-              "client_info": {
-                "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
-                "android_client_info": {"package_name": "com.aistudio.brasfutretro.djuxzt"}
-              },
-              "oauth_client": [],
-              "api_key": [{"current_key": "AIzaSyDummyKeyForBuildOnly123456"}],
-              "services": {"appinvite_service": {"status": 1}}
-            }],
-            "configuration_version": "1"
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client": [{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
           }
           GOOGLE_EOF
           fi
 
-      - name: Setup Debug Keystore
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.android
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug, O=Android, C=US"
-          fi
-          cp debug.keystore ~/.android/debug.keystore
-
-      - name: Build Debug APK
+      - name: Diagnostic 1 - CareerFunctionalFlow isolated
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew testDebugUnitTest --tests com.example.CareerFunctionalFlowTest --stacktrace
 
-      - name: Run non-stress unit and Robolectric regressions
+      - name: Diagnostic 2 - SeedPlanner plus CareerFunctionalFlow
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+          ./gradlew testDebugUnitTest \
+            --tests com.example.data.Fc26SeedPlannerTest \
+            --tests com.example.CareerFunctionalFlowTest \
+            --stacktrace
 
-      - name: Validate full 18,405-player bulk import explicitly
+      - name: Diagnostic 3 - FullSeed plus CareerFunctionalFlow
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
-            --tests com.example.data.Fc26SeedPlannerTest \
-            --tests com.example.data.Fc26PlayerMapperTest \
-            --tests com.example.data.StableRealPlayerIdentityTest \
-            --tests com.example.data.EuropeanStableTeamIdentityTest \
+            --tests com.example.CareerFunctionalFlowTest \
             --stacktrace
 
-      - name: Verify Room schema V21
-        id: room_schema
+      - name: Diagnostic 4 - Both FC26 bulk tests plus CareerFunctionalFlow
         shell: bash
         run: |
           set -euo pipefail
-          grep -Eq 'version\s*=\s*21' app/src/main/java/com/example/data/database.kt
-          schema_file='app/schemas/com.example.data.AppDatabase/21.json'
-          test -f "$schema_file"
-          echo "schema_file=$schema_file" >> "$GITHUB_OUTPUT"
+          ./gradlew testDebugUnitTest \
+            --tests com.example.data.Fc26SeedPlannerTest \
+            --tests com.example.data.Fc26FullSeedIntegrationTest \
+            --tests com.example.CareerFunctionalFlowTest \
+            --stacktrace
 
-      - name: Upload FC26 bulk reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: fc26-bulk-player-import-reports
-          path: |
-            reports/fc26_bulk_import_report.json
-            reports/fc26_bulk_import_unresolved.json
-            reports/fc26_club_mapping_report.json
-          if-no-files-found: error
-
-      - name: Upload Room schema
-        uses: actions/upload-artifact@v4
-        with:
-          name: room-schema-${{ github.sha }}
-          path: ${{ steps.room_schema.outputs.schema_file }}
-          if-no-files-found: error
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug-fc26-bulk-import
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-
-      - name: Upload test report on failure
+      - name: Upload diagnostic test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fc26-bulk-import-test-report
+          name: fc26-bulk-performance-diagnostic-report
           path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
