@@ -27,7 +27,7 @@ class MainApplication : Application() {
                 try {
                     val field = CursorWindow::class.java.getDeclaredField("sCursorWindowSize")
                     field.isAccessible = true
-                    field.set(null, 100 * 1024 * 1024)
+                    field.set(null, 100 * 1024 * 1024) // 100 MB
                 } catch (_: Throwable) {
                     // Safely ignored
                 }
