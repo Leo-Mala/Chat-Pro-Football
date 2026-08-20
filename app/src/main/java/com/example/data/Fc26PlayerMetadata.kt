@@ -15,7 +15,9 @@ data class Fc26PersistedImportMetadata(
     val sourceClubName: String?,
     val leagueId: Long?,
     val leagueName: String?,
-    val assignmentStatus: String?
+    val assignmentStatus: String?,
+    val sourceContractDurationWeeks: Int?,
+    val sourceSalary: Long?
 )
 
 /**
@@ -41,7 +43,9 @@ internal fun Player.sourceMetadataOrNull(): Fc26PersistedImportMetadata? {
             sourceClubName = import.get("sourceClubName")?.takeUnless { it.isJsonNull }?.asString,
             leagueId = import.get("leagueId")?.takeUnless { it.isJsonNull }?.asLong,
             leagueName = import.get("leagueName")?.takeUnless { it.isJsonNull }?.asString,
-            assignmentStatus = import.get("assignmentStatus")?.takeUnless { it.isJsonNull }?.asString
+            assignmentStatus = import.get("assignmentStatus")?.takeUnless { it.isJsonNull }?.asString,
+            sourceContractDurationWeeks = import.get("sourceContractDurationWeeks")?.takeUnless { it.isJsonNull }?.asInt,
+            sourceSalary = import.get("sourceSalary")?.takeUnless { it.isJsonNull }?.asLong
         )
     }.getOrNull()
 }
@@ -50,6 +54,10 @@ internal fun Player.sourceMetadataOrNull(): Fc26PersistedImportMetadata? {
  * Marca somente jogadores FC26 cujo clube de origem ainda não possui target seguro no universo do
  * jogo. O marcador vive no envelope de metadados já persistido, portanto não exige mudança Room e
  * não toca em overall, potential nem nos atributos de gameplay.
+ *
+ * Enquanto não houver target, salário/contrato de clube não são runtime-applicáveis. Os valores já
+ * derivados da fonte são preservados no envelope para futura associação e zerados apenas nos campos
+ * operacionais, evitando que rotinas semanais tratem o snapshot como vínculo com um clube inexistente.
  */
 internal fun Player.markFc26UnassignedSourceClub(): Player {
     val json = atributosJson?.takeIf { it.isNotBlank() } ?: return this
@@ -58,9 +66,19 @@ internal fun Player.markFc26UnassignedSourceClub(): Player {
         val import = root.getAsJsonObject("import") ?: return this
         if (import.get("source")?.asString != "FC26") return this
         import.addProperty("assignmentStatus", FC26_UNASSIGNED_SOURCE_CLUB)
+        import.addProperty("sourceContractDurationWeeks", contractDurationWeeks)
+        import.addProperty("sourceSalary", salary)
         root.toString()
     }.getOrNull() ?: return this
-    return copy(atributosJson = updatedJson)
+    return copy(
+        atributosJson = updatedJson,
+        contractDurationWeeks = 0,
+        salary = 0L,
+        isStarter = false,
+        isOnLoan = false,
+        loanWeeksRemaining = 0,
+        originalTeamId = null
+    )
 }
 
 /** True apenas para o snapshot FC26 ainda sem associação de clube; não inclui free agents reais. */
