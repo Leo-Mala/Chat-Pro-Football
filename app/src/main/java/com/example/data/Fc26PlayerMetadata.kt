@@ -2,6 +2,10 @@ package com.example.data
 
 import com.google.gson.JsonParser
 
+private const val FC26_UNASSIGNED_SOURCE_CLUB = "UNASSIGNED_SOURCE_CLUB"
+private const val FC26_UNASSIGNED_SOURCE_CLUB_JSON_MARKER =
+    "\"assignmentStatus\":\"UNASSIGNED_SOURCE_CLUB\""
+
 data class Fc26PersistedImportMetadata(
     val source: String,
     val sourcePlayerId: Long,
@@ -12,7 +16,10 @@ data class Fc26PersistedImportMetadata(
     val sourceClubTeamId: Long?,
     val sourceClubName: String?,
     val leagueId: Long?,
-    val leagueName: String?
+    val leagueName: String?,
+    val assignmentStatus: String?,
+    val sourceContractDurationWeeks: Int?,
+    val sourceSalary: Long?
 )
 
 /**
@@ -37,7 +44,51 @@ internal fun Player.sourceMetadataOrNull(): Fc26PersistedImportMetadata? {
             sourceClubTeamId = import.get("sourceClubTeamId")?.takeUnless { it.isJsonNull }?.asLong,
             sourceClubName = import.get("sourceClubName")?.takeUnless { it.isJsonNull }?.asString,
             leagueId = import.get("leagueId")?.takeUnless { it.isJsonNull }?.asLong,
-            leagueName = import.get("leagueName")?.takeUnless { it.isJsonNull }?.asString
+            leagueName = import.get("leagueName")?.takeUnless { it.isJsonNull }?.asString,
+            assignmentStatus = import.get("assignmentStatus")?.takeUnless { it.isJsonNull }?.asString,
+            sourceContractDurationWeeks = import.get("sourceContractDurationWeeks")?.takeUnless { it.isJsonNull }?.asInt,
+            sourceSalary = import.get("sourceSalary")?.takeUnless { it.isJsonNull }?.asLong
         )
     }.getOrNull()
 }
+
+/**
+ * Marca somente jogadores FC26 cujo clube de origem ainda não possui target seguro no universo do
+ * jogo. O marcador vive no envelope de metadados já persistido, portanto não exige mudança Room e
+ * não toca em overall, potential nem nos atributos de gameplay.
+ *
+ * Enquanto não houver target, salário/contrato de clube não são runtime-applicáveis. Os valores já
+ * derivados da fonte são preservados no envelope para futura associação e zerados apenas nos campos
+ * operacionais, evitando que rotinas semanais tratem o snapshot como vínculo com um clube inexistente.
+ */
+internal fun Player.markFc26UnassignedSourceClub(): Player {
+    val json = atributosJson?.takeIf { it.isNotBlank() } ?: return this
+    val updatedJson = runCatching {
+        val root = JsonParser.parseString(json).asJsonObject
+        val import = root.getAsJsonObject("import") ?: return this
+        if (import.get("source")?.asString != "FC26") return this
+        import.addProperty("assignmentStatus", FC26_UNASSIGNED_SOURCE_CLUB)
+        import.addProperty("sourceContractDurationWeeks", contractDurationWeeks)
+        import.addProperty("sourceSalary", salary)
+        root.toString()
+    }.getOrNull() ?: return this
+    return copy(
+        atributosJson = updatedJson,
+        contractDurationWeeks = 0,
+        salary = 0L,
+        isStarter = false,
+        isOnLoan = false,
+        loanWeeksRemaining = 0,
+        originalTeamId = null
+    )
+}
+
+/**
+ * True apenas para o snapshot FC26 ainda sem associação de clube; não inclui free agents reais.
+ *
+ * Este predicado fica em hot paths semanais. O marcador é escrito por [markFc26UnassignedSourceClub]
+ * usando JsonObject.toString(), então uma busca textual exata evita milhares de parses Gson sem mudar
+ * o envelope persistido nem a semântica de [sourceMetadataOrNull].
+ */
+internal fun Player.isFc26UnassignedSourceClub(): Boolean =
+    teamId == null && atributosJson?.contains(FC26_UNASSIGNED_SOURCE_CLUB_JSON_MARKER) == true

@@ -2,14 +2,21 @@ package com.example.data
 
 data class Fc26SeedReport(
     val datasetPlayers: Int,
+    /** Legacy club-coverage counter: mapped-club players + factual dataset free agents. */
     val importedFc26Players: Int,
+    /** Legacy club-coverage counter: players whose source club is not safely resolved yet. */
     val skippedDatasetPlayers: Int,
+    /** Actual bulk-import count: every FC26 player materialized into the game plan. */
+    val bulkImportedFc26Players: Int,
     val datasetClubs: Int,
     val matchedClubs: Int,
     val unmatchedClubs: Int,
     val ambiguousClubs: Int,
     val playersWithMappedClub: Int,
     val importedFreeAgents: Int,
+    val importedUnassignedClubPlayers: Int,
+    val importedUnmatchedClubPlayers: Int,
+    val importedAmbiguousClubPlayers: Int,
     val datasetLoanPlayers: Int,
     val successfullyMappedLoans: Int,
     val unresolvedLoans: Int,
@@ -39,6 +46,7 @@ object Fc26SeedPlanner {
         require(teams.map { it.id }.distinct().size == teams.size) { "FC26 target teams contêm ID duplicado." }
 
         val matches = Fc26ClubMatcher.match(dataset, teams)
+        val matchesBySourceId = matches.associateBy { it.sourceClubTeamId }
         val matchedByTargetId = matches
             .filter { it.status == Fc26ClubMatchStatus.MATCHED }
             .groupBy { requireNotNull(it.targetTeamId) }
@@ -72,18 +80,53 @@ object Fc26SeedPlanner {
         val freeAgents = dataset.freeAgents.map { Fc26PlayerMapper.toPlayer(it, null) }
         players += freeAgents
 
-        val importedDatasetPlayers = mappedClubPlayerCount + freeAgents.size
+        // Jogadores cujo clube FC26 ainda não possui target seguro também entram no jogo. Eles NÃO
+        // são reclassificados como free agents factuais: teamId=null significa apenas "unassigned"
+        // no universo atual. A identidade do clube de origem continua preservada em atributosJson
+        // (sourceClubTeamId/sourceClubName/league), permitindo associação futura sem reimportação.
+        // O marcador assignmentStatus separa esse estado de um free agent verdadeiro sem exigir
+        // coluna/migração Room e sem tocar em overall, potential ou Atributos.
+        val unmatchedClubPlayers = dataset.sourceClubs
+            .asSequence()
+            .filter { matchesBySourceId.getValue(it.sourceClubTeamId).status == Fc26ClubMatchStatus.UNMATCHED }
+            .flatMap { it.players.asSequence() }
+            .map { Fc26PlayerMapper.toPlayer(it, null).markFc26UnassignedSourceClub() }
+            .toList()
+        val ambiguousClubPlayers = dataset.sourceClubs
+            .asSequence()
+            .filter { matchesBySourceId.getValue(it.sourceClubTeamId).status == Fc26ClubMatchStatus.AMBIGUOUS }
+            .flatMap { it.players.asSequence() }
+            .map { Fc26PlayerMapper.toPlayer(it, null).markFc26UnassignedSourceClub() }
+            .toList()
+        val unassignedClubPlayers = unmatchedClubPlayers + ambiguousClubPlayers
+        players += unassignedClubPlayers
+
+        // Preserve the historical A1/A2/A3 coverage counters so their audit reports remain
+        // comparable. The new bulkImportedFc26Players field is the actual number inserted.
+        val clubCoverageImportedPlayers = mappedClubPlayerCount + freeAgents.size
+        val clubCoverageUnresolvedPlayers = dataset.players.size - clubCoverageImportedPlayers
+        val bulkImportedPlayers = clubCoverageImportedPlayers + unassignedClubPlayers.size
+        require(bulkImportedPlayers == dataset.players.size) {
+            "FC26 bulk import incompleto: imported=$bulkImportedPlayers dataset=${dataset.players.size}"
+        }
+        require(clubCoverageUnresolvedPlayers == unassignedClubPlayers.size) {
+            "FC26 unresolved coverage divergiu do pool unassigned."
+        }
 
         val report = Fc26SeedReport(
             datasetPlayers = dataset.players.size,
-            importedFc26Players = importedDatasetPlayers,
-            skippedDatasetPlayers = dataset.players.size - importedDatasetPlayers,
+            importedFc26Players = clubCoverageImportedPlayers,
+            skippedDatasetPlayers = clubCoverageUnresolvedPlayers,
+            bulkImportedFc26Players = bulkImportedPlayers,
             datasetClubs = dataset.sourceClubs.size,
             matchedClubs = matches.count { it.status == Fc26ClubMatchStatus.MATCHED },
             unmatchedClubs = matches.count { it.status == Fc26ClubMatchStatus.UNMATCHED },
             ambiguousClubs = matches.count { it.status == Fc26ClubMatchStatus.AMBIGUOUS },
             playersWithMappedClub = mappedClubPlayerCount,
             importedFreeAgents = freeAgents.size,
+            importedUnassignedClubPlayers = unassignedClubPlayers.size,
+            importedUnmatchedClubPlayers = unmatchedClubPlayers.size,
+            importedAmbiguousClubPlayers = ambiguousClubPlayers.size,
             datasetLoanPlayers = dataset.manifest.loanedPlayerCount,
             successfullyMappedLoans = 0,
             // O snapshot não informa duração suficiente para reconstruir PlayerLoan com segurança.

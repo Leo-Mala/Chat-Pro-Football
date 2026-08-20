@@ -2,6 +2,7 @@ package com.example.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,13 +26,53 @@ class Fc26SeedPlannerTest {
         val importedFreeAgent = plan.players.single { it.name == "Real Free Agent" }
         assertEquals(2L, importedClubPlayer.teamId)
         assertNull(importedFreeAgent.teamId)
+        assertFalse(importedFreeAgent.isFc26UnassignedSourceClub())
+        assertNull(importedFreeAgent.sourceMetadataOrNull()?.assignmentStatus)
         assertEquals(clubPlayer.overall, importedClubPlayer.force)
         assertEquals(clubPlayer.potential, importedClubPlayer.potential)
         assertTrue(plan.players.any { it.name == "Procedural" && it.teamId == fallback.id })
         assertEquals(2, plan.report.importedFc26Players)
+        assertEquals(0, plan.report.skippedDatasetPlayers)
+        assertEquals(2, plan.report.bulkImportedFc26Players)
+        assertEquals(0, plan.report.importedUnassignedClubPlayers)
         assertEquals(1, plan.report.matchedClubs)
         assertEquals(1, plan.report.fallbackRostersRequired)
         assertTrue(plan.loans.isEmpty())
+    }
+
+    @Test fun `unmatched club player is imported unassigned while source club metadata is preserved`() {
+        val target = team(88L, "Unrelated Target")
+        val source = sourcePlayer(9999L, "Unresolved FC26 Club", sourceId = 301L, fullName = "Unassigned Real Player")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 1, clubCount = 1),
+            listOf(source)
+        )
+
+        val plan = Fc26SeedPlanner.build(listOf(target), dataset) { emptyList() }
+        val imported = plan.players.single()
+
+        assertNull(imported.teamId)
+        assertEquals(source.stableId, imported.id)
+        assertEquals(source.overall, imported.force)
+        assertEquals(source.potential, imported.potential)
+        assertEquals(source.atributos, imported.atributos)
+        assertTrue(imported.isFc26UnassignedSourceClub())
+        assertEquals(0, imported.contractDurationWeeks)
+        assertEquals(0L, imported.salary)
+        val metadata = imported.sourceMetadataOrNull()
+        assertNotNull(metadata)
+        assertEquals(9999L, metadata?.sourceClubTeamId)
+        assertEquals("Unresolved FC26 Club", metadata?.sourceClubName)
+        assertEquals("UNASSIGNED_SOURCE_CLUB", metadata?.assignmentStatus)
+        assertTrue((metadata?.sourceContractDurationWeeks ?: 0) > 0)
+        assertTrue((metadata?.sourceSalary ?: 0L) > 0L)
+        assertEquals(0, plan.report.importedFc26Players)
+        assertEquals(1, plan.report.skippedDatasetPlayers)
+        assertEquals(1, plan.report.bulkImportedFc26Players)
+        assertEquals(1, plan.report.importedUnassignedClubPlayers)
+        assertEquals(1, plan.report.importedUnmatchedClubPlayers)
+        assertEquals(0, plan.report.importedAmbiguousClubPlayers)
+        assertEquals(1, plan.report.unmatchedClubs)
     }
 
     @Test fun `loan marker is preserved as unresolved metadata instead of invented PlayerLoan`() {
