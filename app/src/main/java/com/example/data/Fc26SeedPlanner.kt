@@ -21,6 +21,8 @@ data class Fc26SeedReport(
     val successfullyMappedLoans: Int,
     val unresolvedLoans: Int,
     val fallbackRostersRequired: Int,
+    /** Phase 9.14: actual procedural players retained after the FC26 fallback roster policy. */
+    val fallbackPlayersGenerated: Int,
     val clubMatches: List<Fc26ClubMatch>
 )
 
@@ -62,6 +64,7 @@ object Fc26SeedPlanner {
         val players = mutableListOf<Player>()
         var mappedClubPlayerCount = 0
         var fallbackCount = 0
+        var fallbackPlayerCount = 0
 
         teams.forEach { team ->
             val match = matchByTargetId[team.id]
@@ -71,8 +74,10 @@ object Fc26SeedPlanner {
                 players += mapped
                 mappedClubPlayerCount += mapped.size
             } else {
-                players += proceduralRosterFactory(team)
+                val fallback = Fc26FallbackRosterPolicy.select(proceduralRosterFactory(team))
+                players += fallback
                 fallbackCount += 1
+                fallbackPlayerCount += fallback.size
             }
         }
 
@@ -134,6 +139,7 @@ object Fc26SeedPlanner {
             // jogadores cujo clube atual ainda não existe no universo Pro Football.
             unresolvedLoans = dataset.manifest.loanedPlayerCount,
             fallbackRostersRequired = fallbackCount,
+            fallbackPlayersGenerated = fallbackPlayerCount,
             clubMatches = matches
         )
         return Plan(players = players, loans = emptyList(), report = report)
