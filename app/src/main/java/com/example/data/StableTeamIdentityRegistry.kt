@@ -113,7 +113,7 @@ object StableTeamIdentityRegistry {
         StableTeamIdentity("Espanha", "Real Madrid", 201L),
         StableTeamIdentity("Espanha", "FC Barcelona", 202L, setOf("Barcelona")),
         StableTeamIdentity("Espanha", "Atlético de Madrid", 203L),
-        StableTeamIdentity("Espanha", "Girona FC", 204L),
+        StableTeamIdentity("Espanha", "Girona FC", 204L, setOf("Girona")),
         StableTeamIdentity("Espanha", "Real Sociedad", 205L),
         StableTeamIdentity("Espanha", "Athletic Club", 206L, setOf("Athletic Bilbao")),
         StableTeamIdentity("Espanha", "Real Betis", 207L),
