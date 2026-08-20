@@ -1,5 +1,6 @@
 package com.example.data
 
+import com.example.usecase.TacticsUseCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,9 +33,55 @@ class Fc26FallbackRosterPolicyTest {
         assertEquals(3, byPosition["VOL"])
         assertEquals(4, byPosition["MEI"])
         assertEquals(4, byPosition["ATA"])
+    }
 
-        // The supported 3-2-4-1 shape must be fillable with four natural midfielders.
-        assertTrue((byPosition["MEI"] ?: 0) >= 4)
+    @Test
+    fun `every supported formation can build a natural-position starting eleven from initial fallback`() {
+        val fallback = Fc26FallbackRosterPolicy.select(
+            DefaultData.generateRosterForTeam(
+                teamId = 88002L,
+                teamRating = 67,
+                teamName = "Formation Gate FC",
+                country = "Inglaterra"
+            )
+        )
+        val availableByPosition = fallback.groupingBy { it.position }.eachCount()
+        val tactics = TacticsUseCase()
+        val supportedFormations = listOf(
+            "4-4-2",
+            "4-4-1-1",
+            "4-5-1",
+            "4-3-3",
+            "4-3-2-1",
+            "4-1-3-2",
+            "5-4-1",
+            "4-1-2-1-2 Diamond",
+            "3-5-2",
+            "5-3-2",
+            "4-2-3-1",
+            "3-4-3",
+            "3-2-4-1",
+            "3-2-5",
+            "3-2-5 (W-M)",
+            "2-3-2-3",
+            "4-2-4"
+        )
+
+        assertTrue((availableByPosition["GOL"] ?: 0) >= 1)
+        supportedFormations.forEach { formation ->
+            val requiredByPosition = tactics.getFormationRoles(formation)
+                .groupingBy { it }
+                .eachCount()
+
+            assertEquals("$formation must define ten outfield roles", 10, requiredByPosition.values.sum())
+            requiredByPosition.forEach { (position, required) ->
+                assertTrue(
+                    "$formation requires $required natural $position players, " +
+                        "but fallback has ${availableByPosition[position] ?: 0}",
+                    (availableByPosition[position] ?: 0) >= required
+                )
+            }
+        }
     }
 
     @Test
