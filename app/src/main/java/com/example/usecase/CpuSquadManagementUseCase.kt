@@ -44,10 +44,6 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
             !isPlayerControlled &&
             !country.equals("Mundial", ignoreCase = true)
 
-    /**
-     * Renews only players inside the one-week window. The old implementation loaded all 82k+
-     * Player entities before discovering that only a small action set required a decision.
-     */
     suspend fun renewCpuContractsBeforeWeeklyTick(): Int = repository.withTransaction {
         val save = repository.getGameSave()
         val cpuTeams = repository.getAllTeams()
@@ -99,10 +95,6 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         repository.applyWeeklyRenewals(decisions)
     }
 
-    /**
-     * Canonical post-contract integrity check. Healthy CPU clubs are represented only by three
-     * scalar aggregate values; full rosters and free agents are loaded only if a repair is needed.
-     */
     suspend fun ensureCpuSquadIntegrity(): ManagementReport = repository.withTransaction {
         val save = repository.getGameSave()
         val allTeams = repository.getAllTeams()
@@ -297,7 +289,6 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         )
     }
 
-    /** Canonical path after the SQL contract tick; no full Player snapshot is retained anymore. */
     suspend fun processWeeklyAfterContracts(): ManagementReport = ensureCpuSquadIntegrity()
 
     private suspend fun validateActiveLoans(
@@ -307,15 +298,19 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         if (activeLoans.isEmpty()) return 0
         val duplicateActiveLoans = activeLoans.size - activeLoans.map { it.playerId }.toSet().size
         val validTeamIds = allTeams.mapTo(mutableSetOf()) { it.id }
-        val invalidLoanRows = activeLoans.count { loan ->
+        var invalidLoanRows = 0
+        for (loan in activeLoans) {
             val player = repository.getPlayer(loan.playerId)
-            player == null ||
+            if (player == null ||
                 !player.isOnLoan ||
                 player.teamId != loan.borrowerTeamId ||
                 player.originalTeamId != loan.ownerTeamId ||
                 loan.ownerTeamId !in validTeamIds ||
                 loan.borrowerTeamId !in validTeamIds ||
                 loan.remainingWeeks <= 0
+            ) {
+                invalidLoanRows++
+            }
         }
         return duplicateActiveLoans + invalidLoanRows
     }
