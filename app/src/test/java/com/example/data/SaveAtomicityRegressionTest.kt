@@ -158,6 +158,101 @@ class SaveAtomicityRegressionTest {
     }
 
     @Test
+    fun seasonRestartCommitsCompleteResetWithoutChangingFinancialState() = runTest {
+        seedTeams(1L, 2L, 3L)
+        val originalSave = GameSave(
+            currentWeek = 22,
+            currentSeason = 2026,
+            playerTeamId = 1L,
+            bankBalance = 12_345_678L,
+            loanAmount = 2_500_000L,
+            sponsorName = "Patrocinador Teste",
+            isGameOver = true
+        )
+        repository.saveGameSave(originalSave)
+
+        val originalPlayer = Player(
+            id = 10L,
+            teamId = 1L,
+            name = "Jogador Teste",
+            age = 27,
+            position = "ATA",
+            force = 78,
+            energy = 41,
+            moral = 33,
+            injuryWeeksRemaining = 2,
+            suspensionWeeksRemaining = 1,
+            yellowCardsAccumulated = 4,
+            careerGoals = 17,
+            salary = 75_000L,
+            contractDurationWeeks = 80
+        )
+        repository.savePlayers(listOf(originalPlayer))
+
+        repository.saveFixtures(
+            listOf(
+                Fixture(
+                    id = 20L,
+                    season = 2026,
+                    week = 22,
+                    homeTeamId = 1L,
+                    awayTeamId = 2L,
+                    homeScore = 1,
+                    awayScore = 0,
+                    competitionType = "SERIE_A",
+                    isPlayed = true
+                )
+            )
+        )
+        repository.saveOffers(
+            listOf(
+                CoachOffer(
+                    id = 30L,
+                    teamId = 3L,
+                    teamName = "Time 3",
+                    rating = 70,
+                    weeklySalary = 100_000L,
+                    description = "Oferta teste"
+                )
+            )
+        )
+
+        val replacementFixture = Fixture(
+            id = 99L,
+            season = 2026,
+            week = 1,
+            homeTeamId = 1L,
+            awayTeamId = 3L,
+            competitionType = "SERIE_A"
+        )
+
+        val restarted = repository.restartSeasonStateAtomically(
+            expectedSeason = 2026,
+            expectedPlayerTeamId = 1L,
+            replacementFixtures = listOf(replacementFixture)
+        )
+
+        assertTrue(restarted)
+        assertEquals(
+            originalSave.copy(currentWeek = 1, isGameOver = false),
+            repository.getGameSave()
+        )
+        assertEquals(listOf(replacementFixture), repository.getAllFixtures())
+        assertTrue(repository.getAllOffers().isEmpty())
+        assertEquals(
+            originalPlayer.copy(
+                energy = 100,
+                moral = 75,
+                injuryWeeksRemaining = 0,
+                suspensionWeeksRemaining = 0,
+                yellowCardsAccumulated = 0,
+                careerGoals = 0
+            ),
+            repository.getPlayer(originalPlayer.id)
+        )
+    }
+
+    @Test
     fun seasonRestartRejectsStaleSeasonPlanWithoutMutation() = runTest {
         seedTeams(1L, 2L)
         val currentSave = GameSave(
