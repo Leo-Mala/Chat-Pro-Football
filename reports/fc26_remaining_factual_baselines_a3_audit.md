@@ -31,11 +31,12 @@ The 277-case classification was reproduced from the validated Phase 9.11A2 repor
 
 ## Phase 9.11A3 implementation decision
 
-A deliberately small subset is accepted: **15 French clubs / 392 FC26 players** whose 2026/27 Ligue 2 BKT membership is explicitly present in the official LFP calendar published on 2026-06-10.
+A deliberately small subset is accepted: **15 French clubs / 392 FC26 players** whose 2026/27 Ligue 2 BKT membership is explicitly present in the official LFP match calendar published on 2026-06-10.
 
 Primary factual source:
-- LFP / Ligue1.com — `Calendrier 26/27 : Les dates à retenir en Ligue 2`
-- https://ligue1.com/fr/articles/l1_article_3738-calendrier-26-27-les-dates-a-retenir-en-ligue-2
+- LFP / Ligue1.com — `Saison 26/27 : Le calendrier des matchs de Ligue 2 BKT !`
+- Published: `2026-06-10`
+- https://ligue1.com/fr/articles/l1_article_5281-saison-26-27-le-calendrier-des-matchs-de-ligue-2-bkt
 
 These clubs replace procedural France division-2 slots in-place. No target-team expansion is allowed.
 
