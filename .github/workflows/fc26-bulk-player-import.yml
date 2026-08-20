@@ -8,6 +8,7 @@ on:
       - 'app/src/main/java/com/example/data/Fc26PlayerMetadata.kt'
       - 'app/src/main/java/com/example/usecase/CpuSquadManagementUseCase.kt'
       - 'app/src/main/java/com/example/usecase/ProcessTransfersUseCase.kt'
+      - 'app/src/test/java/com/example/Fc26WeeklyRuntimeDiagnosticTest.kt'
       - 'app/src/test/java/com/example/data/Fc26*'
       - 'reports/fc26_*'
       - '.github/workflows/fc26-bulk-player-import.yml'
@@ -76,45 +77,27 @@ jobs:
           GOOGLE_EOF
           fi
 
-      - name: Diagnostic 1 - CareerFunctionalFlow isolated
+      - name: Measure fresh-career player counts and weekly hot paths
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew testDebugUnitTest --tests com.example.CareerFunctionalFlowTest --stacktrace
-
-      - name: Diagnostic 2 - SeedPlanner plus CareerFunctionalFlow
-        shell: bash
-        run: |
-          set -euo pipefail
           ./gradlew testDebugUnitTest \
-            --tests com.example.data.Fc26SeedPlannerTest \
-            --tests com.example.CareerFunctionalFlowTest \
+            --tests com.example.Fc26WeeklyRuntimeDiagnosticTest \
             --stacktrace
 
-      - name: Diagnostic 3 - FullSeed plus CareerFunctionalFlow
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew testDebugUnitTest \
-            --tests com.example.data.Fc26FullSeedIntegrationTest \
-            --tests com.example.CareerFunctionalFlowTest \
-            --stacktrace
+      - name: Upload weekly runtime diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fc26-weekly-runtime-diagnostic
+          path: reports/fc26_weekly_runtime_diagnostic.json
+          if-no-files-found: error
 
-      - name: Diagnostic 4 - Both FC26 bulk tests plus CareerFunctionalFlow
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew testDebugUnitTest \
-            --tests com.example.data.Fc26SeedPlannerTest \
-            --tests com.example.data.Fc26FullSeedIntegrationTest \
-            --tests com.example.CareerFunctionalFlowTest \
-            --stacktrace
-
-      - name: Upload diagnostic test reports on failure
+      - name: Upload diagnostic test report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fc26-bulk-performance-diagnostic-report
+          name: fc26-weekly-runtime-test-report
           path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
