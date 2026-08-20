@@ -2,8 +2,12 @@ package com.example.data
 
 data class Fc26SeedReport(
     val datasetPlayers: Int,
+    /** Legacy club-coverage counter: mapped-club players + factual dataset free agents. */
     val importedFc26Players: Int,
+    /** Legacy club-coverage counter: players whose source club is not safely resolved yet. */
     val skippedDatasetPlayers: Int,
+    /** Actual bulk-import count: every FC26 player materialized into the game plan. */
+    val bulkImportedFc26Players: Int,
     val datasetClubs: Int,
     val matchedClubs: Int,
     val unmatchedClubs: Int,
@@ -95,15 +99,23 @@ object Fc26SeedPlanner {
         val unassignedClubPlayers = unmatchedClubPlayers + ambiguousClubPlayers
         players += unassignedClubPlayers
 
-        val importedDatasetPlayers = mappedClubPlayerCount + freeAgents.size + unassignedClubPlayers.size
-        require(importedDatasetPlayers == dataset.players.size) {
-            "FC26 bulk import incompleto: imported=$importedDatasetPlayers dataset=${dataset.players.size}"
+        // Preserve the historical A1/A2/A3 coverage counters so their audit reports remain
+        // comparable. The new bulkImportedFc26Players field is the actual number inserted.
+        val clubCoverageImportedPlayers = mappedClubPlayerCount + freeAgents.size
+        val clubCoverageUnresolvedPlayers = dataset.players.size - clubCoverageImportedPlayers
+        val bulkImportedPlayers = clubCoverageImportedPlayers + unassignedClubPlayers.size
+        require(bulkImportedPlayers == dataset.players.size) {
+            "FC26 bulk import incompleto: imported=$bulkImportedPlayers dataset=${dataset.players.size}"
+        }
+        require(clubCoverageUnresolvedPlayers == unassignedClubPlayers.size) {
+            "FC26 unresolved coverage divergiu do pool unassigned."
         }
 
         val report = Fc26SeedReport(
             datasetPlayers = dataset.players.size,
-            importedFc26Players = importedDatasetPlayers,
-            skippedDatasetPlayers = dataset.players.size - importedDatasetPlayers,
+            importedFc26Players = clubCoverageImportedPlayers,
+            skippedDatasetPlayers = clubCoverageUnresolvedPlayers,
+            bulkImportedFc26Players = bulkImportedPlayers,
             datasetClubs = dataset.sourceClubs.size,
             matchedClubs = matches.count { it.status == Fc26ClubMatchStatus.MATCHED },
             unmatchedClubs = matches.count { it.status == Fc26ClubMatchStatus.UNMATCHED },
