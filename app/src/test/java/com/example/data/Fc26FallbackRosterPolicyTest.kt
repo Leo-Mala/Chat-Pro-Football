@@ -47,28 +47,9 @@ class Fc26FallbackRosterPolicyTest {
         )
         val availableByPosition = fallback.groupingBy { it.position }.eachCount()
         val tactics = TacticsUseCase()
-        val supportedFormations = listOf(
-            "4-4-2",
-            "4-4-1-1",
-            "4-5-1",
-            "4-3-3",
-            "4-3-2-1",
-            "4-1-3-2",
-            "5-4-1",
-            "4-1-2-1-2 Diamond",
-            "3-5-2",
-            "5-3-2",
-            "4-2-3-1",
-            "3-4-3",
-            "3-2-4-1",
-            "3-2-5",
-            "3-2-5 (W-M)",
-            "2-3-2-3",
-            "4-2-4"
-        )
 
         assertTrue((availableByPosition["GOL"] ?: 0) >= 1)
-        supportedFormations.forEach { formation ->
+        GameEngine.formations.forEach { formation ->
             val requiredByPosition = tactics.getFormationRoles(formation)
                 .groupingBy { it }
                 .eachCount()
