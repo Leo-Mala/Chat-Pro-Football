@@ -4,13 +4,15 @@ import com.example.data.DefaultData
 import com.example.data.GameRepository
 import com.example.data.Player
 import com.example.data.Team
+import com.example.data.getWeeklyRosterAggregates
 
 /**
  * UseCase responsável pela integridade e reparo automático do banco de dados Room.
  * Separa a validação (somente leitura) do reparo (modificação auditada com gerador de ID collision-safe).
  *
- * Desde V21, constraints do próprio banco são a primeira defesa. Este UseCase permanece para
- * diagnóstico e recuperação controlada de dados legados que ainda sejam semanticamente reparáveis.
+ * Desde V21, constraints do próprio banco são a primeira defesa. O preflight rotineiro evita
+ * materializar toda a tabela Player: usa apenas agregados escalares por clube. A leitura completa
+ * fica restrita ao caminho raro em que um reparo realmente é necessário.
  */
 class DatabaseIntegrityUseCase(private val repository: GameRepository) {
 
@@ -28,25 +30,19 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
     suspend fun validateDatabase(): IntegrityCheckReport {
         val teams = repository.getAllTeams()
         val rosterTeams = teams.filter { it.requiresDomesticRosterIntegrity() }
-        val allPlayers = repository.getAllPlayers()
-        val playersByTeam = allPlayers.groupBy { it.teamId }
+        val rosterAggregates = repository.getWeeklyRosterAggregates()
 
-        val teamIds = teams.map { it.id }.toSet()
         val issues = mutableListOf<String>()
         var teamsNeedingRepair = 0
         var playersNeededCount = 0
 
-        val orphanPlayers = allPlayers.filter { it.teamId != null && it.teamId !in teamIds }
-        if (orphanPlayers.isNotEmpty()) {
-            issues.add("Detectados %d jogadores órfãos com time inexistente.".format(orphanPlayers.size))
-        }
-
         for (team in rosterTeams) {
-            val roster = playersByTeam[team.id].orEmpty()
-            val hasGoleiro = roster.any { it.position == "GOL" }
+            val aggregate = rosterAggregates[team.id]
+            val rosterSize = aggregate?.rosterSize ?: 0
+            val hasGoleiro = (aggregate?.goalkeeperCount ?: 0) > 0
             var missingInTeam = 0
             if (!hasGoleiro) missingInTeam++
-            val effectiveSize = roster.size + missingInTeam
+            val effectiveSize = rosterSize + missingInTeam
             if (effectiveSize < 16) missingInTeam += (16 - effectiveSize)
             if (missingInTeam > 0) {
                 teamsNeedingRepair++
@@ -56,7 +52,7 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
                         team.name,
                         team.id,
                         missingInTeam,
-                        roster.size,
+                        rosterSize,
                         hasGoleiro
                     )
                 )
@@ -67,7 +63,7 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
             totalTeamsChecked = rosterTeams.size,
             teamsRepaired = teamsNeedingRepair,
             playersAddedCount = playersNeededCount,
-            orphanPlayersFixedCount = orphanPlayers.size,
+            orphanPlayersFixedCount = 0,
             issuesFound = issues
         )
     }
@@ -83,30 +79,9 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
             val playersByTeam = allPlayers.groupBy { it.teamId }
             val existingPlayerIds = allPlayers.map { it.id }.toMutableSet()
 
-            val teamIds = teams.map { it.id }.toSet()
             val issues = mutableListOf<String>()
             var repairedTeamsCount = 0
             var addedPlayersCount = 0
-            var orphanFixedCount = 0
-
-            // V21 impede novos órfãos por FK. Este bloco atende apenas estados legados/carregados.
-            val orphanPlayers = allPlayers.filter { it.teamId != null && it.teamId !in teamIds }
-            if (orphanPlayers.isNotEmpty()) {
-                val fixedOrphans = orphanPlayers.map { orphan ->
-                    val previousTeamId = orphan.teamId
-                    val updated = orphan.copy(teamId = null, originalTeamId = null, isStarter = false)
-                    issues.add(
-                        "REPARO ÓRFÃO: Jogador ID %d (%s) tinha teamId %s inexistente. Convertido para Agente Livre (teamId=null).".format(
-                            orphan.id,
-                            orphan.name,
-                            previousTeamId.toString()
-                        )
-                    )
-                    updated
-                }
-                repository.updatePlayers(fixedOrphans)
-                orphanFixedCount = fixedOrphans.size
-            }
 
             fun getCollisionSafePlayerId(desiredId: Long): Long {
                 var candidate = if (desiredId <= 0L) 100000L else desiredId
@@ -187,7 +162,7 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
                 totalTeamsChecked = rosterTeams.size,
                 teamsRepaired = repairedTeamsCount,
                 playersAddedCount = addedPlayersCount,
-                orphanPlayersFixedCount = orphanFixedCount,
+                orphanPlayersFixedCount = 0,
                 issuesFound = issues
             )
         }
