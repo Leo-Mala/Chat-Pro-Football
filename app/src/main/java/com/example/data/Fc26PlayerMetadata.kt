@@ -1,10 +1,12 @@
 package com.example.data
 
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 private const val FC26_UNASSIGNED_SOURCE_CLUB = "UNASSIGNED_SOURCE_CLUB"
 private const val FC26_UNASSIGNED_SOURCE_CLUB_JSON_MARKER =
     "\"assignmentStatus\":\"UNASSIGNED_SOURCE_CLUB\""
+private const val FC26_LOAN_DURATION_UNKNOWN = "UNKNOWN_FROM_SOURCE_SNAPSHOT"
 
 data class Fc26PersistedImportMetadata(
     val source: String,
@@ -20,6 +22,21 @@ data class Fc26PersistedImportMetadata(
     val assignmentStatus: String?,
     val sourceContractDurationWeeks: Int?,
     val sourceSalary: Long?
+)
+
+data class Fc26PersistedLoanIdentityMetadata(
+    val sourceOwnerClubName: String?,
+    val identityStatus: String,
+    val borrowerStatus: String,
+    val ownerStatus: String,
+    val ownerEvidence: String,
+    val borrowerTargetTeamId: Long?,
+    val borrowerTargetTeamName: String?,
+    val ownerSourceClubTeamId: Long?,
+    val ownerTargetTeamId: Long?,
+    val ownerTargetTeamName: String?,
+    val durationStatus: String,
+    val gameplayLoanMaterialized: Boolean
 )
 
 /**
@@ -50,6 +67,64 @@ internal fun Player.sourceMetadataOrNull(): Fc26PersistedImportMetadata? {
             sourceSalary = import.get("sourceSalary")?.takeUnless { it.isJsonNull }?.asLong
         )
     }.getOrNull()
+}
+
+/** Reads the Phase 9.14B identity-only loan envelope without implying an ACTIVE gameplay loan. */
+internal fun Player.fc26LoanIdentityMetadataOrNull(): Fc26PersistedLoanIdentityMetadata? {
+    val json = atributosJson?.takeIf { it.isNotBlank() } ?: return null
+    return runCatching {
+        val import = JsonParser.parseString(json).asJsonObject.getAsJsonObject("import") ?: return null
+        if (import.get("source")?.asString != "FC26") return null
+        val loan = import.getAsJsonObject("loanIdentity") ?: return null
+        Fc26PersistedLoanIdentityMetadata(
+            sourceOwnerClubName = loan.get("sourceOwnerClubName")?.takeUnless { it.isJsonNull }?.asString,
+            identityStatus = loan.get("identityStatus")?.asString ?: return null,
+            borrowerStatus = loan.get("borrowerStatus")?.asString ?: return null,
+            ownerStatus = loan.get("ownerStatus")?.asString ?: return null,
+            ownerEvidence = loan.get("ownerEvidence")?.asString ?: return null,
+            borrowerTargetTeamId = loan.get("borrowerTargetTeamId")?.takeUnless { it.isJsonNull }?.asLong,
+            borrowerTargetTeamName = loan.get("borrowerTargetTeamName")?.takeUnless { it.isJsonNull }?.asString,
+            ownerSourceClubTeamId = loan.get("ownerSourceClubTeamId")?.takeUnless { it.isJsonNull }?.asLong,
+            ownerTargetTeamId = loan.get("ownerTargetTeamId")?.takeUnless { it.isJsonNull }?.asLong,
+            ownerTargetTeamName = loan.get("ownerTargetTeamName")?.takeUnless { it.isJsonNull }?.asString,
+            durationStatus = loan.get("durationStatus")?.asString ?: return null,
+            gameplayLoanMaterialized = loan.get("gameplayLoanMaterialized")?.asBoolean ?: return null
+        )
+    }.getOrNull()
+}
+
+/**
+ * Persists only factual identity evidence for a source-marked FC26 loan.
+ *
+ * The FC26 snapshot has no loan-end/duration field. Therefore this helper MUST NOT set `isOnLoan`,
+ * `originalTeamId`, `loanWeeksRemaining`, or create a `PlayerLoan`. The current gameplay club remains
+ * whatever the conservative club seed already established. Owner identity and unresolved reasons
+ * live only in the existing JSON metadata envelope until a duration can be verified separately.
+ */
+internal fun Player.markFc26LoanIdentity(resolution: Fc26LoanIdentityResolution): Player {
+    val json = atributosJson?.takeIf { it.isNotBlank() } ?: return this
+    val updatedJson = runCatching {
+        val root = JsonParser.parseString(json).asJsonObject
+        val import = root.getAsJsonObject("import") ?: return this
+        if (import.get("source")?.asString != "FC26") return this
+        val loan = JsonObject().apply {
+            resolution.ownerSourceName?.let { addProperty("sourceOwnerClubName", it) }
+            addProperty("identityStatus", resolution.identityStatus.name)
+            addProperty("borrowerStatus", resolution.borrowerStatus.name)
+            addProperty("ownerStatus", resolution.ownerStatus.name)
+            addProperty("ownerEvidence", resolution.ownerEvidence.name)
+            resolution.borrowerTargetTeamId?.let { addProperty("borrowerTargetTeamId", it) }
+            resolution.borrowerTargetTeamName?.let { addProperty("borrowerTargetTeamName", it) }
+            resolution.ownerSourceClubTeamId?.let { addProperty("ownerSourceClubTeamId", it) }
+            resolution.ownerTargetTeamId?.let { addProperty("ownerTargetTeamId", it) }
+            resolution.ownerTargetTeamName?.let { addProperty("ownerTargetTeamName", it) }
+            addProperty("durationStatus", FC26_LOAN_DURATION_UNKNOWN)
+            addProperty("gameplayLoanMaterialized", false)
+        }
+        import.add("loanIdentity", loan)
+        root.toString()
+    }.getOrNull() ?: return this
+    return copy(atributosJson = updatedJson)
 }
 
 /**
