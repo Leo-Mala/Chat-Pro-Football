@@ -18,13 +18,11 @@ data class Fc26SeedReport(
     val importedUnmatchedClubPlayers: Int,
     val importedAmbiguousClubPlayers: Int,
     val datasetLoanPlayers: Int,
-    /** Phase <=10.3 compatibility counter kept frozen so historical reports remain comparable. */
+    /** Compatibility name used by older audit reports; authoritative from Phase 10.4 onward. */
     val successfullyMappedLoans: Int,
-    /** Phase <=10.3 compatibility counter kept frozen so historical reports remain comparable. */
+    /** Compatibility name used by older audit reports; authoritative from Phase 10.4 onward. */
     val unresolvedLoans: Int,
-    /** Phase 10.4 authoritative materialization count. */
     val resolvedLoans: Int,
-    /** Phase 10.4 authoritative fail-closed rejection count. */
     val rejectedLoans: Int,
     val ambiguousLoans: Int,
     val ownerNotFound: Int,
@@ -141,8 +139,8 @@ object Fc26SeedPlanner {
             player.markFc26LoanResolution(resolution)
         }
 
-        // Preserve the historical A1/A2/A3 coverage counters so their audit reports remain
-        // comparable. bulkImportedFc26Players is the actual number inserted.
+        // Preserve historical A1/A2/A3 club-coverage counters so audit reports remain comparable.
+        // bulkImportedFc26Players is the actual number inserted.
         val clubCoverageImportedPlayers = mappedClubPlayerCount + freeAgents.size
         val clubCoverageUnresolvedPlayers = dataset.players.size - clubCoverageImportedPlayers
         val bulkImportedPlayers = clubCoverageImportedPlayers + unassignedClubPlayers.size
@@ -172,9 +170,8 @@ object Fc26SeedPlanner {
             importedUnmatchedClubPlayers = unmatchedClubPlayers.size,
             importedAmbiguousClubPlayers = ambiguousClubPlayers.size,
             datasetLoanPlayers = audit.datasetLoanPlayers,
-            // Historical report compatibility only. Phase 10.4 consumers must use resolvedLoans/rejectedLoans.
-            successfullyMappedLoans = 0,
-            unresolvedLoans = audit.datasetLoanPlayers,
+            successfullyMappedLoans = audit.resolvedLoans,
+            unresolvedLoans = audit.rejectedLoans,
             resolvedLoans = audit.resolvedLoans,
             rejectedLoans = audit.rejectedLoans,
             ambiguousLoans = audit.ambiguousLoans,
