@@ -110,12 +110,24 @@ jobs:
             -PexcludeStressTests=true \
             --stacktrace
 
-      - name: Verify Room schema V21
+      - name: Verify current Room schema
         shell: bash
         run: |
           set -euo pipefail
-          grep -Eq 'version\s*=\s*21' app/src/main/java/com/example/data/database.kt
-          test -f 'app/schemas/com.example.data.AppDatabase/21.json'
+          db_version=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('app/src/main/java/com/example/data/database.kt').read_text()
+          match = re.search(r'\bversion\s*=\s*(\d+)', source)
+          if not match:
+              raise SystemExit('Could not resolve Room database version')
+          print(match.group(1))
+          PY
+          )
+          schema_file="app/schemas/com.example.data.AppDatabase/${db_version}.json"
+          test -f "$schema_file"
+          git ls-files --error-unmatch "$schema_file" >/dev/null
+          echo "Room schema validated and tracked: $schema_file"
 
       - name: Upload FC26 bulk reports
         uses: actions/upload-artifact@v4
