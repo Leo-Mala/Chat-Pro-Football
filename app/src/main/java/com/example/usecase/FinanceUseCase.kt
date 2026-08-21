@@ -128,13 +128,16 @@ class FinanceUseCase(private val repository: GameRepository) {
         // roster do borrower e precisamos encerrar o estado sem inferir um destino.
         var loanFeesPaid = 0L
         val activeLoans = repository.getActiveLoans()
-        val borrowerRostersByPlayerId = activeLoans
-            .asSequence()
+        val borrowerRostersByPlayerId = mutableMapOf<Long, com.example.data.Player>()
+        val activeBorrowerIds = activeLoans
             .map { it.borrowerTeamId }
             .filter { it > 0L }
             .distinct()
-            .flatMap { borrowerId -> repository.getPlayersByTeam(borrowerId).asSequence() }
-            .associateBy { it.id }
+        for (borrowerId in activeBorrowerIds) {
+            for (borrowerPlayer in repository.getPlayersByTeam(borrowerId)) {
+                borrowerRostersByPlayerId[borrowerPlayer.id] = borrowerPlayer
+            }
+        }
         val updatedLoans = mutableListOf<com.example.data.PlayerLoan>()
 
         for (loan in activeLoans) {
