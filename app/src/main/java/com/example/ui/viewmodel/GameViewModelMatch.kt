@@ -280,40 +280,45 @@ suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
     )
 }
 
-suspend fun GameViewModel.generateWeeklyIncomingOffers() {
-    val save = repo.getGameSave() ?: return
+private suspend fun GameViewModel.prepareWeeklyIncomingOffer(): IncomingOffer? {
+    val save = repo.getGameSave() ?: return null
     val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
-    if (userPlayers.size <= 16) return
+    if (userPlayers.size <= 16) return null
     val otherTeams = repo.getAllTeams().filter { it.id != save.playerTeamId }
-    if (otherTeams.isEmpty()) return
+    if (otherTeams.isEmpty()) return null
 
     val seed = (save.currentSeason * 1000L + save.currentWeek * 10L + save.playerTeamId)
     val rand = kotlin.random.Random(seed)
+    if (rand.nextDouble() >= 0.4) return null
 
-    if (rand.nextDouble() < 0.4) {
-        val candidatePlayer = userPlayers.shuffled(rand).firstOrNull() ?: return
-        val buyerTeam = otherTeams.shuffled(rand).firstOrNull() ?: return
-        val baseVal = candidatePlayer.calculateMarketValue()
-        val variation = 0.85 + (rand.nextDouble() * 0.3)
-        val price = (baseVal * variation).toLong().coerceAtLeast(50_000L)
-        val offerType = if (rand.nextDouble() < 0.25) "EMPRESTIMO" else "COMPRA"
-        val loanWeeks = if (offerType == "EMPRESTIMO") 26 else 0
+    val candidatePlayer = userPlayers.shuffled(rand).firstOrNull() ?: return null
+    val buyerTeam = otherTeams.shuffled(rand).firstOrNull() ?: return null
+    val baseVal = candidatePlayer.calculateMarketValue()
+    val variation = 0.85 + (rand.nextDouble() * 0.3)
+    val price = (baseVal * variation).toLong().coerceAtLeast(50_000L)
+    val offerType = if (rand.nextDouble() < 0.25) "EMPRESTIMO" else "COMPRA"
+    val loanWeeks = if (offerType == "EMPRESTIMO") 26 else 0
 
-        val newOffer = IncomingOffer(
-            id = com.example.util.TransactionIdGenerator.generateUniqueId(),
-            player = candidatePlayer,
-            buyerTeamName = buyerTeam.name,
-            buyerTeamId = buyerTeam.id,
-            offerType = offerType,
-            price = price,
-            durationWeeks = loanWeeks
-        )
+    return IncomingOffer(
+        id = com.example.util.TransactionIdGenerator.generateUniqueId(),
+        player = candidatePlayer,
+        buyerTeamName = buyerTeam.name,
+        buyerTeamId = buyerTeam.id,
+        offerType = offerType,
+        price = price,
+        durationWeeks = loanWeeks
+    )
+}
 
-        _incomingOffers.update { current ->
-            val filtered = current.filterNot { it.player.id == candidatePlayer.id }
-            (filtered + newOffer).takeLast(5)
-        }
+private fun GameViewModel.publishIncomingOffer(newOffer: IncomingOffer) {
+    _incomingOffers.update { current ->
+        val filtered = current.filterNot { it.player.id == newOffer.player.id }
+        (filtered + newOffer).takeLast(5)
     }
+}
+
+suspend fun GameViewModel.generateWeeklyIncomingOffers() {
+    prepareWeeklyIncomingOffer()?.let { publishIncomingOffer(it) }
 }
 
 /**
@@ -325,6 +330,10 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
  * manutenção semanal: mudanças legítimas de clube e novos jogadores são corrigidos apenas no
  * subconjunto afetado, enquanto qualquer alteração real dos inputs esportivos falha fechada.
  * Assim, nenhum caminho normal volta a calcular os ~60 mil jogadores com a transação Room aberta.
+ *
+ * Ofertas recebidas são apenas preparadas durante a transação e publicadas no StateFlow depois que
+ * todo o fechamento semanal confirma o commit. Um rollback não pode deixar UI state de uma semana
+ * que nunca foi persistida.
  *
  * Quando um input esportivo muda durante a preparação, uma exceção privada é usada apenas como
  * sinal interno de rollback da transação Room e é capturada imediatamente fora dela. O conflito
@@ -341,6 +350,8 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     val preparedMonthlyPlan = monthlyPeriod?.let { period ->
         playerEvolutionUseCase.prepareMonthlyEvolution(requestedSave, period)
     }
+    var stagedIncomingOffer: IncomingOffer? = null
+    var weeklyCloseCommitted = false
 
     try {
         repo.withTransaction {
@@ -370,8 +381,8 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
             processTransfersUseCase.processWeeklyContractsAndLoans()
             cpuSquadManagement.processWeeklyAfterContracts()
 
-            // Generate incoming transfer offers for user players
-            generateWeeklyIncomingOffers()
+            // Stage UI-only incoming offer state; publish only after the Room transaction commits.
+            stagedIncomingOffer = prepareWeeklyIncomingOffer()
 
             // Execute monthly evolution every 4 weeks, including the canonical final week (48).
             if (monthlyPeriod != null) {
@@ -398,11 +409,17 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
                 val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
                 repo.saveGameSave(nextWeekSave)
             }
+            weeklyCloseCommitted = true
         }
     } catch (_: StaleWeeklyMonthlyEvolutionRollback) {
         _toastMessage.emit(
             "O estado de treino mudou durante o fechamento semanal. A semana não foi avançada; tente novamente."
         )
+        return
+    }
+
+    if (weeklyCloseCommitted) {
+        stagedIncomingOffer?.let { publishIncomingOffer(it) }
     }
 }
 
