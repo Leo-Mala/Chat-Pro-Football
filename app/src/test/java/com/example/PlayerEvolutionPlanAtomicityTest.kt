@@ -77,6 +77,37 @@ class PlayerEvolutionPlanAtomicityTest {
     }
 
     @Test
+    fun unrelatedPlayerMutationIsPreservedByColumnScopedEvolutionCommit() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        val current = repository.getPlayer(10L)!!
+
+        repository.updatePlayer(current.copy(contractDurationWeeks = 77, salary = 999_999L, energy = 33))
+
+        assertTrue(useCase.commitMonthlyEvolution(plan))
+        val persisted = repository.getPlayer(10L)!!
+        assertEquals(77, persisted.contractDurationWeeks)
+        assertEquals(999_999L, persisted.salary)
+        assertEquals(33, persisted.energy)
+        assertEquals(0, persisted.minutosJogados)
+    }
+
+    @Test
+    fun changedEvolutionInputRejectsPreparedPlanBeforeAnyWrite() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        val current = repository.getPlayer(10L)!!
+        repository.updatePlayer(current.copy(focoTreino = "finalizacao"))
+        val changed = repository.getPlayer(10L)!!
+
+        assertFalse(useCase.commitMonthlyEvolution(plan))
+        assertEquals(changed, repository.getPlayer(10L))
+        assertTrue(repository.getHistoricoPorJogador(10L).isEmpty())
+    }
+
+    @Test
     fun unchangedPlayersStillHaveMonthlyCountersResetWithoutEntityUpdate() = runTest {
         seedCareer()
         val save = repository.getGameSave()!!
