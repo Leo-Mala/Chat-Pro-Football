@@ -49,7 +49,7 @@ class Phase103InternationalCompetitionTest {
     }
 
     @Test
-    fun `world qualification uses only real clubs and legacy API never auto promotes user team`() {
+    fun `world qualification uses only national clubs and legacy API never auto promotes user team`() {
         val teams = worldUniverse()
         val brazil = teams.filter { it.country == "Brasil" }.sortedBy { it.id }
         val userOutsideSportingCut = brazil.last()
@@ -59,17 +59,21 @@ class Phase103InternationalCompetitionTest {
             allTeams = teams,
             userTeamId = userOutsideSportingCut.id
         )
+        val typedField = requireNotNull(SuperMundialQualificationRules.selectField(2029, teams))
 
         assertEquals(32, participants.size)
         assertEquals(32, participants.map { it.id }.toSet().size)
         assertTrue(participants.all { selected -> teams.any { it.id == selected.id } })
+        assertTrue(participants.all { CountryFootballRulesRegistry.isContinentalCompetitionEligible(it.country) })
+        assertTrue("Dataset atual deve declarar o fallback do slot OFC ausente", typedField.usedOfcDataGapFallback)
         assertFalse("Clube do usuário não ganha vaga por ser controlado", participants.any { it.id == userOutsideSportingCut.id })
     }
 
     @Test
-    fun `world qualification fails closed when a confederation cannot fill its quota`() {
+    fun `world qualification fails closed when a supported confederation cannot fill its quota`() {
         val incomplete = worldUniverse().filterNot {
-            CountryFootballRulesRegistry.confederationFor(it.country) == FootballConfederation.OFC
+            CountryFootballRulesRegistry.isContinentalCompetitionEligible(it.country) &&
+                CountryFootballRulesRegistry.confederationFor(it.country) == FootballConfederation.CAF
         }
         assertEquals(null, SuperMundialQualificationRules.selectField(2029, incomplete, worldStandings(incomplete)))
         assertTrue(SuperMundialSystem.generateGroupStageFixtures(2029, incomplete, worldStandings(incomplete)).isEmpty())
@@ -114,7 +118,10 @@ class Phase103InternationalCompetitionTest {
         assertTrue(first.all { it.size == 4 })
         first.forEach { group ->
             assertEquals(4, group.map { it.id }.toSet().size)
-            assertEquals(4, group.map { it.country }.toSet().size)
+            assertEquals(
+                4,
+                group.map { requireNotNull(CountryFootballRulesRegistry.resolve(it.country)).canonicalCountry }.toSet().size
+            )
             FootballConfederation.values().forEach { confederation ->
                 val count = group.count { CountryFootballRulesRegistry.confederationFor(it.country) == confederation }
                 val limit = if (confederation == FootballConfederation.UEFA) 2 else 1
