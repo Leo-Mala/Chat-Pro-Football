@@ -86,10 +86,19 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val allPlayers = repository.getAllPlayers()
         val allTeams = repository.getAllTeams().associateBy { it.id }
         val evolutionResults = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
-        val changedPlayers = evolutionResults.asSequence()
-            .filter { result -> result.historyLogs.isNotEmpty() || result.netChange != 0.0 }
-            .map { it.player }
-            .toList()
+
+        // Phase 10.1: walk the ~60k result set once. The previous sequence + flatMap pipeline
+        // traversed it twice and built avoidable intermediate iterator/list objects on every month.
+        val changedPlayers = ArrayList<Player>()
+        val historyLogs = ArrayList<HistoricoEvolucao>()
+        for (result in evolutionResults) {
+            if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) {
+                changedPlayers.add(result.player)
+            }
+            if (result.historyLogs.isNotEmpty()) {
+                historyLogs.addAll(result.historyLogs)
+            }
+        }
 
         return MonthlyEvolutionPlan(
             expectedSeason = save.currentSeason,
@@ -97,7 +106,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             expectedPlayerTeamId = save.playerTeamId,
             results = evolutionResults,
             updatedPlayers = changedPlayers,
-            historyLogs = evolutionResults.flatMap { it.historyLogs }
+            historyLogs = historyLogs
         )
     }
 
