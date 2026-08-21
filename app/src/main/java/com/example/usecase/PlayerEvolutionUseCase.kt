@@ -4,6 +4,7 @@ import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.HistoricoEvolucao
 import com.example.data.Player
+import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
@@ -74,7 +75,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
     ): MonthlyEvolutionPlan {
         val allPlayers = repository.getAllPlayers()
         val allTeams = repository.getAllTeams().associateBy { it.id }
-        val evolutionResults = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
+        val evolutionResults = PlayerEvolutionMonthlyEngine.process(allPlayers, allTeams, periodDate)
 
         val changedPlayers = ArrayList<Player>()
         val historyLogs = ArrayList<HistoricoEvolucao>()
