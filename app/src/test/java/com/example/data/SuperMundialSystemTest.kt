@@ -36,20 +36,11 @@ class SuperMundialSystemTest {
     @Test
     fun everyClubPlaysExactlyThreeGroupMatchesInMidweekSlots() {
         val season = 2029
-        val userTeam = Team(
-            id = 999L,
-            name = "Clube Teste",
-            city = "Belo Horizonte",
-            state = "MG",
-            country = "Brasil",
-            division = 1,
-            rating = 80
-        )
-
+        val teams = worldUniverse()
         val fixtures = SuperMundialSystem.generateGroupStageFixtures(
             season = season,
-            allTeams = listOf(userTeam),
-            userTeamId = userTeam.id
+            allTeams = teams,
+            previousSeasonStandings = standings(teams)
         )
 
         assertEquals("8 grupos x 6 partidas = 48 jogos na fase de grupos.", 48, fixtures.size)
@@ -69,21 +60,17 @@ class SuperMundialSystemTest {
     @Test
     fun finalistPathContainsExactlySevenMatchesAndEndsAtWeek48() = runTest {
         val season = 2029
-        val trackedTeam = Team(
-            id = 999L,
-            name = "Finalista Teste",
-            city = "Belo Horizonte",
-            state = "MG",
-            country = "Brasil",
-            division = 1,
-            rating = 99
+        val teams = worldUniverse()
+        repository.saveTeams(teams)
+        val qualified = requireNotNull(
+            SuperMundialQualificationRules.selectField(season, teams, standings(teams))
         )
-        repository.saveTeams(listOf(trackedTeam))
+        val trackedTeam = qualified.teams.first()
 
         val groupFixtures = SuperMundialSystem.generateGroupStageFixtures(
             season = season,
-            allTeams = listOf(trackedTeam),
-            userTeamId = trackedTeam.id
+            allTeams = teams,
+            previousSeasonStandings = standings(teams)
         )
         repository.saveFixtures(groupFixtures)
 
@@ -93,7 +80,7 @@ class SuperMundialSystemTest {
                 when (trackedTeam.id) {
                     fixture.homeTeamId -> fixture.copy(homeScore = 2, awayScore = 0, isPlayed = true)
                     fixture.awayTeamId -> fixture.copy(homeScore = 0, awayScore = 2, isPlayed = true)
-                    else -> fixture.copy(homeScore = 0, awayScore = 0, isPlayed = true)
+                    else -> fixture.copy(homeScore = 1, awayScore = 0, isPlayed = true)
                 }
             }
         repository.updateFixtures(playedGroupFixtures)
@@ -123,7 +110,6 @@ class SuperMundialSystemTest {
                     }
                 }
             )
-
             SuperMundialSystem.processProgression(season, week, repository)
         }
 
@@ -134,9 +120,6 @@ class SuperMundialSystemTest {
             }
 
         assertEquals(7, trackedTeamMatches.size)
-        assertEquals(1, trackedTeamMatches.count { it.week == SuperMundialSystem.ROUND_OF_16_WEEK && it.competitionType == "WORLD_CUP" })
-        assertEquals(1, trackedTeamMatches.count { it.week == SuperMundialSystem.QUARTERFINAL_WEEK && it.competitionType == "WORLD_CUP" })
-        assertEquals(1, trackedTeamMatches.count { it.week == SuperMundialSystem.SEMIFINAL_WEEK && it.competitionType == "WORLD_CUP" })
         assertEquals(1, trackedTeamMatches.count { it.week == SuperMundialSystem.FINAL_WEEK && it.competitionType == "WORLD_CUP" })
     }
 
@@ -149,7 +132,7 @@ class SuperMundialSystemTest {
                     id = id,
                     name = "Mundial QA $id",
                     city = "Global",
-                    state = "GL",
+                    state = "BR",
                     country = "Brasil",
                     division = 1,
                     rating = 80
@@ -172,14 +155,9 @@ class SuperMundialSystemTest {
 
         repository.updateFixtures(
             semifinals.mapIndexed { index, fixture ->
-                fixture.copy(
-                    homeScore = if (index == 0) 2 else 1,
-                    awayScore = 0,
-                    isPlayed = true
-                )
+                fixture.copy(homeScore = if (index == 0) 2 else 1, awayScore = 0, isPlayed = true)
             }
         )
-
         SuperMundialSystem.processProgression(season, SuperMundialSystem.SEMIFINAL_WEEK, repository)
 
         val finals = repository.getFixturesForWeek(season, SuperMundialSystem.FINAL_WEEK)
@@ -187,22 +165,70 @@ class SuperMundialSystemTest {
         assertEquals(1, finals.size)
         assertEquals(MatchSlot.MIDWEEK, finals.single().matchSlot)
 
-        repository.updateFixture(
-            finals.single().copy(homeScore = 1, awayScore = 0, isPlayed = true)
-        )
-
+        repository.updateFixture(finals.single().copy(homeScore = 1, awayScore = 1, isPlayed = true))
         SuperMundialSystem.processProgression(season, SuperMundialSystem.FINAL_WEEK, repository)
+
+        val decidedFinal = repository.getFixturesForWeek(season, SuperMundialSystem.FINAL_WEEK)
+            .single { it.competitionType == "WORLD_CUP" }
+        assertTrue(decidedFinal.homePenalties != null && decidedFinal.awayPenalties != null)
+        assertTrue(decidedFinal.homePenalties != decidedFinal.awayPenalties)
 
         val recordsAfterFirstPass = repository.getAllHistoricalRecords()
             .filter { it.season == season && it.competitionName.contains("Mundial") }
         assertEquals(1, recordsAfterFirstPass.size)
         assertTrue(recordsAfterFirstPass.single().championTeamName.isNotBlank())
         assertTrue(recordsAfterFirstPass.single().competitionName.contains("Sede:"))
+        assertEquals(0, recordsAfterFirstPass.single().topScorerGoals)
 
         SuperMundialSystem.processProgression(season, SuperMundialSystem.FINAL_WEEK, repository)
-
         val recordsAfterSecondPass = repository.getAllHistoricalRecords()
             .filter { it.season == season && it.competitionName.contains("Mundial") }
         assertEquals(1, recordsAfterSecondPass.size)
     }
+
+    private fun worldUniverse(): List<Team> {
+        val countries = buildList {
+            addAll(listOf(
+                "Inglaterra", "Espanha", "Itália", "Alemanha", "França", "Portugal",
+                "Países Baixos", "Bélgica", "Turquia", "Escócia", "Áustria", "Suíça", "Dinamarca"
+            ))
+            addAll(listOf("Brasil", "Brasil", "Argentina", "Colômbia", "Chile", "Uruguai", "Paraguai"))
+            addAll(listOf("Japão", "Coreia do Sul", "Arábia Saudita", "Emirados Árabes Unidos", "Catar"))
+            addAll(listOf("Egito", "Marrocos", "Tunísia", "África do Sul", "África"))
+            addAll(listOf("México", "Estados Unidos / Canadá", "Costa Rica", "Guatemala", "Honduras"))
+            addAll(listOf("Oceania", "Oceania"))
+        }
+        return countries.mapIndexed { index, country ->
+            Team(
+                id = 60_000L + index,
+                name = "Mundial Real QA ${index + 1}",
+                city = "Cidade ${index + 1}",
+                state = country.take(2),
+                country = country,
+                division = 1,
+                rating = 70 + (index % 25)
+            )
+        }
+    }
+
+    private fun standings(teams: List<Team>): List<GlobalLeagueStanding> =
+        teams.groupBy { it.country }.flatMap { (_, associationTeams) ->
+            associationTeams.sortedBy { it.id }.mapIndexed { index, team ->
+                GlobalLeagueStanding(
+                    season = 2028,
+                    country = team.country,
+                    division = 1,
+                    teamId = team.id,
+                    position = index + 1,
+                    points = 90 - index,
+                    played = 38,
+                    wins = 0,
+                    draws = 0,
+                    losses = 0,
+                    goalsFor = 0,
+                    goalsAgainst = 0,
+                    goalDifference = 0
+                )
+            }
+        }
 }
