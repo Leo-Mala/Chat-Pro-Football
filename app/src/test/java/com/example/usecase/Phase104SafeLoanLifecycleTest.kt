@@ -64,6 +64,18 @@ class Phase104SafeLoanLifecycleTest {
     }
 
     @Test
+    fun `CPU integrity accepts open ended FC26 loan sentinel`() = runTest {
+        seedLoanState(repository)
+        val controlledTeams = repository.getAllTeams().map { it.copy(isPlayerControlled = true) }
+        repository.saveTeams(controlledTeams)
+
+        val report = CpuSquadManagementUseCase(repository).ensureCpuSquadIntegrity()
+
+        assertEquals(0, report.invalidActiveLoans)
+        assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
     fun `loan return preserves identity attributes and contract and is idempotent`() = runTest {
         val before = seedLoanState(repository)
         val lifecycle = LoanLifecycleUseCase(repository)
@@ -135,21 +147,60 @@ class Phase104SafeLoanLifecycleTest {
     }
 
     @Test
+    fun `borrower cash conversion replaces loanee wage instead of double counting it`() = runTest {
+        seedLoanState(repository)
+        val save = GameSave(playerTeamId = BORROWER_ID, bankBalance = 100_000_000L, coachReputation = 80)
+        repository.saveGameSave(save)
+        val transfers = ProcessTransfersUseCase(repository)
+        val loanee = requireNotNull(repository.getPlayer(PLAYER_ID))
+        seedNearCapFiller(transfers, save, loanee)
+
+        val result = transfers.executePurchase(
+            save = save,
+            player = loanee,
+            price = 5_000_000L,
+            currentRoster = repository.getPlayersByTeam(BORROWER_ID)
+        )
+
+        assertTrue(result is ProcessTransfersUseCase.TransferResult.Success)
+        val converted = requireNotNull(repository.getPlayer(PLAYER_ID))
+        assertEquals(BORROWER_ID, converted.teamId)
+        assertFalse(converted.isOnLoan)
+        assertNull(converted.originalTeamId)
+        assertNull(repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
+    fun `borrower installment conversion replaces loanee wage instead of double counting it`() = runTest {
+        seedLoanState(repository)
+        val save = GameSave(playerTeamId = BORROWER_ID, bankBalance = 100_000_000L, coachReputation = 80)
+        repository.saveGameSave(save)
+        val transfers = ProcessTransfersUseCase(repository)
+        val loanee = requireNotNull(repository.getPlayer(PLAYER_ID))
+        seedNearCapFiller(transfers, save, loanee)
+
+        val result = transfers.buyPlayerAdvanced(
+            save = save,
+            player = loanee,
+            offerPrice = 5_000_000L,
+            installments = 3
+        )
+
+        assertTrue(result is ProcessTransfersUseCase.TransferResult.Success)
+        val converted = requireNotNull(repository.getPlayer(PLAYER_ID))
+        assertEquals(BORROWER_ID, converted.teamId)
+        assertFalse(converted.isOnLoan)
+        assertNull(converted.originalTeamId)
+        assertNull(repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
     fun `borrower cannot sell player it does not own`() = runTest {
         seedLoanState(repository)
         val save = GameSave(playerTeamId = BORROWER_ID, bankBalance = 10_000_000L)
         repository.saveGameSave(save)
         val player = requireNotNull(repository.getPlayer(PLAYER_ID))
-        val rosterGate = List(17) { index ->
-            Player(
-                id = 10_000L + index,
-                teamId = BORROWER_ID,
-                name = "Roster $index",
-                age = 25,
-                position = "MEI",
-                force = 60
-            )
-        }
+        val rosterGate = List(17) { index -> rosterPlayer(index, BORROWER_ID) }
 
         val result = ProcessTransfersUseCase(repository).executeSale(
             save = save,
@@ -162,6 +213,56 @@ class Phase104SafeLoanLifecycleTest {
         assertTrue((result as ProcessTransfersUseCase.TransferResult.Error).reason.contains("emprestado"))
         assertEquals(10_000_000L, repository.getGameSave()?.bankBalance)
         assertEquals(player, repository.getPlayer(PLAYER_ID))
+        assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
+    fun `owner can sell loaned out player at minimum active roster`() = runTest {
+        seedLoanState(repository)
+        val save = GameSave(playerTeamId = OWNER_ID, bankBalance = 10_000_000L)
+        repository.saveGameSave(save)
+        val player = requireNotNull(repository.getPlayer(PLAYER_ID))
+        val rosterGate = List(16) { index -> rosterPlayer(index, OWNER_ID) }
+
+        val result = ProcessTransfersUseCase(repository).executeSale(
+            save = save,
+            player = player,
+            price = 1_000_000L,
+            currentRoster = rosterGate
+        )
+
+        assertTrue(result is ProcessTransfersUseCase.TransferResult.Success)
+        assertEquals(11_000_000L, repository.getGameSave()?.bankBalance)
+        val sold = requireNotNull(repository.getPlayer(PLAYER_ID))
+        assertFalse(sold.isOnLoan)
+        assertNull(sold.originalTeamId)
+        assertNull(repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
+    fun `stale active loan row cannot authorize old owner sale`() = runTest {
+        seedLoanState(repository)
+        val stalePlayer = requireNotNull(repository.getPlayer(PLAYER_ID)).copy(
+            teamId = BUYER_ID,
+            originalTeamId = null,
+            isOnLoan = false,
+            loanWeeksRemaining = 0
+        )
+        repository.updatePlayer(stalePlayer)
+        val save = GameSave(playerTeamId = OWNER_ID, bankBalance = 10_000_000L)
+        repository.saveGameSave(save)
+
+        val result = ProcessTransfersUseCase(repository).executeSale(
+            save = save,
+            player = stalePlayer,
+            price = 1_000_000L,
+            currentRoster = List(17) { index -> rosterPlayer(index, OWNER_ID) }
+        )
+
+        assertTrue(result is ProcessTransfersUseCase.TransferResult.Error)
+        assertTrue((result as ProcessTransfersUseCase.TransferResult.Error).reason.contains("inconsistente"))
+        assertEquals(10_000_000L, repository.getGameSave()?.bankBalance)
+        assertEquals(stalePlayer, repository.getPlayer(PLAYER_ID))
         assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
     }
 
@@ -227,6 +328,35 @@ class Phase104SafeLoanLifecycleTest {
         }
     }
 
+    private suspend fun seedNearCapFiller(
+        transfers: ProcessTransfersUseCase,
+        save: GameSave,
+        loanee: Player
+    ) {
+        val cap = transfers.calculateWeeklyWageCap(save)
+        val replacementSalary = loanee.calculateSalary(save.coachReputation.toDouble())
+        val replacementEffective = (replacementSalary * 0.18).toLong()
+        val fillerEffective = (cap - replacementEffective - 5_000L).coerceAtLeast(1_000L)
+        val fillerSalary = (fillerEffective / 0.18).toLong().coerceAtLeast(1L)
+        repository.savePlayers(
+            listOf(
+                Player(
+                    id = 9_999L,
+                    teamId = BORROWER_ID,
+                    name = "Near Cap Filler",
+                    age = 26,
+                    position = "ZAG",
+                    force = 65,
+                    salary = fillerSalary
+                )
+            )
+        )
+        val projectedWithReplacement = (fillerSalary * 0.18).toLong() + replacementEffective
+        val oldDoubleCountedProjection = projectedWithReplacement + (loanee.salary * 0.18).toLong()
+        assertTrue(projectedWithReplacement <= cap)
+        assertTrue(oldDoubleCountedProjection > cap)
+    }
+
     private suspend fun seedLoanState(target: GameRepository): Player {
         seedTeams(target)
         val player = loanedPlayer()
@@ -244,6 +374,15 @@ class Phase104SafeLoanLifecycleTest {
             )
         )
     }
+
+    private fun rosterPlayer(index: Int, teamId: Long) = Player(
+        id = 10_000L + index,
+        teamId = teamId,
+        name = "Roster $index",
+        age = 25,
+        position = "MEI",
+        force = 60
+    )
 
     private fun loanedPlayer() = Player(
         id = PLAYER_ID,
