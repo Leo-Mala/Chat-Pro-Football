@@ -41,13 +41,6 @@ fun GameViewModel.adjustTicketPrice(newPrice: Double) {
     }
 }
 
-fun GameViewModel.upgradeTrainingCenter() {
-    viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        financeUseCase.upgradeTrainingCenter(save)
-    }
-}
-
 fun GameViewModel.expandStadium(seatsToAdd: Int) {
     viewModelScope.launch(Dispatchers.IO) {
         val save = repo.getGameSave() ?: return@launch
