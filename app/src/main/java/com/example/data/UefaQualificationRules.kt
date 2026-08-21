@@ -1,34 +1,37 @@
 package com.example.data
 
 /**
- * Projeção de acesso UEFA compatível com o modelo atual da carreira.
+ * Projeção tipada de qualificação UEFA.
  *
- * O formato 2026/27 das três competições é implementado pelo [UefaCompetitionSystem], porém o
- * projeto ainda não persiste coeficientes UEFA, campeões continentais tipados por temporada nem a
- * access list anual completa. Por isso esta camada NÃO usa [Team.rating] como falso coeficiente.
- * Em vez disso, distribui vagas de forma determinística entre associações nacionais UEFA e preserva
- * a origem de cada vaga por [QualificationSource.AssociationSlot].
- *
- * Quando coeficientes/access list forem persistidos no domínio, esta projeção pode ser substituída
- * sem alterar o motor de partidas, pois o contrato de saída já é tipado.
+ * O projeto ainda não persiste coeficientes UEFA nem a access list completa de qualifying. Por
+ * isso não fingimos esses dados: quando há snapshot doméstico da temporada anterior, a ordem de
+ * cada associação segue a posição esportiva real persistida. Na primeira temporada (ou para uma
+ * associação sem snapshot), o fallback permanece determinístico por divisão/id.
  */
 object UefaQualificationRules {
+    const val FIELD_SIZE = 36
 
-    data class QualifiedClub(
+    data class QualifiedTeam(
         val team: Team,
         val slot: QualificationSlot
     )
 
     data class LeaguePhaseFields(
-        val championsLeague: List<QualifiedClub>,
-        val europaLeague: List<QualifiedClub>,
-        val conferenceLeague: List<QualifiedClub>
+        val championsLeague: List<QualifiedTeam>,
+        val europaLeague: List<QualifiedTeam>,
+        val conferenceLeague: List<QualifiedTeam>
     ) {
-        val all: List<QualifiedClub>
+        val all: List<QualifiedTeam>
             get() = championsLeague + europaLeague + conferenceLeague
     }
 
-    fun selectLeaguePhaseFields(candidates: List<Team>): LeaguePhaseFields {
+    fun selectLeaguePhaseFields(candidates: List<Team>): LeaguePhaseFields =
+        selectLeaguePhaseFields(candidates, previousSeasonStandings = emptyList())
+
+    fun selectLeaguePhaseFields(
+        candidates: List<Team>,
+        previousSeasonStandings: List<GlobalLeagueStanding>
+    ): LeaguePhaseFields {
         val eligible = candidates
             .asSequence()
             .filter { CountryFootballRulesRegistry.isContinentalCompetitionEligible(it.country) }
@@ -36,55 +39,85 @@ object UefaQualificationRules {
             .distinctBy { it.id }
             .toList()
 
-        val canonicalByTeamId = eligible.associate { team ->
-            team.id to requireNotNull(CountryFootballRulesRegistry.resolve(team.country)).canonicalCountry
-        }
+        val standingsByTeamId = previousSeasonStandings
+            .asSequence()
+            .filter { it.division == 1 }
+            .associateBy { it.teamId }
+        val countriesWithSnapshot = previousSeasonStandings
+            .asSequence()
+            .filter { it.division == 1 }
+            .map { canonicalAssociation(it.country) }
+            .toSet()
 
-        val countries = canonicalByTeamId.values.toSortedSet().toList()
-        val teamsByCountry = countries.associateWith { country ->
-            eligible
-                .filter { canonicalByTeamId[it.id] == country }
-                .sortedWith(compareBy<Team> { it.division }.thenBy { it.id })
-        }
+        val byAssociation = eligible
+            .groupBy { canonicalAssociation(it.country) }
+            .toSortedMap()
+            .mapValues { (association, teams) ->
+                teams.sortedWith(
+                    compareBy<Team> { team ->
+                        val row = standingsByTeamId[team.id]
+                        when {
+                            row != null -> row.position
+                            association in countriesWithSnapshot && team.division == 1 -> Int.MAX_VALUE - 1
+                            else -> Int.MAX_VALUE
+                        }
+                    }
+                        .thenByDescending { standingsByTeamId[it.id]?.points ?: Int.MIN_VALUE }
+                        .thenBy { it.division }
+                        .thenBy { it.id }
+                )
+            }
 
-        // Round-robin por associação: primeiro slot de cada país, depois segundo etc. Isso impede
-        // que uma única associação monopolize a seleção e mantém o resultado independente de rating.
-        val ordered = mutableListOf<Pair<Team, Int>>()
-        val largestAssociation = teamsByCountry.values.maxOfOrNull { it.size } ?: 0
-        for (associationSlot in 1..largestAssociation) {
-            countries.forEach { country ->
-                teamsByCountry.getValue(country).getOrNull(associationSlot - 1)?.let { team ->
-                    ordered += team to associationSlot
+        // Intercala associações: 1º de cada país, 2º de cada país etc. Isso evita preencher um
+        // torneio inteiro com uma única liga quando não há coeficiente/access-list persistidos.
+        val ordered = buildList {
+            var associationSlot = 0
+            while (size < eligible.size) {
+                var added = false
+                for (association in byAssociation.keys) {
+                    val team = byAssociation.getValue(association).getOrNull(associationSlot) ?: continue
+                    add(
+                        QualifiedTeam(
+                            team = team,
+                            slot = QualificationSlot(
+                                source = QualificationSource.AssociationSlot(
+                                    association = association,
+                                    slot = associationSlot + 1
+                                ),
+                                ordinal = associationSlot + 1
+                            )
+                        )
+                    )
+                    added = true
                 }
+                if (!added) break
+                associationSlot++
             }
         }
 
         var offset = 0
-        fun takeField(
-            identity: CompetitionIdentity
-        ): List<QualifiedClub> {
-            val selected = ordered.drop(offset).take(UefaCompetitionSystem.FIELD_SIZE)
-            offset += selected.size
-            return selected.mapIndexed { index, (team, associationSlot) ->
-                val association = canonicalByTeamId.getValue(team.id)
-                QualifiedClub(
-                    team = team,
-                    slot = QualificationSlot(
-                        source = QualificationSource.AssociationSlot(
-                            association = association,
-                            slot = associationSlot
-                        ),
-                        destinationCompetition = identity,
-                        ordinal = index + 1
-                    )
-                )
-            }
+        fun takeField(): List<QualifiedTeam> {
+            if (ordered.size - offset < FIELD_SIZE) return emptyList()
+            val field = ordered.subList(offset, offset + FIELD_SIZE).toList()
+            offset += FIELD_SIZE
+            return field
+        }
+
+        val champions = takeField()
+        val europa = takeField()
+        val conference = takeField()
+        val allIds = (champions + europa + conference).map { it.team.id }
+        require(allIds.size == allIds.toSet().size) {
+            "Um clube não pode ocupar duas competições UEFA principais na mesma temporada."
         }
 
         return LeaguePhaseFields(
-            championsLeague = takeField(CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE),
-            europaLeague = takeField(CompetitionIdentity.UEFA_EUROPA_LEAGUE),
-            conferenceLeague = takeField(CompetitionIdentity.UEFA_CONFERENCE_LEAGUE)
+            championsLeague = champions,
+            europaLeague = europa,
+            conferenceLeague = conference
         )
     }
+
+    private fun canonicalAssociation(country: String): String =
+        CountryFootballRulesRegistry.resolve(country)?.canonicalCountry ?: country.trim()
 }
