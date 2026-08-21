@@ -75,20 +75,152 @@ class Fc26SeedPlannerTest {
         assertEquals(1, plan.report.unmatchedClubs)
     }
 
-    @Test fun `loan marker is preserved as unresolved metadata instead of invented PlayerLoan`() {
+    @Test fun `loan marker with unknown owner fails closed instead of inventing PlayerLoan`() {
         val arsenal = team(2L, "Arsenal FC")
         val loaned = sourcePlayer(1L, "Arsenal", sourceId = 201L, fullName = "Loaned Player", loanedFrom = "Other Club")
         val dataset = Fc26Dataset(manifest(playerCount = 1, clubCount = 1, loanedPlayerCount = 1), listOf(loaned))
         val plan = Fc26SeedPlanner.build(listOf(arsenal), dataset) { emptyList() }
 
         assertEquals(1, plan.report.unresolvedLoans)
+        assertEquals(1, plan.report.ownerNotFound)
         assertEquals(0, plan.report.successfullyMappedLoans)
         assertTrue(plan.loans.isEmpty())
         val mapped = plan.players.single()
         assertFalse(mapped.isOnLoan)
         assertNull(mapped.originalTeamId)
         assertTrue(mapped.atributosJson.orEmpty().contains("Other Club"))
+        assertEquals(Fc26LoanResolutionStatus.OWNER_NOT_FOUND.name, mapped.sourceMetadataOrNull()?.loanResolutionStatus)
     }
+
+    @Test fun `valid FC26 loan keeps one player in borrower roster and owner identity`() {
+        val arsenal = team(2L, "Arsenal FC")
+        val chelsea = team(3L, "Chelsea FC")
+        val loaned = sourcePlayer(1L, "Arsenal", sourceId = 401L, fullName = "Safe Loan Player", loanedFrom = "Chelsea")
+        val ownerRosterPlayer = sourcePlayer(2L, "Chelsea", sourceId = 402L, fullName = "Owner Roster Player")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 2, clubCount = 2, loanedPlayerCount = 1),
+            listOf(loaned, ownerRosterPlayer)
+        )
+
+        val plan = Fc26SeedPlanner.build(listOf(arsenal, chelsea), dataset) { emptyList() }
+        val persistedLoan = plan.loans.single()
+        val mapped = plan.players.single { it.id == loaned.stableId }
+
+        assertEquals(1, plan.report.resolvedLoans)
+        assertEquals(0, plan.report.rejectedLoans)
+        assertEquals(loaned.stableId, persistedLoan.playerId)
+        assertEquals(3L, persistedLoan.ownerTeamId)
+        assertEquals(2L, persistedLoan.borrowerTeamId)
+        assertEquals(2L, mapped.teamId)
+        assertEquals(3L, mapped.originalTeamId)
+        assertTrue(mapped.isOnLoan)
+        assertEquals(0, mapped.loanWeeksRemaining)
+        assertTrue(Fc26LoanPolicy.isUnknownEndSnapshotLoan(persistedLoan))
+        assertEquals("NOT_AVAILABLE", mapped.sourceMetadataOrNull()?.loanTemporalCoverage)
+        assertEquals(2, plan.players.size)
+        assertEquals(2, plan.players.map { it.id }.distinct().size)
+    }
+
+    @Test fun `owner equal borrower is rejected as self loan`() {
+        val arsenal = team(2L, "Arsenal FC")
+        val loaned = sourcePlayer(1L, "Arsenal", sourceId = 501L, fullName = "Self Loan Player", loanedFrom = "Arsenal")
+        val dataset = Fc26Dataset(manifest(playerCount = 1, clubCount = 1, loanedPlayerCount = 1), listOf(loaned))
+
+        val plan = Fc26SeedPlanner.build(listOf(arsenal), dataset) { emptyList() }
+
+        assertTrue(plan.loans.isEmpty())
+        assertEquals(1, plan.report.selfLoansRejected)
+        assertEquals(Fc26LoanResolutionStatus.SELF_LOAN, plan.report.loanResolutions.single().status)
+        assertFalse(plan.players.single().isOnLoan)
+    }
+
+    @Test fun `audited alias resolves owner to canonical identity`() {
+        val arsenal = team(2L, "Arsenal FC")
+        val inter = team(3L, "Internazionale")
+        val loaned = sourcePlayer(1L, "Arsenal", sourceId = 601L, fullName = "Alias Loan Player", loanedFrom = "Inter Milan")
+        val ownerRosterPlayer = sourcePlayer(2L, "Internazionale", sourceId = 602L, fullName = "Inter Owner Player")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 2, clubCount = 2, loanedPlayerCount = 1),
+            listOf(loaned, ownerRosterPlayer)
+        )
+
+        val plan = Fc26SeedPlanner.build(listOf(arsenal, inter), dataset) { emptyList() }
+
+        assertEquals(1, plan.loans.size)
+        assertEquals(3L, plan.loans.single().ownerTeamId)
+        assertEquals(Fc26LoanResolutionStatus.RESOLVED, plan.report.loanResolutions.single().status)
+    }
+
+    @Test fun `owner alias collision fails closed as ambiguous`() {
+        val loaned = sourcePlayer(1L, "Borrower", sourceId = 701L, fullName = "Ambiguous Loan Player", loanedFrom = "Twin Club")
+        val ownerA = sourcePlayer(2L, "Twin Club", sourceId = 702L, fullName = "Twin A")
+        val ownerB = sourcePlayer(3L, "Twin Club", sourceId = 703L, fullName = "Twin B")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 3, clubCount = 3, loanedPlayerCount = 1),
+            listOf(loaned, ownerA, ownerB)
+        )
+        val matches = listOf(
+            match(1L, "Borrower", targetId = 10L),
+            match(2L, "Twin Club", targetId = 20L),
+            match(3L, "Twin Club", targetId = 30L)
+        )
+
+        val result = Fc26LoanResolver.resolve(dataset, matches)
+
+        assertTrue(result.loans.isEmpty())
+        assertEquals(1, result.audit.ambiguousLoans)
+        assertEquals(Fc26LoanResolutionStatus.AMBIGUOUS_OWNER, result.audit.resolutions.single().status)
+    }
+
+    @Test fun `unresolved borrower fails closed even when owner exists`() {
+        val loaned = sourcePlayer(1L, "Borrower", sourceId = 801L, fullName = "Borrower Missing Player", loanedFrom = "Owner")
+        val owner = sourcePlayer(2L, "Owner", sourceId = 802L, fullName = "Owner Player")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 2, clubCount = 2, loanedPlayerCount = 1),
+            listOf(loaned, owner)
+        )
+        val matches = listOf(
+            Fc26ClubMatch(1L, "Borrower", 1L, "Test League", 1, Fc26ClubMatchStatus.UNMATCHED, reason = "no canonical target"),
+            match(2L, "Owner", targetId = 20L)
+        )
+
+        val result = Fc26LoanResolver.resolve(dataset, matches)
+
+        assertTrue(result.loans.isEmpty())
+        assertEquals(1, result.audit.borrowerNotFound)
+        assertEquals(Fc26LoanResolutionStatus.BORROWER_NOT_FOUND, result.audit.resolutions.single().status)
+    }
+
+    @Test fun `same snapshot resolution is deterministic and idempotent`() {
+        val arsenal = team(2L, "Arsenal FC")
+        val chelsea = team(3L, "Chelsea FC")
+        val loaned = sourcePlayer(1L, "Arsenal", sourceId = 901L, fullName = "Idempotent Loan Player", loanedFrom = "Chelsea")
+        val ownerRosterPlayer = sourcePlayer(2L, "Chelsea", sourceId = 902L, fullName = "Idempotent Owner Player")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 2, clubCount = 2, loanedPlayerCount = 1),
+            listOf(loaned, ownerRosterPlayer)
+        )
+
+        val first = Fc26SeedPlanner.build(listOf(arsenal, chelsea), dataset) { emptyList() }
+        val second = Fc26SeedPlanner.build(listOf(arsenal, chelsea), dataset) { emptyList() }
+
+        assertEquals(first.loans, second.loans)
+        assertEquals(first.players, second.players)
+        assertEquals(first.report.loanResolutions, second.report.loanResolutions)
+        assertEquals(-loaned.stableId, first.loans.single().id)
+    }
+
+    private fun match(sourceId: Long, sourceName: String, targetId: Long) = Fc26ClubMatch(
+        sourceClubTeamId = sourceId,
+        sourceClubName = sourceName,
+        leagueId = 1L,
+        leagueName = "Test League",
+        playerCount = 1,
+        status = Fc26ClubMatchStatus.MATCHED,
+        targetTeamId = targetId,
+        targetTeamName = "Target $targetId",
+        reason = "test canonical match"
+    )
 
     private fun team(id: Long, name: String) = Team(
         id = id, name = name, city = "X", state = "X", country = "Teste", division = 1, rating = 70
