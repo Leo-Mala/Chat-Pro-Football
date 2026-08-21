@@ -3,19 +3,23 @@ package com.example.usecase
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.HistoricoEvolucao
+import com.example.data.MonthlyEvolutionInputSnapshot
 import com.example.data.Player
 import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
+import com.example.data.applyMonthlyEvolutionPlayerStates
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
+import com.example.data.getMonthlyEvolutionInputSnapshots
 import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.resetMonthlyEvolutionCounters
+import com.example.data.toMonthlyEvolutionInputSnapshot
 import kotlin.random.Random
 
 /**
  * Immutable monthly-evolution plan. The expensive world-player calculation is intentionally
- * separated from the Room commit so callers that already own a larger atomic operation can do
- * CPU work before acquiring the database transaction and then fail closed if the save moved.
+ * separated from the Room commit so the production weekly path can calculate before acquiring the
+ * write transaction and then fail closed if any evolution input became stale.
  */
 data class MonthlyEvolutionPlan(
     val expectedSeason: Int,
@@ -23,9 +27,13 @@ data class MonthlyEvolutionPlan(
     val expectedPlayerTeamId: Long,
     val periodDate: String,
     val results: List<PlayerEvolutionResult>,
-    /** Only players whose persisted football state changed; monthly counters are reset by SQL. */
+    /** Only players whose persisted evolution-owned state changed. */
     val updatedPlayers: List<Player>,
-    val historyLogs: List<HistoricoEvolucao>
+    val historyLogs: List<HistoricoEvolucao>,
+    /** Lightweight snapshots of every evolution input, used only for stale-plan validation. */
+    val expectedInputs: List<MonthlyEvolutionInputSnapshot> = emptyList(),
+    /** Training-center level influences evolution and therefore participates in stale validation. */
+    val expectedTrainingCenterLevels: Map<Long, Int> = emptyMap()
 )
 
 /**
@@ -68,7 +76,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         return updatedPlayers
     }
 
-    /** CPU-heavy monthly planning, intentionally outside the Room transaction. */
+    /** CPU-heavy monthly planning. Call this before opening a larger write transaction. */
     suspend fun prepareMonthlyEvolution(
         save: GameSave,
         periodDate: String
@@ -84,6 +92,16 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             if (result.historyLogs.isNotEmpty()) historyLogs.addAll(result.historyLogs)
         }
 
+        val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(allPlayers.size)
+        val referencedTeamIds = HashSet<Long>()
+        for (player in allPlayers) {
+            expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
+            player.teamId?.let(referencedTeamIds::add)
+        }
+        val expectedTrainingLevels = referencedTeamIds.associateWith { teamId ->
+            allTeams[teamId]?.trainingCenterLevel ?: 1
+        }
+
         return MonthlyEvolutionPlan(
             expectedSeason = save.currentSeason,
             expectedWeek = save.currentWeek,
@@ -91,16 +109,22 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             periodDate = periodDate,
             results = evolutionResults,
             updatedPlayers = changedPlayers,
-            historyLogs = historyLogs
+            historyLogs = historyLogs,
+            expectedInputs = expectedInputs,
+            expectedTrainingCenterLevels = expectedTrainingLevels
         )
     }
 
     /**
-     * Persists one prepared plan atomically and fail-closed against stale save state.
+     * Persists one prepared plan atomically and fail-closed against stale save/player/team state.
      *
-     * Retrying the exact same plan is safe: counters and Player updates are naturally idempotent,
-     * while evolution-history fingerprints already present for [MonthlyEvolutionPlan.periodDate]
-     * are filtered before insert, preventing duplicate auto-generated audit rows.
+     * Full Player entities are never replayed. The commit first validates lightweight evolution
+     * inputs for the complete universe, then updates only `atributosJson`, `force`, monthly minutes
+     * and `evolucaoMensal`. Contract, salary, team, fitness, transfer and lineup columns therefore
+     * cannot be restored from a stale prepared snapshot.
+     *
+     * Retrying an already committed plan is safe: if every history fingerprint for this plan is
+     * present, the method returns successfully without resetting counters or rewriting players.
      */
     suspend fun commitMonthlyEvolution(plan: MonthlyEvolutionPlan): Boolean = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: return@withTransaction false
@@ -116,19 +140,45 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         } else {
             repository.getMonthlyEvolutionHistoryFingerprints(plan.periodDate)
         }
-        val historyToInsert = if (existingHistory.isEmpty()) {
-            plan.historyLogs
-        } else {
-            plan.historyLogs.filter { it.monthlyEvolutionFingerprint() !in existingHistory }
+        if (plan.historyLogs.isNotEmpty() && existingHistory.isNotEmpty()) {
+            val plannedFingerprints = plan.historyLogs.mapTo(hashSetOf()) { it.monthlyEvolutionFingerprint() }
+            val alreadyCommitted = plannedFingerprints.all { it in existingHistory }
+            if (alreadyCommitted) return@withTransaction true
+            // An atomic monthly commit cannot legitimately leave only part of its audit rows.
+            // Treat a partial fingerprint overlap as ambiguous/stale instead of writing through it.
+            if (plannedFingerprints.any { it in existingHistory }) return@withTransaction false
+        }
+
+        if (plan.expectedTrainingCenterLevels.isNotEmpty()) {
+            val currentLevels = repository.getAllTeams().associate { it.id to it.trainingCenterLevel }
+            if (plan.expectedTrainingCenterLevels.any { (teamId, level) ->
+                    (currentLevels[teamId] ?: 1) != level
+                }
+            ) {
+                return@withTransaction false
+            }
+        }
+
+        if (plan.expectedInputs.isNotEmpty()) {
+            val currentInputs = repository.getMonthlyEvolutionInputSnapshots(plan.expectedInputs.map { it.id })
+            if (currentInputs.size != plan.expectedInputs.size ||
+                plan.expectedInputs.any { expected -> currentInputs[expected.id] != expected }
+            ) {
+                return@withTransaction false
+            }
         }
 
         repository.resetMonthlyEvolutionCounters()
-        if (plan.updatedPlayers.isNotEmpty()) repository.updatePlayers(plan.updatedPlayers)
-        if (historyToInsert.isNotEmpty()) repository.saveHistoricoEvolucaoList(historyToInsert)
+        if (plan.updatedPlayers.isNotEmpty()) {
+            check(repository.applyMonthlyEvolutionPlayerStates(plan.updatedPlayers) == plan.updatedPlayers.size) {
+                "Falha fail-closed ao persistir delta de evolução mensal."
+            }
+        }
+        if (plan.historyLogs.isNotEmpty()) repository.saveHistoricoEvolucaoList(plan.historyLogs)
         true
     }
 
-    /** Canonical monthly evolution API. */
+    /** Canonical standalone monthly evolution API. */
     suspend fun executeMonthlyEvolution(
         save: GameSave,
         periodDate: String
