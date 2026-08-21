@@ -16,12 +16,25 @@ import java.io.File
 /**
  * Phase 10.1 reproducible ~60k-player performance gate.
  *
- * The regular regression suite excludes *StressTest classes. CI invokes this class explicitly
- * without -PexcludeStressTests so the expensive measurements run exactly once per validation.
+ * Runtime measurements vary across hosted runners, so the gate uses deliberately tolerant
+ * regression ceilings derived from the recorded pre-10.1 baseline rather than pretending that a
+ * volatile wall-clock value is a strict product contract. The ceilings only reject material
+ * regressions (for example, a ~22s monthly path turning into several minutes or runaway heap).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class GlobalMainAuditPerformanceStressTest {
+
+    companion object {
+        private const val BASELINE_INITIAL_PERSISTENCE_MS = 6_763L
+        private const val BASELINE_FULL_RELOAD_MS = 15_727L
+        private const val BASELINE_MONTHLY_EVOLUTION_MS = 21_851L
+        private const val BASELINE_PEAK_HEAP_BYTES = 435_997_464L
+
+        private const val TIME_REGRESSION_TOLERANCE = 3L
+        private const val HEAP_REGRESSION_NUMERATOR = 7L
+        private const val HEAP_REGRESSION_DENOMINATOR = 4L
+    }
 
     @Test
     fun `measure seed persistence reload and monthly evolution at 60k scale`() = runBlocking {
@@ -102,8 +115,35 @@ class GlobalMainAuditPerformanceStressTest {
             val monthlyEvolutionMillis = elapsedMillis(evolutionStart)
             assertEquals(reloaded.size, evolution.size)
             heap["afterEvolution"] = usedHeapBytes()
+            val observedPeakHeap = heap.values.maxOrNull() ?: 0L
 
-            metrics["auditHead"] = "phase-10.1"
+            assertTrue(
+                "Initial persistence materially regressed: ${initialPersistenceMillis}ms",
+                initialPersistenceMillis <= BASELINE_INITIAL_PERSISTENCE_MS * TIME_REGRESSION_TOLERANCE
+            )
+            assertTrue(
+                "Full reload materially regressed: ${reopenAndFullPlayerReloadMillis}ms",
+                reopenAndFullPlayerReloadMillis <= BASELINE_FULL_RELOAD_MS * TIME_REGRESSION_TOLERANCE
+            )
+            assertTrue(
+                "Monthly evolution materially regressed: ${monthlyEvolutionMillis}ms",
+                monthlyEvolutionMillis <= BASELINE_MONTHLY_EVOLUTION_MS * TIME_REGRESSION_TOLERANCE
+            )
+            assertTrue(
+                "Observed heap materially regressed: $observedPeakHeap bytes",
+                observedPeakHeap <=
+                    BASELINE_PEAK_HEAP_BYTES * HEAP_REGRESSION_NUMERATOR / HEAP_REGRESSION_DENOMINATOR
+            )
+
+            val auditHead = System.getenv("AUDIT_HEAD_SHA")?.takeIf { it.isNotBlank() } ?: "local"
+            if (System.getenv("GITHUB_ACTIONS").equals("true", ignoreCase = true)) {
+                assertTrue(
+                    "CI performance artifact must identify the immutable PR head SHA",
+                    auditHead.matches(Regex("[0-9a-f]{40}"))
+                )
+            }
+
+            metrics["auditHead"] = auditHead
             metrics["environment"] = "Robolectric sdk34 / GitHub Actions JVM"
             metrics["datasetPlayers"] = dataset.players.size
             metrics["persistedPlayers"] = reloaded.size
@@ -117,16 +157,23 @@ class GlobalMainAuditPerformanceStressTest {
             metrics["monthlyEvolutionMillis"] = monthlyEvolutionMillis
             metrics["databaseBytes"] = databaseBytes
             metrics["heapCheckpointBytes"] = heap
-            metrics["observedCheckpointPeakHeapBytes"] = heap.values.maxOrNull() ?: 0L
+            metrics["observedCheckpointPeakHeapBytes"] = observedPeakHeap
+            metrics["regressionBudget"] = mapOf(
+                "initialPersistenceMillis" to BASELINE_INITIAL_PERSISTENCE_MS * TIME_REGRESSION_TOLERANCE,
+                "fullReloadMillis" to BASELINE_FULL_RELOAD_MS * TIME_REGRESSION_TOLERANCE,
+                "monthlyEvolutionMillis" to BASELINE_MONTHLY_EVOLUTION_MS * TIME_REGRESSION_TOLERANCE,
+                "peakHeapBytes" to
+                    BASELINE_PEAK_HEAP_BYTES * HEAP_REGRESSION_NUMERATOR / HEAP_REGRESSION_DENOMINATOR
+            )
 
             val output = File(findRepositoryRoot(), "reports/global_main_audit_performance.json")
             output.parentFile.mkdirs()
             output.writeText(GsonBuilder().setPrettyPrinting().create().toJson(metrics) + "\n")
 
             println(
-                "PHASE_10_1_60K players=${reloaded.size} seedMs=$seedPlanningMillis " +
+                "PHASE_10_1_60K head=$auditHead players=${reloaded.size} seedMs=$seedPlanningMillis " +
                     "persistMs=$initialPersistenceMillis reloadMs=$reopenAndFullPlayerReloadMillis " +
-                    "evolutionMs=$monthlyEvolutionMillis dbBytes=$databaseBytes"
+                    "evolutionMs=$monthlyEvolutionMillis peakHeap=$observedPeakHeap dbBytes=$databaseBytes"
             )
         } finally {
             runCatching { db?.close() }
