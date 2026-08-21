@@ -126,4 +126,69 @@ class WeeklyFinalizationAtomicityTest {
         assertEquals(originalPlayer, repository.getPlayer(originalPlayer.id))
         assertTrue(repository.getAllTransactions().isEmpty())
     }
+
+    @Test
+    fun `stale monthly plan rolls back weekly close without escaping to caller`() = runBlocking {
+        val repository = saveRepository.getRepositoryForSlot(slotId)
+        val originalTeam = Team(
+            id = 1L,
+            name = "Time Stale",
+            city = "Cidade",
+            state = "BR",
+            country = "Brasil",
+            division = 1,
+            isPlayerControlled = true,
+            rating = 70,
+            trainingCenterLevel = 1
+        )
+        repository.saveTeams(listOf(originalTeam))
+
+        val originalSave = GameSave(
+            currentSeason = 2026,
+            currentWeek = 4,
+            playerTeamId = 1L,
+            bankBalance = 5_000_000L,
+            sponsorName = "Patrocinador",
+            sponsorWeekly = 100_000L,
+            sponsorWeeksRemaining = 10,
+            stadiumCapacity = 10_000,
+            academyWeeklyInvestment = 10_000L
+        )
+        repository.saveGameSave(originalSave)
+
+        val originalPlayer = Player(
+            id = 10L,
+            teamId = 1L,
+            name = "Atleta Stale",
+            age = 25,
+            position = "ATA",
+            force = 70,
+            salary = 20_000L,
+            contractDurationWeeks = 10,
+            minutosJogados = 240,
+            mediaNotas = 7.5
+        )
+        repository.savePlayers(listOf(originalPlayer))
+
+        // O plano mensal captura CT nível 1 antes da transação. O tick de contratos abaixo dispara
+        // esta mutação dentro da própria transação semanal; o commit mensal deve detectar o drift,
+        // solicitar rollback e o wrapper do fechamento deve absorver somente esse conflito esperado.
+        repository.db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER make_monthly_plan_stale
+            BEFORE UPDATE OF contractDurationWeeks ON players
+            BEGIN
+                UPDATE teams SET trainingCenterLevel = 2 WHERE id = 1;
+            END
+            """.trimIndent()
+        )
+
+        viewModel.processWeekEndEconomicAndEvolution()
+
+        assertEquals(originalSave, repository.getGameSave())
+        assertEquals(originalPlayer, repository.getPlayer(originalPlayer.id))
+        assertEquals(originalTeam, repository.getTeam(originalTeam.id))
+        assertTrue(repository.getAllTransactions().isEmpty())
+        assertTrue(repository.getHistoricoPorJogador(originalPlayer.id).isEmpty())
+    }
 }
