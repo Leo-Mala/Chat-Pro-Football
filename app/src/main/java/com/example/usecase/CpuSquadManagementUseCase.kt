@@ -1,6 +1,7 @@
 package com.example.usecase
 
 import com.example.data.DefaultData
+import com.example.data.Fc26LoanPolicy
 import com.example.data.GameRepository
 import com.example.data.Player
 import com.example.data.Team
@@ -301,13 +302,14 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         var invalidLoanRows = 0
         for (loan in activeLoans) {
             val player = repository.getPlayer(loan.playerId)
+            val invalidTemporalState = loan.remainingWeeks <= 0 && !Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)
             if (player == null ||
                 !player.isOnLoan ||
                 player.teamId != loan.borrowerTeamId ||
                 player.originalTeamId != loan.ownerTeamId ||
                 loan.ownerTeamId !in validTeamIds ||
                 loan.borrowerTeamId !in validTeamIds ||
-                loan.remainingWeeks <= 0
+                invalidTemporalState
             ) {
                 invalidLoanRows++
             }
