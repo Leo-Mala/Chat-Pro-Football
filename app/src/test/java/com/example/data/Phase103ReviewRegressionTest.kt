@@ -22,7 +22,7 @@ class Phase103ReviewRegressionTest {
     }
 
     @Test
-    fun `UEFA draw separates same association after sporting reorder`() {
+    fun `UEFA draw separates associations and caps repeated opponent associations after sporting reorder`() {
         val candidates = uefaCandidates(120)
         val grouped = candidates.groupBy { canonicalAssociation(it.country) }
         val snapshot = grouped.entries.flatMapIndexed { associationIndex, (_, associationTeams) ->
@@ -60,6 +60,20 @@ class Phase103ReviewRegressionTest {
                     canonicalAssociation(byId.getValue(fixture.awayTeamId).country)
             }
         )
+
+        fields.championsLeague.forEach { qualified ->
+            val opponentAssociations = fixtures.mapNotNull { fixture ->
+                when (qualified.team.id) {
+                    fixture.homeTeamId -> canonicalAssociation(byId.getValue(fixture.awayTeamId).country)
+                    fixture.awayTeamId -> canonicalAssociation(byId.getValue(fixture.homeTeamId).country)
+                    else -> null
+                }
+            }
+            assertEquals(8, opponentAssociations.size)
+            assertTrue(
+                opponentAssociations.groupingBy { it }.eachCount().values.all { count -> count <= 2 }
+            )
+        }
     }
 
     @Test
