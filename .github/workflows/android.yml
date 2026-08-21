@@ -156,6 +156,7 @@ jobs:
             reports/phase_9_13_weekly_lifecycle_performance.json
             reports/phase_9_14_fallback_architecture.json
           if-no-files-found: error
+          retention-days: 1
 
       - name: Run 20 and 100 season stress tests
         shell: bash
@@ -193,6 +194,7 @@ jobs:
           name: room-schema-${{ github.sha }}
           path: ${{ steps.room_schema.outputs.schema_file }}
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload test report on failure
         if: failure()
@@ -201,13 +203,15 @@ jobs:
           name: validation-test-report
           path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Upload APK Artifact
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 1
 
   materialize-fc26-asset:
     name: Materialize deterministic FC26 asset
