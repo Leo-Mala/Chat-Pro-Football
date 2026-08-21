@@ -35,6 +35,21 @@ class Phase103ReviewRegressionTest {
     }
 
     @Test
+    fun `world host eligibility ignores unknown and legacy countries consistently`() {
+        val teams = worldUniverse() + listOf(
+            Team(198_001L, "Unknown Host Trap", "Unknown", "ZZ", "ZZZ Unknown", 1, rating = 100),
+            Team(198_002L, "Legacy Host Trap", "Legacy", "AF", "África", 1, rating = 100)
+        )
+        val eligible = SuperMundialQualificationRules.eligibleRealTeams(teams)
+        val field = requireNotNull(SuperMundialQualificationRules.selectField(2029, teams, standings(teams)))
+        val resolvedHost = requireNotNull(SuperMundialEditionPolicy.hostTeamForSeason(2029, eligible))
+
+        assertEquals(resolvedHost.id, field.host.id)
+        assertTrue(field.host.id !in setOf(198_001L, 198_002L))
+        assertTrue(CountryFootballRulesRegistry.isContinentalCompetitionEligible(field.host.country))
+    }
+
+    @Test
     fun `world draw compares canonical association aliases`() {
         val teams = drawFieldWithAssociationAlias()
         val groups = WorldClubDrawEngine.drawGroups(2029, teams)
@@ -81,7 +96,7 @@ class Phase103ReviewRegressionTest {
                 val points = when (team.id) {
                     venezuela.id -> 100
                     argentina.id -> 1
-                    else -> 80 - team.id.toInt().mod(10)
+                    else -> 80 - (team.id % 10L).toInt()
                 }
                 standing(2032, team, 1, points)
             }
