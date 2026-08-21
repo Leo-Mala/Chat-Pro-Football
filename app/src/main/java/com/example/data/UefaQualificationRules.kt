@@ -51,53 +51,62 @@ object UefaQualificationRules {
 
         val byAssociation = eligible
             .groupBy { canonicalAssociation(it.country) }
-            .toSortedMap()
             .mapValues { (association, teams) ->
                 teams.sortedWith(
                     compareBy<Team> { team ->
                         val row = standingsByTeamId[team.id]
                         when {
-                            row != null -> row.position
+                            row != null && team.division == 1 -> row.position
                             association in countriesWithSnapshot && team.division == 1 -> Int.MAX_VALUE - 1
                             else -> Int.MAX_VALUE
                         }
                     }
-                        .thenByDescending { standingsByTeamId[it.id]?.points ?: Int.MIN_VALUE }
+                        .thenByDescending { team ->
+                            if (team.division == 1) standingsByTeamId[team.id]?.points ?: Int.MIN_VALUE
+                            else Int.MIN_VALUE
+                        }
                         .thenBy { it.division }
                         .thenBy { it.id }
                 )
             }
 
-        // Intercala associações: 1º de cada país, 2º de cada país etc. Isso evita preencher um
-        // torneio inteiro com uma única liga quando não há coeficiente/access-list persistidos.
-        // O destino UEFA só é anexado ao consumir cada campo, para que a mesma ordenação esportiva
-        // não perca a identidade tipada da Champions, Europa ou Conference.
-        val ordered = buildList<Pair<Team, Int>> {
-            var associationSlot = 0
-            while (size < eligible.size) {
-                var added = false
-                for (association in byAssociation.keys) {
-                    val team = byAssociation.getValue(association).getOrNull(associationSlot) ?: continue
-                    add(team to (associationSlot + 1))
-                    added = true
-                }
-                if (!added) break
-                associationSlot++
+        data class OrderedCandidate(
+            val team: Team,
+            val associationSlot: Int
+        )
+
+        // O slot doméstico continua sendo intercalado (campeões antes de vices etc.), mas países
+        // não são mais favorecidos por ordem alfabética. Dentro do mesmo slot, o snapshot esportivo
+        // e um fallback estável por id definem a ordem até existir uma access list/coeficiente real.
+        val ordered = byAssociation
+            .flatMap { (_, teams) ->
+                teams.mapIndexed { index, team -> OrderedCandidate(team, index + 1) }
             }
-        }
+            .sortedWith(
+                compareBy<OrderedCandidate> { it.associationSlot }
+                    .thenByDescending { candidate ->
+                        if (candidate.team.division == 1) {
+                            standingsByTeamId[candidate.team.id]?.points ?: Int.MIN_VALUE
+                        } else {
+                            Int.MIN_VALUE
+                        }
+                    }
+                    .thenBy { it.team.division }
+                    .thenBy { it.team.id }
+            )
 
         var offset = 0
         fun takeField(destinationCompetition: CompetitionIdentity): List<QualifiedTeam> {
             if (ordered.size - offset < FIELD_SIZE) return emptyList()
             val field = ordered.subList(offset, offset + FIELD_SIZE).toList()
             offset += FIELD_SIZE
-            return field.mapIndexed { index, (team, associationSlot) ->
+            return field.mapIndexed { index, candidate ->
                 QualifiedTeam(
-                    team = team,
+                    team = candidate.team,
                     slot = QualificationSlot(
                         source = QualificationSource.AssociationSlot(
-                            association = canonicalAssociation(team.country),
-                            slot = associationSlot
+                            association = canonicalAssociation(candidate.team.country),
+                            slot = candidate.associationSlot
                         ),
                         destinationCompetition = destinationCompetition,
                         ordinal = index + 1
