@@ -7,7 +7,7 @@ package com.example.data
  * deliberately excluded because Phase 10.1 applies evolution through column-scoped writes and must
  * not reject safe weekly contract mutations that do not affect the calculation.
  */
-internal data class MonthlyEvolutionInputSnapshot(
+data class MonthlyEvolutionInputSnapshot(
     val id: Long,
     val teamId: Long?,
     val age: Int,
