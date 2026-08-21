@@ -22,7 +22,7 @@ Baseline anterior da Fase 10.1 em GitHub Actions / Robolectric SDK 34:
 - evolução mensal de 60.885 jogadores: **21.851 ms**;
 - pico de heap observado: **435.997.464 bytes**.
 
-A execução de referência já validada no CI #648 (`auditHead =
+A execução de referência validada no CI #648 (`auditHead =
 0eda239e218f48852d129ac6ad974d853431e0c4`) mediu:
 
 - seed + persistência inicial: **3.640 ms**;
@@ -30,6 +30,9 @@ A execução de referência já validada no CI #648 (`auditHead =
 - evolução mensal de 60.885 jogadores: **18.554 ms**;
 - banco persistido: **75.005.952 bytes**;
 - pico de heap observado: **491.688.376 bytes**.
+
+Uma execução final posterior deve ser usada como evidência autoritativa do head exato de merge; os
+números acima permanecem como referência histórica de performance da implementação.
 
 Em relação ao baseline, a persistência inicial caiu cerca de 46%, o reload permaneceu estável com
 pequena melhora e a evolução mensal caiu cerca de 15%. O heap subiu no checkpoint de evolução, mas
@@ -84,19 +87,35 @@ novos inseridos depois do planejamento.
 
 Qualquer drift real de atributo, força, potencial, idade, posição, minutos, nota média ou foco de
 treino continua sendo rejeitado fail-closed, provocando rollback do fechamento semanal em vez de
-aplicar estado obsoleto.
+aplicar estado obsoleto. Esse conflito esperado é absorvido pelo wrapper semanal e reportado à UI sem
+escapar como `IllegalStateException`.
 
 ### Stale standalone sem crash
 
 A execução standalone expõe `MonthlyEvolutionExecutionOutcome`. Se o estado muda legitimamente
 entre preparação e commit, o resultado é `committed = false`, nenhuma escrita mensal é feita e o
 plano é descartado. O caminho compatível `executeMonthlyEvolution()` não transforma essa condição
-esperada em `IllegalStateException`; callers que precisam distinguir um mês sem mudanças de um plano
-stale usam `executeMonthlyEvolutionDetailed()`.
+esperada em `IllegalStateException`.
+
+O caller de produção `advanceMonthAndRunEvolution()` usa `executeMonthlyEvolutionDetailed()`: só
+publica resumo/toast de sucesso quando `committed == true`; uma rejeição stale limpa o resumo e
+informa conflito retryable ao usuário.
 
 Há regressões específicas para mudança de `focoTreino` e upgrade do centro de treinamento entre
 preparação e commit, verificando rejeição sem exception, preservação do estado novo, ausência de
 histórico duplicado e ausência de escrita parcial.
+
+### Estado de UI também acompanha a atomicidade semanal
+
+Ofertas semanais recebidas não são mais publicadas no `_incomingOffers` enquanto a transação Room
+ainda pode falhar. A oferta é preparada durante o fechamento, fica staged em memória local e só é
+publicada no `StateFlow` depois que a transação semanal inteira confirma commit. Um stale monthly
+plan, erro de avanço ou outro rollback não deixa uma oferta oriunda de uma semana que nunca foi
+persistida.
+
+`WeeklyFinalizationAtomicityTest` cobre o caso com seed determinística que entra no caminho de geração
+de oferta e, em seguida, força stale do plano mensal; após o rollback, save, jogadores, clube,
+transações, histórico e `incomingOffers` permanecem no estado anterior.
 
 ## Persistência mensal por delta
 
@@ -130,16 +149,18 @@ A migration `21 → 22` é não destrutiva e:
 - executa `PRAGMA integrity_check`;
 - permanece registrada em `AppDatabase`.
 
-O snapshot gerado de V22 deve permanecer versionado em:
+O snapshot gerado de V22 está versionado em:
 
 `app/schemas/com.example.data.AppDatabase/22.json`
 
-A validação final do workflow exige que o snapshot esteja rastreado pelo Git, exista no head e seja
-compatível com o schema exportado pelo build, evitando que KSP masque um snapshot ausente.
+A validação final do workflow exige que o snapshot esteja rastreado pelo Git, exista no head e não
+apresente diff depois do export do build, evitando que KSP masque um snapshot ausente ou divergente.
+O teste de downgrade usa V23 como versão futura, de modo que realmente exercita rejeição de downgrade
+quando o banco corrente é V22.
 
 ## FC26 e integridade factual
 
-Nenhuma mudança desta fase altera os dados factuais FC26. O artifact de referência confirmou:
+Nenhuma mudança desta fase altera os dados factuais FC26. A auditoria exige:
 
 - dataset/processados: **18.405 / 18.405**;
 - jogadores FC26 persistidos: **18.405**;
@@ -150,28 +171,30 @@ Nenhuma mudança desta fase altera os dados factuais FC26. O artifact de referê
 
 O PR #34 permanece fora do escopo e congelado.
 
-## Gates
+## Gates obrigatórios
 
-O CI #648 já demonstrou, no head de referência citado acima, sucesso do job principal em:
+O head candidato final deve executar no mesmo SHA, sem substituir resultado por execução anterior:
 
 - importer tests e FC26 bootstrap/validation;
 - `assembleDebug`;
-- suíte non-stress + migration/save safety;
-- materialização independente dos relatórios FC26/Phase 9.14;
-- benchmark 60K com budget;
+- suíte unitária/non-stress + Robolectric aplicável;
+- Career functional flow e save atomicity/isolation;
+- migration safety/compatibility e save/reopen;
+- regressões de `PlayerEvolution`/`MonthlyEvolution`, stale-plan, idempotência e roster drift;
+- benchmark real de 60.885 jogadores com budgets explícitos;
 - stress de 20 temporadas;
 - stress de 100 temporadas match-by-match;
-- export/validação do Room schema;
+- export/validação do Room V22 com `22.json` tracked e sem drift;
 - geração do APK Debug.
 
-O único failure do workflow #648 foi o job temporário de materialização do `22.json`, que executou
-`assembleDebug` sem preparar `debug.keystore`. Esse job é apenas mecanismo de reparo do snapshot e
-deve ser removido antes do merge depois que o schema gerado estiver versionado.
+O job temporário usado anteriormente para materializar o schema V22 foi removido. Nenhum helper de
+patch/materialização específico da Fase 10.1 pode permanecer no workflow final; o materializador
+FC26 histórico, limitado à branch própria do FC26, permanece por fazer parte da infraestrutura já
+existente do projeto.
 
-O head final precisa repetir todos os gates após: (1) tratamento seguro do stale standalone,
-(2) versionamento definitivo do `22.json` e (3) remoção do workflow temporário. A classificação
-`APTO PARA MERGE` só pode ser registrada no PR depois de CI final `completed/success`, revisão de
-todos os threads e auditoria do head exato.
+A classificação `APTO PARA MERGE` só pode ser registrada no PR depois de CI final
+`completed/success`, auditoria dos artifacts, revisão de todos os threads e confirmação de que o
+head auditado continua exatamente igual ao head do PR e que a `main` não sofreu drift relevante.
 
 ## Riscos residuais e escopo posterior
 
@@ -181,4 +204,4 @@ cosmeticamente nesta fase porque o objetivo 10.1 é o caminho crítico mensuráv
 preservação da atomicidade da Fase 10.0. Qualquer refatoração adicional pertence à fase arquitetural
 seguinte se não for necessária para fechar um gate desta fase.
 
-Status deste documento antes do gate exact-head final: **IMPLEMENTAÇÃO CONCLUÍDA; VALIDAÇÃO FINAL EM ANDAMENTO**.
+Status deste documento antes do gate exact-head final: **IMPLEMENTAÇÃO CONCLUÍDA; VALIDAÇÃO FINAL DO HEAD CANDIDATO EM ANDAMENTO**.
