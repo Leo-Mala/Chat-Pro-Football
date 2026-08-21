@@ -162,8 +162,8 @@ class MigrationSafetyTest {
 
     @Test
     fun downgradeFailsWithoutDeletingDatabase() {
-        // App atual é V21; V22 representa um save criado por uma versão futura incompatível.
-        assertUnsupportedVersionPreservesSentinel("unsupported-v22.db", 22)
+        // App atual é V22; V23 representa um save criado por uma versão futura incompatível.
+        assertUnsupportedVersionPreservesSentinel("unsupported-v23.db", 23)
     }
 
     private fun assertUnsupportedVersionPreservesSentinel(name: String, version: Int) {

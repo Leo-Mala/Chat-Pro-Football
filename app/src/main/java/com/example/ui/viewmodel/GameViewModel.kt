@@ -430,16 +430,24 @@ class GameViewModel @Inject constructor(
     }
 
     fun advanceMonthAndRunEvolution() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            val periodDate = "${save.currentSeason}-${save.currentWeek}"
-            val results = playerEvolutionUseCase.executeMonthlyEvolution(save, periodDate)
-
-            // Exibe modal de resumo do time do usuário somente após o commit atômico de jogadores + histórico.
-            _monthlyEvolutionSummary.value = results.filter { it.player.teamId == save.playerTeamId }
-            _toastMessage.emit("Evolução mensal processada para todo o elenco!")
+    viewModelScope.launch(Dispatchers.IO) {
+        val save = repo.getGameSave() ?: return@launch
+        val periodDate = "${save.currentSeason}-${save.currentWeek}"
+        val outcome = playerEvolutionUseCase.executeMonthlyEvolutionDetailed(save, periodDate)
+        if (!outcome.committed) {
+            _monthlyEvolutionSummary.value = null
+            _toastMessage.emit(
+                "O estado de treino mudou durante a evolução mensal. Nenhuma alteração foi aplicada; tente novamente."
+            )
+            return@launch
         }
+
+        // Exibe modal de resumo do time do usuário somente após o commit atômico de jogadores + histórico.
+        _monthlyEvolutionSummary.value =
+            outcome.results.filter { it.player.teamId == save.playerTeamId }
+        _toastMessage.emit("Evolução mensal processada para todo o elenco!")
     }
+}
 
     fun dismissMonthlyEvolutionSummary() {
         _monthlyEvolutionSummary.value = null

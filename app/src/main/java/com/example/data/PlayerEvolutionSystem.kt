@@ -13,6 +13,40 @@ data class PlayerEvolutionResult(
 
 object PlayerEvolutionSystem {
 
+    // Phase 10.1: these tables are immutable domain constants. Keeping them at object scope avoids
+    // rebuilding the same lists/sets tens of thousands of times during every monthly world tick.
+    private val physicalAttributeKeys = listOf(
+        "agilidade", "impulsao", "forca", "velocidade", "aceleracao", "resistencia"
+    )
+    private val physicalAttributeNames = physicalAttributeKeys.toSet()
+    private val technicalAttributeNames = setOf(
+        "reflexos", "pegada", "umcontraum", "saidadegol", "lancamento", "desarme",
+        "marcacao", "cabeceio", "passecurto", "cruzamento", "drible", "passe",
+        "primeirotoque", "finalizacao", "chutedelonge", "controlebola"
+    )
+    private val mentalAttributeNames = setOf(
+        "posicionamento", "concentracao", "sanguefrio", "antecipacao", "bravura",
+        "trabalhoequipe", "decisao", "sembola", "visaojogo", "criatividade",
+        "agressividade", "lideranca", "regularidade"
+    )
+    private val selectableAttributeKeys = listOf(
+        "reflexos", "pegada", "umContraUm", "saidaDeGol", "lancamento", "desarme",
+        "marcacao", "cabeceio", "passeCurto", "cruzamento", "drible", "passe",
+        "primeiroToque", "finalizacao", "chuteDeLonge", "controleBola",
+        "posicionamento", "concentracao", "sangueFrio", "antecipacao", "bravura",
+        "trabalhoEquipe", "decisao", "semBola", "visaoJogo", "criatividade",
+        "agressividade", "lideranca", "regularidade",
+        "agilidade", "impulsao", "forca", "velocidade", "aceleracao", "resistencia"
+    )
+    private val primaryAttributesByPosition = mapOf(
+        Posicao.GOLEIRO to listOf("reflexos", "pegada", "umContraUm", "saidaDeGol", "posicionamento", "agilidade"),
+        Posicao.ZAGUEIRO to listOf("desarme", "marcacao", "cabeceio", "posicionamento", "forca", "impulsao"),
+        Posicao.LATERAL to listOf("cruzamento", "desarme", "velocidade", "aceleracao", "resistencia", "passe"),
+        Posicao.VOLANTE to listOf("desarme", "marcacao", "passe", "resistencia", "posicionamento", "forca"),
+        Posicao.MEIA to listOf("passe", "visaoJogo", "criatividade", "drible", "primeiroToque", "aceleracao"),
+        Posicao.ATACANTE to listOf("finalizacao", "velocidade", "aceleracao", "drible", "sangueFrio", "cabeceio")
+    )
+
     fun calculateAgeFactor(age: Int): Double {
         return when {
             age in 17..23 -> 1.5
@@ -45,23 +79,15 @@ object PlayerEvolutionSystem {
     }
 
     fun isPhysicalAttribute(attrName: String): Boolean {
-        return attrName.lowercase() in listOf("agilidade", "impulsao", "forca", "velocidade", "aceleracao", "resistencia")
+        return attrName.lowercase() in physicalAttributeNames
     }
 
     fun isTechnicalAttribute(attrName: String): Boolean {
-        return attrName.lowercase() in listOf(
-            "reflexos", "pegada", "umcontraum", "saidadegol", "lancamento", "desarme",
-            "marcacao", "cabeceio", "passecurto", "cruzamento", "drible", "passe",
-            "primeirotoque", "finalizacao", "chutedelonge", "controlebola"
-        )
+        return attrName.lowercase() in technicalAttributeNames
     }
 
     fun isMentalAttribute(attrName: String): Boolean {
-        return attrName.lowercase() in listOf(
-            "posicionamento", "concentracao", "sanguefrio", "antecipacao", "bravura",
-            "trabalhoequipe", "decisao", "sembola", "visaojogo", "criatividade",
-            "agressividade", "lideranca", "regularidade"
-        )
+        return attrName.lowercase() in mentalAttributeNames
     }
 
     fun calculateFocusFactor(attrName: String, focoTreino: String?): Double {
@@ -137,29 +163,25 @@ object PlayerEvolutionSystem {
                 "resistencia" to oldAtributos.resistencia
             )
 
-            val historyLogs = mutableListOf<HistoricoEvolucao>()
+            val historyLogs = ArrayList<HistoricoEvolucao>(4)
 
             if (ageFactor > 0) {
-                // Selecionar 2 a 3 atributos para evoluir
-                val primaryAttrList = when (posEnum) {
-                    Posicao.GOLEIRO -> listOf("reflexos", "pegada", "umContraUm", "saidaDeGol", "posicionamento", "agilidade")
-                    Posicao.ZAGUEIRO -> listOf("desarme", "marcacao", "cabeceio", "posicionamento", "forca", "impulsao")
-                    Posicao.LATERAL -> listOf("cruzamento", "desarme", "velocidade", "aceleracao", "resistencia", "passe")
-                    Posicao.VOLANTE -> listOf("desarme", "marcacao", "passe", "resistencia", "posicionamento", "forca")
-                    Posicao.MEIA -> listOf("passe", "visaoJogo", "criatividade", "drible", "primeiroToque", "aceleracao")
-                    Posicao.ATACANTE -> listOf("finalizacao", "velocidade", "aceleracao", "drible", "sangueFrio", "cabeceio")
-                }
+                // Selecionar 2 a 3 atributos para evoluir. As tabelas são constantes compartilhadas
+                // para evitar listas/keys temporárias por jogador no universo de ~60k atletas.
+                val primaryAttrList = primaryAttributesByPosition.getValue(posEnum)
+                val selectedList = LinkedHashSet<String>(4)
 
                 val focusCandidate = player.focoTreino?.lowercase()?.trim()
-                val selectableAttrs = updatedAttrMap.keys.toList()
-                val selectedList = mutableSetOf<String>()
-
                 if (!focusCandidate.isNullOrBlank() && updatedAttrMap.containsKey(focusCandidate)) {
                     selectedList.add(focusCandidate)
                 }
 
                 while (selectedList.size < 3) {
-                    val candidate = if (Random.nextDouble() < 0.6) primaryAttrList.random() else selectableAttrs.random()
+                    val candidate = if (Random.nextDouble() < 0.6) {
+                        primaryAttrList[Random.nextInt(primaryAttrList.size)]
+                    } else {
+                        selectableAttributeKeys[Random.nextInt(selectableAttributeKeys.size)]
+                    }
                     selectedList.add(candidate)
                 }
 
@@ -190,10 +212,9 @@ object PlayerEvolutionSystem {
 
             // Declínio físico por idade
             if (player.age > 30) {
-                val physicalKeys = listOf("agilidade", "impulsao", "forca", "velocidade", "aceleracao", "resistencia")
                 val declineAmount = if (player.age > 33) Random.nextInt(1, 4) else Random.nextInt(0, 2)
                 if (declineAmount > 0) {
-                    val targetPhysicalAttr = physicalKeys.random()
+                    val targetPhysicalAttr = physicalAttributeKeys[Random.nextInt(physicalAttributeKeys.size)]
                     val currentVal = updatedAttrMap[targetPhysicalAttr] ?: 50
                     val newVal = (currentVal - declineAmount).coerceAtLeast(1)
                     if (newVal != currentVal) {

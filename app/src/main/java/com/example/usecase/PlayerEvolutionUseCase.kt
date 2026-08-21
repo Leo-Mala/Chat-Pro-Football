@@ -2,10 +2,55 @@ package com.example.usecase
 
 import com.example.data.GameRepository
 import com.example.data.GameSave
+import com.example.data.HistoricoEvolucao
+import com.example.data.MonthlyEvolutionInputSnapshot
 import com.example.data.Player
+import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
+import com.example.data.Team
+import com.example.data.applyMonthlyEvolutionPlayerStates
+import com.example.data.getAllMonthlyEvolutionInputSnapshots
+import com.example.data.getMonthlyEvolutionHistoryFingerprints
+import com.example.data.getMonthlyEvolutionInputSnapshots
+import com.example.data.getMonthlyEvolutionPlayerCount
+import com.example.data.monthlyEvolutionFingerprint
+import com.example.data.resetMonthlyEvolutionCounters
+import com.example.data.toMonthlyEvolutionInputSnapshot
 import kotlin.random.Random
+
+/**
+ * Immutable monthly-evolution plan. The expensive world-player calculation is intentionally
+ * separated from the Room commit so the production weekly path can calculate before acquiring the
+ * write transaction and then fail closed if any evolution input became stale.
+ */
+data class MonthlyEvolutionPlan(
+    val expectedSeason: Int,
+    val expectedWeek: Int,
+    val expectedPlayerTeamId: Long,
+    val periodDate: String,
+    val results: List<PlayerEvolutionResult>,
+    /** Only players whose persisted evolution-owned state changed. */
+    val updatedPlayers: List<Player>,
+    val historyLogs: List<HistoricoEvolucao>,
+    /** Lightweight snapshots of every evolution input, used only for stale-plan validation. */
+    val expectedInputs: List<MonthlyEvolutionInputSnapshot> = emptyList(),
+    /** Exact universe size at preparation; detects players inserted after a standalone plan. */
+    val expectedPlayerCount: Int = expectedInputs.size,
+    /** Training-center level influences evolution and therefore participates in stale validation. */
+    val expectedTrainingCenterLevels: Map<Long, Int> = emptyMap()
+)
+
+/**
+ * Explicit outcome for a standalone monthly-evolution attempt.
+ *
+ * A stale plan is an expected concurrency outcome, not an exceptional crash condition. When
+ * [committed] is false the plan was discarded before any monthly write and [results] is empty.
+ */
+data class MonthlyEvolutionExecutionOutcome(
+    val committed: Boolean,
+    val results: List<PlayerEvolutionResult>
+)
 
 /**
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
@@ -29,7 +74,6 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             if (infiniteStamina) {
                 newEnergy = 100
             } else {
-                // Recupera entre 15 e 25 de energia por semana sem jogo, ou recupera stamina base
                 val recoveryRate = 15 + (trainingCenterLevel * 3)
                 newEnergy = (player.energy + recoveryRate).coerceAtMost(100)
             }
@@ -44,60 +88,255 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             )
         }
 
-        if (updatedPlayers.isNotEmpty()) {
-            repository.updatePlayers(updatedPlayers)
-        }
-
+        if (updatedPlayers.isNotEmpty()) repository.updatePlayers(updatedPlayers)
         return updatedPlayers
     }
 
+    /** CPU-heavy monthly planning. Call this before opening a larger write transaction. */
+    suspend fun prepareMonthlyEvolution(
+        save: GameSave,
+        periodDate: String
+    ): MonthlyEvolutionPlan {
+        val allPlayers = repository.getAllPlayers()
+        val allTeams = repository.getAllTeams().associateBy { it.id }
+        val evolutionResults = PlayerEvolutionMonthlyEngine.process(allPlayers, allTeams, periodDate)
+
+        val changedPlayers = ArrayList<Player>()
+        val historyLogs = ArrayList<HistoricoEvolucao>()
+        for (result in evolutionResults) {
+            if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) changedPlayers.add(result.player)
+            if (result.historyLogs.isNotEmpty()) historyLogs.addAll(result.historyLogs)
+        }
+
+        val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(allPlayers.size)
+        val referencedTeamIds = HashSet<Long>()
+        for (player in allPlayers) {
+            expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
+            player.teamId?.let(referencedTeamIds::add)
+        }
+        val expectedTrainingLevels = referencedTeamIds.associateWith { teamId ->
+            allTeams[teamId]?.trainingCenterLevel ?: 1
+        }
+
+        return MonthlyEvolutionPlan(
+            expectedSeason = save.currentSeason,
+            expectedWeek = save.currentWeek,
+            expectedPlayerTeamId = save.playerTeamId,
+            periodDate = periodDate,
+            results = evolutionResults,
+            updatedPlayers = changedPlayers,
+            historyLogs = historyLogs,
+            expectedInputs = expectedInputs,
+            expectedPlayerCount = allPlayers.size,
+            expectedTrainingCenterLevels = expectedTrainingLevels
+        )
+    }
+
     /**
-     * Processa a evolução mensal dos atletas do clube e de toda a liga.
+     * Persists one prepared plan atomically and fail-closed against stale save/player/team state.
      *
-     * O cálculo pesado continua fora da transação. Somente o commit dos novos jogadores e do
-     * respectivo histórico é agrupado, para nunca persistir evolução sem o audit trail (ou vice-versa).
+     * Full Player entities are never replayed. The commit validates lightweight evolution inputs
+     * and writes only `atributosJson`, `force`, monthly minutes and `evolucaoMensal`. Contract,
+     * salary, team, fitness, transfer and lineup columns therefore cannot be restored from a stale
+     * prepared snapshot.
+     *
+     * [allowWeeklyRosterCorrections] is reserved for the canonical weekly-close transaction. That
+     * lifecycle can legitimately expire a contract/loan, move a player, or create a small number of
+     * emergency players after the 60k plan was prepared. Instead of rerunning the whole universe
+     * while Room is locked, the commit scans a lightweight projection and recalculates only players
+     * whose effective training-center level changed plus newly inserted players. Any mutation of an
+     * actual football input (attributes, force, minutes, rating, focus, age, potential, position)
+     * still fails closed and rolls the weekly transaction back.
+     *
+     * Retrying an already committed standalone plan is safe when it produced history: if every
+     * history fingerprint for this plan is already present, the method returns successfully before
+     * counters or players are touched again.
+     */
+    suspend fun commitMonthlyEvolution(
+        plan: MonthlyEvolutionPlan,
+        allowWeeklyRosterCorrections: Boolean = false
+    ): Boolean = repository.withTransaction {
+        val currentSave = repository.getGameSave() ?: return@withTransaction false
+        if (currentSave.currentSeason != plan.expectedSeason ||
+            currentSave.currentWeek != plan.expectedWeek ||
+            currentSave.playerTeamId != plan.expectedPlayerTeamId
+        ) {
+            return@withTransaction false
+        }
+
+        val existingHistory = if (plan.historyLogs.isEmpty()) {
+            emptySet()
+        } else {
+            repository.getMonthlyEvolutionHistoryFingerprints(plan.periodDate)
+        }
+        if (plan.historyLogs.isNotEmpty() && existingHistory.isNotEmpty()) {
+            val plannedFingerprints = plan.historyLogs.mapTo(hashSetOf()) { it.monthlyEvolutionFingerprint() }
+            val alreadyCommitted = plannedFingerprints.all { it in existingHistory }
+            if (alreadyCommitted) return@withTransaction true
+            // An atomic monthly commit cannot legitimately leave only part of its audit rows.
+            if (plannedFingerprints.any { it in existingHistory }) return@withTransaction false
+        }
+
+        var currentTeamsById: Map<Long, Team>? = null
+        if (plan.expectedTrainingCenterLevels.isNotEmpty()) {
+            currentTeamsById = repository.getAllTeams().associateBy { it.id }
+            if (plan.expectedTrainingCenterLevels.any { (teamId, level) ->
+                    (currentTeamsById[teamId]?.trainingCenterLevel ?: 1) != level
+                }
+            ) {
+                return@withTransaction false
+            }
+        }
+
+        var correctionIds: Set<Long> = emptySet()
+        if (plan.expectedInputs.isNotEmpty()) {
+            if (!allowWeeklyRosterCorrections) {
+                if (plan.expectedPlayerCount > 0 &&
+                    repository.getMonthlyEvolutionPlayerCount() != plan.expectedPlayerCount
+                ) {
+                    return@withTransaction false
+                }
+                val currentInputs = repository.getMonthlyEvolutionInputSnapshots(plan.expectedInputs.map { it.id })
+                if (currentInputs.size != plan.expectedInputs.size ||
+                    plan.expectedInputs.any { expected -> currentInputs[expected.id] != expected }
+                ) {
+                    return@withTransaction false
+                }
+            } else {
+                val currentInputs = repository.getAllMonthlyEvolutionInputSnapshots()
+                val expectedById = plan.expectedInputs.associateBy { it.id }
+
+                // Weekly maintenance never deletes an existing player. A missing planned player is
+                // therefore ambiguous/destructive and must abort the atomic weekly close.
+                if (expectedById.keys.any { it !in currentInputs }) return@withTransaction false
+
+                val teams = currentTeamsById ?: repository.getAllTeams().associateBy { it.id }.also {
+                    currentTeamsById = it
+                }
+                val corrections = linkedSetOf<Long>()
+
+                for ((playerId, expected) in expectedById) {
+                    val current = currentInputs.getValue(playerId)
+                    if (!expected.sameEvolutionStateIgnoringTeam(current)) {
+                        return@withTransaction false
+                    }
+                    if (expected.teamId != current.teamId) {
+                        val oldLevel = expected.teamId?.let { plan.expectedTrainingCenterLevels[it] } ?: 1
+                        val newLevel = current.teamId?.let { teams[it]?.trainingCenterLevel } ?: 1
+                        if (oldLevel != newLevel) corrections.add(playerId)
+                    }
+                }
+
+                // CPU squad integrity may add emergency players after pre-planning. They must still
+                // receive the month's evolution rather than being silently omitted by the old plan.
+                for (playerId in currentInputs.keys) {
+                    if (playerId !in expectedById) corrections.add(playerId)
+                }
+                correctionIds = corrections
+            }
+        }
+
+        var playersToPersist = plan.updatedPlayers
+        var historyToPersist = plan.historyLogs
+
+        if (correctionIds.isNotEmpty()) {
+            val correctionPlayers = ArrayList<Player>(correctionIds.size)
+            for (playerId in correctionIds) {
+                val player = repository.getPlayer(playerId) ?: return@withTransaction false
+                correctionPlayers.add(player)
+            }
+            correctionPlayers.sortWith(
+                compareByDescending<Player> { it.force }
+                    .thenBy { it.name }
+                    .thenBy { it.id }
+            )
+
+            val teams = currentTeamsById ?: repository.getAllTeams().associateBy { it.id }
+            val correctedResults = PlayerEvolutionMonthlyEngine.process(
+                correctionPlayers,
+                teams,
+                plan.periodDate
+            )
+            val correctedUpdatedPlayers = ArrayList<Player>()
+            val correctedHistory = ArrayList<HistoricoEvolucao>()
+            for (result in correctedResults) {
+                if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) {
+                    correctedUpdatedPlayers.add(result.player)
+                }
+                if (result.historyLogs.isNotEmpty()) correctedHistory.addAll(result.historyLogs)
+            }
+
+            playersToPersist = buildList {
+                addAll(plan.updatedPlayers.filter { it.id !in correctionIds })
+                addAll(correctedUpdatedPlayers)
+            }
+            historyToPersist = buildList {
+                addAll(plan.historyLogs.filter { it.jogadorId !in correctionIds })
+                addAll(correctedHistory)
+            }
+        }
+
+        repository.resetMonthlyEvolutionCounters()
+        if (playersToPersist.isNotEmpty()) {
+            check(repository.applyMonthlyEvolutionPlayerStates(playersToPersist) == playersToPersist.size) {
+                "Falha fail-closed ao persistir delta de evolução mensal."
+            }
+        }
+        if (historyToPersist.isNotEmpty()) repository.saveHistoricoEvolucaoList(historyToPersist)
+        true
+    }
+
+    /**
+     * Applies one already-prepared standalone plan without converting expected stale-state rejection
+     * into an exception. This seam is also used by regression tests to model state changes that
+     * happen between preparation and commit.
+     */
+    internal suspend fun executePreparedMonthlyEvolution(
+        plan: MonthlyEvolutionPlan
+    ): MonthlyEvolutionExecutionOutcome {
+        val committed = commitMonthlyEvolution(plan)
+        return if (committed) {
+            MonthlyEvolutionExecutionOutcome(committed = true, results = plan.results)
+        } else {
+            MonthlyEvolutionExecutionOutcome(committed = false, results = emptyList())
+        }
+    }
+
+    /**
+     * Standalone API with an explicit stale/committed outcome for callers that need to surface a
+     * conflict. No stale snapshot is ever applied and a stale plan is not an exceptional crash.
+     */
+    suspend fun executeMonthlyEvolutionDetailed(
+        save: GameSave,
+        periodDate: String
+    ): MonthlyEvolutionExecutionOutcome {
+        val plan = prepareMonthlyEvolution(save, periodDate)
+        return executePreparedMonthlyEvolution(plan)
+    }
+
+    /**
+     * Backwards-compatible standalone monthly evolution API.
+     *
+     * On a concurrent stale-state conflict the plan is safely discarded and an empty result list is
+     * returned instead of throwing IllegalStateException. Callers that need to distinguish an empty
+     * committed month from a discarded stale plan should use [executeMonthlyEvolutionDetailed].
      */
     suspend fun executeMonthlyEvolution(
         save: GameSave,
         periodDate: String
-    ): List<PlayerEvolutionResult> {
-        val allPlayers = repository.getAllPlayers()
-        val allTeams = repository.getAllTeams().associateBy { it.id }
+    ): List<PlayerEvolutionResult> = executeMonthlyEvolutionDetailed(save, periodDate).results
 
-        val evolutionResults = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
-
-        val updatedPlayers = evolutionResults.map { it.player }
-        val allLogs = evolutionResults.flatMap { it.historyLogs }
-
-        repository.withTransaction {
-            if (updatedPlayers.isNotEmpty()) {
-                repository.updatePlayers(updatedPlayers)
-            }
-            if (allLogs.isNotEmpty()) {
-                repository.saveHistoricoEvolucaoList(allLogs)
-            }
-        }
-
-        return evolutionResults
-    }
-
-    /**
-     * Promove um jovem da categoria de base para o elenco profissional.
-     */
     suspend fun promoteYouthPlayer(
         save: GameSave,
         name: String,
         position: String,
         currentRosterSize: Int
     ): Pair<Boolean, String> {
-        if (currentRosterSize >= 35) {
-            return Pair(false, "Elenco principal já atingiu o limite de 35 atletas.")
-        }
+        if (currentRosterSize >= 35) return Pair(false, "Elenco principal já atingiu o limite de 35 atletas.")
 
         val baseForce = Random.nextInt(52, 68)
         val potential = (baseForce + Random.nextInt(15, 28)).coerceAtMost(95)
         val age = Random.nextInt(16, 20)
-
         val youthPlayer = Player(
             teamId = save.playerTeamId,
             name = name,
@@ -109,22 +348,16 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             energy = 100,
             contractDurationWeeks = 156
         )
-
         repository.savePlayers(listOf(youthPlayer))
         return Pair(true, "Jovem promessa ${youthPlayer.name} (${youthPlayer.position}, Força: ${youthPlayer.force}) promovido com sucesso!")
     }
 
-    /**
-     * Processa a experiência de pós-partida dos atletas e atualiza a persistência.
-     */
     suspend fun processPostMatchExperience(
         players: List<Player>,
         matchRatings: Map<Long, Double>
     ): List<Player> {
         val updated = PlayerEvolutionSystem.processPostMatchExperience(players, matchRatings)
-        if (updated.isNotEmpty()) {
-            repository.updatePlayers(updated)
-        }
+        if (updated.isNotEmpty()) repository.updatePlayers(updated)
         return updated
     }
 }
