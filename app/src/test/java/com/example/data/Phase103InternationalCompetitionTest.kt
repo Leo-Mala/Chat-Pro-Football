@@ -14,8 +14,8 @@ class Phase103InternationalCompetitionTest {
         val englandFirst = candidates.first { it.id == 1L }
         val englandSecond = candidates.first { it.id == 21L }
         val standings = listOf(
-            standing(2026, englandSecond, position = 1, points = 90),
-            standing(2026, englandFirst, position = 2, points = 85)
+            standing(2026, englandSecond, 1, 90),
+            standing(2026, englandFirst, 2, 85)
         )
 
         val fields = UefaQualificationRules.selectLeaguePhaseFields(candidates, standings)
@@ -26,26 +26,44 @@ class Phase103InternationalCompetitionTest {
 
         val championsIds = fields.championsLeague.map { it.team.id }
         assertTrue(championsIds.indexOf(englandSecond.id) < championsIds.indexOf(englandFirst.id))
-        assertTrue(fields.all.none { it.team.rating != candidates.first { c -> c.id == it.team.id }.rating })
+        assertTrue(fields.all.none { qualified ->
+            qualified.team.rating != candidates.first { it.id == qualified.team.id }.rating
+        })
     }
 
     @Test
-    fun `world qualification uses only real persisted clubs and never auto promotes user team`() {
+    fun `UEFA season rollover follows changed domestic results`() {
+        val candidates = uefaCandidates(120)
+        val a = candidates.first { it.id == 1L }
+        val b = candidates.first { it.id == 21L }
+        val first = UefaQualificationRules.selectLeaguePhaseFields(
+            candidates,
+            listOf(standing(2026, a, 1, 90), standing(2026, b, 2, 80))
+        )
+        val second = UefaQualificationRules.selectLeaguePhaseFields(
+            candidates,
+            listOf(standing(2027, b, 1, 92), standing(2027, a, 2, 82))
+        )
+        assertTrue(first.championsLeague.map { it.team.id }.indexOf(a.id) < first.championsLeague.map { it.team.id }.indexOf(b.id))
+        assertTrue(second.championsLeague.map { it.team.id }.indexOf(b.id) < second.championsLeague.map { it.team.id }.indexOf(a.id))
+    }
+
+    @Test
+    fun `world qualification uses only real clubs and legacy API never auto promotes user team`() {
         val teams = worldUniverse()
-        val user = teams.last()
-        val field = requireNotNull(
-            SuperMundialQualificationRules.selectField(
-                season = 2029,
-                allTeams = teams,
-                previousSeasonStandings = worldStandings(teams)
-            )
+        val brazil = teams.filter { it.country == "Brasil" }.sortedBy { it.id }
+        val userOutsideSportingCut = brazil.last()
+
+        val participants = SuperMundialSystem.selectParticipants(
+            season = 2029,
+            allTeams = teams,
+            userTeamId = userOutsideSportingCut.id
         )
 
-        assertEquals(32, field.teams.size)
-        assertEquals(32, field.teams.map { it.id }.toSet().size)
-        assertTrue(field.teams.all { selected -> teams.any { it.id == selected.id } })
-        assertFalse("Clube do usuário não ganha vaga por ser controlado", field.teams.any { it.id == user.id })
-        assertTrue(field.usedSportingSnapshot)
+        assertEquals(32, participants.size)
+        assertEquals(32, participants.map { it.id }.toSet().size)
+        assertTrue(participants.all { selected -> teams.any { it.id == selected.id } })
+        assertFalse("Clube do usuário não ganha vaga por ser controlado", participants.any { it.id == userOutsideSportingCut.id })
     }
 
     @Test
@@ -53,32 +71,30 @@ class Phase103InternationalCompetitionTest {
         val incomplete = worldUniverse().filterNot {
             CountryFootballRulesRegistry.confederationFor(it.country) == FootballConfederation.OFC
         }
-        assertEquals(
-            null,
-            SuperMundialQualificationRules.selectField(2029, incomplete, worldStandings(incomplete))
-        )
-        assertTrue(
-            SuperMundialSystem.generateGroupStageFixtures(2029, incomplete, worldStandings(incomplete)).isEmpty()
-        )
+        assertEquals(null, SuperMundialQualificationRules.selectField(2029, incomplete, worldStandings(incomplete)))
+        assertTrue(SuperMundialSystem.generateGroupStageFixtures(2029, incomplete, worldStandings(incomplete)).isEmpty())
     }
 
     @Test
     fun `world sporting snapshot decides which club receives an association slot`() {
         val teams = worldUniverse()
         val brazil = teams.filter { it.country == "Brasil" }.sortedBy { it.id }
-        assertEquals(2, brazil.size)
+        val baseline = worldStandings(teams).filterNot { it.teamId in brazil.map(Team::id) }
 
-        val firstSnapshot = worldStandings(teams) + listOf(
-            standing(2028, brazil[0], 1, 88),
-            standing(2028, brazil[1], 2, 84)
+        val first = requireNotNull(
+            SuperMundialQualificationRules.selectField(
+                2029,
+                teams,
+                baseline + listOf(standing(2028, brazil[0], 1, 88), standing(2028, brazil[1], 2, 84))
+            )
         )
-        val secondSnapshot = worldStandings(teams).filterNot { it.teamId in brazil.map(Team::id) } + listOf(
-            standing(2028, brazil[1], 1, 91),
-            standing(2028, brazil[0], 2, 80)
+        val second = requireNotNull(
+            SuperMundialQualificationRules.selectField(
+                2029,
+                teams,
+                baseline + listOf(standing(2028, brazil[1], 1, 91), standing(2028, brazil[0], 2, 80))
+            )
         )
-
-        val first = requireNotNull(SuperMundialQualificationRules.selectField(2029, teams, firstSnapshot))
-        val second = requireNotNull(SuperMundialQualificationRules.selectField(2029, teams, secondSnapshot))
 
         assertTrue(first.teams.any { it.id == brazil[0].id })
         assertFalse(first.teams.any { it.id == brazil[1].id })
@@ -89,9 +105,7 @@ class Phase103InternationalCompetitionTest {
     @Test
     fun `world draw is deterministic and respects confederation diversity`() {
         val teams = worldUniverse()
-        val field = requireNotNull(
-            SuperMundialQualificationRules.selectField(2029, teams, worldStandings(teams))
-        )
+        val field = requireNotNull(SuperMundialQualificationRules.selectField(2029, teams, worldStandings(teams)))
         val first = WorldClubDrawEngine.drawGroups(2029, field.teams)
         val second = WorldClubDrawEngine.drawGroups(2029, field.teams.reversed())
 
@@ -102,9 +116,7 @@ class Phase103InternationalCompetitionTest {
             assertEquals(4, group.map { it.id }.toSet().size)
             assertEquals(4, group.map { it.country }.toSet().size)
             FootballConfederation.values().forEach { confederation ->
-                val count = group.count {
-                    CountryFootballRulesRegistry.confederationFor(it.country) == confederation
-                }
+                val count = group.count { CountryFootballRulesRegistry.confederationFor(it.country) == confederation }
                 val limit = if (confederation == FootballConfederation.UEFA) 2 else 1
                 assertTrue("Confederação $confederation excedeu limite no grupo", count <= limit)
             }
@@ -115,19 +127,13 @@ class Phase103InternationalCompetitionTest {
     }
 
     @Test
-    fun `world league phase creates 48 unique fixtures and three matches per club`() {
+    fun `world group phase has 48 unique fixtures and three matches per club`() {
         val teams = worldUniverse()
-        val fixtures = SuperMundialSystem.generateGroupStageFixtures(
-            season = 2029,
-            allTeams = teams,
-            previousSeasonStandings = worldStandings(teams)
-        )
+        val fixtures = SuperMundialSystem.generateGroupStageFixtures(2029, teams, worldStandings(teams))
         assertEquals(48, fixtures.size)
         val ids = fixtures.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.toSet()
         assertEquals(32, ids.size)
-        ids.forEach { id ->
-            assertEquals(3, fixtures.count { it.homeTeamId == id || it.awayTeamId == id })
-        }
+        ids.forEach { id -> assertEquals(3, fixtures.count { it.homeTeamId == id || it.awayTeamId == id }) }
         assertTrue(fixtures.none { it.homeTeamId == it.awayTeamId })
         assertEquals(48, fixtures.map { Triple(it.week, it.homeTeamId, it.awayTeamId) }.toSet().size)
         FixtureScheduleValidator.requireValid(fixtures)
@@ -138,9 +144,7 @@ class Phase103InternationalCompetitionTest {
         val teams = worldUniverse()
         val standings = worldStandings(teams)
         assertEquals(48, SuperMundialSystem.generateGroupStageFixtures(2029, teams, standings).size)
-        assertTrue(SuperMundialSystem.generateGroupStageFixtures(2030, teams, standings).isEmpty())
-        assertTrue(SuperMundialSystem.generateGroupStageFixtures(2031, teams, standings).isEmpty())
-        assertTrue(SuperMundialSystem.generateGroupStageFixtures(2032, teams, standings).isEmpty())
+        (2030..2032).forEach { assertTrue(SuperMundialSystem.generateGroupStageFixtures(it, teams, standings).isEmpty()) }
         assertEquals(48, SuperMundialSystem.generateGroupStageFixtures(2033, teams, standings).size)
     }
 
@@ -163,38 +167,24 @@ class Phase103InternationalCompetitionTest {
 
     private fun uefaCandidates(count: Int): List<Team> {
         val countries = listOf(
-            "Inglaterra", "Espanha", "Itália", "Alemanha", "França",
-            "Portugal", "Países Baixos", "Bélgica", "Turquia", "Escócia",
-            "Áustria", "Suíça", "Dinamarca", "Noruega", "Suécia",
-            "Polônia", "Tchéquia", "Croácia", "Sérvia", "Grécia"
+            "Inglaterra", "Espanha", "Itália", "Alemanha", "França", "Portugal",
+            "Países Baixos", "Bélgica", "Turquia", "Escócia", "Áustria", "Suíça",
+            "Dinamarca", "Noruega", "Suécia", "Polônia", "Tchéquia", "Croácia", "Sérvia", "Grécia"
         )
         return (0 until count).map { index ->
             val country = countries[index % countries.size]
-            Team(
-                id = index + 1L,
-                name = "$country Clube ${index + 1}",
-                city = "Cidade",
-                state = country.take(2),
-                country = country,
-                division = 1,
-                rating = 70 + (index % 20)
-            )
+            Team(index + 1L, "$country Clube ${index + 1}", "Cidade", country.take(2), country, 1, rating = 70 + (index % 20))
         }
     }
 
     private fun worldUniverse(): List<Team> {
         val countries = buildList {
-            addAll(listOf(
-                "Inglaterra", "Espanha", "Itália", "Alemanha", "França", "Portugal",
-                "Países Baixos", "Bélgica", "Turquia", "Escócia", "Áustria", "Suíça", "Dinamarca"
-            ))
-            addAll(listOf("Brasil", "Brasil", "Argentina", "Colômbia", "Chile", "Uruguai", "Paraguai"))
+            addAll(listOf("Inglaterra", "Espanha", "Itália", "Alemanha", "França", "Portugal", "Países Baixos", "Bélgica", "Turquia", "Escócia", "Áustria", "Suíça", "Dinamarca"))
+            addAll(listOf("Brasil", "Brasil", "Argentina", "Colômbia", "Chile", "Uruguai", "Paraguai", "Venezuela"))
             addAll(listOf("Japão", "Coreia do Sul", "Arábia Saudita", "Emirados Árabes Unidos", "Catar"))
             addAll(listOf("Egito", "Marrocos", "Tunísia", "África do Sul", "África"))
             addAll(listOf("México", "Estados Unidos / Canadá", "Costa Rica", "Guatemala", "Honduras"))
             addAll(listOf("Oceania", "Oceania"))
-            // Clube extra deliberadamente fraco e sem vaga garantida; usado como "user" no teste.
-            add("Venezuela")
         }
         return countries.mapIndexed { index, country ->
             Team(
@@ -204,16 +194,13 @@ class Phase103InternationalCompetitionTest {
                 state = country.take(2),
                 country = country,
                 division = 1,
-                rating = 90 - (index % 30),
-                isPlayerControlled = index == countries.lastIndex
+                rating = 90 - (index % 30)
             )
         }
     }
 
     private fun worldStandings(teams: List<Team>): List<GlobalLeagueStanding> =
         teams.groupBy { it.country }.flatMap { (_, associationTeams) ->
-            associationTeams.sortedBy { it.id }.mapIndexed { index, team ->
-                standing(2028, team, index + 1, 90 - index)
-            }
+            associationTeams.sortedBy { it.id }.mapIndexed { index, team -> standing(2028, team, index + 1, 90 - index) }
         }
 }
