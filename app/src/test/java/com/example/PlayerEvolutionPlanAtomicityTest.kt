@@ -195,6 +195,42 @@ class PlayerEvolutionPlanAtomicityTest {
     }
 
     @Test
+    fun standaloneExecutionDiscardsChangedTrainingFocusWithoutThrowing() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        val beforeMutation = repository.getPlayer(10L)!!
+        repository.updatePlayer(beforeMutation.copy(focoTreino = "finalizacao"))
+        val expectedCurrent = repository.getPlayer(10L)!!
+
+        val outcome = useCase.executePreparedMonthlyEvolution(plan)
+
+        assertFalse(outcome.committed)
+        assertTrue(outcome.results.isEmpty())
+        assertEquals(expectedCurrent, repository.getPlayer(10L))
+        assertEquals(240, repository.getPlayer(10L)!!.minutosJogados)
+        assertTrue(repository.getHistoricoPorJogador(10L).isEmpty())
+    }
+
+    @Test
+    fun standaloneExecutionDiscardsTrainingCenterUpgradeWithoutThrowing() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        val playerBefore = repository.getPlayer(10L)!!
+        val teamBefore = repository.getTeam(1L)!!
+        repository.updateTeam(teamBefore.copy(trainingCenterLevel = 5))
+
+        val outcome = useCase.executePreparedMonthlyEvolution(plan)
+
+        assertFalse(outcome.committed)
+        assertTrue(outcome.results.isEmpty())
+        assertEquals(playerBefore, repository.getPlayer(10L))
+        assertEquals(5, repository.getTeam(1L)!!.trainingCenterLevel)
+        assertTrue(repository.getHistoricoPorJogador(10L).isEmpty())
+    }
+
+    @Test
     fun unchangedPlayersStillHaveMonthlyCountersResetWithoutEntityUpdate() = runTest {
         seedCareer()
         val save = repository.getGameSave()!!
