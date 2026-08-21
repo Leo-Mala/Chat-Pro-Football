@@ -1,7 +1,7 @@
 package com.example.data
 
 /**
- * Minimal ownership-aware market gates for transfer UI and offer generation.
+ * Minimal ownership-aware market gate for the UI.
  *
  * During an active loan, [Player.teamId] is the sporting borrower while [Player.originalTeamId]
  * carries the owner. A borrower may negotiate a permanent purchase, while the owner must never see
@@ -16,7 +16,3 @@ fun Player.isTransferMarketCandidateFor(teamId: Long?): Boolean {
         this.teamId != teamId
     }
 }
-
-/** A club can receive offers only for players it currently fields and owns outright. */
-fun Player.isIncomingOfferCandidateFor(teamId: Long): Boolean =
-    teamId > 0L && this.teamId == teamId && !isOnLoan
