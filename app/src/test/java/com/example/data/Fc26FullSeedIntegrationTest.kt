@@ -18,11 +18,12 @@ import java.io.File
 class Fc26FullSeedIntegrationTest {
 
     @Test
-    fun `full FC26 seed maps persists reloads and writes audit report`() = runBlocking {
+    fun `full FC26 seed maps persists reloads loans and writes audit report`() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dataset = requireNotNull(Fc26NormalizedDatasetLoader.loadValidatedOrNull(context.assets))
         assertEquals(18_405, dataset.players.size)
         assertEquals(662, dataset.sourceClubs.size)
+        assertEquals(1_325, dataset.manifest.loanedPlayerCount)
 
         val teams = buildCurrentProFootballUniverse()
         assertTrue(teams.isNotEmpty())
@@ -59,8 +60,21 @@ class Fc26FullSeedIntegrationTest {
             plan.report.datasetClubs,
             plan.report.matchedClubs + plan.report.unmatchedClubs + plan.report.ambiguousClubs
         )
-        assertEquals(0, plan.report.successfullyMappedLoans)
+        assertEquals(1_325, plan.report.datasetLoanPlayers)
+        assertEquals(
+            plan.report.datasetLoanPlayers,
+            plan.report.resolvedLoans + plan.report.rejectedLoans
+        )
+        assertEquals(plan.report.resolvedLoans, plan.report.successfullyMappedLoans)
+        assertEquals(plan.report.rejectedLoans, plan.report.unresolvedLoans)
+        assertEquals(plan.report.resolvedLoans, plan.loans.size)
+        assertEquals(plan.report.datasetLoanPlayers, plan.report.loanResolutions.size)
+        assertTrue("FC26 should materialize at least one unambiguous loan", plan.loans.isNotEmpty())
         assertTrue(plan.players.map { it.id }.distinct().size == plan.players.size)
+        assertTrue(plan.loans.map { it.id }.distinct().size == plan.loans.size)
+        assertTrue(plan.loans.map { it.playerId }.distinct().size == plan.loans.size)
+        assertTrue(plan.loans.none { it.ownerTeamId == it.borrowerTeamId })
+        assertTrue(plan.loans.all { Fc26LoanPolicy.isUnknownEndSnapshotLoan(it) })
 
         // Bulk contract: every player from the supplied FC26 dataset must exist in the plan exactly once.
         val importedRealPlayers = plan.players
@@ -83,10 +97,30 @@ class Fc26FullSeedIntegrationTest {
             assertEquals(source.primaryPosition, imported.sourceMetadataOrNull()?.primaryPosition)
             assertEquals(source.clubTeamId, imported.sourceMetadataOrNull()?.sourceClubTeamId)
             assertEquals(source.clubName, imported.sourceMetadataOrNull()?.sourceClubName)
+            assertEquals(source.clubLoanedFrom, imported.sourceMetadataOrNull()?.clubLoanedFrom)
         }
         assertEquals(0, overallMutated)
         assertEquals(0, potentialMutated)
         assertEquals(0, attributesMutated)
+
+        val loanByPlayerId = plan.loans.associateBy { it.playerId }
+        plan.report.loanResolutions.forEach { resolution ->
+            val imported = requireNotNull(importedRealPlayers[resolution.playerId])
+            val metadata = requireNotNull(imported.sourceMetadataOrNull())
+            assertEquals(resolution.status.name, metadata.loanResolutionStatus)
+            assertEquals("NOT_AVAILABLE", metadata.loanTemporalCoverage)
+            val loan = loanByPlayerId[resolution.playerId]
+            if (resolution.status == Fc26LoanResolutionStatus.RESOLVED) {
+                val resolvedLoan = requireNotNull(loan)
+                assertEquals(resolution.ownerTeamId, imported.originalTeamId)
+                assertEquals(resolution.borrowerTeamId, imported.teamId)
+                assertEquals(resolvedLoan.ownerTeamId, imported.originalTeamId)
+                assertEquals(resolvedLoan.borrowerTeamId, imported.teamId)
+                assertTrue(imported.isOnLoan)
+            } else {
+                assertEquals(null, loan)
+            }
+        }
 
         val unresolvedSourceIds = plan.report.clubMatches
             .filter { it.status != Fc26ClubMatchStatus.MATCHED }
@@ -106,6 +140,8 @@ class Fc26FullSeedIntegrationTest {
         val sourceSample = dataset.players.single { it.stableId == sampledPlayer.id }
         assertEquals(sourceSample.overall, sampledPlayer.force)
         assertEquals(sourceSample.potential, sampledPlayer.potential)
+        val sampledLoan = plan.loans.first()
+        val sampledLoanPlayerBeforePersist = requireNotNull(importedRealPlayers[sampledLoan.playerId])
 
         val dbName = "fc26_full_seed_integration.db"
         context.deleteDatabase(dbName)
@@ -118,6 +154,7 @@ class Fc26FullSeedIntegrationTest {
             repository.runInTransaction {
                 repository.saveTeams(teams)
                 repository.savePlayers(plan.players)
+                plan.loans.forEach { repository.saveLoan(it) }
                 repository.saveGameSave(
                     GameSave(
                         coachName = "FC26 Integration QA",
@@ -128,10 +165,18 @@ class Fc26FullSeedIntegrationTest {
                 )
             }
             val persistMillis = elapsedMillis(persistStarted)
-            val persistedCount = repository.getAllPlayers().size
+            val persistedPlayers = repository.getAllPlayers()
+            val persistedCount = persistedPlayers.size
             assertEquals(plan.players.size, persistedCount)
             assertEquals(sourceSample.overall, repository.getPlayer(sampledPlayer.id)?.force)
             assertEquals(sourceSample.potential, repository.getPlayer(sampledPlayer.id)?.potential)
+            assertEquals(plan.loans.size, repository.getActiveLoans().size)
+            val persistedLoan = requireNotNull(repository.getActiveLoanForPlayer(sampledLoan.playerId))
+            assertEquals(sampledLoan, persistedLoan)
+            val persistedLoanPlayer = requireNotNull(repository.getPlayer(sampledLoan.playerId))
+            assertEquals(sampledLoanPlayerBeforePersist.id, persistedLoanPlayer.id)
+            assertEquals(sampledLoan.ownerTeamId, persistedLoanPlayer.originalTeamId)
+            assertEquals(sampledLoan.borrowerTeamId, persistedLoanPlayer.teamId)
 
             database.close()
             database = null
@@ -143,6 +188,16 @@ class Fc26FullSeedIntegrationTest {
             assertEquals("FC26 overall must survive Room close/reopen", sourceSample.overall, reloaded.force)
             assertEquals("FC26 potential must survive Room close/reopen", sourceSample.potential, reloaded.potential)
             assertEquals(sourceSample.primaryPosition, reloaded.sourceMetadataOrNull()?.primaryPosition)
+
+            val reopenedLoan = requireNotNull(reopenedRepository.getActiveLoanForPlayer(sampledLoan.playerId))
+            val reopenedLoanPlayer = requireNotNull(reopenedRepository.getPlayer(sampledLoan.playerId))
+            assertEquals("Loan owner must survive close/reopen", sampledLoan.ownerTeamId, reopenedLoan.ownerTeamId)
+            assertEquals("Loan borrower must survive close/reopen", sampledLoan.borrowerTeamId, reopenedLoan.borrowerTeamId)
+            assertEquals("Loan status must survive close/reopen", "ACTIVE", reopenedLoan.status)
+            assertEquals("Loan playerId must survive close/reopen", sampledLoan.playerId, reopenedLoan.playerId)
+            assertEquals("Sports roster remains borrower after reopen", sampledLoan.borrowerTeamId, reopenedLoanPlayer.teamId)
+            assertEquals("Ownership remains owner after reopen", sampledLoan.ownerTeamId, reopenedLoanPlayer.originalTeamId)
+            assertEquals(plan.loans.size, reopenedRepository.getActiveLoans().size)
 
             writeAuditReports(
                 dataset = dataset,
@@ -213,13 +268,21 @@ class Fc26FullSeedIntegrationTest {
         val ambiguousPlayers = matchByStatus[Fc26ClubMatchStatus.AMBIGUOUS].orEmpty().sumOf { it.playerCount }
         val audits = Fc26ClubMatcher.auditCandidates(dataset, teams, limitPerClub = 5)
         val matchBySourceId = plan.report.clubMatches.associateBy { it.sourceClubTeamId }
+        val auditHead = System.getenv("GITHUB_SHA") ?: "LOCAL"
+        val loanStatusCounts = plan.report.loanResolutions
+            .groupingBy { it.status.name }
+            .eachCount()
+            .toSortedMap()
 
         val report = linkedMapOf<String, Any?>(
+            "auditHead" to auditHead,
             "datasetSource" to dataset.manifest.datasetSource,
             "datasetVersion" to dataset.manifest.datasetVersion,
             "datasetPlayers" to plan.report.datasetPlayers,
+            "validatedPlayers" to plan.report.datasetPlayers,
             "processedPlayers" to plan.report.datasetPlayers,
             "playersImported" to plan.report.bulkImportedFc26Players,
+            "importedPlayers" to plan.report.bulkImportedFc26Players,
             "playersNotImported" to (plan.report.datasetPlayers - plan.report.bulkImportedFc26Players),
             "clubCoverageImportedPlayers" to plan.report.importedFc26Players,
             "clubCoverageUnresolvedPlayers" to plan.report.skippedDatasetPlayers,
@@ -234,17 +297,29 @@ class Fc26FullSeedIntegrationTest {
             "unassignedPlayersFromUnmatchedClubs" to plan.report.importedUnmatchedClubPlayers,
             "unassignedPlayersFromAmbiguousClubs" to plan.report.importedAmbiguousClubPlayers,
             "loanPlayers" to plan.report.datasetLoanPlayers,
+            "resolvedLoans" to plan.report.resolvedLoans,
+            "rejectedLoans" to plan.report.rejectedLoans,
+            "ambiguousLoans" to plan.report.ambiguousLoans,
+            "ownerNotFound" to plan.report.ownerNotFound,
+            "borrowerNotFound" to plan.report.borrowerNotFound,
+            "selfLoansRejected" to plan.report.selfLoansRejected,
+            "duplicateLoans" to plan.report.duplicateLoans,
+            "loanResolutionStatusCounts" to loanStatusCounts,
+            "loanStartDate" to "NOT_AVAILABLE",
+            "loanEndDate" to "NOT_AVAILABLE",
+            "loanTemporalPolicy" to "OPEN_ENDED_UNTIL_EXPLICIT_CAREER_EVENT",
             "successfullyMappedLoans" to plan.report.successfullyMappedLoans,
             "unresolvedLoans" to plan.report.unresolvedLoans,
             "fallbackRostersRequired" to plan.report.fallbackRostersRequired,
             "playersFromUnmatchedClubs" to unmatchedPlayers,
             "playersFromAmbiguousClubs" to ambiguousPlayers,
-            "duplicatePlayerIds" to 0,
-            "duplicateTeamIds" to 0,
+            "duplicatePlayerIds" to (plan.players.size - plan.players.map { it.id }.distinct().size),
+            "duplicateTeamIds" to (teams.size - teams.map { it.id }.distinct().size),
             "overallMutated" to overallMutated,
             "potentialMutated" to potentialMutated,
             "attributesMutated" to attributesMutated,
             "persistedPlayersIncludingFallback" to persistedPlayerCount,
+            "persistedPlayers" to persistedPlayerCount,
             "playersByCountry" to dataset.players.groupingBy { it.nationality }.eachCount().toSortedMap(),
             "playersByLeague" to dataset.players.groupingBy { it.leagueName ?: "FREE_AGENT" }.eachCount().toSortedMap(),
             "playersByClub" to dataset.players.groupingBy { it.clubName ?: "FREE_AGENT" }.eachCount().toSortedMap(),
@@ -268,9 +343,11 @@ class Fc26FullSeedIntegrationTest {
                 "sourcePlayerId" to sampleSourcePlayerId,
                 "internalPlayerId" to sampleInternalPlayerId,
                 "forceAfterReload" to sampleForce,
-                "potentialAfterReload" to samplePotential
+                "potentialAfterReload" to samplePotential,
+                "loanCountAfterReload" to plan.loans.size
             ),
-            "clubMatches" to plan.report.clubMatches
+            "clubMatches" to plan.report.clubMatches,
+            "loanResolutions" to plan.report.loanResolutions
         )
 
         val unresolved = audits.map { audit ->
@@ -301,6 +378,7 @@ class Fc26FullSeedIntegrationTest {
         }
 
         val unresolvedReport = linkedMapOf<String, Any?>(
+            "auditHead" to auditHead,
             "datasetVersion" to dataset.manifest.datasetVersion,
             "datasetPlayers" to dataset.players.size,
             "datasetClubs" to dataset.sourceClubs.size,
@@ -314,21 +392,50 @@ class Fc26FullSeedIntegrationTest {
             "unresolvedClubs" to unresolved
         )
 
+        val loanAudit = linkedMapOf<String, Any?>(
+            "auditHead" to auditHead,
+            "datasetPlayers" to plan.report.datasetPlayers,
+            "validatedPlayers" to plan.report.datasetPlayers,
+            "persistedPlayers" to persistedPlayerCount,
+            "processedPlayers" to plan.report.datasetPlayers,
+            "importedPlayers" to plan.report.bulkImportedFc26Players,
+            "datasetLoanPlayers" to plan.report.datasetLoanPlayers,
+            "resolvedLoans" to plan.report.resolvedLoans,
+            "rejectedLoans" to plan.report.rejectedLoans,
+            "ambiguousLoans" to plan.report.ambiguousLoans,
+            "ownerNotFound" to plan.report.ownerNotFound,
+            "borrowerNotFound" to plan.report.borrowerNotFound,
+            "selfLoansRejected" to plan.report.selfLoansRejected,
+            "duplicateLoans" to plan.report.duplicateLoans,
+            "duplicatePlayerIds" to (plan.players.size - plan.players.map { it.id }.distinct().size),
+            "duplicateTeamIds" to (teams.size - teams.map { it.id }.distinct().size),
+            "overallMutated" to overallMutated,
+            "potentialMutated" to potentialMutated,
+            "attributesMutated" to attributesMutated,
+            "startDate" to "NOT_AVAILABLE",
+            "endDate" to "NOT_AVAILABLE",
+            "resolutionStatusCounts" to loanStatusCounts,
+            "resolutions" to plan.report.loanResolutions
+        )
+
         val repoRoot = findRepositoryRoot()
         val mappingOutput = File(repoRoot, "reports/fc26_club_mapping_report.json")
         val bulkOutput = File(repoRoot, "reports/fc26_bulk_import_report.json")
         val unresolvedOutput = File(repoRoot, "reports/fc26_bulk_import_unresolved.json")
+        val loanOutput = File(repoRoot, "reports/phase_10_4_fc26_loans_audit.json")
         mappingOutput.parentFile.mkdirs()
         mappingOutput.writeText(gson.toJson(report) + "\n", Charsets.UTF_8)
         bulkOutput.writeText(gson.toJson(report) + "\n", Charsets.UTF_8)
         unresolvedOutput.writeText(gson.toJson(unresolvedReport) + "\n", Charsets.UTF_8)
+        loanOutput.writeText(gson.toJson(loanAudit) + "\n", Charsets.UTF_8)
 
         println(
             "FC26_BULK_IMPORT dataset=${plan.report.datasetPlayers} imported=${plan.report.bulkImportedFc26Players} " +
                 "notImported=${plan.report.datasetPlayers - plan.report.bulkImportedFc26Players} " +
                 "clubs=${plan.report.datasetClubs} resolved=${plan.report.matchedClubs} " +
                 "unmatched=${plan.report.unmatchedClubs} ambiguous=${plan.report.ambiguousClubs} " +
-                "unassigned=${plan.report.importedUnassignedClubPlayers} overallMutated=$overallMutated " +
+                "unassigned=${plan.report.importedUnassignedClubPlayers} loansResolved=${plan.report.resolvedLoans} " +
+                "loansRejected=${plan.report.rejectedLoans} overallMutated=$overallMutated " +
                 "potentialMutated=$potentialMutated attributesMutated=$attributesMutated " +
                 "planMs=$planMillis persistMs=$persistMillis dbBytes=$databaseBytes"
         )
