@@ -145,13 +145,18 @@ class FinanceUseCase(private val repository: GameRepository) {
             val player = rosterPlayer ?: repository.getPlayer(loan.playerId)
 
             if (Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)) {
-                if (player == null || !player.isOnLoan || player.contractDurationWeeks <= 0) {
+                // Weekly finances run before the canonical contract tick. A snapshot loanee with
+                // one contract week left therefore has to be closed now; otherwise the following
+                // tick would reduce the main contract to zero while leaving PlayerLoan ACTIVE for
+                // one extra week. Salary for the closing week has already been accounted above.
+                if (player == null || !player.isOnLoan || player.contractDurationWeeks <= 1) {
                     updatedLoans += loan.copy(remainingWeeks = 0, status = "COMPLETED")
                     if (player != null && player.isOnLoan) {
                         repository.updatePlayer(
                             player.copy(
                                 teamId = null,
                                 originalTeamId = null,
+                                contractDurationWeeks = 0,
                                 isOnLoan = false,
                                 loanWeeksRemaining = 0,
                                 isStarter = false,

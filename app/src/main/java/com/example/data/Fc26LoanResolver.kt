@@ -70,12 +70,14 @@ object Fc26LoanPolicy {
         return -playerId
     }
 
-    fun isUnknownEndSnapshotLoan(loan: PlayerLoan): Boolean =
-        loan.id == deterministicLoanId(loan.playerId) &&
+    fun isUnknownEndSnapshotLoan(loan: PlayerLoan): Boolean {
+        if (loan.playerId <= 0L) return false
+        return loan.id == deterministicLoanId(loan.playerId) &&
             loan.startSeason == UNKNOWN_SEASON &&
             loan.startWeek == UNKNOWN_WEEK &&
             loan.durationWeeks == UNKNOWN_DURATION_WEEKS &&
             loan.remainingWeeks == UNKNOWN_DURATION_WEEKS
+    }
 
     fun toPlayerLoan(resolution: Fc26LoanResolution): PlayerLoan {
         require(resolution.status == Fc26LoanResolutionStatus.RESOLVED)
@@ -214,11 +216,11 @@ object Fc26LoanResolver {
 
             val ownerSource = ownerCandidates.single()
             val ownerMatch = matchesBySourceId[ownerSource.sourceClubTeamId]
-            if (ownerMatch == null || ownerMatch.status == Fc26ClubMatchStatus.UNMATCHED || ownerMatch.targetTeamId == null) {
+            if (ownerMatch == null) {
                 resolutions += source.resolution(
                     borrowerTeamId = borrowerMatch.targetTeamId,
                     status = Fc26LoanResolutionStatus.OWNER_NOT_FOUND,
-                    reason = ownerMatch?.reason ?: "owner source club has no canonical matching result"
+                    reason = "owner source club has no canonical matching result"
                 )
                 continue
             }
@@ -226,6 +228,14 @@ object Fc26LoanResolver {
                 resolutions += source.resolution(
                     borrowerTeamId = borrowerMatch.targetTeamId,
                     status = Fc26LoanResolutionStatus.AMBIGUOUS_OWNER,
+                    reason = ownerMatch.reason
+                )
+                continue
+            }
+            if (ownerMatch.status != Fc26ClubMatchStatus.MATCHED || ownerMatch.targetTeamId == null) {
+                resolutions += source.resolution(
+                    borrowerTeamId = borrowerMatch.targetTeamId,
+                    status = Fc26LoanResolutionStatus.OWNER_NOT_FOUND,
                     reason = ownerMatch.reason
                 )
                 continue

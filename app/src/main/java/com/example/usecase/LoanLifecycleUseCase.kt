@@ -30,6 +30,12 @@ class LoanLifecycleUseCase(private val repository: GameRepository) {
         if (loan.ownerTeamId <= 0L || loan.borrowerTeamId <= 0L || loan.ownerTeamId == loan.borrowerTeamId) {
             return@withTransaction Result.Rejected("Empréstimo ativo possui referência inválida")
         }
+        if (!player.isOnLoan ||
+            player.teamId != loan.borrowerTeamId ||
+            player.originalTeamId != loan.ownerTeamId
+        ) {
+            return@withTransaction Result.Rejected("Estado Player/PlayerLoan inconsistente; retorno recusado por segurança")
+        }
         if (repository.getTeam(loan.ownerTeamId) == null) {
             return@withTransaction Result.Rejected("Clube proprietário não existe neste save")
         }

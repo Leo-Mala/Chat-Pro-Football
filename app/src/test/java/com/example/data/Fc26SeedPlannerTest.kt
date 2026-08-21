@@ -75,7 +75,7 @@ class Fc26SeedPlannerTest {
         assertEquals(1, plan.report.unmatchedClubs)
     }
 
-    @Test fun `loan marker with unknown owner fails closed instead of inventing PlayerLoan`() {
+    @Test fun `loan marker with unknown owner is quarantined instead of becoming borrower ownership`() {
         val arsenal = team(2L, "Arsenal FC")
         val loaned = sourcePlayer(1L, "Arsenal", sourceId = 201L, fullName = "Loaned Player", loanedFrom = "Other Club")
         val dataset = Fc26Dataset(manifest(playerCount = 1, clubCount = 1, loanedPlayerCount = 1), listOf(loaned))
@@ -86,10 +86,24 @@ class Fc26SeedPlannerTest {
         assertEquals(0, plan.report.successfullyMappedLoans)
         assertTrue(plan.loans.isEmpty())
         val mapped = plan.players.single()
-        assertFalse(mapped.isOnLoan)
+        assertEquals(2L, mapped.teamId)
+        assertTrue(mapped.isOnLoan)
+        assertTrue(mapped.isFc26LoanOwnershipQuarantined())
         assertNull(mapped.originalTeamId)
+        assertEquals(0, mapped.contractDurationWeeks)
+        assertEquals(0L, mapped.salary)
+        assertEquals(loaned.overall, mapped.force)
+        assertEquals(loaned.potential, mapped.potential)
+        assertEquals(loaned.atributos, mapped.atributos)
         assertTrue(mapped.atributosJson.orEmpty().contains("Other Club"))
-        assertEquals(Fc26LoanResolutionStatus.OWNER_NOT_FOUND.name, mapped.sourceMetadataOrNull()?.loanResolutionStatus)
+        val metadata = mapped.sourceMetadataOrNull()
+        assertEquals(Fc26LoanResolutionStatus.OWNER_NOT_FOUND.name, metadata?.loanResolutionStatus)
+        assertEquals("LOAN_OWNERSHIP_UNRESOLVED", metadata?.assignmentStatus)
+        assertEquals(2L, metadata?.loanBorrowerTeamId)
+        assertTrue((metadata?.sourceContractDurationWeeks ?: 0) > 0)
+        assertTrue((metadata?.sourceSalary ?: 0L) > 0L)
+        assertEquals(1, plan.players.size)
+        assertEquals(1, plan.players.map { it.id }.distinct().size)
     }
 
     @Test fun `valid FC26 loan keeps one player in borrower roster and owner identity`() {
@@ -170,6 +184,54 @@ class Fc26SeedPlannerTest {
         assertTrue(result.loans.isEmpty())
         assertEquals(1, result.audit.ambiguousLoans)
         assertEquals(Fc26LoanResolutionStatus.AMBIGUOUS_OWNER, result.audit.resolutions.single().status)
+    }
+
+    @Test fun `ambiguous owner target is classified before null target`() {
+        val loaned = sourcePlayer(1L, "Borrower", sourceId = 711L, fullName = "Ambiguous Target Player", loanedFrom = "Owner")
+        val owner = sourcePlayer(2L, "Owner", sourceId = 712L, fullName = "Owner Player")
+        val dataset = Fc26Dataset(
+            manifest(playerCount = 2, clubCount = 2, loanedPlayerCount = 1),
+            listOf(loaned, owner)
+        )
+        val matches = listOf(
+            match(1L, "Borrower", targetId = 10L),
+            Fc26ClubMatch(
+                sourceClubTeamId = 2L,
+                sourceClubName = "Owner",
+                leagueId = 1L,
+                leagueName = "Test League",
+                playerCount = 1,
+                status = Fc26ClubMatchStatus.AMBIGUOUS,
+                targetTeamId = null,
+                targetTeamName = null,
+                reason = "two canonical targets"
+            )
+        )
+
+        val result = Fc26LoanResolver.resolve(dataset, matches)
+
+        assertTrue(result.loans.isEmpty())
+        assertEquals(1, result.audit.ambiguousLoans)
+        assertEquals(0, result.audit.ownerNotFound)
+        assertEquals(Fc26LoanResolutionStatus.AMBIGUOUS_OWNER, result.audit.resolutions.single().status)
+    }
+
+    @Test fun `invalid player references never throw from snapshot sentinel detection`() {
+        fun invalidLoan(playerId: Long, id: Long) = PlayerLoan(
+            id = id,
+            playerId = playerId,
+            ownerTeamId = 10L,
+            borrowerTeamId = 20L,
+            startSeason = Fc26LoanPolicy.UNKNOWN_SEASON,
+            startWeek = Fc26LoanPolicy.UNKNOWN_WEEK,
+            durationWeeks = Fc26LoanPolicy.UNKNOWN_DURATION_WEEKS,
+            remainingWeeks = Fc26LoanPolicy.UNKNOWN_DURATION_WEEKS,
+            weeklyFee = 0L,
+            status = "ACTIVE"
+        )
+
+        assertFalse(Fc26LoanPolicy.isUnknownEndSnapshotLoan(invalidLoan(playerId = 0L, id = 0L)))
+        assertFalse(Fc26LoanPolicy.isUnknownEndSnapshotLoan(invalidLoan(playerId = -7L, id = 7L)))
     }
 
     @Test fun `unresolved borrower fails closed even when owner exists`() {
