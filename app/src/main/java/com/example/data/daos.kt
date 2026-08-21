@@ -72,9 +72,6 @@ interface PlayerDao {
     @Query("SELECT * FROM players WHERE id = :id")
     suspend fun getPlayer(id: Long): Player?
 
-    @Query("SELECT * FROM players WHERE id IN (:ids)")
-    suspend fun getPlayersByIds(ids: List<Long>): List<Player>
-
     /**
      * Phase 9.12B: aplica o ciclo semanal de contratos como conjuntos de ações SQL.
      * As expirações precisam acontecer antes do decremento de contratos > 1 para que um vínculo
