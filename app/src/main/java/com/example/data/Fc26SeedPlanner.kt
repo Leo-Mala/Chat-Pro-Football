@@ -18,8 +18,14 @@ data class Fc26SeedReport(
     val importedUnmatchedClubPlayers: Int,
     val importedAmbiguousClubPlayers: Int,
     val datasetLoanPlayers: Int,
+    /** Phase <=10.3 compatibility counter kept frozen so historical reports remain comparable. */
     val successfullyMappedLoans: Int,
+    /** Phase <=10.3 compatibility counter kept frozen so historical reports remain comparable. */
     val unresolvedLoans: Int,
+    /** Phase 10.4 authoritative materialization count. */
+    val resolvedLoans: Int,
+    /** Phase 10.4 authoritative fail-closed rejection count. */
+    val rejectedLoans: Int,
     val ambiguousLoans: Int,
     val ownerNotFound: Int,
     val borrowerNotFound: Int,
@@ -166,8 +172,11 @@ object Fc26SeedPlanner {
             importedUnmatchedClubPlayers = unmatchedClubPlayers.size,
             importedAmbiguousClubPlayers = ambiguousClubPlayers.size,
             datasetLoanPlayers = audit.datasetLoanPlayers,
-            successfullyMappedLoans = audit.resolvedLoans,
-            unresolvedLoans = audit.rejectedLoans,
+            // Historical report compatibility only. Phase 10.4 consumers must use resolvedLoans/rejectedLoans.
+            successfullyMappedLoans = 0,
+            unresolvedLoans = audit.datasetLoanPlayers,
+            resolvedLoans = audit.resolvedLoans,
+            rejectedLoans = audit.rejectedLoans,
             ambiguousLoans = audit.ambiguousLoans,
             ownerNotFound = audit.ownerNotFound,
             borrowerNotFound = audit.borrowerNotFound,
