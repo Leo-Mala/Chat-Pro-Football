@@ -22,6 +22,47 @@ class Phase103ReviewRegressionTest {
     }
 
     @Test
+    fun `UEFA draw separates same association after sporting reorder`() {
+        val candidates = uefaCandidates(120)
+        val grouped = candidates.groupBy { canonicalAssociation(it.country) }
+        val snapshot = grouped.entries.flatMapIndexed { associationIndex, (_, associationTeams) ->
+            associationTeams.sortedBy { it.id }.mapIndexed { teamIndex, team ->
+                val points = when (teamIndex) {
+                    0 -> 500 - associationIndex
+                    1 -> when (associationIndex) {
+                        0 -> 497 // England runner-up becomes the fourth slot-2 candidate.
+                        1 -> 500
+                        2 -> 499
+                        3 -> 498
+                        else -> 450 - associationIndex
+                    }
+                    else -> 300 - teamIndex * 10 - associationIndex
+                }
+                standing(2026, team, teamIndex + 1, points)
+            }
+        }
+
+        val fields = UefaQualificationRules.selectLeaguePhaseFields(candidates, snapshot)
+        assertEquals(36, fields.championsLeague.size)
+        val englishOrdinals = fields.championsLeague
+            .filter { canonicalAssociation(it.team.country) == canonicalAssociation("Inglaterra") }
+            .map { it.slot.ordinal }
+            .sorted()
+        assertEquals(listOf(1, 24), englishOrdinals)
+
+        val fixtures = UefaCompetitionSystem.generateOpeningFixtures(2027, fields)
+            .filter { it.competitionType == UefaCompetitionSystem.CHAMPIONS_LEAGUE }
+        assertEquals(144, fixtures.size)
+        val byId = candidates.associateBy { it.id }
+        assertTrue(
+            fixtures.all { fixture ->
+                canonicalAssociation(byId.getValue(fixture.homeTeamId).country) !=
+                    canonicalAssociation(byId.getValue(fixture.awayTeamId).country)
+            }
+        )
+    }
+
+    @Test
     fun `world selector ignores legacy aggregate regions`() {
         val teams = worldUniverse() + listOf(
             Team(199_001L, "Legacy Africa", "Legacy", "AF", "África", 1, rating = 99),
@@ -174,6 +215,9 @@ class Phase103ReviewRegressionTest {
                     standing(2028, team, index + 1, 90 - index)
                 }
             }
+
+    private fun canonicalAssociation(country: String): String =
+        requireNotNull(CountryFootballRulesRegistry.resolve(country)).canonicalCountry
 
     private fun standing(season: Int, team: Team, position: Int, points: Int) =
         GlobalLeagueStanding(
