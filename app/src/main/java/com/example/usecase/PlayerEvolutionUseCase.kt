@@ -2,10 +2,25 @@ package com.example.usecase
 
 import com.example.data.GameRepository
 import com.example.data.GameSave
+import com.example.data.HistoricoEvolucao
 import com.example.data.Player
 import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
 import kotlin.random.Random
+
+/**
+ * Immutable monthly-evolution plan. The expensive world-player calculation is intentionally
+ * separated from the Room commit so callers that already own a larger atomic operation can do
+ * CPU work before acquiring the database transaction and then fail closed if the save moved.
+ */
+data class MonthlyEvolutionPlan(
+    val expectedSeason: Int,
+    val expectedWeek: Int,
+    val expectedPlayerTeamId: Long,
+    val results: List<PlayerEvolutionResult>,
+    val updatedPlayers: List<Player>,
+    val historyLogs: List<HistoricoEvolucao>
+)
 
 /**
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
@@ -52,33 +67,65 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
     }
 
     /**
-     * Processa a evolução mensal dos atletas do clube e de toda a liga.
+     * Executa somente a parte CPU-heavy da evolução mensal.
      *
-     * O cálculo pesado continua fora da transação. Somente o commit dos novos jogadores e do
-     * respectivo histórico é agrupado, para nunca persistir evolução sem o audit trail (ou vice-versa).
+     * Em uma carreira de ~60k jogadores este é o trecho dominante do fechamento mensal. Mantê-lo
+     * fora da transação reduz o tempo de lock sem relaxar atomicidade: o commit abaixo valida o
+     * snapshot de temporada/semana/clube antes de persistir qualquer alteração.
+     */
+    suspend fun prepareMonthlyEvolution(
+        save: GameSave,
+        periodDate: String
+    ): MonthlyEvolutionPlan {
+        val allPlayers = repository.getAllPlayers()
+        val allTeams = repository.getAllTeams().associateBy { it.id }
+        val evolutionResults = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
+
+        return MonthlyEvolutionPlan(
+            expectedSeason = save.currentSeason,
+            expectedWeek = save.currentWeek,
+            expectedPlayerTeamId = save.playerTeamId,
+            results = evolutionResults,
+            updatedPlayers = evolutionResults.map { it.player },
+            historyLogs = evolutionResults.flatMap { it.historyLogs }
+        )
+    }
+
+    /**
+     * Persiste um plano já calculado como uma única unidade e rejeita plano stale antes do
+     * primeiro write. Quando chamado de dentro de outra transação Room, a transação é reutilizada.
+     */
+    suspend fun commitMonthlyEvolution(plan: MonthlyEvolutionPlan): Boolean = repository.withTransaction {
+        val currentSave = repository.getGameSave() ?: return@withTransaction false
+        if (currentSave.currentSeason != plan.expectedSeason ||
+            currentSave.currentWeek != plan.expectedWeek ||
+            currentSave.playerTeamId != plan.expectedPlayerTeamId
+        ) {
+            return@withTransaction false
+        }
+
+        if (plan.updatedPlayers.isNotEmpty()) {
+            repository.updatePlayers(plan.updatedPlayers)
+        }
+        if (plan.historyLogs.isNotEmpty()) {
+            repository.saveHistoricoEvolucaoList(plan.historyLogs)
+        }
+        true
+    }
+
+    /**
+     * API canônica para evolução mensal manual. O cálculo pesado acontece antes da transação e o
+     * commit é fail-closed caso o save tenha mudado enquanto o plano era calculado.
      */
     suspend fun executeMonthlyEvolution(
         save: GameSave,
         periodDate: String
     ): List<PlayerEvolutionResult> {
-        val allPlayers = repository.getAllPlayers()
-        val allTeams = repository.getAllTeams().associateBy { it.id }
-
-        val evolutionResults = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
-
-        val updatedPlayers = evolutionResults.map { it.player }
-        val allLogs = evolutionResults.flatMap { it.historyLogs }
-
-        repository.withTransaction {
-            if (updatedPlayers.isNotEmpty()) {
-                repository.updatePlayers(updatedPlayers)
-            }
-            if (allLogs.isNotEmpty()) {
-                repository.saveHistoricoEvolucaoList(allLogs)
-            }
+        val plan = prepareMonthlyEvolution(save, periodDate)
+        check(commitMonthlyEvolution(plan)) {
+            "O estado da carreira mudou durante o cálculo da evolução mensal; plano descartado."
         }
-
-        return evolutionResults
+        return plan.results
     }
 
     /**
