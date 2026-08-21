@@ -108,6 +108,93 @@ class PlayerEvolutionPlanAtomicityTest {
     }
 
     @Test
+    fun standalonePlanRejectsPlayerInsertedAfterPreparation() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        repository.savePlayers(
+            listOf(
+                Player(
+                    id = 11L,
+                    teamId = 1L,
+                    name = "Novo Jogador",
+                    age = 20,
+                    position = "MEI",
+                    force = 62,
+                    potential = 88,
+                    minutosJogados = 180,
+                    mediaNotas = 7.2
+                )
+            )
+        )
+
+        assertFalse(useCase.commitMonthlyEvolution(plan))
+        assertEquals(180, repository.getPlayer(11L)!!.minutosJogados)
+        assertTrue(repository.getHistoricoPorJogador(10L).isEmpty())
+    }
+
+    @Test
+    fun weeklyRosterCorrectionHandlesMovedAndInsertedPlayersWithoutGlobalReplan() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        val original = repository.getPlayer(10L)!!
+
+        // Simula efeitos legítimos anteriores da mesma transação semanal: expiração de contrato e
+        // contratação/geração de um atleta depois do planejamento mensal global.
+        repository.updatePlayer(original.copy(teamId = null, contractDurationWeeks = 0, salary = 0L))
+        repository.savePlayers(
+            listOf(
+                Player(
+                    id = 11L,
+                    teamId = 1L,
+                    name = "Reforço Emergencial",
+                    age = 19,
+                    position = "ZAG",
+                    force = 61,
+                    potential = 86,
+                    minutosJogados = 120,
+                    mediaNotas = 7.0
+                )
+            )
+        )
+
+        assertTrue(
+            useCase.commitMonthlyEvolution(
+                plan = plan,
+                allowWeeklyRosterCorrections = true
+            )
+        )
+
+        val moved = repository.getPlayer(10L)!!
+        val inserted = repository.getPlayer(11L)!!
+        assertEquals(null, moved.teamId)
+        assertEquals(0, moved.contractDurationWeeks)
+        assertEquals(0L, moved.salary)
+        assertEquals(0, moved.minutosJogados)
+        assertEquals(1L, inserted.teamId)
+        assertEquals(0, inserted.minutosJogados)
+    }
+
+    @Test
+    fun weeklyRosterCorrectionStillRejectsRealFootballInputDrift() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+        val current = repository.getPlayer(10L)!!
+        repository.updatePlayer(current.copy(mediaNotas = 9.9))
+
+        assertFalse(
+            useCase.commitMonthlyEvolution(
+                plan = plan,
+                allowWeeklyRosterCorrections = true
+            )
+        )
+        assertEquals(9.9, repository.getPlayer(10L)!!.mediaNotas, 0.0)
+        assertTrue(repository.getHistoricoPorJogador(10L).isEmpty())
+    }
+
+    @Test
     fun unchangedPlayersStillHaveMonthlyCountersResetWithoutEntityUpdate() = runTest {
         seedCareer()
         val save = repository.getGameSave()!!
