@@ -9,8 +9,6 @@ import com.example.data.FixtureScheduleValidator
 import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
-import com.example.data.MatchSlot
-import com.example.data.SuperMundialEditionPolicy
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
 import com.example.support.CareerInvariantAssertions
@@ -189,23 +187,14 @@ class Phase97CareerIntegrationTest {
                 it.competitionType == "WORLD_CUP" || it.competitionType.startsWith("WORLD_CUP_GP_")
             }
             if (season == 2029) {
-                assertTrue("A edição 2029 do Super Mundial deve existir", worldFixtures.isNotEmpty())
-                assertTrue(worldFixtures.all { it.matchSlot == MatchSlot.MIDWEEK })
                 assertTrue(
-                    "Super Mundial deve ocupar grupos 42-44 e mata-mata 45-48",
-                    (42..48).all { expectedWeek -> worldFixtures.any { it.week == expectedWeek } }
-                )
-                val edition = requireNotNull(SuperMundialEditionPolicy.editionForSeason(season, repository.getAllTeams()))
-                assertEquals("Brasil", edition.hostCountry)
-                assertTrue(
-                    "O anfitrião da edição deve participar do Super Mundial",
-                    worldFixtures.any { it.homeTeamId == edition.hostTeamId || it.awayTeamId == edition.hostTeamId }
+                    "O universo sintético de oito clubes deve falhar fechado no Mundial, sem fillers virtuais",
+                    worldFixtures.isEmpty()
                 )
                 assertEquals(
-                    32,
-                    worldFixtures.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
-                        .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
-                        .toSet().size
+                    "A passagem pelo ciclo mundial não pode criar clubes artificiais",
+                    storedTeamIds,
+                    repository.getAllTeams().map { it.id }.toSet()
                 )
             } else {
                 assertTrue("A temporada $season não pertence ao ciclo 2025 + 4n", worldFixtures.isEmpty())
@@ -240,13 +229,11 @@ class Phase97CareerIntegrationTest {
     }
 
     private suspend fun assertRealTeamsPreserved(expectedRealTeamIds: Set<Long>) {
-        val persistedTeams = repository.getAllTeams()
-        val persistedIds = persistedTeams.map { it.id }.toSet()
-        assertTrue("Todos os clubes reais iniciais devem permanecer persistidos", persistedIds.containsAll(expectedRealTeamIds))
-        assertTrue(
-            "Qualquer Team adicional deve ser exclusivamente participante virtual/legado do Mundial",
-            persistedTeams.filterNot { it.id in expectedRealTeamIds }
-                .all { it.country.equals("Mundial", ignoreCase = true) }
+        val persistedIds = repository.getAllTeams().map { it.id }.toSet()
+        assertEquals(
+            "A carreira sintética não pode criar/remover clubes para completar competições internacionais",
+            expectedRealTeamIds,
+            persistedIds
         )
     }
 
