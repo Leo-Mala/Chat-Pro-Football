@@ -144,9 +144,10 @@ class FootballRulesIntegrityTest {
     }
 
     @Test
-    fun `transition into eligible year regenerates complete Super Mundial group stage`() = runBlocking {
+    fun `transition into eligible year fails closed when synthetic universe cannot qualify 32 real clubs`() = runBlocking {
         val brazil = teams("Brasil", division = 1, firstId = 1_000L, count = 4)
         val england = teams("Inglaterra", division = 1, firstId = 2_000L, count = 4)
+        val realTeamIds = (brazil + england).map { it.id }.toSet()
         repository.saveTeams(brazil + england)
 
         val save = GameSave(
@@ -162,15 +163,15 @@ class FootballRulesIntegrityTest {
 
         val fixtures2029 = repository.getFixturesForSeason(2029)
         val worldGroups = fixtures2029.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
-        assertEquals(48, worldGroups.size)
-
-        val participants = worldGroups
-            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
-            .groupingBy { it }
-            .eachCount()
-        assertEquals(32, participants.size)
-        assertTrue(participants.values.all { it == 3 })
-        assertEquals(3, participants[brazil.first().id])
+        assertTrue(
+            "Um universo sintético com apenas oito clubes reais deve falhar fechado, sem fillers virtuais",
+            worldGroups.isEmpty()
+        )
+        assertEquals(
+            "A tentativa de gerar o Mundial não pode materializar clubes artificiais",
+            realTeamIds,
+            repository.getAllTeams().map { it.id }.toSet()
+        )
 
         val leagueFixtures = fixtures2029.filter {
             it.competitionType in setOf("SERIE_A", "SERIE_B", "SERIE_C", "SERIE_D")
