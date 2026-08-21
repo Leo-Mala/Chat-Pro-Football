@@ -23,6 +23,16 @@ class Phase103RulesRegressionTest {
     }
 
     @Test
+    fun `FIFA group ranking fails closed while any fixture is undecided`() {
+        val fixtures = listOf(
+            played(1L, 2L, 1, 0),
+            played(3L, 4L, 0, 0).copy(homeScore = null, awayScore = null, isPlayed = false)
+        )
+
+        assertTrue(FifaClubWorldCupRules.groupRanking(fixtures).isEmpty())
+    }
+
+    @Test
     fun `UEFA qualified slots retain their concrete destination competition`() {
         val fields = UefaQualificationRules.selectLeaguePhaseFields(uefaCandidates(120))
 
