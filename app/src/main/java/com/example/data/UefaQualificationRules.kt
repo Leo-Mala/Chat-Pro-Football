@@ -70,24 +70,15 @@ object UefaQualificationRules {
 
         // Intercala associações: 1º de cada país, 2º de cada país etc. Isso evita preencher um
         // torneio inteiro com uma única liga quando não há coeficiente/access-list persistidos.
-        val ordered = buildList {
+        // O destino UEFA só é anexado ao consumir cada campo, para que a mesma ordenação esportiva
+        // não perca a identidade tipada da Champions, Europa ou Conference.
+        val ordered = buildList<Pair<Team, Int>> {
             var associationSlot = 0
             while (size < eligible.size) {
                 var added = false
                 for (association in byAssociation.keys) {
                     val team = byAssociation.getValue(association).getOrNull(associationSlot) ?: continue
-                    add(
-                        QualifiedTeam(
-                            team = team,
-                            slot = QualificationSlot(
-                                source = QualificationSource.AssociationSlot(
-                                    association = association,
-                                    slot = associationSlot + 1
-                                ),
-                                ordinal = associationSlot + 1
-                            )
-                        )
-                    )
+                    add(team to (associationSlot + 1))
                     added = true
                 }
                 if (!added) break
@@ -96,16 +87,28 @@ object UefaQualificationRules {
         }
 
         var offset = 0
-        fun takeField(): List<QualifiedTeam> {
+        fun takeField(destinationCompetition: CompetitionIdentity): List<QualifiedTeam> {
             if (ordered.size - offset < FIELD_SIZE) return emptyList()
             val field = ordered.subList(offset, offset + FIELD_SIZE).toList()
             offset += FIELD_SIZE
-            return field
+            return field.mapIndexed { index, (team, associationSlot) ->
+                QualifiedTeam(
+                    team = team,
+                    slot = QualificationSlot(
+                        source = QualificationSource.AssociationSlot(
+                            association = canonicalAssociation(team.country),
+                            slot = associationSlot
+                        ),
+                        destinationCompetition = destinationCompetition,
+                        ordinal = index + 1
+                    )
+                )
+            }
         }
 
-        val champions = takeField()
-        val europa = takeField()
-        val conference = takeField()
+        val champions = takeField(CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE)
+        val europa = takeField(CompetitionIdentity.UEFA_EUROPA_LEAGUE)
+        val conference = takeField(CompetitionIdentity.UEFA_CONFERENCE_LEAGUE)
         val allIds = (champions + europa + conference).map { it.team.id }
         require(allIds.size == allIds.toSet().size) {
             "Um clube não pode ocupar duas competições UEFA principais na mesma temporada."
