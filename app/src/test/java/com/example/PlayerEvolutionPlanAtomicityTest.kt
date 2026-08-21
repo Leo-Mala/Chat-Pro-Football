@@ -57,6 +57,26 @@ class PlayerEvolutionPlanAtomicityTest {
     }
 
     @Test
+    fun retryingSamePreparedPlanDoesNotDuplicateEvolutionHistory() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
+
+        assertTrue(useCase.commitMonthlyEvolution(plan))
+        val historyAfterFirstCommit = repository.getHistoricoPorJogador(10L)
+        assertTrue(historyAfterFirstCommit.isNotEmpty())
+
+        assertTrue(useCase.commitMonthlyEvolution(plan))
+        val historyAfterRetry = repository.getHistoricoPorJogador(10L)
+
+        assertEquals(historyAfterFirstCommit.size, historyAfterRetry.size)
+        assertEquals(
+            historyAfterFirstCommit.map { listOf(it.jogadorId, it.data, it.atributo, it.valorAntigo, it.valorNovo) },
+            historyAfterRetry.map { listOf(it.jogadorId, it.data, it.atributo, it.valorAntigo, it.valorNovo) }
+        )
+    }
+
+    @Test
     fun unchangedPlayersStillHaveMonthlyCountersResetWithoutEntityUpdate() = runTest {
         seedCareer()
         val save = repository.getGameSave()!!
@@ -67,6 +87,7 @@ class PlayerEvolutionPlanAtomicityTest {
             expectedSeason = save.currentSeason,
             expectedWeek = save.currentWeek,
             expectedPlayerTeamId = save.playerTeamId,
+            periodDate = "S2026_W4",
             results = emptyList(),
             updatedPlayers = emptyList(),
             historyLogs = emptyList()
