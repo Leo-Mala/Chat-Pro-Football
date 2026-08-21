@@ -186,9 +186,7 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            var updated = repo.withTransaction {
-                simulateSingleUserFixture(targetFixture, save)
-            }
+            var updated = simulateSingleUserFixture(targetFixture, save)
             val decided = CompetitionRules.ensureKnockoutDecision(updated)
             if (decided != updated) {
                 repo.updateFixture(decided)
