@@ -228,7 +228,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # One-run repair helper. It patches the large ViewModel file through an exact text replacement,
+  # One-run repair helper. It patches the large ViewModel file through bounded marker replacement,
   # then is removed immediately by the next human-authored commit before final validation/merge.
   patch-phase10-standalone-outcome:
     name: Patch Phase 10.1 standalone outcome caller
@@ -255,19 +255,16 @@ jobs:
           from pathlib import Path
           path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           source = path.read_text()
-          old = '''    fun advanceMonthAndRunEvolution() {
-              viewModelScope.launch(Dispatchers.IO) {
-                  val save = repo.getGameSave() ?: return@launch
-                  val periodDate = "${save.currentSeason}-${save.currentWeek}"
-                  val results = playerEvolutionUseCase.executeMonthlyEvolution(save, periodDate)
-
-                  // Exibe modal de resumo do time do usuário somente após o commit atômico de jogadores + histórico.
-                  _monthlyEvolutionSummary.value = results.filter { it.player.teamId == save.playerTeamId }
-                  _toastMessage.emit("Evolução mensal processada para todo o elenco!")
-              }
-          }
-          '''
-          new = '''    fun advanceMonthAndRunEvolution() {
+          detailed_call = 'playerEvolutionUseCase.executeMonthlyEvolutionDetailed(save, periodDate)'
+          if detailed_call in source:
+              raise SystemExit(0)
+          start_marker = '    fun advanceMonthAndRunEvolution() {'
+          end_marker = '\n    fun dismissMonthlyEvolutionSummary()'
+          if source.count(start_marker) != 1:
+              raise SystemExit(f'Expected exactly one advanceMonthAndRunEvolution marker, got {source.count(start_marker)}')
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+          replacement = '''    fun advanceMonthAndRunEvolution() {
               viewModelScope.launch(Dispatchers.IO) {
                   val save = repo.getGameSave() ?: return@launch
                   val periodDate = "${save.currentSeason}-${save.currentWeek}"
@@ -281,16 +278,13 @@ jobs:
                   }
 
                   // Exibe modal de resumo do time do usuário somente após o commit atômico de jogadores + histórico.
-                  _monthlyEvolutionSummary.value = outcome.results.filter { it.player.teamId == save.playerTeamId }
+                  _monthlyEvolutionSummary.value =
+                      outcome.results.filter { it.player.teamId == save.playerTeamId }
                   _toastMessage.emit("Evolução mensal processada para todo o elenco!")
               }
           }
           '''
-          if old not in source:
-              if new in source:
-                  raise SystemExit(0)
-              raise SystemExit('Expected advanceMonthAndRunEvolution block not found')
-          path.write_text(source.replace(old, new, 1))
+          path.write_text(source[:start] + replacement + source[end:])
           PY
           git diff --check
           if git diff --quiet -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt; then
