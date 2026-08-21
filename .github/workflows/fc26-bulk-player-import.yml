@@ -128,15 +128,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload Debug APK
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug-fc26-bulk-import
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@v4
