@@ -319,9 +319,10 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
  *
  * Em semanas mensais, a parte CPU-heavy da evolução é preparada antes de adquirir a transação de
  * escrita. A transação continua sendo a única unidade de commit de finanças, contratos, evolução,
- * copas e avanço de calendário. Antes de aplicar o plano preparado, todos os inputs de evolução são
- * revalidados; se o próprio ciclo semanal tiver alterado um input relevante (por exemplo teamId), o
- * plano externo é descartado e somente esse caso raro é recalculado dentro da transação.
+ * copas e avanço de calendário. O commit mensal faz uma projeção leve do universo já após a
+ * manutenção semanal: mudanças legítimas de clube e novos jogadores são corrigidos apenas no
+ * subconjunto afetado, enquanto qualquer alteração real dos inputs esportivos falha fechada.
+ * Assim, nenhum caminho normal volta a calcular os ~60 mil jogadores com a transação Room aberta.
  *
  * Uma falha em qualquer etapa ainda causa rollback de todo o fechamento semanal, preservando a
  * atomicidade introduzida na Fase 10.0.
@@ -370,12 +371,13 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
         // Execute monthly evolution every 4 weeks, including the canonical final week (48).
         if (monthlyPeriod != null) {
             val committedPreparedPlan = preparedMonthlyPlan?.let { plan ->
-                playerEvolutionUseCase.commitMonthlyEvolution(plan)
+                playerEvolutionUseCase.commitMonthlyEvolution(
+                    plan = plan,
+                    allowWeeklyRosterCorrections = true
+                )
             } == true
-            if (!committedPreparedPlan) {
-                // Weekly lifecycle changed an evolution input after pre-planning. Recompute from the
-                // fresh in-transaction state rather than applying stale football attributes.
-                playerEvolutionUseCase.executeMonthlyEvolution(save, monthlyPeriod)
+            check(committedPreparedPlan) {
+                "O plano mensal ficou obsoleto por uma mutação esportiva não reparável; fechamento semanal revertido."
             }
         }
 
