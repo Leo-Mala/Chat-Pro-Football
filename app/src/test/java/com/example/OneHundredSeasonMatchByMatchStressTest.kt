@@ -83,14 +83,43 @@ class OneHundredSeasonMatchByMatchStressTest {
             )
         }
 
-        val hostSupportTeams = listOf(
+        // O stress precisa de um universo mundial estruturalmente válido para exercer as 25
+        // edições quadrienais. Estes clubes são fixtures sintéticos de teste, distribuídos somente
+        // entre associações nacionais tipadas; não são fillers de produção nem alteram o dataset FC26.
+        // Há pelo menos quota+1 clubes em cada confederação que pode receber a sede, para que a vaga
+        // do anfitrião não torne o field de 32 insolúvel ao longo do rodízio centenário.
+        val worldSupportTeams = listOf(
             Team(301L, "Argentina Host", "Buenos Aires", "AR", "Argentina", 1, rating = 84),
             Team(302L, "Espanha Host", "Madrid", "ES", "Espanha", 1, rating = 88),
             Team(303L, "França Host", "Paris", "FR", "França", 1, rating = 87),
             Team(304L, "Inglaterra Host", "London", "EN", "Inglaterra", 1, rating = 91),
-            Team(305L, "Japão Host", "Tokyo", "JP", "Japão", 1, rating = 82)
+            Team(305L, "Japão Host", "Tokyo", "JP", "Japão", 1, rating = 82),
+            Team(306L, "Itália Support", "Roma", "IT", "Itália", 1, rating = 86),
+            Team(307L, "Alemanha Support", "Berlin", "DE", "Alemanha", 1, rating = 89),
+            Team(308L, "Portugal Support", "Lisboa", "PT", "Portugal", 1, rating = 85),
+            Team(309L, "Países Baixos Support", "Amsterdam", "NL", "Países Baixos", 1, rating = 84),
+            Team(310L, "Bélgica Support", "Bruxelas", "BE", "Bélgica", 1, rating = 83),
+            Team(311L, "Turquia Support", "Istambul", "TR", "Turquia", 1, rating = 82),
+            Team(312L, "Escócia Support", "Glasgow", "SC", "Escócia", 1, rating = 81),
+            Team(313L, "Áustria Support", "Viena", "AT", "Áustria", 1, rating = 80),
+            Team(314L, "Suíça Support", "Zurique", "CH", "Suíça", 1, rating = 80),
+            Team(315L, "Dinamarca Support", "Copenhague", "DK", "Dinamarca", 1, rating = 79),
+            Team(316L, "Coreia do Sul Support", "Seul", "KR", "Coreia do Sul", 1, rating = 81),
+            Team(317L, "Arábia Saudita Support", "Riad", "SA", "Arábia Saudita", 1, rating = 80),
+            Team(318L, "Emirados Árabes Unidos Support", "Abu Dhabi", "AE", "Emirados Árabes Unidos", 1, rating = 79),
+            Team(319L, "Catar Support", "Doha", "QA", "Catar", 1, rating = 78),
+            Team(320L, "Egito Support A", "Cairo", "EG", "Egito", 1, rating = 83),
+            Team(321L, "Egito Support B", "Alexandria", "EG", "Egito", 1, rating = 81),
+            Team(322L, "Marrocos Support", "Casablanca", "MA", "Marrocos", 1, rating = 82),
+            Team(323L, "Tunísia Support", "Túnis", "TN", "Tunísia", 1, rating = 79),
+            Team(324L, "África do Sul Support", "Joanesburgo", "ZA", "África do Sul", 1, rating = 78),
+            Team(325L, "México Support", "Cidade do México", "MX", "México", 1, rating = 83),
+            Team(326L, "Estados Unidos / Canadá Support", "Toronto", "NA", "Estados Unidos / Canadá", 1, rating = 82),
+            Team(327L, "Costa Rica Support", "San José", "CR", "Costa Rica", 1, rating = 79),
+            Team(328L, "Guatemala Support", "Cidade da Guatemala", "GT", "Guatemala", 1, rating = 77),
+            Team(329L, "Honduras Support", "Tegucigalpa", "HN", "Honduras", 1, rating = 76)
         )
-        val allTeams = leagueTeams + hostSupportTeams
+        val allTeams = leagueTeams + worldSupportTeams
         val cpuTeamIds = allTeams.filter { it.id != cruzeiro.id }.map { it.id }.toSet()
         repository.saveTeams(allTeams)
 

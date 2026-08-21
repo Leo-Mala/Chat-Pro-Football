@@ -1,7 +1,5 @@
 package com.example.data
 
-import kotlin.random.Random
-
 object SuperMundialSystem {
 
     const val GROUP_WEEK_1 = 42
@@ -16,131 +14,46 @@ object SuperMundialSystem {
         SuperMundialEditionPolicy.isEditionSeason(season)
 
     /**
-     * As 31 vagas regulares mantêm a composição histórica usada pelo projeto. A 32ª vaga é
-     * reservada ao anfitrião determinado pela política da edição, e portanto não fica presa a um
-     * clube fixo.
+     * Compatibilidade de assinatura. O clube controlado não recebe mais promoção automática:
+     * participar do Mundial depende exclusivamente do field esportivo.
      */
-    val defaultSuperMundialClubs = listOf(
-        // UEFA (12)
-        "Real Madrid", "Manchester City", "Chelsea", "Bayern München", "Paris Saint-Germain",
-        "Inter de Milão", "Borussia Dortmund", "FC Porto", "Benfica", "Juventus",
-        "Atlético de Madrid", "Red Bull Salzburg",
-        // CONMEBOL (6)
-        "Palmeiras", "Flamengo", "Fluminense", "River Plate", "Boca Juniors", "Cruzeiro",
-        // CONCACAF (4)
-        "Monterrey", "Seattle Sounders", "Pachuca", "Club León",
-        // CAF (4)
-        "Al Ahly", "Wydad Casablanca", "Esperança de Tunis", "Mamelodi Sundowns",
-        // AFC (4)
-        "Al Hilal", "Urawa Red Diamonds", "Al Ain", "Ulsan HD",
-        // OFC (1)
-        "Auckland City"
-    )
+    @Suppress("UNUSED_PARAMETER")
+    fun selectParticipants(season: Int, allTeams: List<Team>, userTeamId: Long): List<Team> =
+        selectParticipants(season, allTeams, previousSeasonStandings = emptyList())
 
-    fun selectParticipants(season: Int, allTeams: List<Team>, userTeamId: Long): List<Team> {
+    fun selectParticipants(
+        season: Int,
+        allTeams: List<Team>,
+        previousSeasonStandings: List<GlobalLeagueStanding>
+    ): List<Team> =
+        SuperMundialQualificationRules
+            .selectField(season, allTeams, previousSeasonStandings)
+            ?.teams
+            .orEmpty()
+
+    @Suppress("UNUSED_PARAMETER")
+    fun generateGroupStageFixtures(season: Int, allTeams: List<Team>, userTeamId: Long): List<Fixture> =
+        generateGroupStageFixtures(season, allTeams, previousSeasonStandings = emptyList())
+
+    fun generateGroupStageFixtures(
+        season: Int,
+        allTeams: List<Team>,
+        previousSeasonStandings: List<GlobalLeagueStanding>
+    ): List<Fixture> {
         if (!isSuperMundialSeason(season)) return emptyList()
 
-        val hostTeam = SuperMundialEditionPolicy.hostTeamForSeason(season, allTeams)
-        val hostTeamId = hostTeam?.id
-        val regularTarget = if (hostTeam != null) 31 else 32
-        val selectedTeams = mutableListOf<Team>()
-        val realTeamsByName = allTeams.associateBy { it.name }
+        val selectedTeams = selectParticipants(season, allTeams, previousSeasonStandings)
+        if (selectedTeams.size != SuperMundialQualificationRules.FIELD_SIZE) return emptyList()
 
-        fun addUnique(team: Team) {
-            if (team.id != hostTeamId && selectedTeams.none { it.id == team.id }) {
-                selectedTeams.add(team)
-            }
-        }
+        val groups = WorldClubDrawEngine.drawGroups(season, selectedTeams)
+        if (groups.size != 8 || groups.any { it.size != 4 }) return emptyList()
 
-        // Primeiro reaproveita clubes persistidos que correspondem à lista histórica.
-        for (clubName in defaultSuperMundialClubs) {
-            if (selectedTeams.size >= regularTarget) break
-            val exact = realTeamsByName[clubName]
-            val fuzzy = allTeams.find {
-                it.id != hostTeamId && it.name.contains(clubName, ignoreCase = true)
-            }
-            (exact ?: fuzzy)?.let(::addUnique)
-        }
-
-        // Se algum nome histórico não existir no save, clubes reais persistidos ocupam a vaga
-        // antes de qualquer fallback virtual.
-        allTeams.asSequence()
-            .filter { it.id != hostTeamId && selectedTeams.none { selected -> selected.id == it.id } }
-            .sortedWith(compareByDescending<Team> { it.rating }.thenBy { it.id })
-            .forEach { candidate ->
-                if (selectedTeams.size < regularTarget) addUnique(candidate)
-            }
-
-        // Compatibilidade para universos sintéticos/legados pequenos: somente agora recorremos aos
-        // clubes virtuais históricos ainda ausentes.
-        for (clubName in defaultSuperMundialClubs) {
-            if (selectedTeams.size >= regularTarget) break
-            if (selectedTeams.any { it.name.equals(clubName, ignoreCase = true) }) continue
-            val globalId = GlobalFootballSystem.getGlobalId("Mundial", clubName)
-            if (globalId == hostTeamId || selectedTeams.any { it.id == globalId }) continue
-            addUnique(
-                Team(
-                    id = globalId,
-                    name = clubName,
-                    city = "Mundial",
-                    state = "FIFA",
-                    country = "Mundial",
-                    division = 1,
-                    rating = when {
-                        clubName in listOf("Real Madrid", "Manchester City", "Bayern München") -> 88
-                        clubName in listOf("Paris Saint-Germain", "Inter de Milão", "Chelsea") -> 85
-                        clubName in listOf("Palmeiras", "Flamengo", "River Plate", "Al Hilal", "Cruzeiro") -> 82
-                        else -> 77
-                    },
-                    stadiumName = "Estádio Mundial",
-                    logoUrl = DefaultData.getLogoForTeam(clubName, "Mundial")
-                )
-            )
-        }
-
-        var dummyCounter = 1
-        while (selectedTeams.size < regularTarget) {
-            val virtualTeam = GlobalFootballSystem.getVirtualTeam(900_000L + dummyCounter)
-            if (virtualTeam.id != hostTeamId && selectedTeams.none { it.id == virtualTeam.id }) {
-                selectedTeams.add(virtualTeam)
-            }
-            dummyCounter++
-        }
-
-        // Mantém a compatibilidade histórica do projeto em que o clube do usuário pode participar,
-        // mas nunca ocupa nem duplica a vaga do anfitrião.
-        val userTeam = allTeams.find { it.id == userTeamId }
-        if (userTeam != null && userTeam.id != hostTeamId && selectedTeams.none { it.id == userTeam.id }) {
-            if (selectedTeams.size < regularTarget) {
-                selectedTeams.add(userTeam)
-            } else if (selectedTeams.isNotEmpty()) {
-                selectedTeams[selectedTeams.lastIndex] = userTeam
-            }
-        }
-
-        if (hostTeam != null && selectedTeams.none { it.id == hostTeam.id }) {
-            selectedTeams.add(hostTeam)
-        }
-
-        return selectedTeams
-            .distinctBy { it.id }
-            .take(32)
-    }
-
-    fun generateGroupStageFixtures(season: Int, allTeams: List<Team>, userTeamId: Long): List<Fixture> {
-        if (!isSuperMundialSeason(season)) return emptyList()
-
-        val selectedTeams = selectParticipants(season, allTeams, userTeamId)
-        if (selectedTeams.size != 32) return emptyList()
-
-        val shuffled = selectedTeams.shuffled(Random(season.toLong()))
         val groupLetters = listOf("A", "B", "C", "D", "E", "F", "G", "H")
         val fixtures = mutableListOf<Fixture>()
 
         for (i in 0 until 8) {
             val groupLetter = groupLetters[i]
-            val startIndex = i * 4
-            val groupTeams = shuffled.subList(startIndex, startIndex + 4)
+            val groupTeams = groups[i]
             val compCode = "WORLD_CUP_GP_$groupLetter"
 
             val t1 = groupTeams[0].id
@@ -162,13 +75,6 @@ object SuperMundialSystem {
         return fixtures
     }
 
-    private data class TempStanding(
-        val teamId: Long,
-        var points: Int = 0,
-        var gd: Int = 0,
-        var gf: Int = 0
-    )
-
     suspend fun processProgression(season: Int, currentWeek: Int, repo: GameRepository) {
         if (!isSuperMundialSeason(season)) return
 
@@ -177,7 +83,7 @@ object SuperMundialSystem {
         when (currentWeek) {
             GROUP_WEEK_3 -> {
                 val groupFixtures = allSeasonFixtures.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
-                if (groupFixtures.isEmpty() || groupFixtures.any { !it.isPlayed }) return
+                if (groupFixtures.size != 48 || groupFixtures.any { !it.isPlayed }) return
 
                 val existingOitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == ROUND_OF_16_WEEK }
                 if (existingOitavas.isNotEmpty()) return
@@ -188,38 +94,15 @@ object SuperMundialSystem {
                 for (letter in groupLetters) {
                     val compCode = "WORLD_CUP_GP_$letter"
                     val matches = groupFixtures.filter { it.competitionType == compCode }
+                    if (matches.size != 6) return
                     val teamIds = matches.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.distinct()
-                    val map = teamIds.associateWith { TempStanding(it) }.toMutableMap()
-
-                    for (m in matches) {
-                        val h = map[m.homeTeamId] ?: continue
-                        val a = map[m.awayTeamId] ?: continue
-                        val hG = m.homeScore ?: 0
-                        val aG = m.awayScore ?: 0
-
-                        h.gf += hG
-                        a.gf += aG
-                        h.gd += (hG - aG)
-                        a.gd += (aG - hG)
-
-                        if (hG > aG) h.points += 3
-                        else if (aG > hG) a.points += 3
-                        else {
-                            h.points += 1
-                            a.points += 1
-                        }
+                    if (teamIds.size != 4 || teamIds.any { id -> matches.count { it.homeTeamId == id || it.awayTeamId == id } != 3 }) {
+                        return
                     }
 
-                    val sorted = map.values.sortedWith(
-                        compareByDescending<TempStanding> { it.points }
-                            .thenByDescending { it.gd }
-                            .thenByDescending { it.gf }
-                            .thenBy { it.teamId }
-                    )
-
-                    if (sorted.size >= 2) {
-                        groupQualifiers[letter] = Pair(sorted[0].teamId, sorted[1].teamId)
-                    }
+                    val ranking = FifaClubWorldCupRules.groupRanking(matches)
+                    if (ranking.size != 4) return
+                    groupQualifiers[letter] = ranking[0] to ranking[1]
                 }
 
                 if (groupQualifiers.size == 8) {
@@ -244,19 +127,19 @@ object SuperMundialSystem {
                             )
                         }
                     }
-                    if (oitavasFixtures.isNotEmpty()) repo.saveFixtures(oitavasFixtures)
+                    if (oitavasFixtures.size == 8) repo.saveFixtures(oitavasFixtures)
                 }
             }
 
             ROUND_OF_16_WEEK -> {
                 val oitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == ROUND_OF_16_WEEK }
-                if (oitavas.isEmpty() || oitavas.any { !it.isPlayed }) return
+                if (oitavas.size != 8 || oitavas.any { !it.isPlayed }) return
 
                 val existingQuartas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == QUARTERFINAL_WEEK }
                 if (existingQuartas.isNotEmpty()) return
 
-                val winners = oitavas.map { getWinner(it) }
-                if (winners.size == 8) {
+                val winners = oitavas.mapNotNull(::getWinner)
+                if (winners.size == 8 && winners.toSet().size == 8) {
                     val quartasFixtures = mutableListOf<Fixture>()
                     for (i in 0 until 4) {
                         quartasFixtures.add(
@@ -276,13 +159,13 @@ object SuperMundialSystem {
 
             QUARTERFINAL_WEEK -> {
                 val quartas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == QUARTERFINAL_WEEK }
-                if (quartas.isEmpty() || quartas.any { !it.isPlayed }) return
+                if (quartas.size != 4 || quartas.any { !it.isPlayed }) return
 
                 val existingSemis = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == SEMIFINAL_WEEK }
                 if (existingSemis.isNotEmpty()) return
 
-                val winners = quartas.map { getWinner(it) }
-                if (winners.size == 4) {
+                val winners = quartas.mapNotNull(::getWinner)
+                if (winners.size == 4 && winners.toSet().size == 4) {
                     repo.saveFixtures(
                         listOf(
                             Fixture(season = season, week = SEMIFINAL_WEEK, matchSlot = MatchSlot.MIDWEEK, homeTeamId = winners[0], awayTeamId = winners[1], competitionType = "WORLD_CUP"),
@@ -294,13 +177,13 @@ object SuperMundialSystem {
 
             SEMIFINAL_WEEK -> {
                 val semis = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == SEMIFINAL_WEEK }
-                if (semis.isEmpty() || semis.any { !it.isPlayed }) return
+                if (semis.size != 2 || semis.any { !it.isPlayed }) return
 
                 val existingFinal = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == FINAL_WEEK }
                 if (existingFinal.isNotEmpty()) return
 
-                val winners = semis.map { getWinner(it) }
-                if (winners.size == 2) {
+                val winners = semis.mapNotNull(::getWinner)
+                if (winners.size == 2 && winners.toSet().size == 2) {
                     repo.saveFixtures(
                         listOf(
                             Fixture(
@@ -317,48 +200,47 @@ object SuperMundialSystem {
             }
 
             FINAL_WEEK -> {
-                val finalMatch = allSeasonFixtures.find { it.competitionType == "WORLD_CUP" && it.week == FINAL_WEEK }
-                if (finalMatch != null && finalMatch.isPlayed) {
-                    val winnerId = getWinner(finalMatch)
-                    val runnerUpId = if (winnerId == finalMatch.homeTeamId) finalMatch.awayTeamId else finalMatch.homeTeamId
+                val finalMatch = allSeasonFixtures.singleOrNull {
+                    it.competitionType == "WORLD_CUP" && it.week == FINAL_WEEK
+                } ?: return
+                if (!finalMatch.isPlayed) return
 
-                    val winnerTeam = repo.getTeam(winnerId) ?: GlobalFootballSystem.getVirtualTeam(winnerId)
-                    val runnerUpTeam = repo.getTeam(runnerUpId) ?: GlobalFootballSystem.getVirtualTeam(runnerUpId)
-                    val hostCountry = SuperMundialEditionPolicy.hostCountryForSeason(
-                        season,
-                        repo.getAllTeams()
-                    ) ?: "Sede não definida"
+                val decidedFinal = CompetitionRules.ensureKnockoutDecision(finalMatch)
+                if (decidedFinal != finalMatch) repo.updateFixture(decidedFinal)
+                val winnerId = CompetitionRules.winnerOf(decidedFinal) ?: return
+                val runnerUpId = if (winnerId == decidedFinal.homeTeamId) decidedFinal.awayTeamId else decidedFinal.homeTeamId
 
-                    val existingRecords = repo.getAllHistoricalRecords()
-                    val alreadySaved = existingRecords.any { it.season == season && it.competitionName.contains("Mundial") }
+                // Fail-closed: uma final com clube inexistente não pode materializar nome virtual.
+                val winnerTeam = repo.getTeam(winnerId) ?: return
+                val runnerUpTeam = repo.getTeam(runnerUpId) ?: return
+                val eligibleTeams = SuperMundialQualificationRules.eligibleRealTeams(repo.getAllTeams())
+                val hostCountry = SuperMundialEditionPolicy.hostCountryForSeason(
+                    season,
+                    eligibleTeams
+                ) ?: return
 
-                    if (!alreadySaved) {
-                        repo.saveRecord(
-                            HistoricalRecord(
-                                season = season,
-                                competitionName = "Super Mundial de Clubes 🌍 — Sede: $hostCountry",
-                                championTeamName = winnerTeam.name,
-                                runnerUpTeamName = runnerUpTeam.name,
-                                topScorerName = "Destaque Mundial",
-                                topScorerGoals = 5,
-                                topScorerTeam = winnerTeam.name
-                            )
+                val existingRecords = repo.getAllHistoricalRecords()
+                val alreadySaved = existingRecords.any {
+                    it.season == season && it.competitionName.startsWith("Super Mundial de Clubes")
+                }
+
+                if (!alreadySaved) {
+                    repo.saveRecord(
+                        HistoricalRecord(
+                            season = season,
+                            competitionName = "Super Mundial de Clubes 🌍 — Sede: $hostCountry",
+                            championTeamName = winnerTeam.name,
+                            runnerUpTeamName = runnerUpTeam.name,
+                            topScorerName = "",
+                            topScorerGoals = 0,
+                            topScorerTeam = ""
                         )
-                    }
+                    )
                 }
             }
         }
     }
 
-    private fun getWinner(f: Fixture): Long {
-        val hS = f.homeScore ?: 0
-        val aS = f.awayScore ?: 0
-        return when {
-            hS > aS -> f.homeTeamId
-            aS > hS -> f.awayTeamId
-            (f.homePenalties ?: 0) > (f.awayPenalties ?: 0) -> f.homeTeamId
-            (f.awayPenalties ?: 0) > (f.homePenalties ?: 0) -> f.awayTeamId
-            else -> minOf(f.homeTeamId, f.awayTeamId)
-        }
-    }
+    private fun getWinner(fixture: Fixture): Long? =
+        CompetitionRules.winnerOf(fixture)
 }
