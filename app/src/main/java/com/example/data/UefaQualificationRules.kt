@@ -90,7 +90,7 @@ object UefaQualificationRules {
             if (ordered.size - offset < FIELD_SIZE) return emptyList()
             val field = ordered.subList(offset, offset + FIELD_SIZE).toList()
             offset += FIELD_SIZE
-            return field.mapIndexed { index, candidate ->
+            val qualified = field.mapIndexed { index, candidate ->
                 QualifiedTeam(
                     team = candidate.team,
                     slot = QualificationSlot(
@@ -103,6 +103,12 @@ object UefaQualificationRules {
                     )
                 )
             }
+
+            // A ordem esportiva define os potes e o ordinal de acesso. O passe de sorteio apenas
+            // permuta clubes dentro do mesmo pote para impedir confrontos entre a mesma associação.
+            // Se a combinação for impossível, a competição falha fechada em vez de gerar fixtures
+            // inválidos ou mover um clube para outro tier europeu.
+            return UefaLeaguePhaseAssociationDraw.arrange(qualified, destinationCompetition)
         }
 
         val champions = takeField(CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE)
