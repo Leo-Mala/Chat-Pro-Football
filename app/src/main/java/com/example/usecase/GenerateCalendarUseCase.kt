@@ -1,10 +1,12 @@
 package com.example.usecase
 
 import com.example.data.ContinentalQualificationRules
+import com.example.data.CountryFootballRulesRegistry
 import com.example.data.CupCompetitionSystem
 import com.example.data.EuropeanNewSaveSeedCoordinator
 import com.example.data.Fixture
 import com.example.data.FixtureScheduleValidator
+import com.example.data.FootballConfederation
 import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GlobalFootballSystem
@@ -13,6 +15,8 @@ import com.example.data.LeagueSeasonFormat
 import com.example.data.MatchSlot
 import com.example.data.SuperMundialSystem
 import com.example.data.Team
+import com.example.data.UefaCompetitionSystem
+import com.example.data.UefaQualificationRules
 
 /**
  * UseCase responsável por gerar o calendário de jogos, tabelas das divisões e mata-matas.
@@ -152,22 +156,52 @@ class GenerateCalendarUseCase(private val repository: GameRepository) {
             }
         }
 
-        val qualificationAwareTeams = ContinentalQualificationRules.applyPreviousSeasonStandings(
-            teams = teams,
-            standings = qualificationStandings
-        )
-        allFixtures.addAll(
-            CupCompetitionSystem.generateSeasonOpeningFixtures(
-                season = season,
-                teams = teams,
-                userTeamId = userTeamId,
-                userCountry = targetCountry,
-                continentalTeams = qualificationAwareTeams
+        val userConfederation = CountryFootballRulesRegistry.confederationFor(targetCountry)
+        if (userConfederation == FootballConfederation.UEFA) {
+            // CupCompetitionSystem continua owner da copa doméstica. Para UEFA passamos um field
+            // continental vazio e geramos as três competições pelo seletor esportivo tipado,
+            // evitando que o fallback division/id ignore o snapshot da temporada anterior.
+            allFixtures.addAll(
+                CupCompetitionSystem.generateSeasonOpeningFixtures(
+                    season = season,
+                    teams = teams,
+                    userTeamId = userTeamId,
+                    userCountry = targetCountry,
+                    continentalTeams = emptyList()
+                )
             )
-        )
+            val uefaFields = UefaQualificationRules.selectLeaguePhaseFields(
+                candidates = teams,
+                previousSeasonStandings = qualificationStandings
+            )
+            allFixtures.addAll(
+                UefaCompetitionSystem.generateOpeningFixtures(
+                    season = season,
+                    fields = uefaFields
+                )
+            )
+        } else {
+            val qualificationAwareTeams = ContinentalQualificationRules.applyPreviousSeasonStandings(
+                teams = teams,
+                standings = qualificationStandings
+            )
+            allFixtures.addAll(
+                CupCompetitionSystem.generateSeasonOpeningFixtures(
+                    season = season,
+                    teams = teams,
+                    userTeamId = userTeamId,
+                    userCountry = targetCountry,
+                    continentalTeams = qualificationAwareTeams
+                )
+            )
+        }
 
         allFixtures.addAll(
-            SuperMundialSystem.generateGroupStageFixtures(season, teams, userTeamId)
+            SuperMundialSystem.generateGroupStageFixtures(
+                season = season,
+                allTeams = teams,
+                previousSeasonStandings = qualificationStandings
+            )
         )
 
         FixtureScheduleValidator.requireValid(allFixtures)
