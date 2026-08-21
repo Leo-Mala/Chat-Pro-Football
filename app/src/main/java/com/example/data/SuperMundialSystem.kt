@@ -46,6 +46,8 @@ object SuperMundialSystem {
         if (selectedTeams.size != SuperMundialQualificationRules.FIELD_SIZE) return emptyList()
 
         val groups = WorldClubDrawEngine.drawGroups(season, selectedTeams)
+        if (groups.size != 8 || groups.any { it.size != 4 }) return emptyList()
+
         val groupLetters = listOf("A", "B", "C", "D", "E", "F", "G", "H")
         val fixtures = mutableListOf<Fixture>()
 
@@ -211,9 +213,10 @@ object SuperMundialSystem {
                 // Fail-closed: uma final com clube inexistente não pode materializar nome virtual.
                 val winnerTeam = repo.getTeam(winnerId) ?: return
                 val runnerUpTeam = repo.getTeam(runnerUpId) ?: return
+                val eligibleTeams = SuperMundialQualificationRules.eligibleRealTeams(repo.getAllTeams())
                 val hostCountry = SuperMundialEditionPolicy.hostCountryForSeason(
                     season,
-                    repo.getAllTeams()
+                    eligibleTeams
                 ) ?: return
 
                 val existingRecords = repo.getAllHistoricalRecords()
