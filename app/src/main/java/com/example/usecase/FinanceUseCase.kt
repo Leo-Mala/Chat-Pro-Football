@@ -5,6 +5,7 @@ import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.TransactionRecord
+import com.example.data.getPlayersByIds
 
 /**
  * UseCase responsável por toda a gestão financeira do clube, incluindo empréstimos,
@@ -25,11 +26,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         data class Error(val reason: String) : FinanceResult()
     }
 
-    /**
-     * Compatibilidade com os fluxos antigos, que conhecem apenas a existência ou não
-     * de uma partida em casa na semana. Quando há ao menos uma, consulta os fixtures já
-     * concluídos da semana para preservar corretamente semanas com dois jogos em casa.
-     */
     suspend fun processWeeklyFinances(
         save: GameSave,
         isHomeMatch: Boolean,
@@ -54,13 +50,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         )
     }
 
-    /**
-     * Processa a renda semanal de bilheteria, sócios-torcedores e patrocinadores,
-     * bem como folha salarial, academia, parcelas e empréstimos.
-     *
-     * [homeMatchCount] permite contabilizar corretamente semanas com liga + Copa/continental.
-     * Receitas e despesas semanais recorrentes continuam sendo processadas apenas uma vez.
-     */
     suspend fun processWeeklyFinances(
         save: GameSave,
         homeMatchCount: Int,
@@ -72,7 +61,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         val effectiveSocios = currentSave.socioTorcedoresCount.toLong().coerceAtLeast(currentSave.coachReputation * 150L)
         val socioRevenue = (effectiveSocios * 30.0).toLong()
 
-        // Sponsor processing
         var sponsorName = currentSave.sponsorName
         var sponsorWeekly = currentSave.sponsorWeekly
         var sponsorWeeksRemaining = currentSave.sponsorWeeksRemaining
@@ -100,21 +88,12 @@ class FinanceUseCase(private val repository: GameRepository) {
         }
 
         val totalWeeklyIncome = socioRevenue + sponsorRevenue + ticketRevenue
-
-        // Folha salarial semanal dos jogadores
         val roster = if (userPlayers.isNotEmpty()) userPlayers else repository.getPlayersByTeam(currentSave.playerTeamId)
         val playerSalaries = roster.sumOf { it.salary }.coerceAtLeast(30000L)
-
-        // Pagamento de juros de empréstimo (0.2% semanal do valor devido)
         val loanInterest = if (currentSave.loanAmount > 0L) (currentSave.loanAmount * BANK_LOAN_WEEKLY_INTEREST_RATE).toLong() else 0L
-
-        // Manutenção de estádio
         val maintenanceCost = (currentSave.stadiumCapacity * 2L)
-
-        // Investimento em academia de base
         val academyCost = currentSave.academyWeeklyInvestment.coerceAtLeast(0L)
 
-        // Processar parcelas ativas de transferências do time do jogador que VENCEM na semana atual
         var totalInstallmentPaid = 0L
         var totalInstallmentReceived = 0L
         val activeInstallments = repository.getActiveInstallmentsForWeek(currentSave.currentSeason, currentSave.currentWeek)
@@ -147,20 +126,18 @@ class FinanceUseCase(private val repository: GameRepository) {
             }
         }
 
-        // Processar empréstimos de jogadores ativos.
-        // Snapshot FC26 sem data de término permanece ACTIVE até um evento explícito de carreira;
-        // jamais decrementamos um prazo inexistente nem cobramos taxa inventada.
+        // Apenas o conjunto de empréstimos ACTIVE é carregado, e os jogadores correspondentes são
+        // buscados por PK em uma única query. Isto evita getAllPlayers() e o antigo N+1 semanal.
         var loanFeesPaid = 0L
         val activeLoans = repository.getActiveLoans()
+        val activeLoanPlayers = repository.getPlayersByIds(activeLoans.map { it.playerId }).associateBy { it.id }
         val updatedLoans = mutableListOf<com.example.data.PlayerLoan>()
 
         for (loan in activeLoans) {
-            val player = repository.getPlayer(loan.playerId)
+            val player = activeLoanPlayers[loan.playerId]
 
             if (Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)) {
                 if (player == null || !player.isOnLoan || player.contractDurationWeeks <= 0) {
-                    // O contrato principal expirou/liberou o atleta ou outra operação já publicou
-                    // a mudança de roster. Fechar novamente é idempotente e evita relação órfã.
                     updatedLoans.add(loan.copy(remainingWeeks = 0, status = "COMPLETED"))
                     if (player != null && player.isOnLoan) {
                         repository.updatePlayer(
@@ -178,10 +155,18 @@ class FinanceUseCase(private val repository: GameRepository) {
                     player.teamId != loan.borrowerTeamId ||
                     player.originalTeamId != loan.ownerTeamId
                 ) {
-                    // Fail-closed em inconsistência de runtime: não movemos o jogador para clube
-                    // algum por inferência. A relação deixa de ser ativa e o estado Player atual é
-                    // preservado para que o save continue auditável.
+                    // Fail-closed: não inferimos um destino. O roster atual permanece como está,
+                    // mas a relação inválida deixa de ser ativa e a flag de loan é limpa para não
+                    // publicar um jogador "emprestado" sem ownership válido.
                     updatedLoans.add(loan.copy(remainingWeeks = 0, status = "INVALID"))
+                    repository.updatePlayer(
+                        player.copy(
+                            originalTeamId = null,
+                            isOnLoan = false,
+                            loanWeeksRemaining = 0,
+                            isStarter = false
+                        )
+                    )
                 }
                 continue
             }
@@ -191,15 +176,12 @@ class FinanceUseCase(private val repository: GameRepository) {
             }
             val rem = loan.remainingWeeks - 1
             val newStatus = if (rem <= 0) "COMPLETED" else "ACTIVE"
-            val updated = loan.copy(remainingWeeks = rem, status = newStatus)
-            updatedLoans.add(updated)
+            updatedLoans.add(loan.copy(remainingWeeks = rem, status = newStatus))
 
-            // Strictly synchronize Player entity state with loan status
             if (player != null) {
                 if (rem <= 0) {
                     val hasExpiredContract = player.contractDurationWeeks <= 0
                     if (hasExpiredContract) {
-                        // Contrato expirou durante o empréstimo: torna-se Agente Livre canônico.
                         repository.updatePlayer(
                             player.copy(
                                 teamId = null,
@@ -211,7 +193,6 @@ class FinanceUseCase(private val repository: GameRepository) {
                             )
                         )
                     } else {
-                        // Contrato ainda ativo: devolve ao clube proprietário original.
                         val ownerTeamId = player.originalTeamId ?: loan.ownerTeamId
                         repository.updatePlayer(
                             player.copy(
@@ -246,13 +227,8 @@ class FinanceUseCase(private val repository: GameRepository) {
         )
 
         repository.saveGameSave(updatedSave)
-
-        for (inst in updatedInstallments) {
-            repository.updateInstallment(inst)
-        }
-        for (loan in updatedLoans) {
-            repository.updateLoan(loan)
-        }
+        for (inst in updatedInstallments) repository.updateInstallment(inst)
+        for (loan in updatedLoans) repository.updateLoan(loan)
 
         if (totalWeeklyIncome + totalInstallmentReceived > 0) {
             repository.saveTransaction(
@@ -287,9 +263,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         updatedSave
     }
 
-    /**
-     * Solicita um empréstimo bancário.
-     */
     suspend fun requestLoan(save: GameSave, amount: Long): FinanceResult = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: save
         if (amount <= 0) return@withTransaction FinanceResult.Error("Valor de empréstimo inválido.")
@@ -325,9 +298,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         FinanceResult.Success(updatedSave, "Empréstimo de R$ %,d concedido com sucesso!".format(amount))
     }
 
-    /**
-     * Quita um valor do empréstimo bancário.
-     */
     suspend fun repayLoan(save: GameSave, amount: Long): FinanceResult = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: save
         if (amount <= 0) return@withTransaction FinanceResult.Error("Valor inválido para quitação.")
@@ -357,9 +327,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         FinanceResult.Success(updatedSave, "Quitação de R$ %,d realizada com sucesso!".format(actualPay))
     }
 
-    /**
-     * Expande a capacidade do estádio.
-     */
     suspend fun upgradeStadium(save: GameSave, seatsToAdd: Int): FinanceResult = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: save
         if (seatsToAdd <= 0) return@withTransaction FinanceResult.Error("Quantidade de assentos inválida.")
@@ -390,9 +357,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         FinanceResult.Success(updatedSave, "Estádio expandido para %,d lugares com sucesso!".format(newCapacity))
     }
 
-    /**
-     * Premiação por término de competição (Série A, Copa do Brasil, Libertadores, Super Mundial)
-     */
     suspend fun awardCompetitionPrizeMoney(
         save: GameSave,
         competitionName: String,
@@ -447,9 +411,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         updatedSave
     }
 
-    /**
-     * Ajusta o valor do ingresso dos jogos em casa.
-     */
     suspend fun setTicketPrice(save: GameSave, price: Double): FinanceResult = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: save
         val clampedPrice = price.coerceIn(10.0, 300.0)
@@ -458,9 +419,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         FinanceResult.Success(updatedSave, "Preço do ingresso atualizado para R$ %.2f".format(clampedPrice))
     }
 
-    /**
-     * Assina contrato de patrocínio com bônus de entrada e pagamento semanal.
-     */
     suspend fun signSponsorshipContract(
         save: GameSave,
         sponsorName: String,
@@ -501,9 +459,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         )
     }
 
-    /**
-     * Melhora o Centro de Treinamento do clube.
-     */
     suspend fun upgradeTrainingCenter(save: GameSave): FinanceResult = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: save
         val team = repository.getTeam(currentSave.playerTeamId)
