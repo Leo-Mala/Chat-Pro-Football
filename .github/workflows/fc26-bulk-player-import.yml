@@ -21,6 +21,9 @@ concurrency:
 
 jobs:
   validation:
+    # Do not allocate a runner for draft PRs. Android CI owns the full build,
+    # non-stress regression suite and generic Room artifact for normal PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -92,56 +95,26 @@ jobs:
           GOOGLE_EOF
           fi
 
-      - name: Setup Debug Keystore
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.android
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug, O=Android, C=US"
-          fi
-          cp debug.keystore ~/.android/debug.keystore
-
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Run non-stress unit and Robolectric regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
-
       - name: Validate full 18,405-player bulk import explicitly
         shell: bash
         run: |
           set -euo pipefail
+          chmod +x gradlew
           ./gradlew testDebugUnitTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
             --tests com.example.data.Fc26SeedPlannerTest \
             --tests com.example.data.Fc26PlayerMapperTest \
             --tests com.example.data.StableRealPlayerIdentityTest \
             --tests com.example.data.EuropeanStableTeamIdentityTest \
+            -PexcludeStressTests=true \
             --stacktrace
 
       - name: Verify Room schema V21
-        id: room_schema
         shell: bash
         run: |
           set -euo pipefail
           grep -Eq 'version\s*=\s*21' app/src/main/java/com/example/data/database.kt
-          schema_file='app/schemas/com.example.data.AppDatabase/21.json'
-          test -f "$schema_file"
-          echo "schema_file=$schema_file" >> "$GITHUB_OUTPUT"
+          test -f 'app/schemas/com.example.data.AppDatabase/21.json'
 
       - name: Upload FC26 bulk reports
         uses: actions/upload-artifact@v4
@@ -152,20 +125,7 @@ jobs:
             reports/fc26_bulk_import_unresolved.json
             reports/fc26_club_mapping_report.json
           if-no-files-found: error
-
-      - name: Upload Room schema
-        uses: actions/upload-artifact@v4
-        with:
-          name: room-schema-${{ github.sha }}
-          path: ${{ steps.room_schema.outputs.schema_file }}
-          if-no-files-found: error
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug-fc26-bulk-import
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          retention-days: 1
 
       - name: Upload test report on failure
         if: failure()
@@ -174,3 +134,4 @@ jobs:
           name: fc26-bulk-import-test-report
           path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
+          retention-days: 1
