@@ -7,6 +7,7 @@ import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Player
 import com.example.data.Team
+import com.example.usecase.MonthlyEvolutionPlan
 import com.example.usecase.PlayerEvolutionUseCase
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -53,6 +54,32 @@ class PlayerEvolutionPlanAtomicityTest {
         val persisted = repository.getPlayer(10L)!!
         assertEquals(0, persisted.minutosJogados)
         assertTrue(repository.getHistoricoPorJogador(10L).isNotEmpty())
+    }
+
+    @Test
+    fun unchangedPlayersStillHaveMonthlyCountersResetWithoutEntityUpdate() = runTest {
+        seedCareer()
+        val save = repository.getGameSave()!!
+        val original = repository.getPlayer(10L)!!
+        repository.updatePlayer(original.copy(minutosJogados = 321, evolucaoMensal = 2.5))
+
+        val counterOnlyPlan = MonthlyEvolutionPlan(
+            expectedSeason = save.currentSeason,
+            expectedWeek = save.currentWeek,
+            expectedPlayerTeamId = save.playerTeamId,
+            results = emptyList(),
+            updatedPlayers = emptyList(),
+            historyLogs = emptyList()
+        )
+
+        assertTrue(useCase.commitMonthlyEvolution(counterOnlyPlan))
+
+        val persisted = repository.getPlayer(10L)!!
+        assertEquals(0, persisted.minutosJogados)
+        assertEquals(0.0, persisted.evolucaoMensal, 0.0)
+        assertEquals(original.force, persisted.force)
+        assertEquals(original.teamId, persisted.teamId)
+        assertEquals(original.contractDurationWeeks, persisted.contractDurationWeeks)
     }
 
     @Test
