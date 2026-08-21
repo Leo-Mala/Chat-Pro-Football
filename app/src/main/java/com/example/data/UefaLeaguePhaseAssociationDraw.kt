@@ -4,9 +4,10 @@ package com.example.data
  * Deterministic association-separation pass for UEFA league-phase fields.
  *
  * Qualification order determines pot membership. This helper only permutes clubs inside the same
- * pot so the fixed league-phase graph never pairs two clubs from the same canonical association.
- * If the constraints cannot be satisfied with the supplied field, it fails closed with an empty
- * result instead of silently creating an invalid draw.
+ * pot so the fixed league-phase graph respects the association constraints supported by the UEFA
+ * 2026/27 regulations: no opponent from the same association and no more than two opponents from
+ * any other single association. If the constraints cannot be satisfied with the supplied field,
+ * it fails closed with an empty result instead of silently creating an invalid draw.
  */
 object UefaLeaguePhaseAssociationDraw {
     private data class Edge(val low: Int, val high: Int) {
@@ -49,17 +50,45 @@ object UefaLeaguePhaseAssociationDraw {
             CountryFootballRulesRegistry.resolve(item.team.country)?.canonicalCountry
                 ?: item.team.country.trim()
 
+        fun respectsAssociationConstraints(
+            position: Int,
+            candidate: UefaQualificationRules.QualifiedTeam
+        ): Boolean {
+            val candidateAssociation = canonicalAssociation(candidate)
+            val assignedNeighbours = adjacency[position].mapNotNull { assigned[it] }
+
+            if (assignedNeighbours.any { canonicalAssociation(it) == candidateAssociation }) {
+                return false
+            }
+
+            // A própria equipe não pode acumular mais de dois adversários da mesma associação.
+            if (
+                assignedNeighbours
+                    .groupingBy(::canonicalAssociation)
+                    .eachCount()
+                    .values
+                    .any { it > 2 }
+            ) return false
+
+            // Para cada vizinho já materializado, adicionar este candidato também não pode criar um
+            // terceiro adversário da mesma associação para aquele clube.
+            adjacency[position].forEach { neighbourPosition ->
+                val neighbour = assigned[neighbourPosition] ?: return@forEach
+                val existingCount = adjacency[neighbourPosition]
+                    .asSequence()
+                    .mapNotNull { assigned[it] }
+                    .count { canonicalAssociation(it) == candidateAssociation }
+                if (existingCount >= 2) return false
+                if (canonicalAssociation(neighbour) == candidateAssociation) return false
+            }
+            return true
+        }
+
         fun validCandidates(position: Int): List<UefaQualificationRules.QualifiedTeam> {
             val pot = position / potSize
             return remainingByPot[pot]
                 .asSequence()
-                .filter { candidate ->
-                    val association = canonicalAssociation(candidate)
-                    adjacency[position].all { neighbour ->
-                        val other = assigned[neighbour]
-                        other == null || canonicalAssociation(other) != association
-                    }
-                }
+                .filter { candidate -> respectsAssociationConstraints(position, candidate) }
                 .sortedBy { originalIndex.getValue(it.team.id) }
                 .toList()
         }
@@ -110,6 +139,16 @@ object UefaLeaguePhaseAssociationDraw {
         val result = assigned.map { requireNotNull(it) }
         val associations = result.map(::canonicalAssociation)
         if (edges.any { associations[it.low] == associations[it.high] }) return emptyList()
+        if (
+            adjacency.indices.any { position ->
+                adjacency[position]
+                    .map { associations[it] }
+                    .groupingBy { it }
+                    .eachCount()
+                    .values
+                    .any { count -> count > 2 }
+            }
+        ) return emptyList()
         return result
     }
 
