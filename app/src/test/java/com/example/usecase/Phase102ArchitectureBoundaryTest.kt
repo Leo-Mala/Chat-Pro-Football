@@ -139,7 +139,13 @@ class Phase102ArchitectureBoundaryTest {
                 Team(id = 2L, name = "New", city = "B", state = "BB", division = 1)
             )
         )
-        val offer = CoachOffer(teamId = 2L, teamName = "New")
+        val offer = CoachOffer(
+            teamId = 2L,
+            teamName = "New",
+            rating = 70,
+            weeklySalary = 50_000L,
+            description = "Oferta de trabalho"
+        )
 
         val result = CoachCareerUseCase(repository).acceptOffer(offer)
 
@@ -168,8 +174,8 @@ class Phase102ArchitectureBoundaryTest {
         assertTrue(upgrade is YouthAcademyManagementUseCase.AcademyResult.Success)
         assertTrue(promote is YouthAcademyManagementUseCase.AcademyResult.Success)
         val save = requireNotNull(repository.getGameSave())
-        assertEquals(1, save.academyLevel)
-        assertEquals(1_500_000L, save.bankBalance)
+        assertEquals(2, save.academyLevel)
+        assertEquals(1_000_000L, save.bankBalance)
         assertTrue(codec.parseProspects(save.academyProspects).isEmpty())
         assertTrue(repository.getPlayersByTeam(1L).any { it.name == "Base One" && it.isFromAcademy })
     }
