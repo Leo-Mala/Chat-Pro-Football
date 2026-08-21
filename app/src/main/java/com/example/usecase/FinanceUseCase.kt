@@ -5,7 +5,6 @@ import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.TransactionRecord
-import com.example.data.getPlayersByIds
 
 /**
  * UseCase responsável por toda a gestão financeira do clube, incluindo empréstimos,
@@ -91,7 +90,7 @@ class FinanceUseCase(private val repository: GameRepository) {
         val roster = if (userPlayers.isNotEmpty()) userPlayers else repository.getPlayersByTeam(currentSave.playerTeamId)
         val playerSalaries = roster.sumOf { it.salary }.coerceAtLeast(30000L)
         val loanInterest = if (currentSave.loanAmount > 0L) (currentSave.loanAmount * BANK_LOAN_WEEKLY_INTEREST_RATE).toLong() else 0L
-        val maintenanceCost = (currentSave.stadiumCapacity * 2L)
+        val maintenanceCost = currentSave.stadiumCapacity * 2L
         val academyCost = currentSave.academyWeeklyInvestment.coerceAtLeast(0L)
 
         var totalInstallmentPaid = 0L
@@ -100,45 +99,51 @@ class FinanceUseCase(private val repository: GameRepository) {
         val updatedInstallments = mutableListOf<com.example.data.TransferInstallment>()
 
         for (inst in activeInstallments) {
-            var updated = inst
             val rem = inst.remainingInstallments - 1
             val (nextSeason, nextWeek) = calcNextDueDate(currentSave.currentSeason, currentSave.currentWeek, 1)
             val newStatus = if (rem <= 0) "COMPLETED" else "ACTIVE"
 
             if (inst.buyerTeamId == currentSave.playerTeamId) {
                 totalInstallmentPaid += inst.installmentAmount
-                updated = inst.copy(
+                updatedInstallments += inst.copy(
                     remainingInstallments = rem,
                     nextDueWeek = nextWeek,
                     season = nextSeason,
                     status = newStatus
                 )
-                updatedInstallments.add(updated)
             } else if (inst.sellerTeamId == currentSave.playerTeamId) {
                 totalInstallmentReceived += inst.installmentAmount
-                updated = inst.copy(
+                updatedInstallments += inst.copy(
                     remainingInstallments = rem,
                     nextDueWeek = nextWeek,
                     season = nextSeason,
                     status = newStatus
                 )
-                updatedInstallments.add(updated)
             }
         }
 
-        // Apenas o conjunto de empréstimos ACTIVE é carregado, e os jogadores correspondentes são
-        // buscados por PK em uma única query. Isto evita getAllPlayers() e o antigo N+1 semanal.
+        // Não usamos getAllPlayers() nem lookup por jogador no caminho saudável do snapshot.
+        // Agrupamos pelos borrowers ativos e usamos a query existente/indexada por Player.teamId.
+        // Lookup por PK fica restrito a relações já inconsistentes, onde o jogador não está no
+        // roster do borrower e precisamos encerrar o estado sem inferir um destino.
         var loanFeesPaid = 0L
         val activeLoans = repository.getActiveLoans()
-        val activeLoanPlayers = repository.getPlayersByIds(activeLoans.map { it.playerId }).associateBy { it.id }
+        val borrowerRostersByPlayerId = activeLoans
+            .asSequence()
+            .map { it.borrowerTeamId }
+            .filter { it > 0L }
+            .distinct()
+            .flatMap { borrowerId -> repository.getPlayersByTeam(borrowerId).asSequence() }
+            .associateBy { it.id }
         val updatedLoans = mutableListOf<com.example.data.PlayerLoan>()
 
         for (loan in activeLoans) {
-            val player = activeLoanPlayers[loan.playerId]
+            val rosterPlayer = borrowerRostersByPlayerId[loan.playerId]
+            val player = rosterPlayer ?: repository.getPlayer(loan.playerId)
 
             if (Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)) {
                 if (player == null || !player.isOnLoan || player.contractDurationWeeks <= 0) {
-                    updatedLoans.add(loan.copy(remainingWeeks = 0, status = "COMPLETED"))
+                    updatedLoans += loan.copy(remainingWeeks = 0, status = "COMPLETED")
                     if (player != null && player.isOnLoan) {
                         repository.updatePlayer(
                             player.copy(
@@ -155,10 +160,7 @@ class FinanceUseCase(private val repository: GameRepository) {
                     player.teamId != loan.borrowerTeamId ||
                     player.originalTeamId != loan.ownerTeamId
                 ) {
-                    // Fail-closed: não inferimos um destino. O roster atual permanece como está,
-                    // mas a relação inválida deixa de ser ativa e a flag de loan é limpa para não
-                    // publicar um jogador "emprestado" sem ownership válido.
-                    updatedLoans.add(loan.copy(remainingWeeks = 0, status = "INVALID"))
+                    updatedLoans += loan.copy(remainingWeeks = 0, status = "INVALID")
                     repository.updatePlayer(
                         player.copy(
                             originalTeamId = null,
@@ -176,12 +178,11 @@ class FinanceUseCase(private val repository: GameRepository) {
             }
             val rem = loan.remainingWeeks - 1
             val newStatus = if (rem <= 0) "COMPLETED" else "ACTIVE"
-            updatedLoans.add(loan.copy(remainingWeeks = rem, status = newStatus))
+            updatedLoans += loan.copy(remainingWeeks = rem, status = newStatus)
 
             if (player != null) {
                 if (rem <= 0) {
-                    val hasExpiredContract = player.contractDurationWeeks <= 0
-                    if (hasExpiredContract) {
+                    if (player.contractDurationWeeks <= 0) {
                         repository.updatePlayer(
                             player.copy(
                                 teamId = null,
@@ -205,12 +206,7 @@ class FinanceUseCase(private val repository: GameRepository) {
                         )
                     }
                 } else {
-                    repository.updatePlayer(
-                        player.copy(
-                            isOnLoan = true,
-                            loanWeeksRemaining = rem
-                        )
-                    )
+                    repository.updatePlayer(player.copy(isOnLoan = true, loanWeeksRemaining = rem))
                 }
             }
         }
@@ -390,9 +386,8 @@ class FinanceUseCase(private val repository: GameRepository) {
         }
 
         val newSocios = (currentSave.socioTorcedoresCount + (if (position == 1) 1500 else 500)).coerceAtMost(100_000)
-        val newBalance = currentSave.bankBalance + prizeAmount
         val updatedSave = currentSave.copy(
-            bankBalance = newBalance,
+            bankBalance = currentSave.bankBalance + prizeAmount,
             socioTorcedoresCount = newSocios
         )
 
@@ -431,9 +426,8 @@ class FinanceUseCase(private val repository: GameRepository) {
         if (weeklyPayment <= 0L) return@withTransaction FinanceResult.Error("Valor semanal inválido.")
         if (durationWeeks <= 0) return@withTransaction FinanceResult.Error("Duração de contrato inválida.")
 
-        val newBalance = currentSave.bankBalance + upFrontBonus
         val updatedSave = currentSave.copy(
-            bankBalance = newBalance,
+            bankBalance = currentSave.bankBalance + upFrontBonus,
             sponsorName = sponsorName,
             sponsorWeekly = weeklyPayment,
             sponsorWeeksRemaining = durationWeeks
