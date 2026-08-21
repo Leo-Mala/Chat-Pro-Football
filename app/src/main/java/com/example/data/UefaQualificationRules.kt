@@ -34,6 +34,7 @@ object UefaQualificationRules {
     ): LeaguePhaseFields {
         val eligible = candidates
             .asSequence()
+            .filter { it.division == 1 }
             .filter { CountryFootballRulesRegistry.isContinentalCompetitionEligible(it.country) }
             .filter { CountryFootballRulesRegistry.confederationFor(it.country) == FootballConfederation.UEFA }
             .distinctBy { it.id }
@@ -56,16 +57,12 @@ object UefaQualificationRules {
                     compareBy<Team> { team ->
                         val row = standingsByTeamId[team.id]
                         when {
-                            row != null && team.division == 1 -> row.position
-                            association in countriesWithSnapshot && team.division == 1 -> Int.MAX_VALUE - 1
+                            row != null -> row.position
+                            association in countriesWithSnapshot -> Int.MAX_VALUE - 1
                             else -> Int.MAX_VALUE
                         }
                     }
-                        .thenByDescending { team ->
-                            if (team.division == 1) standingsByTeamId[team.id]?.points ?: Int.MIN_VALUE
-                            else Int.MIN_VALUE
-                        }
-                        .thenBy { it.division }
+                        .thenByDescending { team -> standingsByTeamId[team.id]?.points ?: Int.MIN_VALUE }
                         .thenBy { it.id }
                 )
             }
@@ -84,14 +81,7 @@ object UefaQualificationRules {
             }
             .sortedWith(
                 compareBy<OrderedCandidate> { it.associationSlot }
-                    .thenByDescending { candidate ->
-                        if (candidate.team.division == 1) {
-                            standingsByTeamId[candidate.team.id]?.points ?: Int.MIN_VALUE
-                        } else {
-                            Int.MIN_VALUE
-                        }
-                    }
-                    .thenBy { it.team.division }
+                    .thenByDescending { candidate -> standingsByTeamId[candidate.team.id]?.points ?: Int.MIN_VALUE }
                     .thenBy { it.team.id }
             )
 
