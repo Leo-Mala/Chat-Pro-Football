@@ -17,23 +17,29 @@ class ScoutingUseCase(private val repository: GameRepository) {
 
     /**
      * Eleva a cobertura de olheiros globais por um período de semanas.
+     * A cobrança, o novo estado do save e o histórico financeiro são uma única unidade atômica.
      */
-    suspend fun buyGlobalScoutReveal(save: GameSave, weeks: Int): ScoutingResult {
-        val cost = weeks * 150000L
-        if (save.bankBalance < cost) {
-            return ScoutingResult.Error("Saldo insuficiente para contratar olheiros. Custo: R$ %,d.".format(cost))
+    suspend fun buyGlobalScoutReveal(save: GameSave, weeks: Int): ScoutingResult = repository.withTransaction {
+        if (weeks <= 0) {
+            return@withTransaction ScoutingResult.Error("Duração da rede de olheiros inválida.")
         }
 
-        val updatedSave = save.copy(
-            globalScoutRevealWeeksRemaining = save.globalScoutRevealWeeksRemaining + weeks,
-            bankBalance = save.bankBalance - cost
+        val currentSave = repository.getGameSave() ?: save
+        val cost = weeks * 150000L
+        if (currentSave.bankBalance < cost) {
+            return@withTransaction ScoutingResult.Error("Saldo insuficiente para contratar olheiros. Custo: R$ %,d.".format(cost))
+        }
+
+        val updatedSave = currentSave.copy(
+            globalScoutRevealWeeksRemaining = currentSave.globalScoutRevealWeeksRemaining + weeks,
+            bankBalance = currentSave.bankBalance - cost
         )
 
         repository.saveGameSave(updatedSave)
         repository.saveTransaction(
             TransactionRecord(
-                week = save.currentWeek,
-                season = save.currentSeason,
+                week = currentSave.currentWeek,
+                season = currentSave.currentSeason,
                 type = "MELHORIA_OLHEIROS",
                 description = "Contratação de Rede de Olheiros (%d semanas)".format(weeks),
                 amount = cost,
@@ -41,7 +47,7 @@ class ScoutingUseCase(private val repository: GameRepository) {
             )
         )
 
-        return ScoutingResult.Success(updatedSave, "Rede de olheiros contratada por +%d semanas!".format(weeks))
+        ScoutingResult.Success(updatedSave, "Rede de olheiros contratada por +%d semanas!".format(weeks))
     }
 
     /**

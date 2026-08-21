@@ -9,13 +9,16 @@ import kotlinx.coroutines.launch
 
 fun GameViewModel.acceptCoachOffer(offer: CoachOffer) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        val updatedSave = save.copy(
-            playerTeamId = offer.teamId,
-                    )
-        repo.saveGameSave(updatedSave)
-        repo.deleteOffers()
-        _selectedTeamId.value = offer.teamId
+        val switched = repo.withTransaction {
+            val save = repo.getGameSave() ?: return@withTransaction false
+            if (repo.getTeam(offer.teamId) == null) return@withTransaction false
+            repo.saveGameSave(save.copy(playerTeamId = offer.teamId))
+            repo.deleteOffers()
+            true
+        }
+        if (switched) {
+            _selectedTeamId.value = offer.teamId
+        }
     }
 }
 
@@ -176,24 +179,28 @@ fun GameViewModel.parseProspects(rawString: String): List<GameViewModel.AcademyP
 
 fun GameViewModel.upgradeAcademyLevel() {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        val newLevel = save.academyLevel + 1
-        val cost = newLevel * 500_000L
-        if (save.bankBalance >= cost) {
-            val updated = save.copy(
-                academyLevel = newLevel,
-                bankBalance = save.bankBalance - cost
-            )
-            repo.saveGameSave(updated)
+        repo.withTransaction {
+            val save = repo.getGameSave() ?: return@withTransaction
+            val newLevel = save.academyLevel + 1
+            val cost = newLevel * 500_000L
+            if (save.bankBalance >= cost) {
+                repo.saveGameSave(
+                    save.copy(
+                        academyLevel = newLevel,
+                        bankBalance = save.bankBalance - cost
+                    )
+                )
+            }
         }
     }
 }
 
 fun GameViewModel.adjustAcademyInvestment(amount: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        val updated = save.copy(academyWeeklyInvestment = amount)
-        repo.saveGameSave(updated)
+        repo.withTransaction {
+            val save = repo.getGameSave() ?: return@withTransaction
+            repo.saveGameSave(save.copy(academyWeeklyInvestment = amount))
+        }
     }
 }
 

@@ -227,30 +227,32 @@ class GameViewModel @Inject constructor(
 
     fun swapPlayers(starterId: Long, benchId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            val starter = repo.getPlayer(starterId)
-            val bench = repo.getPlayer(benchId)
-            if (starter != null && bench != null) {
-                if (bench.position == "GOL") {
-                    val roster = repo.getPlayersByTeam(bench.teamId)
-                    val otherGK = roster.find { it.isStarter && it.id != starter.id && it.position == "GOL" }
-                    if (otherGK != null) {
-                        repo.updatePlayer(otherGK.copy(isStarter = false))
+            repo.withTransaction {
+                val starter = repo.getPlayer(starterId)
+                val bench = repo.getPlayer(benchId)
+                if (starter != null && bench != null) {
+                    if (bench.position == "GOL") {
+                        val roster = repo.getPlayersByTeam(bench.teamId)
+                        val otherGK = roster.find { it.isStarter && it.id != starter.id && it.position == "GOL" }
+                        if (otherGK != null) {
+                            repo.updatePlayer(otherGK.copy(isStarter = false))
+                        }
+                        _toastMessage.tryEmit("Goleiro titular alterado!")
+                    } else if (starter.position == "GOL" && bench.position != "GOL") {
+                        val roster = repo.getPlayersByTeam(bench.teamId)
+                        val otherGK = roster.find { it.isStarter && it.id != starter.id && it.position == "GOL" }
+                        if (otherGK == null) {
+                            _toastMessage.tryEmit("Não é permitido jogar sem um goleiro titular!")
+                            return@withTransaction
+                        }
+                    } else {
+                        _toastMessage.tryEmit("Substituição realizada!")
                     }
-                    _toastMessage.emit("Goleiro titular alterado!")
-                } else if (starter.position == "GOL" && bench.position != "GOL") {
-                    val roster = repo.getPlayersByTeam(bench.teamId)
-                    val otherGK = roster.find { it.isStarter && it.id != starter.id && it.position == "GOL" }
-                    if (otherGK == null) {
-                        _toastMessage.emit("Não é permitido jogar sem um goleiro titular!")
-                        return@launch
-                    }
-                } else {
-                    _toastMessage.emit("Substituição realizada!")
+
+                    val updatedStarter = starter.copy(isStarter = false)
+                    val updatedBench = bench.copy(isStarter = true)
+                    repo.updatePlayers(listOf(updatedStarter, updatedBench))
                 }
-                
-                val updatedStarter = starter.copy(isStarter = false)
-                val updatedBench = bench.copy(isStarter = true)
-                repo.updatePlayers(listOf(updatedStarter, updatedBench))
             }
         }
     }
@@ -407,42 +409,34 @@ class GameViewModel @Inject constructor(
 
     fun upgradeTrainingCenter() {
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            val team = repo.getTeam(save.playerTeamId) ?: return@launch
-            val cost = 2_000_000L * team.trainingCenterLevel
-            if (save.bankBalance >= cost && team.trainingCenterLevel < 5) {
-                val updatedTeam = team.copy(trainingCenterLevel = team.trainingCenterLevel + 1)
-                val updatedSave = save.copy(bankBalance = save.bankBalance - cost)
-                repo.updateTeam(updatedTeam)
-                repo.saveGameSave(updatedSave)
-                _toastMessage.emit("Centro de Treinamento evoluído para Nível ${updatedTeam.trainingCenterLevel}!")
-            } else {
-                _toastMessage.emit("Saldo insuficiente ou nível máximo atingido.")
+            val message = repo.withTransaction {
+                val save = repo.getGameSave() ?: return@withTransaction null
+                val team = repo.getTeam(save.playerTeamId) ?: return@withTransaction null
+                val cost = 2_000_000L * team.trainingCenterLevel
+                if (save.bankBalance >= cost && team.trainingCenterLevel < 5) {
+                    val updatedTeam = team.copy(trainingCenterLevel = team.trainingCenterLevel + 1)
+                    val updatedSave = save.copy(bankBalance = save.bankBalance - cost)
+                    repo.updateTeam(updatedTeam)
+                    repo.saveGameSave(updatedSave)
+                    "Centro de Treinamento evoluído para Nível ${updatedTeam.trainingCenterLevel}!"
+                } else {
+                    "Saldo insuficiente ou nível máximo atingido."
+                }
+            }
+            if (message != null) {
+                _toastMessage.emit(message)
             }
         }
     }
 
     fun advanceMonthAndRunEvolution() {
         viewModelScope.launch(Dispatchers.IO) {
-            val allPlayers = repo.getAllPlayers()
-            val allTeams = repo.getAllTeams().associateBy { it.id }
-            val save = repo.getGameSave()
-            val periodDate = "${save?.currentSeason ?: 2026}-${save?.currentWeek ?: 1}"
+            val save = repo.getGameSave() ?: return@launch
+            val periodDate = "${save.currentSeason}-${save.currentWeek}"
+            val results = playerEvolutionUseCase.executeMonthlyEvolution(save, periodDate)
 
-            val results = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
-
-            // Atualiza jogadores no banco de dados
-            val updatedPlayers = results.map { it.player }
-            repo.updatePlayers(updatedPlayers)
-
-            // Salva histórico de evolução
-            val allLogs = results.flatMap { it.historyLogs }
-            if (allLogs.isNotEmpty()) {
-                repo.saveHistoricoEvolucaoList(allLogs)
-            }
-
-            // Exibe modal de resumo do time do usuário
-            _monthlyEvolutionSummary.value = results.filter { it.player.teamId == save?.playerTeamId }
+            // Exibe modal de resumo do time do usuário somente após o commit atômico de jogadores + histórico.
+            _monthlyEvolutionSummary.value = results.filter { it.player.teamId == save.playerTeamId }
             _toastMessage.emit("Evolução mensal processada para todo o elenco!")
         }
     }
@@ -666,15 +660,17 @@ class GameViewModel @Inject constructor(
 
     fun setTacticalRole(role: String, playerId: Long?) {
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            val updatedSave = when (role) {
-                "CAPTAIN" -> save.copy(captainPlayerId = playerId)
-                "PENALTY" -> save.copy(penaltyPlayerId = playerId)
-                "FREEKICK" -> save.copy(freekickPlayerId = playerId)
-                "CORNER" -> save.copy(cornerPlayerId = playerId)
-                else -> save
+            repo.withTransaction {
+                val save = repo.getGameSave() ?: return@withTransaction
+                val updatedSave = when (role) {
+                    "CAPTAIN" -> save.copy(captainPlayerId = playerId)
+                    "PENALTY" -> save.copy(penaltyPlayerId = playerId)
+                    "FREEKICK" -> save.copy(freekickPlayerId = playerId)
+                    "CORNER" -> save.copy(cornerPlayerId = playerId)
+                    else -> save
+                }
+                repo.saveGameSave(updatedSave)
             }
-            repo.saveGameSave(updatedSave)
         }
     }
 
@@ -824,8 +820,10 @@ class GameViewModel @Inject constructor(
         val aGoals = matchEvents.count { it.type == "GOAL" && !it.isHomeEvent }
         
         val updatedFixture = userFixture.copy(homeScore = hGoals, awayScore = aGoals, isPlayed = true)
-        repo.updateFixture(updatedFixture)
-        processMatchEventsAndStats(updatedFixture, matchEvents)
+        repo.withTransaction {
+            repo.updateFixture(updatedFixture)
+            processMatchEventsAndStats(updatedFixture, matchEvents)
+        }
         return updatedFixture
     }
 
@@ -1413,36 +1411,25 @@ class GameViewModel @Inject constructor(
     }
 
     fun restartCurrentSeason() {
+        _isSimulatingSeason.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            
-            // 1. Reset week to 1
-            val updatedSave = save.copy(currentWeek = 1, isGameOver = false)
-            repo.saveGameSave(updatedSave)
-            
-            // 2. Clear and regenerate all fixtures for the current season
-            repo.deleteFixtures()
-            
-            val currentTeams = repo.getAllTeams()
-            val allGeneratedFixtures = generateFixturesForSeason(save.currentSeason, currentTeams, save.playerTeamId)
-            repo.saveFixtures(allGeneratedFixtures)
-            
-            // 3. Reset player stats
-            val allPlayers = repo.allPlayersFlow.first()
-            val resetPlayers = allPlayers.map { p ->
-                p.copy(
-                    energy = 100,
-                    moral = 75,
-                    injuryWeeksRemaining = 0,
-                    suspensionWeeksRemaining = 0,
-                    yellowCardsAccumulated = 0,
-                    careerGoals = 0
+            simulationMutex.withLock {
+                val save = repo.getGameSave() ?: return@withLock
+                val currentTeams = repo.getAllTeams()
+                val allGeneratedFixtures = generateFixturesForSeason(
+                    save.currentSeason,
+                    currentTeams,
+                    save.playerTeamId
                 )
+                val restarted = repo.restartSeasonStateAtomically(
+                    expectedSeason = save.currentSeason,
+                    expectedPlayerTeamId = save.playerTeamId,
+                    replacementFixtures = allGeneratedFixtures
+                )
+                if (!restarted) {
+                    _toastMessage.emit("O estado da carreira mudou durante o reinício. Tente novamente.")
+                }
             }
-            repo.updatePlayers(resetPlayers)
-            
-            // 4. Delete coach offers
-            repo.deleteOffers()
         }
     }
 
@@ -1470,8 +1457,10 @@ class GameViewModel @Inject constructor(
 
     fun setTactics(formation: String, style: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            repo.saveGameSave(save.copy(playerFormation = formation, playerStyle = style))
+            repo.withTransaction {
+                val save = repo.getGameSave() ?: return@withTransaction
+                repo.saveGameSave(save.copy(playerFormation = formation, playerStyle = style))
+            }
         }
     }
 

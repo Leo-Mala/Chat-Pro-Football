@@ -53,6 +53,65 @@ class GameRepository(internal val db: AppDatabase) {
         true
     }
 
+    /**
+     * Reinicia o estado esportivo da temporada em uma única transação.
+     *
+     * O snapshot de [GameSave] e dos jogadores é relido já dentro da transação para que um
+     * comando de reinício nunca sobrescreva silenciosamente saldo, contratos ou transferências
+     * que tenham sido persistidos antes de a transação adquirir o banco. Se a temporada ou o
+     * clube controlado mudaram desde o planejamento do calendário, a operação falha fechada.
+     */
+    suspend fun restartSeasonStateAtomically(
+        expectedSeason: Int,
+        expectedPlayerTeamId: Long,
+        replacementFixtures: List<Fixture>
+    ): Boolean = db.withTransaction {
+        val currentSave = db.gameSaveDao().getGameSave() ?: return@withTransaction false
+        if (currentSave.currentSeason != expectedSeason ||
+            currentSave.playerTeamId != expectedPlayerTeamId
+        ) {
+            return@withTransaction false
+        }
+
+        require(replacementFixtures.all { it.season == expectedSeason }) {
+            "Reinício de temporada recebeu fixtures de outra temporada."
+        }
+
+        db.gameSaveDao().insertOrUpdate(
+            currentSave.copy(currentWeek = 1, isGameOver = false)
+        )
+        db.fixtureDao().deleteFixtures()
+
+        if (replacementFixtures.isNotEmpty()) {
+            ensureFixtureTeamReferences(replacementFixtures)
+            FixtureScheduleValidator.requireCanAdd(emptyList(), replacementFixtures)
+            if (replacementFixtures.size > 100) {
+                replacementFixtures.chunked(100).forEach { db.fixtureDao().insertFixtures(it) }
+            } else {
+                db.fixtureDao().insertFixtures(replacementFixtures)
+            }
+        }
+
+        val resetPlayers = db.playerDao().getAllPlayers().map { player ->
+            player.copy(
+                energy = 100,
+                moral = 75,
+                injuryWeeksRemaining = 0,
+                suspensionWeeksRemaining = 0,
+                yellowCardsAccumulated = 0,
+                careerGoals = 0
+            )
+        }
+        if (resetPlayers.size > 100) {
+            resetPlayers.chunked(100).forEach { db.playerDao().updatePlayers(it) }
+        } else if (resetPlayers.isNotEmpty()) {
+            db.playerDao().updatePlayers(resetPlayers)
+        }
+
+        db.coachOfferDao().deleteOffers()
+        true
+    }
+
     suspend fun saveTransaction(record: TransactionRecord) = db.transactionRecordDao().insertTransaction(record)
     suspend fun getAllTransactions(): List<TransactionRecord> = db.transactionRecordDao().getAllTransactions()
     suspend fun deleteTransactions() = db.transactionRecordDao().deleteTransactions()
@@ -262,10 +321,14 @@ class GameRepository(internal val db: AppDatabase) {
     ): List<GlobalLeagueStanding> =
         db.globalLeagueStandingDao().getForLeague(season, country, division)
 
+    /**
+     * Substitui o snapshot global como unidade atômica. A combinação delete + chunks + limpeza
+     * histórica não pode deixar uma temporada parcialmente persistida se qualquer insert falhar.
+     */
     suspend fun saveGlobalStandingsForSeason(
         season: Int,
         rows: List<GlobalLeagueStanding>
-    ) {
+    ) = db.withTransaction {
         db.globalLeagueStandingDao().deleteForSeason(season)
         if (rows.size > 100) {
             rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(it) }

@@ -127,8 +127,10 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 awayPenalties = awayPenalties,
                 isPlayed = true
             )
-            repo.updateFixture(updatedFixture)
-            processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+            repo.withTransaction {
+                repo.updateFixture(updatedFixture)
+                processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+            }
         }
     }
 }
@@ -312,42 +314,65 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
     }
 }
 
+/**
+ * Finaliza uma semana como uma única unidade de persistência.
+ *
+ * O snapshot é lido antes e novamente dentro da transação. Isso impede que duas finalizações
+ * concorrentes apliquem finanças/contratos duas vezes à mesma semana: a segunda execução só
+ * continua se temporada e semana ainda forem exatamente as observadas antes de aguardar o banco.
+ * Uma falha em finanças, contratos, evolução, progressão de copas ou avanço de calendário faz
+ * rollback de todo o fechamento semanal.
+ */
 suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
-    val save = repo.getGameSave() ?: return
+    val requestedSave = repo.getGameSave() ?: return
 
-    val currentWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
-    val isHomeMatch = currentWeekFixtures.any {
-        it.isPlayed && it.homeTeamId == save.playerTeamId
-    }
+    repo.withTransaction {
+        val save = repo.getGameSave() ?: return@withTransaction
+        if (save.currentSeason != requestedSave.currentSeason ||
+            save.currentWeek != requestedSave.currentWeek ||
+            save.playerTeamId != requestedSave.playerTeamId
+        ) {
+            return@withTransaction
+        }
 
-    val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
-    val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
+        val currentWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+        if (currentWeekFixtures.any { !it.isPlayed }) {
+            return@withTransaction
+        }
 
-    // A CPU decide renovações imediatamente antes do único tick semanal de contratos.
-    val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
-    cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
-    processTransfersUseCase.processWeeklyContractsAndLoans()
-    cpuSquadManagement.processWeeklyAfterContracts()
+        val isHomeMatch = currentWeekFixtures.any {
+            it.isPlayed && it.homeTeamId == save.playerTeamId
+        }
 
-    // Generate incoming transfer offers for user players
-    generateWeeklyIncomingOffers()
+        val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
+        val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
 
-    // Execute monthly evolution every 4 weeks, including the canonical final week (48).
-    if (save.currentWeek % 4 == 0) {
-        playerEvolutionUseCase.executeMonthlyEvolution(save, "S${save.currentSeason}_W${save.currentWeek}")
-    }
+        // A CPU decide renovações imediatamente antes do único tick semanal de contratos.
+        val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
+        cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
+        processTransfersUseCase.processWeeklyContractsAndLoans()
+        cpuSquadManagement.processWeeklyAfterContracts()
 
-    // Progress domestic/continental cups only after every match of the week is complete.
-    CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+        // Generate incoming transfer offers for user players
+        generateWeeklyIncomingOffers()
 
-    // Progress Super Mundial de Clubes knockouts / champion recording.
-    SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+        // Execute monthly evolution every 4 weeks, including the canonical final week (48).
+        if (save.currentWeek % 4 == 0) {
+            playerEvolutionUseCase.executeMonthlyEvolution(save, "S${save.currentSeason}_W${save.currentWeek}")
+        }
 
-    if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
-        advanceToNextSeason(updatedSave)
-    } else {
-        val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
-        repo.saveGameSave(nextWeekSave)
+        // Progress domestic/continental cups only after every match of the week is complete.
+        CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+
+        // Progress Super Mundial de Clubes knockouts / champion recording.
+        SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+
+        if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
+            advanceToNextSeason(updatedSave)
+        } else {
+            val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
+            repo.saveGameSave(nextWeekSave)
+        }
     }
 }
 
