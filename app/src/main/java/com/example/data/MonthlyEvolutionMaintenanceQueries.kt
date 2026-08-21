@@ -23,7 +23,7 @@ internal suspend fun GameRepository.getMonthlyEvolutionHistoryFingerprints(
     periodDate: String
 ): Set<String> = db.historicoEvolucaoDao()
     .getHistoricoPorData(periodDate)
-    .mapTo(hashSetOf(), HistoricoEvolucao::monthlyEvolutionFingerprint)
+    .mapTo(hashSetOf()) { it.monthlyEvolutionFingerprint() }
 
 internal fun HistoricoEvolucao.monthlyEvolutionFingerprint(): String =
     "$jogadorId|$data|$atributo|$valorAntigo|$valorNovo"
