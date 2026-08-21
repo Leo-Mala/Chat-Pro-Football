@@ -6,6 +6,7 @@ import com.example.data.HistoricoEvolucao
 import com.example.data.Player
 import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
+import com.example.data.resetMonthlyEvolutionCounters
 import kotlin.random.Random
 
 /**
@@ -18,6 +19,7 @@ data class MonthlyEvolutionPlan(
     val expectedWeek: Int,
     val expectedPlayerTeamId: Long,
     val results: List<PlayerEvolutionResult>,
+    /** Only players whose persisted football state changed; monthly counters are reset by SQL. */
     val updatedPlayers: List<Player>,
     val historyLogs: List<HistoricoEvolucao>
 )
@@ -72,6 +74,10 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
      * Em uma carreira de ~60k jogadores este é o trecho dominante do fechamento mensal. Mantê-lo
      * fora da transação reduz o tempo de lock sem relaxar atomicidade: o commit abaixo valida o
      * snapshot de temporada/semana/clube antes de persistir qualquer alteração.
+     *
+     * O plano também elimina writes completos desnecessários: todos os jogadores continuam tendo
+     * os contadores mensais resetados no commit, mas somente atletas com mudança real de atributos
+     * ou força precisam de um @Update completo.
      */
     suspend fun prepareMonthlyEvolution(
         save: GameSave,
@@ -80,13 +86,17 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val allPlayers = repository.getAllPlayers()
         val allTeams = repository.getAllTeams().associateBy { it.id }
         val evolutionResults = PlayerEvolutionSystem.processMonthlyEvolution(allPlayers, allTeams, periodDate)
+        val changedPlayers = evolutionResults.asSequence()
+            .filter { result -> result.historyLogs.isNotEmpty() || result.netChange != 0.0 }
+            .map { it.player }
+            .toList()
 
         return MonthlyEvolutionPlan(
             expectedSeason = save.currentSeason,
             expectedWeek = save.currentWeek,
             expectedPlayerTeamId = save.playerTeamId,
             results = evolutionResults,
-            updatedPlayers = evolutionResults.map { it.player },
+            updatedPlayers = changedPlayers,
             historyLogs = evolutionResults.flatMap { it.historyLogs }
         )
     }
@@ -94,6 +104,10 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
     /**
      * Persiste um plano já calculado como uma única unidade e rejeita plano stale antes do
      * primeiro write. Quando chamado de dentro de outra transação Room, a transação é reutilizada.
+     *
+     * A ordem é deliberada: primeiro os contadores mensais de todo o universo são zerados por um
+     * único action set SQL; depois somente os jogadores que realmente evoluíram/declinaram recebem
+     * o estado completo calculado (incluindo o `evolucaoMensal` não-zero quando aplicável).
      */
     suspend fun commitMonthlyEvolution(plan: MonthlyEvolutionPlan): Boolean = repository.withTransaction {
         val currentSave = repository.getGameSave() ?: return@withTransaction false
@@ -104,6 +118,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             return@withTransaction false
         }
 
+        repository.resetMonthlyEvolutionCounters()
         if (plan.updatedPlayers.isNotEmpty()) {
             repository.updatePlayers(plan.updatedPlayers)
         }
