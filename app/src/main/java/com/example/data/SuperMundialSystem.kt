@@ -73,13 +73,6 @@ object SuperMundialSystem {
         return fixtures
     }
 
-    private data class TempStanding(
-        val teamId: Long,
-        var points: Int = 0,
-        var gd: Int = 0,
-        var gf: Int = 0
-    )
-
     suspend fun processProgression(season: Int, currentWeek: Int, repo: GameRepository) {
         if (!isSuperMundialSeason(season)) return
 
@@ -88,7 +81,7 @@ object SuperMundialSystem {
         when (currentWeek) {
             GROUP_WEEK_3 -> {
                 val groupFixtures = allSeasonFixtures.filter { it.competitionType.startsWith("WORLD_CUP_GP_") }
-                if (groupFixtures.isEmpty() || groupFixtures.any { !it.isPlayed }) return
+                if (groupFixtures.size != 48 || groupFixtures.any { !it.isPlayed }) return
 
                 val existingOitavas = allSeasonFixtures.filter { it.competitionType == "WORLD_CUP" && it.week == ROUND_OF_16_WEEK }
                 if (existingOitavas.isNotEmpty()) return
@@ -99,38 +92,15 @@ object SuperMundialSystem {
                 for (letter in groupLetters) {
                     val compCode = "WORLD_CUP_GP_$letter"
                     val matches = groupFixtures.filter { it.competitionType == compCode }
+                    if (matches.size != 6) return
                     val teamIds = matches.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.distinct()
-                    val map = teamIds.associateWith { TempStanding(it) }.toMutableMap()
-
-                    for (m in matches) {
-                        val h = map[m.homeTeamId] ?: continue
-                        val a = map[m.awayTeamId] ?: continue
-                        val hG = m.homeScore ?: 0
-                        val aG = m.awayScore ?: 0
-
-                        h.gf += hG
-                        a.gf += aG
-                        h.gd += (hG - aG)
-                        a.gd += (aG - hG)
-
-                        if (hG > aG) h.points += 3
-                        else if (aG > hG) a.points += 3
-                        else {
-                            h.points += 1
-                            a.points += 1
-                        }
+                    if (teamIds.size != 4 || teamIds.any { id -> matches.count { it.homeTeamId == id || it.awayTeamId == id } != 3 }) {
+                        return
                     }
 
-                    val sorted = map.values.sortedWith(
-                        compareByDescending<TempStanding> { it.points }
-                            .thenByDescending { it.gd }
-                            .thenByDescending { it.gf }
-                            .thenBy { it.teamId }
-                    )
-
-                    if (sorted.size >= 2) {
-                        groupQualifiers[letter] = Pair(sorted[0].teamId, sorted[1].teamId)
-                    }
+                    val ranking = FifaClubWorldCupRules.groupRanking(matches)
+                    if (ranking.size != 4) return
+                    groupQualifiers[letter] = ranking[0] to ranking[1]
                 }
 
                 if (groupQualifiers.size == 8) {
