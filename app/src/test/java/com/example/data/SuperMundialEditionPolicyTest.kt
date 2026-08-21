@@ -44,7 +44,6 @@ class SuperMundialEditionPolicyTest {
             assertNotEquals("Edições consecutivas não podem repetir sede", previous.hostCountry, next.hostCountry)
         }
 
-        // Quatro países: a quinta edição pode reutilizar a primeira sede, mas nunca a anterior.
         assertEquals(firstPass.first().hostCountry, firstPass[4].hostCountry)
         assertNotEquals(firstPass[3].hostCountry, firstPass[4].hostCountry)
     }
@@ -63,7 +62,7 @@ class SuperMundialEditionPolicyTest {
     }
 
     @Test
-    fun `real persisted clubs fill the 32 team field before any virtual fallback`() {
+    fun `incomplete confederation field never materializes virtual fallback`() {
         val teams = buildList {
             val countries = listOf("Argentina", "Brasil", "Espanha", "Inglaterra")
             var id = 1L
@@ -89,18 +88,8 @@ class SuperMundialEditionPolicyTest {
             allTeams = teams,
             userTeamId = teams.first().id
         )
-        val host = requireNotNull(SuperMundialEditionPolicy.hostTeamForSeason(2029, teams))
-
-        assertEquals(32, participants.size)
-        assertEquals(32, participants.map { it.id }.toSet().size)
-        assertTrue(participants.any { it.id == host.id })
-        assertTrue("Com 40 clubes reais, nenhum participante precisa ser virtual", participants.all { p -> teams.any { it.id == p.id } })
-
-        val fixtures = SuperMundialSystem.generateGroupStageFixtures(2029, teams, teams.first().id)
-        assertEquals(48, fixtures.size)
-        assertEquals(32, fixtures.flatMap { listOf(it.homeTeamId, it.awayTeamId) }.toSet().size)
-        assertTrue(fixtures.all { it.matchSlot == MatchSlot.MIDWEEK })
-        assertEquals(setOf(42, 43, 44), fixtures.map { it.week }.toSet())
+        assertTrue(participants.isEmpty())
+        assertTrue(SuperMundialSystem.generateGroupStageFixtures(2029, teams, teams.first().id).isEmpty())
     }
 
     @Test
