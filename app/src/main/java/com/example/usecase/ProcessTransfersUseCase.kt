@@ -3,6 +3,7 @@ package com.example.usecase
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Player
+import com.example.data.PlayerLoan
 import com.example.data.TransactionRecord
 import com.example.data.Team
 import com.example.ui.viewmodel.IncomingOffer
@@ -55,7 +56,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
         if (offerPrice <= 0L) {
             return TransferResult.Error("O valor da oferta deve ser maior que zero!")
         }
-        if (player.teamId == save.playerTeamId) {
+        if (player.teamId == save.playerTeamId && !player.isOnLoan) {
             return TransferResult.Error("O jogador já pertence ao seu clube!")
         }
         if (save.bankBalance < 0L) {
@@ -63,7 +64,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
         }
 
         val roster = repository.getPlayersByTeam(save.playerTeamId)
-        if (roster.size >= 35) {
+        if (roster.size >= 35 && player.teamId != save.playerTeamId) {
             return TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
         }
 
@@ -84,10 +85,11 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer == null) {
                 return@withTransaction TransferResult.Error("Jogador não encontrado no banco de dados!")
             }
-            if (freshPlayer.teamId == save.playerTeamId) {
+            val activeLoan = repository.getActiveLoanForPlayer(freshPlayer.id)
+            if (isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) {
                 return@withTransaction TransferResult.Error("O jogador já pertence ao seu clube!")
             }
-            if (player.teamId == null && freshPlayer.teamId != null) {
+            if (player.teamId == null && freshPlayer.teamId != null && activeLoan == null) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
             val currentSave = repository.getGameSave() ?: save
@@ -110,6 +112,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
             repository.saveGameSave(updatedSave)
             repository.updatePlayers(listOf(updatedPlayer))
+            completeActiveLoanForPermanentTransfer(activeLoan)
 
             val (dueSeason, dueWeek) = FinanceUseCase.calcNextDueDate(currentSave.currentSeason, currentSave.currentWeek, 1)
             val uniqueTransferId = TransactionIdGenerator.generateUniqueId()
@@ -119,8 +122,8 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                     transferId = uniqueTransferId,
                     playerId = freshPlayer.id,
                     buyerTeamId = currentSave.playerTeamId,
-                    // Histórico financeiro mantém 0 apenas como "sem vendedor" para compra de Free Agent.
-                    sellerTeamId = freshPlayer.teamId ?: 0L,
+                    // Em empréstimo ativo, o vendedor factual é o owner, nunca o borrower atual.
+                    sellerTeamId = activeLoan?.ownerTeamId ?: freshPlayer.teamId ?: 0L,
                     totalAmount = offerPrice,
                     downPayment = downPayment,
                     installmentAmount = weeklyInstallment,
@@ -190,8 +193,15 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer == null) {
                 return@withTransaction TransferResult.Error("Jogador não encontrado no banco de dados!")
             }
-            if (freshPlayer.teamId != save.playerTeamId) {
-                return@withTransaction TransferResult.Error("O jogador não pertence mais ao seu clube!")
+            val activeLoan = repository.getActiveLoanForPlayer(freshPlayer.id)
+            if (!isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) {
+                return@withTransaction TransferResult.Error(
+                    if (activeLoan?.borrowerTeamId == save.playerTeamId) {
+                        "Jogador emprestado não pode ser vendido pelo clube recebedor!"
+                    } else {
+                        "O jogador não pertence mais ao seu clube!"
+                    }
+                )
             }
 
             val currentSave = repository.getGameSave() ?: save
@@ -212,6 +222,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
             repository.saveGameSave(updatedSave)
             repository.updatePlayers(listOf(updatedPlayer))
+            completeActiveLoanForPermanentTransfer(activeLoan)
 
             if (remainingWeeks > 0) {
                 val (dueSeason, dueWeek) = FinanceUseCase.calcNextDueDate(currentSave.currentSeason, currentSave.currentWeek, 1)
@@ -304,6 +315,9 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (ownerTeam == null) {
                 return@withTransaction TransferResult.Error("Clube proprietário não foi encontrado!")
             }
+            if (ownerTeamId == save.playerTeamId) {
+                return@withTransaction TransferResult.Error("O clube proprietário e recebedor não podem ser o mesmo!")
+            }
 
             val updatedPlayer = freshPlayer.copy(
                 originalTeamId = ownerTeamId,
@@ -378,7 +392,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             return TransferResult.Error("O valor da oferta de transferência deve ser maior que zero!")
         }
 
-        if (player.teamId == save.playerTeamId) {
+        if (player.teamId == save.playerTeamId && !player.isOnLoan) {
             return TransferResult.Error("O jogador já pertence ao seu clube!")
         }
 
@@ -386,7 +400,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             return TransferResult.Error("Clubes endividados não podem realizar contratações!")
         }
 
-        if (currentRoster.size >= 35) {
+        if (currentRoster.size >= 35 && player.teamId != save.playerTeamId) {
             return TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
         }
 
@@ -408,10 +422,11 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer == null) {
                 return@withTransaction TransferResult.Error("Jogador não encontrado no banco de dados!")
             }
-            if (freshPlayer.teamId == save.playerTeamId) {
+            val activeLoan = repository.getActiveLoanForPlayer(freshPlayer.id)
+            if (isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) {
                 return@withTransaction TransferResult.Error("O jogador já pertence ao seu clube!")
             }
-            if (player.teamId == null && freshPlayer.teamId != null) {
+            if (player.teamId == null && freshPlayer.teamId != null && activeLoan == null) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
             val currentSave = repository.getGameSave() ?: save
@@ -434,6 +449,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
             repository.saveGameSave(updatedSave)
             repository.updatePlayers(listOf(updatedPlayer))
+            completeActiveLoanForPermanentTransfer(activeLoan)
 
             repository.saveTransaction(
                 TransactionRecord(
@@ -502,8 +518,15 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer == null) {
                 return@withTransaction TransferResult.Error("Jogador não encontrado no banco de dados!")
             }
-            if (freshPlayer.teamId != save.playerTeamId) {
-                return@withTransaction TransferResult.Error("O jogador não pertence mais ao seu clube!")
+            val activeLoan = repository.getActiveLoanForPlayer(freshPlayer.id)
+            if (!isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) {
+                return@withTransaction TransferResult.Error(
+                    if (activeLoan?.borrowerTeamId == save.playerTeamId) {
+                        "Jogador emprestado não pode ser vendido pelo clube recebedor!"
+                    } else {
+                        "O jogador não pertence mais ao seu clube!"
+                    }
+                )
             }
             val currentSave = repository.getGameSave() ?: save
             val newBalance = try {
@@ -524,6 +547,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
             repository.saveGameSave(updatedSave)
             repository.updatePlayers(listOf(updatedPlayer))
+            completeActiveLoanForPermanentTransfer(activeLoan)
 
             repository.saveTransaction(
                 TransactionRecord(
@@ -553,8 +577,15 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (freshPlayer == null) {
                 return@withTransaction TransferResult.Error("Jogador não encontrado no banco de dados!")
             }
-            if (freshPlayer.teamId != save.playerTeamId) {
-                return@withTransaction TransferResult.Error("O jogador não pertence mais ao seu clube!")
+            val activeLoan = repository.getActiveLoanForPlayer(freshPlayer.id)
+            if (!isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) {
+                return@withTransaction TransferResult.Error(
+                    if (activeLoan?.borrowerTeamId == save.playerTeamId) {
+                        "Jogador emprestado não pode ser negociado pelo clube recebedor!"
+                    } else {
+                        "O jogador não pertence mais ao seu clube!"
+                    }
+                )
             }
 
             val currentRoster = repository.getPlayersByTeam(save.playerTeamId)
@@ -563,9 +594,15 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             }
 
             if (offer.offerType == "EMPRESTIMO") {
+                if (activeLoan != null) {
+                    return@withTransaction TransferResult.Error("Já existe um empréstimo ativo para este jogador!")
+                }
                 val borrowerTeam = if (offer.buyerTeamId != 0L) repository.getTeam(offer.buyerTeamId) else repository.getAllTeams().find { it.name == offer.buyerTeamName }
                 if (borrowerTeam == null) {
                     return@withTransaction TransferResult.Error("Clube interessado não foi encontrado!")
+                }
+                if (borrowerTeam.id == save.playerTeamId) {
+                    return@withTransaction TransferResult.Error("O clube proprietário e recebedor não podem ser o mesmo!")
                 }
                 val borrowerRosterSize = repository.getPlayerCountByTeam(borrowerTeam.id)
                 if (borrowerRosterSize >= 35) {
@@ -631,6 +668,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
                 repository.saveGameSave(updatedSave)
                 repository.updatePlayer(updatedPlayer)
+                completeActiveLoanForPermanentTransfer(activeLoan)
 
                 repository.saveTransaction(
                     TransactionRecord(
@@ -662,5 +700,13 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             price = offerPrice
         )
         return acceptIncomingOffer(save, dummyOffer)
+    }
+
+    private fun isOwnedByTeam(player: Player, activeLoan: PlayerLoan?, teamId: Long): Boolean =
+        if (activeLoan != null) activeLoan.ownerTeamId == teamId else player.teamId == teamId
+
+    private suspend fun completeActiveLoanForPermanentTransfer(activeLoan: PlayerLoan?) {
+        if (activeLoan == null) return
+        repository.updateLoan(activeLoan.copy(status = "COMPLETED", remainingWeeks = 0))
     }
 }
