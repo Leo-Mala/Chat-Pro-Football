@@ -20,10 +20,16 @@ data class Fc26SeedReport(
     val datasetLoanPlayers: Int,
     val successfullyMappedLoans: Int,
     val unresolvedLoans: Int,
+    val ambiguousLoans: Int,
+    val ownerNotFound: Int,
+    val borrowerNotFound: Int,
+    val selfLoansRejected: Int,
+    val duplicateLoans: Int,
     val fallbackRostersRequired: Int,
     /** Phase 9.14: actual procedural players retained after the FC26 fallback roster policy. */
     val fallbackPlayersGenerated: Int,
-    val clubMatches: List<Fc26ClubMatch>
+    val clubMatches: List<Fc26ClubMatch>,
+    val loanResolutions: List<Fc26LoanResolution>
 )
 
 object Fc26SeedPlanner {
@@ -35,6 +41,15 @@ object Fc26SeedPlanner {
         init {
             require(players.map { it.id }.distinct().size == players.size) {
                 "FC26 seed contém Player.id duplicado."
+            }
+            require(loans.map { it.playerId }.distinct().size == loans.size) {
+                "FC26 seed contém múltiplos empréstimos ativos para o mesmo jogador."
+            }
+            require(loans.all { it.playerId > 0L && it.ownerTeamId > 0L && it.borrowerTeamId > 0L }) {
+                "FC26 seed contém referência de empréstimo inválida."
+            }
+            require(loans.none { it.ownerTeamId == it.borrowerTeamId }) {
+                "FC26 seed contém self-loan."
             }
         }
     }
@@ -87,10 +102,7 @@ object Fc26SeedPlanner {
 
         // Jogadores cujo clube FC26 ainda não possui target seguro também entram no jogo. Eles NÃO
         // são reclassificados como free agents factuais: teamId=null significa apenas "unassigned"
-        // no universo atual. A identidade do clube de origem continua preservada em atributosJson
-        // (sourceClubTeamId/sourceClubName/league), permitindo associação futura sem reimportação.
-        // O marcador assignmentStatus separa esse estado de um free agent verdadeiro sem exigir
-        // coluna/migração Room e sem tocar em overall, potential ou Atributos.
+        // no universo atual. A identidade do clube de origem continua preservada em atributosJson.
         val unmatchedClubPlayers = dataset.sourceClubs
             .asSequence()
             .filter { matchesBySourceId.getValue(it.sourceClubTeamId).status == Fc26ClubMatchStatus.UNMATCHED }
@@ -106,8 +118,25 @@ object Fc26SeedPlanner {
         val unassignedClubPlayers = unmatchedClubPlayers + ambiguousClubPlayers
         players += unassignedClubPlayers
 
+        // Resolve ownership only after borrower/current-club identities have been canonicalized.
+        // Snapshot dates are unavailable, so resolved relations use the explicit open-ended FC26
+        // sentinel defined by Fc26LoanPolicy and are never given a fabricated duration.
+        val loanResolution = Fc26LoanResolver.resolve(dataset, matches)
+        val resolutionByPlayerId = loanResolution.audit.resolutions.associateBy { it.playerId }
+        val materializedLoansByPlayerId = loanResolution.loans.associateBy { it.playerId }
+        val playersWithLoanState = players.map { player ->
+            val resolution = resolutionByPlayerId[player.id] ?: return@map player
+            val loan = materializedLoansByPlayerId[player.id]
+            if (loan != null) {
+                require(player.teamId == loan.borrowerTeamId) {
+                    "FC26 roster/borrower divergence for player=${player.id}: roster=${player.teamId} borrower=${loan.borrowerTeamId}"
+                }
+            }
+            player.markFc26LoanResolution(resolution)
+        }
+
         // Preserve the historical A1/A2/A3 coverage counters so their audit reports remain
-        // comparable. The new bulkImportedFc26Players field is the actual number inserted.
+        // comparable. bulkImportedFc26Players is the actual number inserted.
         val clubCoverageImportedPlayers = mappedClubPlayerCount + freeAgents.size
         val clubCoverageUnresolvedPlayers = dataset.players.size - clubCoverageImportedPlayers
         val bulkImportedPlayers = clubCoverageImportedPlayers + unassignedClubPlayers.size
@@ -117,7 +146,11 @@ object Fc26SeedPlanner {
         require(clubCoverageUnresolvedPlayers == unassignedClubPlayers.size) {
             "FC26 unresolved coverage divergiu do pool unassigned."
         }
+        require(playersWithLoanState.size == players.size) {
+            "FC26 loan materialization alterou a quantidade de jogadores."
+        }
 
+        val audit = loanResolution.audit
         val report = Fc26SeedReport(
             datasetPlayers = dataset.players.size,
             importedFc26Players = clubCoverageImportedPlayers,
@@ -132,16 +165,19 @@ object Fc26SeedPlanner {
             importedUnassignedClubPlayers = unassignedClubPlayers.size,
             importedUnmatchedClubPlayers = unmatchedClubPlayers.size,
             importedAmbiguousClubPlayers = ambiguousClubPlayers.size,
-            datasetLoanPlayers = dataset.manifest.loanedPlayerCount,
-            successfullyMappedLoans = 0,
-            // O snapshot não informa duração suficiente para reconstruir PlayerLoan com segurança.
-            // Portanto todos os empréstimos de origem permanecem pendentes nesta fase, inclusive os
-            // jogadores cujo clube atual ainda não existe no universo Pro Football.
-            unresolvedLoans = dataset.manifest.loanedPlayerCount,
+            datasetLoanPlayers = audit.datasetLoanPlayers,
+            successfullyMappedLoans = audit.resolvedLoans,
+            unresolvedLoans = audit.rejectedLoans,
+            ambiguousLoans = audit.ambiguousLoans,
+            ownerNotFound = audit.ownerNotFound,
+            borrowerNotFound = audit.borrowerNotFound,
+            selfLoansRejected = audit.selfLoansRejected,
+            duplicateLoans = audit.duplicateLoans,
             fallbackRostersRequired = fallbackCount,
             fallbackPlayersGenerated = fallbackPlayerCount,
-            clubMatches = matches
+            clubMatches = matches,
+            loanResolutions = audit.resolutions
         )
-        return Plan(players = players, loans = emptyList(), report = report)
+        return Plan(players = playersWithLoanState, loans = loanResolution.loans, report = report)
     }
 }
