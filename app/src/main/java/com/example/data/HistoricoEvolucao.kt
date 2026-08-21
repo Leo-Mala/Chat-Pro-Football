@@ -2,12 +2,16 @@ package com.example.data
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 
-@Entity(tableName = "historico_evolucao")
+@Entity(
+    tableName = "historico_evolucao",
+    indices = [Index(value = ["data"])]
+)
 data class HistoricoEvolucao(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
