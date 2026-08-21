@@ -42,6 +42,17 @@ data class MonthlyEvolutionPlan(
 )
 
 /**
+ * Explicit outcome for a standalone monthly-evolution attempt.
+ *
+ * A stale plan is an expected concurrency outcome, not an exceptional crash condition. When
+ * [committed] is false the plan was discarded before any monthly write and [results] is empty.
+ */
+data class MonthlyEvolutionExecutionOutcome(
+    val committed: Boolean,
+    val results: List<PlayerEvolutionResult>
+)
+
+/**
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
  * suspensões por cartão e renovação de contratos de atletas.
  */
@@ -275,17 +286,45 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         true
     }
 
-    /** Canonical standalone monthly evolution API. */
+    /**
+     * Applies one already-prepared standalone plan without converting expected stale-state rejection
+     * into an exception. This seam is also used by regression tests to model state changes that
+     * happen between preparation and commit.
+     */
+    internal suspend fun executePreparedMonthlyEvolution(
+        plan: MonthlyEvolutionPlan
+    ): MonthlyEvolutionExecutionOutcome {
+        val committed = commitMonthlyEvolution(plan)
+        return if (committed) {
+            MonthlyEvolutionExecutionOutcome(committed = true, results = plan.results)
+        } else {
+            MonthlyEvolutionExecutionOutcome(committed = false, results = emptyList())
+        }
+    }
+
+    /**
+     * Standalone API with an explicit stale/committed outcome for callers that need to surface a
+     * conflict. No stale snapshot is ever applied and a stale plan is not an exceptional crash.
+     */
+    suspend fun executeMonthlyEvolutionDetailed(
+        save: GameSave,
+        periodDate: String
+    ): MonthlyEvolutionExecutionOutcome {
+        val plan = prepareMonthlyEvolution(save, periodDate)
+        return executePreparedMonthlyEvolution(plan)
+    }
+
+    /**
+     * Backwards-compatible standalone monthly evolution API.
+     *
+     * On a concurrent stale-state conflict the plan is safely discarded and an empty result list is
+     * returned instead of throwing IllegalStateException. Callers that need to distinguish an empty
+     * committed month from a discarded stale plan should use [executeMonthlyEvolutionDetailed].
+     */
     suspend fun executeMonthlyEvolution(
         save: GameSave,
         periodDate: String
-    ): List<PlayerEvolutionResult> {
-        val plan = prepareMonthlyEvolution(save, periodDate)
-        check(commitMonthlyEvolution(plan)) {
-            "O estado da carreira mudou durante o cálculo da evolução mensal; plano descartado."
-        }
-        return plan.results
-    }
+    ): List<PlayerEvolutionResult> = executeMonthlyEvolutionDetailed(save, periodDate).results
 
     suspend fun promoteYouthPlayer(
         save: GameSave,
