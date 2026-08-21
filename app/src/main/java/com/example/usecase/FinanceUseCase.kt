@@ -1,5 +1,6 @@
 package com.example.usecase
 
+import com.example.data.Fc26LoanPolicy
 import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
@@ -146,12 +147,45 @@ class FinanceUseCase(private val repository: GameRepository) {
             }
         }
 
-        // Processar empréstimos de jogadores ativos
+        // Processar empréstimos de jogadores ativos.
+        // Snapshot FC26 sem data de término permanece ACTIVE até um evento explícito de carreira;
+        // jamais decrementamos um prazo inexistente nem cobramos taxa inventada.
         var loanFeesPaid = 0L
         val activeLoans = repository.getActiveLoans()
         val updatedLoans = mutableListOf<com.example.data.PlayerLoan>()
 
         for (loan in activeLoans) {
+            val player = repository.getPlayer(loan.playerId)
+
+            if (Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)) {
+                if (player == null || !player.isOnLoan || player.contractDurationWeeks <= 0) {
+                    // O contrato principal expirou/liberou o atleta ou outra operação já publicou
+                    // a mudança de roster. Fechar novamente é idempotente e evita relação órfã.
+                    updatedLoans.add(loan.copy(remainingWeeks = 0, status = "COMPLETED"))
+                    if (player != null && player.isOnLoan) {
+                        repository.updatePlayer(
+                            player.copy(
+                                teamId = null,
+                                originalTeamId = null,
+                                isOnLoan = false,
+                                loanWeeksRemaining = 0,
+                                isStarter = false,
+                                salary = 0L
+                            )
+                        )
+                    }
+                } else if (
+                    player.teamId != loan.borrowerTeamId ||
+                    player.originalTeamId != loan.ownerTeamId
+                ) {
+                    // Fail-closed em inconsistência de runtime: não movemos o jogador para clube
+                    // algum por inferência. A relação deixa de ser ativa e o estado Player atual é
+                    // preservado para que o save continue auditável.
+                    updatedLoans.add(loan.copy(remainingWeeks = 0, status = "INVALID"))
+                }
+                continue
+            }
+
             if (loan.borrowerTeamId == currentSave.playerTeamId) {
                 loanFeesPaid += loan.weeklyFee
             }
@@ -161,7 +195,6 @@ class FinanceUseCase(private val repository: GameRepository) {
             updatedLoans.add(updated)
 
             // Strictly synchronize Player entity state with loan status
-            val player = repository.getPlayer(loan.playerId)
             if (player != null) {
                 if (rem <= 0) {
                     val hasExpiredContract = player.contractDurationWeeks <= 0
