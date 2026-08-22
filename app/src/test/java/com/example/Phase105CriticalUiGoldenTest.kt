@@ -36,6 +36,7 @@ import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
 import java.security.MessageDigest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -69,21 +70,14 @@ class Phase105CriticalUiGoldenTest {
         when {
             File("app/build.gradle.kts").isFile -> File("app")
             File("build.gradle.kts").isFile && File("src/test").isDirectory -> File(".")
-            else -> error(
-                "Diretório do módulo app não encontrado a partir de ${File(".").absolutePath}"
-            )
+            else -> error("Diretório do módulo app não encontrado a partir de ${File(".").absolutePath}")
         }
     }
 
     private val expectedHashes: Map<String, String> by lazy {
         val manifest = File(moduleDir, "src/test/screenshots/phase_10_5_ui.sha256")
-        require(manifest.isFile) {
-            "Manifesto de golden Phase 10.5 não encontrado em ${manifest.absolutePath}"
-        }
-
-        manifest.readLines()
-            .asSequence()
-            .map { it.trim() }
+        require(manifest.isFile) { "Manifesto de golden Phase 10.5 não encontrado em ${manifest.absolutePath}" }
+        manifest.readLines().asSequence().map { it.trim() }
             .filter { it.isNotEmpty() && !it.startsWith("#") }
             .associate { line ->
                 val parts = line.split(Regex("\\s+"), limit = 2)
@@ -100,14 +94,9 @@ class Phase105CriticalUiGoldenTest {
     private fun recordingOptions(): RoborazziOptions {
         val previous = System.getProperty("roborazzi.test.record")
         System.setProperty("roborazzi.test.record", "true")
-        return try {
-            RoborazziOptions()
-        } finally {
-            if (previous == null) {
-                System.clearProperty("roborazzi.test.record")
-            } else {
-                System.setProperty("roborazzi.test.record", previous)
-            }
+        return try { RoborazziOptions() } finally {
+            if (previous == null) System.clearProperty("roborazzi.test.record")
+            else System.setProperty("roborazzi.test.record", previous)
         }
     }
 
@@ -118,10 +107,7 @@ class Phase105CriticalUiGoldenTest {
         val slotId = "5"
 
         context.dataStore.edit { it.clear() }
-        context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
+        context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE).edit().clear().commit()
         context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
 
         val databaseFactory = SlotDatabaseFactory(context)
@@ -134,87 +120,31 @@ class Phase105CriticalUiGoldenTest {
         val fourthId = 8_800_000_004L
 
         val teams = listOf(
-            Team(
-                id = homeId,
-                name = "Atlético QA",
-                city = "Belo Horizonte",
-                state = "MG",
-                country = "Brasil",
-                division = 1,
-                isPlayerControlled = true,
-                rating = 82,
-                stadiumName = "Arena QA",
-                logoUrl = null,
-                colorHex = "#111111"
-            ),
-            Team(
-                id = rivalId,
-                name = "Cruzeiro QA",
-                city = "Belo Horizonte",
-                state = "MG",
-                country = "Brasil",
-                division = 1,
-                rating = 80,
-                stadiumName = "Estádio QA Azul",
-                logoUrl = null,
-                colorHex = "#0033A0"
-            ),
-            Team(
-                id = thirdId,
-                name = "Palmeiras QA",
-                city = "São Paulo",
-                state = "SP",
-                country = "Brasil",
-                division = 1,
-                rating = 83,
-                logoUrl = null,
-                colorHex = "#006437"
-            ),
-            Team(
-                id = fourthId,
-                name = "Flamengo QA",
-                city = "Rio de Janeiro",
-                state = "RJ",
-                country = "Brasil",
-                division = 1,
-                rating = 84,
-                logoUrl = null,
-                colorHex = "#C4122C"
-            )
+            Team(id = homeId, name = "Atlético QA", city = "Belo Horizonte", state = "MG", country = "Brasil", division = 1, isPlayerControlled = true, rating = 82, stadiumName = "Arena QA", logoUrl = null, colorHex = "#111111"),
+            Team(id = rivalId, name = "Cruzeiro QA", city = "Belo Horizonte", state = "MG", country = "Brasil", division = 1, rating = 80, stadiumName = "Estádio QA Azul", logoUrl = null, colorHex = "#0033A0"),
+            Team(id = thirdId, name = "Palmeiras QA", city = "São Paulo", state = "SP", country = "Brasil", division = 1, rating = 83, logoUrl = null, colorHex = "#006437"),
+            Team(id = fourthId, name = "Flamengo QA", city = "Rio de Janeiro", state = "RJ", country = "Brasil", division = 1, rating = 84, logoUrl = null, colorHex = "#C4122C")
         )
         repository.saveTeams(teams)
 
-        val positions = listOf(
-            "GOL", "LAT", "ZAG", "ZAG", "LAT", "VOL", "VOL", "MEI", "MEI", "ATA", "ATA",
-            "GOL", "ZAG", "MEI", "ATA"
-        )
+        val positions = listOf("GOL", "LAT", "ZAG", "ZAG", "LAT", "VOL", "VOL", "MEI", "MEI", "ATA", "ATA", "GOL", "ZAG", "MEI", "ATA")
         val players = teams.flatMapIndexed { teamIndex, team ->
             positions.mapIndexed { index, position ->
                 Player(
                     id = 8_810_000_000L + teamIndex * 100L + index,
                     teamId = team.id,
                     name = "${team.name.substringBefore(' ')} QA ${index + 1}",
-                    age = 20 + (index % 12),
-                    nationality = "Brasil",
-                    position = position,
+                    age = 20 + (index % 12), nationality = "Brasil", position = position,
                     force = (86 - index - teamIndex).coerceAtLeast(65),
-                    // Keep the dashboard readiness metric invariant while the lifecycle-aware
-                    // roster collector transitions from the 11 starters to the complete 15-player
-                    // persisted roster. The three reserves remain distinct real fixture rows.
                     energy = 88 + (index % 12) + if (teamIndex == 0 && index >= 12) 2 else 0,
-                    moral = 76 + (index % 15),
-                    salary = 40_000L + index * 2_500L,
-                    contractDurationWeeks = 104,
-                    isStarter = index < 11,
+                    moral = 76 + (index % 15), salary = 40_000L + index * 2_500L,
+                    contractDurationWeeks = 104, isStarter = index < 11,
                     market_value = 2_000_000L + index * 250_000L,
                     min_price = 1_800_000L + index * 200_000L,
                     max_price = 2_600_000L + index * 300_000L,
-                    finishing = 70 + (index % 15),
-                    passing = 68 + (index % 16),
-                    pace = 69 + (index % 14),
-                    strength = 67 + (index % 15),
-                    vision = 66 + (index % 17),
-                    defense = 64 + (index % 18),
+                    finishing = 70 + (index % 15), passing = 68 + (index % 16),
+                    pace = 69 + (index % 14), strength = 67 + (index % 15),
+                    vision = 66 + (index % 17), defense = 64 + (index % 18),
                     potential = (90 - index / 2).coerceAtLeast(78)
                 )
             }
@@ -223,94 +153,41 @@ class Phase105CriticalUiGoldenTest {
         val expectedHomeRoster = players.filter { it.teamId == homeId }
         val expectedAverageEnergy = expectedHomeRoster.sumOf { it.energy } / expectedHomeRoster.size
 
-        val nextFixture = Fixture(
-            id = 8_820_000_003L,
-            season = 2026,
-            week = 2,
-            homeTeamId = homeId,
-            awayTeamId = rivalId,
-            competitionType = "SERIE_A"
-        )
-        repository.saveFixtures(
-            listOf(
-                Fixture(
-                    id = 8_820_000_001L,
-                    season = 2026,
-                    week = 1,
-                    homeTeamId = homeId,
-                    awayTeamId = thirdId,
-                    homeScore = 2,
-                    awayScore = 1,
-                    competitionType = "SERIE_A",
-                    isPlayed = true
-                ),
-                Fixture(
-                    id = 8_820_000_002L,
-                    season = 2026,
-                    week = 1,
-                    homeTeamId = rivalId,
-                    awayTeamId = fourthId,
-                    homeScore = 0,
-                    awayScore = 0,
-                    competitionType = "SERIE_A",
-                    isPlayed = true
-                ),
-                nextFixture,
-                Fixture(
-                    id = 8_820_000_004L,
-                    season = 2026,
-                    week = 2,
-                    homeTeamId = thirdId,
-                    awayTeamId = fourthId,
-                    competitionType = "SERIE_A"
-                )
-            )
-        )
-        repository.saveGameSave(
-            GameSave(
-                coachName = "Técnico QA",
-                coachReputation = 78,
-                currentWeek = 2,
-                currentSeason = 2026,
-                playerTeamId = homeId,
-                bankBalance = 42_500_000L,
-                stadiumCapacity = 42_000,
-                sponsorWeekly = 550_000L,
-                sponsorName = "Patrocinador QA",
-                sponsorWeeksRemaining = 24,
-                academyLevel = 3,
-                academyWeeklyInvestment = 120_000L,
-                playerFormation = "4-3-3",
-                playerStyle = "Equilibrado"
-            )
-        )
+        val nextFixture = Fixture(id = 8_820_000_003L, season = 2026, week = 2, homeTeamId = homeId, awayTeamId = rivalId, competitionType = "SERIE_A")
+        repository.saveFixtures(listOf(
+            Fixture(id = 8_820_000_001L, season = 2026, week = 1, homeTeamId = homeId, awayTeamId = thirdId, homeScore = 2, awayScore = 1, competitionType = "SERIE_A", isPlayed = true),
+            Fixture(id = 8_820_000_002L, season = 2026, week = 1, homeTeamId = rivalId, awayTeamId = fourthId, homeScore = 0, awayScore = 0, competitionType = "SERIE_A", isPlayed = true),
+            nextFixture,
+            Fixture(id = 8_820_000_004L, season = 2026, week = 2, homeTeamId = thirdId, awayTeamId = fourthId, competitionType = "SERIE_A")
+        ))
+        repository.saveGameSave(GameSave(
+            coachName = "Técnico QA", coachReputation = 78, currentWeek = 2, currentSeason = 2026,
+            playerTeamId = homeId, bankBalance = 42_500_000L, stadiumCapacity = 42_000,
+            sponsorWeekly = 550_000L, sponsorName = "Patrocinador QA", sponsorWeeksRemaining = 24,
+            academyLevel = 3, academyWeeklyInvestment = 120_000L,
+            playerFormation = "4-3-3", playerStyle = "Equilibrado"
+        ))
 
         val preferencesRepository = GamePreferencesRepository(context.dataStore, context)
-        val viewModel = GameViewModel(
-            application = application,
-            saveRepository = saveRepository,
-            preferencesRepo = preferencesRepository,
-            youthAcademyUseCase = YouthAcademyUseCase(),
-            tacticsUseCase = TacticsUseCase()
-        )
+        val viewModel = GameViewModel(application, saveRepository, preferencesRepository, YouthAcademyUseCase(), TacticsUseCase())
         viewModel.getOrCreateSession(slotId)
         viewModel._currentSaveId.value = slotId
 
+        // Subscribe to the lifecycle-backed roster flow before composition. This removes the race
+        // between the first Compose frame and StateFlow's WhileSubscribed activation without
+        // weakening the visual assertion or adding a larger timeout.
+        viewModel.playerRoster.first { loadedRoster ->
+            loadedRoster.size == expectedHomeRoster.size &&
+                loadedRoster.associate { it.id to it.energy } == expectedHomeRoster.associate { it.id to it.energy }
+        }
+
         val surface = mutableStateOf("career")
         composeTestRule.setContent {
-            // Ripples/pressed indications are transient input feedback, not product layout. Under
-            // Robolectric they can outlive a semantic click nondeterministically and contaminate
-            // the next screen's pixels. Disable only that transient feedback inside this golden
-            // composition; navigation still executes the real Tab onClick path.
             CompositionLocalProvider(LocalRippleConfiguration provides null) {
                 MyApplicationTheme {
                     when (surface.value) {
                         "career" -> CareerDashboardScreen(viewModel)
-                        "team_selection" -> TeamSelectionScreen(
-                            viewModel = viewModel,
-                            coachName = "Técnico QA",
-                            onBack = {}
-                        )
+                        "team_selection" -> TeamSelectionScreen(viewModel = viewModel, coachName = "Técnico QA", onBack = {})
                         else -> LiveMatchScreen(viewModel)
                     }
                 }
@@ -329,32 +206,15 @@ class Phase105CriticalUiGoldenTest {
             assertNotNull("Golden SHA-256 ausente para $fileName", expected)
             val actualFile = File(moduleDir, "build/phase105-golden-actual/$fileName")
             actualFile.parentFile?.mkdirs()
-            composeTestRule.onRoot().captureRoboImage(
-                file = actualFile,
-                roborazziOptions = recordingOptions()
-            )
-            require(actualFile.isFile) {
-                "Captura Roborazzi não foi materializada em ${actualFile.absolutePath}"
-            }
-            assertEquals(
-                "Regressão visual detectada em $fileName. Regrave o baseline somente após revisão explícita da mudança.",
-                expected,
-                sha256(actualFile)
-            )
+            composeTestRule.onRoot().captureRoboImage(file = actualFile, roborazziOptions = recordingOptions())
+            require(actualFile.isFile) { "Captura Roborazzi não foi materializada em ${actualFile.absolutePath}" }
+            assertEquals("Regressão visual detectada em $fileName. Regrave o baseline somente após revisão explícita da mudança.", expected, sha256(actualFile))
         }
 
         composeTestRule.waitUntil(timeoutMillis = 8_000) {
-            val loadedRoster = viewModel.playerRoster.value
-            loadedRoster.size == expectedHomeRoster.size &&
-                loadedRoster.associate { it.id to it.energy } ==
-                    expectedHomeRoster.associate { it.id to it.energy } &&
-                composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
-                composeTestRule.onAllNodesWithText("Atlético QA", substring = true)
-                    .fetchSemanticsNodes().isNotEmpty() &&
-                composeTestRule.onAllNodesWithText(
-                    "$expectedAverageEnergy% - Elenco Pronto",
-                    substring = false
-                ).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
+                composeTestRule.onAllNodesWithText("Atlético QA", substring = true).fetchSemanticsNodes().isNotEmpty() &&
+                composeTestRule.onAllNodesWithText("$expectedAverageEnergy% - Elenco Pronto", substring = false).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
         captureAndVerify("dashboard.png")
