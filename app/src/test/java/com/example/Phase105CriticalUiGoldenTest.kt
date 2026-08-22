@@ -302,8 +302,17 @@ class Phase105CriticalUiGoldenTest {
             }
         }
 
-        fun captureAndVerify(fileName: String) {
+        fun settleUiForGolden() {
             composeTestRule.waitForIdle()
+            // waitForIdle() does not guarantee that Material interaction/ripple indications have
+            // left their transient pressed frame. Advancing the Compose clock makes the golden
+            // represent the stable selected tab rather than a race-dependent pointer animation.
+            composeTestRule.mainClock.advanceTimeBy(1_000L)
+            composeTestRule.waitForIdle()
+        }
+
+        fun captureAndVerify(fileName: String) {
+            settleUiForGolden()
             val expected = expectedHashes[fileName]
             assertNotNull("Golden SHA-256 ausente para $fileName", expected)
             val actualFile = File(moduleDir, "build/phase105-golden-actual/$fileName")
@@ -332,7 +341,6 @@ class Phase105CriticalUiGoldenTest {
 
         fun navigateTo(tag: String, fileName: String) {
             composeTestRule.onNodeWithTag(tag).performScrollTo().performClick()
-            composeTestRule.waitForIdle()
             captureAndVerify(fileName)
         }
 
