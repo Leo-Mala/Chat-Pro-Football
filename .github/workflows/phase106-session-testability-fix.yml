@@ -1,0 +1,60 @@
+name: Phase 10.6 session guard testability fix
+
+on:
+  push:
+    branches:
+      - agent/phase-10-6-save-durability-recovery
+    paths:
+      - '.github/workflows/phase106-session-testability-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - name: Apply narrow source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          text = path.read_text()
+          old_sig = '    private suspend fun performStartNewGameInternal(\n'
+          new_sig = '    internal suspend fun performStartNewGameInternal(\n'
+          if text.count(old_sig) != 1:
+              raise SystemExit('performStartNewGameInternal signature anchor mismatch')
+          text = text.replace(old_sig, new_sig, 1)
+          anchor = '''        val targetRepo = session.repository
+              val generation = session.generation
+              val season = 2026
+          '''
+          replacement = '''        val targetRepo = session.repository
+              val generation = session.generation
+              if (generation != sessionGeneration.get()) {
+                  throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo já estava obsoleta.")
+              }
+              val season = 2026
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit('generation anchor mismatch')
+          path.write_text(text.replace(anchor, replacement, 1))
+          PY
+          git diff --check
+          git diff -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+      - name: Commit narrow source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Leo-Mala"
+          git config user.email "leomalaj10@gmail.com"
+          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          git commit -m "testability(save): expose guarded new-game session helper"
+          git push origin HEAD:${{ github.ref_name }}
