@@ -43,7 +43,7 @@ class WeeklyFinalizationAtomicityTest {
         viewModel = GameViewModel(
             application = application,
             saveRepository = saveRepository,
-            preferencesRepo = GamePreferencesRepository(application.dataStore, application),
+            preferencesRepo = GamePreferencesRepository(application.dataStore, application, saveRepository),
             youthAcademyUseCase = YouthAcademyUseCase(),
             tacticsUseCase = TacticsUseCase()
         )
