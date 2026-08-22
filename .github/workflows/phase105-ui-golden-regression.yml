@@ -1,0 +1,136 @@
+name: Phase 10.5 UI Golden Regression
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/phase105-ui-golden-regression.yml'
+      - 'app/src/test/screenshots/phase_10_5_sha256.txt'
+      - 'app/src/test/java/com/example/MainMenuScreenshotTest.kt'
+      - 'app/src/test/java/com/example/SavesScreenshotTest.kt'
+      - 'app/src/test/java/com/example/Phase105CriticalUiGoldenTest.kt'
+      - 'app/src/test/java/com/example/Phase105AccessibilityAndResilienceTest.kt'
+      - 'app/src/main/**'
+      - 'app/build.gradle.kts'
+      - 'gradle/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-10-5-ui-golden-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-critical-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact PR head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Prefetch Robolectric SDK 34 runtime with checksum verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='14-robolectric-10818077-i7'
+          base="https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented/$version"
+          runtime_dir="$RUNNER_TEMP/robolectric-runtime"
+          jar="android-all-instrumented-$version.jar"
+          mkdir -p "$runtime_dir"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+            "$base/$jar" -o "$runtime_dir/$jar"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+            "$base/$jar.sha256" -o "$runtime_dir/$jar.sha256"
+          expected="$(awk '{print $1}' "$runtime_dir/$jar.sha256")"
+          actual="$(sha256sum "$runtime_dir/$jar" | awk '{print $1}')"
+          test "$actual" = "$expected"
+          test "$(stat -c%s "$runtime_dir/$jar")" -gt 100000000
+          echo "ROBOLECTRIC_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+
+      - name: Render critical product UI and accessibility gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew \
+            -Drobolectric.offline=true \
+            -Drobolectric.dependency.dir="$ROBOLECTRIC_RUNTIME_DIR" \
+            testDebugUnitTest \
+            --tests com.example.MainMenuScreenshotTest \
+            --tests com.example.SavesScreenshotTest \
+            --tests com.example.Phase105CriticalUiGoldenTest \
+            --tests com.example.Phase105AccessibilityAndResilienceTest \
+            -PexcludeStressTests=true \
+            --no-build-cache \
+            --rerun-tasks \
+            --stacktrace
+
+      - name: Verify exact Phase 10.5 golden hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_count=11
+          manifest='app/src/test/screenshots/phase_10_5_sha256.txt'
+          test -s "$manifest"
+          test "$(grep -c '^[0-9a-f]\{64\}  app/src/test/screenshots/.*\.png$' "$manifest")" -eq "$required_count"
+          sha256sum -c "$manifest"
+
+      - name: Upload rendered critical UI
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-10-5-ui-golden-verification
+          path: app/src/test/screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 1
