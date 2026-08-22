@@ -6,21 +6,35 @@ import com.example.data.*
 import com.example.data.repository.SlotRecoveryRequiredException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+private fun GameViewModel.isEditorSessionCurrent(session: SaveSession): Boolean =
+    activeSaveSession.value === session && currentSaveId.value == session.slotId
+
+private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean) {
+    withContext(Dispatchers.Main) {
+        onReady(ready)
+    }
+}
+
 fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
     viewModelScope.launch(Dispatchers.IO) {
         val targetSaveId = _currentSaveId.value ?: "1"
+        var editorSession: SaveSession? = null
         try {
-            // Materializa/valida Room em IO antes de publicar currentSaveId. Isso impede que
-            // activeRepositoryFlow reaja na main thread e seja o primeiro chamador da abertura eager.
-            val currentRepository = getOrCreateSession(targetSaveId).repository
+            // Materializa/valida Room em IO antes de publicar currentSaveId. O preparo inteiro fica
+            // vinculado à mesma SaveSession e nunca pode concluir em favor de uma sessão posterior.
+            val session = getOrCreateSession(targetSaveId)
+            editorSession = session
+            val currentRepository = session.repository
             if (_currentSaveId.value == null) {
                 _currentSaveId.value = targetSaveId
+            }
+            if (!isEditorSessionCurrent(session)) {
+                notifyEditorReady(onReady, false)
+                return@launch
             }
 
             var dbTeams = currentRepository.getAllTeams()
@@ -46,8 +60,17 @@ fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
                         )
                     }
                 }
+                if (!isEditorSessionCurrent(session)) {
+                    notifyEditorReady(onReady, false)
+                    return@launch
+                }
                 currentRepository.saveTeams(seededTeams)
                 dbTeams = seededTeams
+            }
+
+            if (!isEditorSessionCurrent(session)) {
+                notifyEditorReady(onReady, false)
+                return@launch
             }
 
             val allDbPlayers = currentRepository.getAllPlayers()
@@ -57,12 +80,15 @@ fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
                     val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
                     allPlayersToSave.addAll(roster)
                 }
+                if (!isEditorSessionCurrent(session)) {
+                    notifyEditorReady(onReady, false)
+                    return@launch
+                }
                 currentRepository.savePlayers(allPlayersToSave)
             }
 
-            withContext(Dispatchers.Main) {
-                onReady(true)
-            }
+            // A UI só navega se a sessão usada no preparo ainda for exatamente a ativa.
+            notifyEditorReady(onReady, isEditorSessionCurrent(session))
         } catch (e: CancellationException) {
             throw e
         } catch (e: SlotRecoveryRequiredException) {
@@ -70,18 +96,20 @@ fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
                 "GameViewModel",
                 "Editor bloqueado para slot $targetSaveId em recuperação: ${e.inspection.failureReason}"
             )
-            exitToSavesMenu()
-            loadSaveSlots()
-            withContext(Dispatchers.Main) {
-                onReady(false)
+            val session = editorSession
+            if (session == null || isEditorSessionCurrent(session)) {
+                exitToSavesMenu()
+                loadSaveSlots()
             }
+            notifyEditorReady(onReady, false)
         } catch (e: Exception) {
             Log.e("GameViewModel", "Falha fail-closed ao preparar editor no slot $targetSaveId", e)
-            exitToSavesMenu()
-            loadSaveSlots()
-            withContext(Dispatchers.Main) {
-                onReady(false)
+            val session = editorSession
+            if (session == null || isEditorSessionCurrent(session)) {
+                exitToSavesMenu()
+                loadSaveSlots()
             }
+            notifyEditorReady(onReady, false)
         }
     }
 }
