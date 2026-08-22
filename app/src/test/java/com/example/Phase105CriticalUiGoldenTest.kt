@@ -36,7 +36,6 @@ import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
 import java.security.MessageDigest
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -153,6 +152,17 @@ class Phase105CriticalUiGoldenTest {
         val expectedHomeRoster = players.filter { it.teamId == homeId }
         val expectedAverageEnergy = expectedHomeRoster.sumOf { it.energy } / expectedHomeRoster.size
 
+        // Persistence and visual readiness are deliberately asserted through separate contracts.
+        // Reading StateFlow.value here is timing-sensitive because playerRoster is WhileSubscribed;
+        // the repository read proves all 15 fixture rows exactly, while the Compose assertions below
+        // prove the lifecycle-backed UI reached the expected rendered state before any capture.
+        val persistedHomeRoster = repository.getPlayersByTeam(homeId)
+        assertEquals(expectedHomeRoster.size, persistedHomeRoster.size)
+        assertEquals(
+            expectedHomeRoster.associate { it.id to it.energy },
+            persistedHomeRoster.associate { it.id to it.energy }
+        )
+
         val nextFixture = Fixture(id = 8_820_000_003L, season = 2026, week = 2, homeTeamId = homeId, awayTeamId = rivalId, competitionType = "SERIE_A")
         repository.saveFixtures(listOf(
             Fixture(id = 8_820_000_001L, season = 2026, week = 1, homeTeamId = homeId, awayTeamId = thirdId, homeScore = 2, awayScore = 1, competitionType = "SERIE_A", isPlayed = true),
@@ -172,14 +182,6 @@ class Phase105CriticalUiGoldenTest {
         val viewModel = GameViewModel(application, saveRepository, preferencesRepository, YouthAcademyUseCase(), TacticsUseCase())
         viewModel.getOrCreateSession(slotId)
         viewModel._currentSaveId.value = slotId
-
-        // Subscribe to the lifecycle-backed roster flow before composition. This removes the race
-        // between the first Compose frame and StateFlow's WhileSubscribed activation without
-        // weakening the visual assertion or adding a larger timeout.
-        viewModel.playerRoster.first { loadedRoster ->
-            loadedRoster.size == expectedHomeRoster.size &&
-                loadedRoster.associate { it.id to it.energy } == expectedHomeRoster.associate { it.id to it.energy }
-        }
 
         val surface = mutableStateOf("career")
         composeTestRule.setContent {
