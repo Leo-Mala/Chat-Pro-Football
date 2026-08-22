@@ -15,6 +15,7 @@ on:
       - 'app/src/test/java/com/example/data/Fc26FactualTargetMaterializationReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26ClubCandidateReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26FullSeedIntegrationTest.kt'
+      - 'app/src/test/java/com/example/data/Fc26RejectedLoanQuarantineIntegrationTest.kt'
       - '.github/workflows/fc26-factual-target-materialization.yml'
   workflow_dispatch:
 
@@ -93,6 +94,7 @@ jobs:
             --tests com.example.data.Fc26FactualTargetMaterializationReportTest \
             --tests com.example.data.Fc26ClubCandidateReportTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
+            --tests com.example.data.Fc26RejectedLoanQuarantineIntegrationTest \
             --stacktrace
 
       - name: Validate factual target acceptance policy
