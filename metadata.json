@@ -1,6 +1,6 @@
 {
-  "name": "Remix Brasfut Retro Manager",
-  "description": "Jogo de gerenciamento de futebol retrô inspirado no clássico Brasfoot com ligas, finanças, táticas, mercado e categorias de base.",
+  "name": "Pro Football",
+  "description": "Jogo de gerenciamento de futebol com ligas, finanças, táticas, mercado, categorias de base e competições internacionais.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
