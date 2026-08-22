@@ -1,0 +1,111 @@
+name: Phase 10.5 Dashboard Targeted Flows
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/phase10-5-dashboard-targeted-flows.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Replace Dashboard full-table flows with targeted queries
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one anchor, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'app/src/main/java/com/example/data/daos.kt',
+              '''    @Query("SELECT * FROM teams WHERE country = :leagueCountry ORDER BY division ASC, rating DESC, name ASC")\n    fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>>\n''',
+              '''    @Query("SELECT * FROM teams WHERE country = :leagueCountry ORDER BY division ASC, rating DESC, name ASC")\n    fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>>\n\n    @Query("SELECT * FROM teams WHERE country = :country AND division = :division ORDER BY rating DESC, name ASC")\n    fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>>\n'''
+          )
+
+          replace_once(
+              'app/src/main/java/com/example/data/daos.kt',
+              '''    @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")\n    fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>>\n''',
+              '''    @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")\n    fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>>\n\n    @Query("SELECT * FROM fixtures WHERE season = :season AND competitionType = :competitionType AND isPlayed = 1 ORDER BY week ASC, matchSlot ASC, id ASC")\n    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>\n'''
+          )
+
+          replace_once(
+              'app/src/main/java/com/example/data/repository.kt',
+              '''    fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>> = db.teamDao().getTeamsByLeagueFlow(leagueCountry)\n    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)\n''',
+              '''    fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>> = db.teamDao().getTeamsByLeagueFlow(leagueCountry)\n    fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>> =\n        db.teamDao().getTeamsByCountryDivisionFlow(country, division)\n    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)\n'''
+          )
+
+          replace_once(
+              'app/src/main/java/com/example/data/repository.kt',
+              '''    fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)\n    fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =\n''',
+              '''    fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)\n    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>> =\n        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)\n    fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =\n'''
+          )
+
+          vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          vm = vm_path.read_text()
+          anchor = '''    val playerRoster: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n'''
+          if vm.count(anchor) != 1:
+              raise SystemExit('GameViewModel playerRoster anchor not unique')
+          targeted = '''    /**\n     * Dashboard league context is intentionally scoped to the controlled club instead of\n     * observing every Team/Fixture row in the save. Repository switching remains flatMapLatest,\n     * so an old slot cannot keep feeding the new session.\n     */\n    val playerLeagueTeams: StateFlow<List<Team>> = activeRepositoryFlow.flatMapLatest { r ->\n        if (r == null) {\n            flowOf(emptyList())\n        } else {\n            r.gameSaveFlow.flatMapLatest { save ->\n                val teamId = save?.playerTeamId ?: 0L\n                if (teamId <= 0L) {\n                    flowOf(emptyList())\n                } else {\n                    r.getTeamFlow(teamId).flatMapLatest { team ->\n                        if (team == null) flowOf(emptyList())\n                        else r.getTeamsByCountryDivisionFlow(team.country, team.division)\n                    }\n                }\n            }\n        }\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n    val playerLeagueFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n        if (r == null) {\n            flowOf(emptyList())\n        } else {\n            r.gameSaveFlow.flatMapLatest { save ->\n                val teamId = save?.playerTeamId ?: 0L\n                if (save == null || teamId <= 0L) {\n                    flowOf(emptyList())\n                } else {\n                    r.getTeamFlow(teamId).flatMapLatest { team ->\n                        if (team == null) {\n                            flowOf(emptyList())\n                        } else {\n                            val competitionType = when (team.division) {\n                                1 -> "SERIE_A"\n                                2 -> "SERIE_B"\n                                3 -> "SERIE_C"\n                                else -> "SERIE_D"\n                            }\n                            r.getPlayedFixturesForCompetitionFlow(\n                                season = save.currentSeason,\n                                competitionType = competitionType\n                            )\n                        }\n                    }\n                }\n            }\n        }\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n'''
+          vm_path.write_text(vm.replace(anchor, targeted + anchor, 1))
+
+          dash_path = Path('app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt')
+          dash = dash_path.read_text()
+          dash = dash.replace(
+              '''    val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()\n''',
+              '''    val leagueTeams by viewModel.playerLeagueTeams.collectAsStateWithLifecycle()\n''',
+              1
+          )
+          dash = dash.replace(
+              '''    val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()\n''',
+              '''    val leagueFixtures by viewModel.playerLeagueFixtures.collectAsStateWithLifecycle()\n''',
+              1
+          )
+          old_block = '''    val playerTeamPosition = remember(allFixtures, allTeams, pTeam) {\n        val selectedLeague = when (pTeam.division) {\n            1 -> "SERIE_A"\n            2 -> "SERIE_B"\n            3 -> "SERIE_C"\n            else -> "SERIE_D"\n        }\n        val leagueTeams = allTeams.filter { it.country == pTeam.country && it.division == pTeam.division }\n        val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()\n        val playedFixtures = allFixtures.filter { it.competitionType == selectedLeague && it.isPlayed }\n\n        for (f in playedFixtures) {\n'''
+          new_block = '''    val playerTeamPosition = remember(leagueFixtures, leagueTeams, pTeam) {\n        val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()\n\n        for (f in leagueFixtures) {\n'''
+          if dash.count(old_block) != 1:
+              raise SystemExit('Dashboard targeted standings anchor not found exactly once')
+          dash_path.write_text(dash.replace(old_block, new_block, 1))
+
+          test_path = Path('app/src/test/java/com/example/data/TargetedUiFlowDaoTest.kt')
+          test = test_path.read_text()
+          insert_anchor = '''    @Test\n    fun nextFixtureFlowSkipsPlayedAndOtherTeamsAndReturnsEarliestPendingMatch() = runTest {\n'''
+          if test.count(insert_anchor) != 1:
+              raise SystemExit('TargetedUiFlowDaoTest anchor not found')
+          new_test = '''    @Test\n    fun dashboardLeagueFlowsExcludeOtherDivisionsCompetitionsAndSeasons() = runTest {\n        repository.saveTeams(\n            listOf(\n                Team(10L, "Usuário", "Cidade", "MG", "Brasil", 1),\n                Team(20L, "Rival", "Cidade", "SP", "Brasil", 1),\n                Team(30L, "Segunda", "Cidade", "RJ", "Brasil", 2),\n                Team(40L, "Exterior", "Cidade", "", "Argentina", 1)\n            )\n        )\n        repository.saveFixtures(\n            listOf(\n                Fixture(1L, 2026, 1, 10L, 20L, 2, 0, competitionType = "SERIE_A", isPlayed = true),\n                Fixture(2L, 2026, 2, 10L, 20L, competitionType = "SERIE_A", isPlayed = false),\n                Fixture(3L, 2026, 3, 10L, 20L, 1, 0, competitionType = "COPA", isPlayed = true),\n                Fixture(4L, 2025, 4, 10L, 20L, 1, 1, competitionType = "SERIE_A", isPlayed = true)\n            )\n        )\n\n        val teams = repository.getTeamsByCountryDivisionFlow("Brasil", 1).first()\n        val fixtures = repository.getPlayedFixturesForCompetitionFlow(2026, "SERIE_A").first()\n\n        assertEquals(listOf(10L, 20L), teams.map { it.id }.sorted())\n        assertEquals(listOf(1L), fixtures.map { it.id })\n    }\n\n'''
+          test_path.write_text(test.replace(insert_anchor, new_test + insert_anchor, 1))
+          PY
+
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/example/data/daos.kt \
+                  app/src/main/java/com/example/data/repository.kt \
+                  app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
+                  app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt \
+                  app/src/test/java/com/example/data/TargetedUiFlowDaoTest.kt
+          git commit -m 'perf: scope Dashboard league flows to controlled competition'
+          git fetch origin "$HEAD_BRANCH"
+          git rebase "origin/$HEAD_BRANCH"
+          git push origin HEAD:"$HEAD_BRANCH"
