@@ -28,13 +28,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.SaveSlotMetadata
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
+import com.example.ui.viewmodel.selectSaveSlotSafely
 
 @Composable
 fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
     val saveSlots by viewModel.saveSlots.collectAsStateWithLifecycle()
     SavesContent(
         saveSlots = saveSlots,
-        onSelectSlot = viewModel::selectSaveSlot,
+        onSelectSlot = viewModel::selectSaveSlotSafely,
         onDeleteSlot = viewModel::deleteSaveSlot,
         onBack = onBack
     )
@@ -317,11 +318,7 @@ fun SavesContent(
                                                 showDeleteConfirm = false
                                             }
                                         ) {
-                                            Text(
-                                                "EXCLUIR",
-                                                color = NeonRedAccent,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Text("EXCLUIR", color = NeonRedAccent, fontWeight = FontWeight.Bold)
                                         }
                                     },
                                     dismissButton = {
