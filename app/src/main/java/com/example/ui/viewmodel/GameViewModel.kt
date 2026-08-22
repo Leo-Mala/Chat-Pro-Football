@@ -1571,9 +1571,15 @@ class GameViewModel @Inject constructor(
         return youthAcademyUseCase.generateInitialProspects(country)
     }
 
-    private suspend fun performStartNewGameInternal(coachName: String, teamId: Long) {
-        val saveId = _activeSaveSession.value?.slotId ?: return
-        val activeCountry = _selectedCountry.value ?: "BRASIL"
+    private suspend fun performStartNewGameInternal(
+        session: SaveSession,
+        activeCountry: String,
+        coachName: String,
+        teamId: Long
+    ) {
+        val saveId = session.slotId
+        val targetRepo = session.repository
+        val generation = session.generation
         val season = 2026
 
         // 1. Preparação dos dados de times em memória do zero
@@ -1632,54 +1638,76 @@ class GameViewModel @Inject constructor(
             socioTorcedoresCount = initialSocioTorcedores
         )
 
-        // 5. Transação no banco limpando TODAS as tabelas sem exceção
-        repo.withTransaction {
-            repo.deleteSave()
-            repo.deleteTeams()
-            repo.deletePlayers()
-            repo.deleteFixtures()
-            repo.deleteTransactions()
-            repo.deleteOrders()
-            repo.deleteLegends()
-            repo.deleteRecords()
-            repo.deleteOffers()
-            repo.deleteAllHistorico()
-            repo.deleteInstallments()
-            repo.deleteLoans()
-            repo.deleteGlobalStandings()
-
-            repo.saveTeams(dbTeams)
-            repo.savePlayers(allPlayersToSave)
-            repo.saveFixtures(allGeneratedFixtures)
-            repo.saveGameSave(save)
+        // A sessão usada no clique é imutável para esta operação. Nunca redirecione o reset
+        // para a propriedade dinâmica `repo`, que pode apontar para outro slot após uma troca.
+        if (generation != sessionGeneration.get()) {
+            throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo ficou obsoleta antes do commit.")
         }
 
-        _selectedTeamId.value = teamId
+        // 5. Transação no banco capturado limpando TODAS as tabelas sem exceção
+        targetRepo.withTransaction {
+            if (generation != sessionGeneration.get()) {
+                throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo mudou antes da limpeza.")
+            }
+            targetRepo.deleteSave()
+            targetRepo.deleteTeams()
+            targetRepo.deletePlayers()
+            targetRepo.deleteFixtures()
+            targetRepo.deleteTransactions()
+            targetRepo.deleteOrders()
+            targetRepo.deleteLegends()
+            targetRepo.deleteRecords()
+            targetRepo.deleteOffers()
+            targetRepo.deleteAllHistorico()
+            targetRepo.deleteInstallments()
+            targetRepo.deleteLoans()
+            targetRepo.deleteGlobalStandings()
 
-    // A newly created career must immediately be visible in the saves menu.
-    // Do not rely on a later autosave/UI callback to mark the slot as occupied.
-    preferencesRepo.updateSlotMetadata(
-        saveId = saveId,
-        coachName = save.coachName,
-        teamName = playerSelectedTeam?.name ?: "Sem Clube",
-        season = save.currentSeason,
-        week = save.currentWeek,
-        balance = save.bankBalance
-    )
-    saveSlots.value = preferencesRepo.loadSaveSlots()
-}
+            targetRepo.saveTeams(dbTeams)
+            targetRepo.savePlayers(allPlayersToSave)
+            targetRepo.saveFixtures(allGeneratedFixtures)
+            targetRepo.saveGameSave(save)
+        }
+
+        if (generation == sessionGeneration.get()) {
+            _selectedTeamId.value = teamId
+        }
+
+        // A carreira recém-criada deve aparecer imediatamente. A metadata é derivada do
+        // mesmo repositório/slot capturado, mesmo se a UI trocar de sessão após o commit.
+        preferencesRepo.updateSlotMetadata(
+            saveId = saveId,
+            coachName = save.coachName,
+            teamName = playerSelectedTeam?.name ?: "Sem Clube",
+            season = save.currentSeason,
+            week = save.currentWeek,
+            balance = save.bankBalance
+        )
+        saveSlots.value = preferencesRepo.loadSaveSlots()
+    }
 
     fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {
+        val session = _activeSaveSession.value ?: return
+        val activeCountry = _selectedCountry.value
         viewModelScope.launch(Dispatchers.IO) {
             _isStartingNewGame.value = true
             try {
                 simulationMutex.withLock {
-                    performStartNewGameInternal(coachName, selectedTeamId)
+                    if (session.generation != sessionGeneration.get()) return@withLock
+                    performStartNewGameInternal(
+                        session = session,
+                        activeCountry = activeCountry,
+                        coachName = coachName,
+                        teamId = selectedTeamId
+                    )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("GameViewModel", "Erro ao iniciar Novo Jogo no slot ${session.slotId}", e)
+                _toastMessage.emit("Não foi possível iniciar o Novo Jogo. Nenhum save existente foi sobrescrito.")
             } finally {
-                _isStartingNewGame.value = false // Garante que a tela de carregamento SEMPRE feche
+                _isStartingNewGame.value = false
             }
         }
     }
