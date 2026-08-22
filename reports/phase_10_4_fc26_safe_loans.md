@@ -87,6 +87,7 @@ Consequências da quarentena:
 - o jogador não fica elegível ao mercado como free agent;
 - não autoriza venda, recompra, reempréstimo, renovação de contrato ou inferência de ownership;
 - metadata ausente do borrower (`UNSUPPORTED_METADATA`) falha fechado da mesma forma que borrower/owner ausente ou ambíguo;
+- relações inválidas como `SELF_LOAN` também permanecem em quarentena em vez de virarem jogador normal/free agent;
 - corrupção/stale state detectada pelo financeiro também termina em quarentena ou owner verificado, nunca em promoção do roster atual para owner.
 
 IDs, force/overall, potential e `Atributos` permanecem factuais e imutáveis.
@@ -167,6 +168,7 @@ Além das regressões de lifecycle/ownership já existentes, a rodada final exig
 
 - `UNSUPPORTED_METADATA` com `club_loaned_from` e borrower ausente permanece em quarentena, não free agent;
 - integração full-snapshot trata todo status diferente de `RESOLVED` como quarentena obrigatória;
+- `SELF_LOAN` rejeitado também permanece em quarentena fail-closed;
 - `MELHORIA_CT` registra despesa junto da alteração de saldo/nível;
 - `isInRosterLoanConversionFor` é true somente para o borrower de um loan consistente, false para owner, terceiro clube, jogador normal, ownership incompleto e teamId inválido;
 - compras normais continuam bloqueadas por roster cheio; somente conversão de loanee já presente reutiliza a vaga.
@@ -192,6 +194,8 @@ Na revisão do head `f87bedd0...`, três P2 adicionais foram identificados e cor
 1. `UNSUPPORTED_METADATA` também entra em quarentena fail-closed;
 2. `MELHORIA_CT` voltou a ser persistido atomicamente no histórico financeiro;
 3. conversão permanente de loanee já presente no roster não é bloqueada pelo limite visual de 30 atletas.
+
+A revalidação após essa rodada detectou uma expectativa legada de teste para `SELF_LOAN`; o teste foi fortalecido para exigir a mesma quarentena aplicada a todo status rejeitado, sem relaxar a política de produção.
 
 Após essas correções e testes, uma nova revisão Codex deve ocorrer sobre o head exato que contém este relatório. Qualquer novo finding material P0/P1/P2 impede merge e exige nova correção + nova rodada completa de CI.
 
