@@ -61,14 +61,19 @@ class GameRepository(internal val db: AppDatabase) {
      * Não permite transformar uma carreira existente em "slot vazio" por uma exclusão parcial.
      *
      * Novo Jogo só usa esta limpeza quando o slot já foi semanticamente classificado como vazio.
-     * Uma carreira persistida precisa ser removida pelo fluxo explícito de exclusão do slot, que
-     * fecha a instância Room e apaga o banco físico inteiro. A CancellationException encerra de
-     * forma não-fatal qualquer cadeia destrutiva acidental e faz transações Room retrocederem.
+     * Qualquer linha em `game_save`, inclusive uma linha não-canônica resultante de corrupção ou
+     * restore parcial, bloqueia a limpeza. A remoção de carreira continua sendo exclusivamente o
+     * fluxo explícito de exclusão física do slot.
      */
     suspend fun deleteSave() = db.withTransaction {
-        if (db.gameSaveDao().getGameSave() != null) {
+        val gameSaveRowCount = db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM game_save")
+            .use { cursor ->
+                if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            }
+        if (gameSaveRowCount > 0) {
             throw CancellationException(
-                "Exclusão parcial de GameSave bloqueada: remova explicitamente o banco do slot."
+                "Exclusão parcial de GameSave bloqueada: $gameSaveRowCount linha(s) preservada(s); remova explicitamente o banco do slot."
             )
         }
         db.gameSaveDao().deleteSave()
