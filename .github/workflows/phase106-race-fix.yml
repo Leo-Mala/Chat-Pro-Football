@@ -6,6 +6,10 @@ on:
       - agent/phase-10-6-save-durability-recovery
     paths:
       - '.github/workflows/phase106-race-fix.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase106-race-fix.yml'
 
 permissions:
   contents: write
@@ -15,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout branch
+      - name: Checkout branch head
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Apply exact guarded replacements
@@ -27,6 +31,15 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+
+          def replace_once_or_verify(text, old, new, label):
+              old_count = text.count(old)
+              new_count = text.count(new)
+              if old_count == 1:
+                  return text.replace(old, new, 1), True
+              if old_count == 0 and new_count == 1:
+                  return text, False
+              raise SystemExit(f'{label} anchor mismatch: old={old_count} new={new_count}')
 
           repo_path = Path('app/src/main/java/com/example/data/repository.kt')
           repo_text = repo_path.read_text()
@@ -48,9 +61,8 @@ jobs:
               db.gameSaveDao().deleteSave()
           }
           '''
-          if repo_text.count(old_repo) != 1:
-              raise SystemExit('repository.kt deleteSave anchor mismatch')
-          repo_path.write_text(repo_text.replace(old_repo, new_repo, 1))
+          repo_text, _ = replace_once_or_verify(repo_text, old_repo, new_repo, 'repository.kt deleteSave')
+          repo_path.write_text(repo_text)
 
           vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           vm_text = vm_path.read_text()
@@ -154,9 +166,7 @@ jobs:
               }
           }
           '''
-          if vm_text.count(old_select) != 1:
-              raise SystemExit('GameViewModel selectSaveSlot anchor mismatch')
-          vm_text = vm_text.replace(old_select, new_select, 1)
+          vm_text, _ = replace_once_or_verify(vm_text, old_select, new_select, 'GameViewModel selectSaveSlot')
 
           old_country = '''        viewModelScope.launch(Dispatchers.IO) {
               if (generation != sessionGeneration.get()) return@launch
@@ -181,20 +191,23 @@ jobs:
               _selectedTeamId.value = null
           }
           '''
-          if vm_text.count(old_country) != 1:
-              raise SystemExit('GameViewModel selectCountry anchor mismatch')
-          vm_path.write_text(vm_text.replace(old_country, new_country, 1))
+          vm_text, _ = replace_once_or_verify(vm_text, old_country, new_country, 'GameViewModel selectCountry')
+          vm_path.write_text(vm_text)
           PY
 
           git diff --check
           git diff -- app/src/main/java/com/example/data/repository.kt app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
 
-      - name: Commit exact fixes
+      - name: Commit exact fixes when needed
         env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
+          if git diff --quiet -- app/src/main/java/com/example/data/repository.kt app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt; then
+            echo "Exact race fixes already present."
+            exit 0
+          fi
           git config user.name "Leo-Mala"
           git config user.email "leomalaj10@gmail.com"
           git add app/src/main/java/com/example/data/repository.kt app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
