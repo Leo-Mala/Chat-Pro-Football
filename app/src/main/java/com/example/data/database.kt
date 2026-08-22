@@ -14,6 +14,7 @@ import com.example.data.migrations.MIGRATION_18_19
 import com.example.data.migrations.MIGRATION_19_20
 import com.example.data.migrations.MIGRATION_20_21
 import com.example.data.migrations.MIGRATION_21_22
+import java.io.File
 
 @Database(
     entities = [
@@ -57,6 +58,9 @@ abstract class AppDatabase : RoomDatabase() {
          */
         const val MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION = 14
 
+        private val SQLITE_FILE_HEADER = "SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)
+        private val SQLITE_SIDECAR_SUFFIXES = listOf("-wal", "-shm", "-journal")
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_14_15,
             MIGRATION_15_16,
@@ -67,6 +71,47 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_20_21,
             MIGRATION_21_22
         )
+
+        /**
+         * Proteção fail-closed para callers legados que ainda abrem um banco pelo nome físico.
+         * Um restore parcial não pode deixar Room materializar um arquivo novo sobre um artefato
+         * truncado ou sobre sidecars órfãos antes que a reconciliação de slots consiga classificá-lo.
+         */
+        private fun requireLegacyPhysicalOpenAllowed(context: Context, name: String) {
+            val databaseFile = context.applicationContext.getDatabasePath(name)
+            val sidecars = SQLITE_SIDECAR_SUFFIXES.map { suffix -> File(databaseFile.path + suffix) }
+
+            if (!databaseFile.exists()) {
+                val orphaned = sidecars.filter { it.exists() }
+                check(orphaned.isEmpty()) {
+                    "Database recovery required: orphaned SQLite sidecar(s) ${orphaned.joinToString { it.name }}"
+                }
+                return
+            }
+
+            check(databaseFile.length() > 0L) {
+                "Database recovery required: zero-length SQLite file ${databaseFile.name}"
+            }
+
+            val canonicalHeader = try {
+                databaseFile.inputStream().use { input ->
+                    val actual = ByteArray(SQLITE_FILE_HEADER.size)
+                    var offset = 0
+                    while (offset < actual.size) {
+                        val read = input.read(actual, offset, actual.size - offset)
+                        if (read <= 0) return@use false
+                        offset += read
+                    }
+                    actual.contentEquals(SQLITE_FILE_HEADER)
+                }
+            } catch (_: Exception) {
+                false
+            }
+
+            check(canonicalHeader) {
+                "Database recovery required: invalid SQLite header ${databaseFile.name}"
+            }
+        }
 
         fun buildDatabaseWithName(context: Context, name: String): AppDatabase {
             return Room.databaseBuilder(
@@ -81,11 +126,12 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         fun getDatabaseWithName(context: Context, name: String): AppDatabase {
+            requireLegacyPhysicalOpenAllowed(context, name)
             return buildDatabaseWithName(context, name)
         }
 
         fun getDatabase(context: Context): AppDatabase {
-            return buildDatabaseWithName(context, SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME)
+            return getDatabaseWithName(context, SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME)
         }
     }
 }
