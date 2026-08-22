@@ -281,7 +281,14 @@ class GameRepository(internal val db: AppDatabase) {
             "Fixture não pode referenciar teamId <= 0."
         }
 
-        val persistedIds = db.teamDao().getExistingTeamIds(requiredIds.toList()).toHashSet()
+        // Android devices may expose SQLite builds capped at 999 bind parameters. Keep every IN
+        // query comfortably below that limit so a full-career calendar with thousands of clubs
+        // cannot fail before fixture insertion reaches its own chunked writes.
+        val persistedIds = requiredIds
+            .toList()
+            .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
+            .flatMap { ids -> db.teamDao().getExistingTeamIds(ids) }
+            .toHashSet()
         val missing = requiredIds.filterNot { it in persistedIds }.sorted()
         if (missing.isEmpty()) return
 
@@ -371,4 +378,8 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun saveLoans(loans: List<PlayerLoan>) = db.playerLoanDao().insertLoans(loans)
     suspend fun updateLoan(loan: PlayerLoan) = db.playerLoanDao().updateLoan(loan)
     suspend fun deleteLoans() = db.playerLoanDao().deleteLoans()
+
+    private companion object {
+        const val SQLITE_SAFE_IN_QUERY_SIZE = 900
+    }
 }
