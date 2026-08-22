@@ -23,25 +23,29 @@ class GamePreferencesRestoreSafetyTest {
     private lateinit var repository: GamePreferencesRepository
 
     @Before
-    fun setUp() = runBlocking {
-        context = ApplicationProvider.getApplicationContext()
-        context.dataStore.edit { it.clear() }
-        context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
-        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot("2"))
-        repository = GamePreferencesRepository(context.dataStore, context)
+    fun setUp() {
+        runBlocking {
+            context = ApplicationProvider.getApplicationContext()
+            context.dataStore.edit { it.clear() }
+            context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
+                .edit()
+                .clear()
+                .commit()
+            context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot("2"))
+            repository = GamePreferencesRepository(context.dataStore, context)
+        }
     }
 
     @After
-    fun tearDown() = runBlocking {
-        context.dataStore.edit { it.clear() }
-        context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
-        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot("2"))
+    fun tearDown() {
+        runBlocking {
+            context.dataStore.edit { it.clear() }
+            context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
+                .edit()
+                .clear()
+                .commit()
+            context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot("2"))
+        }
     }
 
     @Test
