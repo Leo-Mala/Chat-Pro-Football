@@ -70,6 +70,36 @@ class Phase104LoanSafetyRegressionTest {
     }
 
     @Test
+    fun `CPU owner renews retained snapshot loanee before finance expiry`() = runTest {
+        seedTeams()
+        val before = loanedPlayer(contractWeeks = 1)
+        repository.savePlayers(listOf(before))
+        repository.saveLoan(snapshotLoan())
+        // Buyer FC is the human club, so OWNER_ID remains CPU-managed.
+        val save = GameSave(playerTeamId = BUYER_ID, bankBalance = 10_000_000L)
+        repository.saveGameSave(save)
+
+        val renewedCount = CpuSquadManagementUseCase(repository).renewCpuContractsBeforeWeeklyTick()
+
+        assertEquals(1, renewedCount)
+        val renewed = requireNotNull(repository.getPlayer(PLAYER_ID))
+        assertEquals(156, renewed.contractDurationWeeks)
+        assertEquals(BORROWER_ID, renewed.teamId)
+        assertEquals(OWNER_ID, renewed.originalTeamId)
+        assertTrue(renewed.isOnLoan)
+        assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
+
+        FinanceUseCase(repository).processWeeklyFinances(save, homeMatchCount = 0)
+
+        val afterFinance = requireNotNull(repository.getPlayer(PLAYER_ID))
+        assertEquals(156, afterFinance.contractDurationWeeks)
+        assertEquals(BORROWER_ID, afterFinance.teamId)
+        assertEquals(OWNER_ID, afterFinance.originalTeamId)
+        assertTrue(afterFinance.isOnLoan)
+        assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
     fun `stale active loan cannot move player during explicit return`() = runTest {
         seedTeams()
         repository.savePlayers(listOf(loanedPlayer()))
