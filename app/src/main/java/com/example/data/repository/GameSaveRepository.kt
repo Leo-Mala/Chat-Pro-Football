@@ -49,6 +49,7 @@ class GameSaveRepository @Inject constructor(
 ) {
     companion object {
         private val SQLITE_FILE_HEADER = "SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)
+        private val SQLITE_SIDECAR_SUFFIXES = listOf("-wal", "-shm", "-journal")
     }
 
     private val repositories = mutableMapOf<String, GameRepository>()
@@ -72,6 +73,12 @@ class GameSaveRepository @Inject constructor(
     fun databaseFileForSlot(slotId: String): File {
         return context.getDatabasePath(databaseNameForSlot(slotId))
     }
+
+    private fun databaseSidecarFiles(databaseFile: File): List<File> =
+        SQLITE_SIDECAR_SUFFIXES.map { suffix -> File(databaseFile.path + suffix) }
+
+    private fun existingDatabaseSidecars(databaseFile: File): List<File> =
+        databaseSidecarFiles(databaseFile).filter { it.exists() }
 
     private fun hasCanonicalSqliteHeader(file: File): Boolean {
         if (file.length() < SQLITE_FILE_HEADER.size) return false
@@ -99,20 +106,28 @@ class GameSaveRepository @Inject constructor(
      * - `game_save(id=1)` é a única prova de uma carreira válida;
      * - tabelas de times/jogadores/fixtures podem existir antes da criação da carreira porque a UI
      *   pré-semeia o universo para a seleção de clube, portanto não transformam um slot em save;
-     * - arquivo ausente -> MISSING;
+     * - arquivo principal e sidecars ausentes -> MISSING;
      * - banco legível sem `GameSave` -> EMPTY / estado pré-carreira;
      * - `GameSave` legível -> VALID_CAREER;
-     * - arquivo truncado, com cabeçalho SQLite inválido, ou falha de abertura/migration/leitura ->
-     *   RECOVERY_REQUIRED.
+     * - sidecar órfão, arquivo truncado, cabeçalho SQLite inválido, ou falha de
+     *   abertura/migration/leitura -> RECOVERY_REQUIRED.
      *
-     * O cabeçalho físico é validado antes de abrir Room para que um restore parcial/arquivo
-     * corrompido nunca seja silenciosamente recriado pelo SQLite e confundido com banco vazio.
-     * Assim, conteúdo derivado/reconstruível nunca vira uma segunda fonte de verdade, enquanto
-     * corrupção ou incompatibilidade continuam fail-closed e nunca autorizam reseed destrutivo.
+     * Cabeçalho e conjunto físico de arquivos são validados antes de abrir Room para que restore
+     * parcial/corrupção nunca sejam silenciosamente recriados pelo SQLite e confundidos com banco
+     * vazio. Assim, conteúdo derivado/reconstruível nunca vira uma segunda fonte de verdade,
+     * enquanto corrupção ou incompatibilidade continuam fail-closed e nunca autorizam reseed
+     * destrutivo.
      */
     suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
         val file = databaseFileForSlot(slotId)
         if (!file.exists()) {
+            val orphanedSidecars = existingDatabaseSidecars(file)
+            if (orphanedSidecars.isNotEmpty()) {
+                return SlotDatabaseInspection(
+                    state = SlotDatabaseState.RECOVERY_REQUIRED,
+                    failureReason = "OrphanedSQLiteSidecar:${orphanedSidecars.joinToString(",") { it.name }}"
+                )
+            }
             return SlotDatabaseInspection(SlotDatabaseState.MISSING)
         }
         if (file.length() == 0L) {
@@ -177,10 +192,23 @@ class GameSaveRepository @Inject constructor(
         databaseFactory.closeAndRemoveSlot(slotId)
     }
 
+    /**
+     * Exclusão física é sempre uma ação explícita do usuário. Além do arquivo principal, remove
+     * sidecars órfãos que possam ter sobrevivido a um restore/cópia interrompida, permitindo que o
+     * slot volte de RECOVERY_REQUIRED para MISSING somente após essa decisão intencional.
+     */
     @Synchronized
     fun deleteSlotDatabase(slotId: String): Boolean {
         closeAndRemoveSlot(slotId)
-        return context.deleteDatabase(databaseNameForSlot(slotId))
+        val databaseFile = databaseFileForSlot(slotId)
+        val mainDeleted = context.deleteDatabase(databaseNameForSlot(slotId))
+        var sidecarDeleted = false
+        databaseSidecarFiles(databaseFile).forEach { sidecar ->
+            if (sidecar.exists() && sidecar.delete()) {
+                sidecarDeleted = true
+            }
+        }
+        return mainDeleted || sidecarDeleted
     }
 
     @Synchronized
