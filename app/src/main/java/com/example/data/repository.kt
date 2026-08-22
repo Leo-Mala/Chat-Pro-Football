@@ -2,6 +2,8 @@ package com.example.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 
 class GameRepository(internal val db: AppDatabase) {
     suspend fun <R> withTransaction(block: suspend () -> R): R =
@@ -20,7 +22,22 @@ class GameRepository(internal val db: AppDatabase) {
     fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>> =
         db.teamDao().getTeamsByCountryDivisionFlow(country, division)
     fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)
-    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>> = db.teamDao().getTeamsByIdsFlow(ids)
+    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>> {
+        val distinctIds = ids.distinct()
+        if (distinctIds.isEmpty()) return flowOf(emptyList())
+        val chunkFlows = distinctIds
+            .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
+            .map { chunk -> db.teamDao().getTeamsByIdsFlow(chunk) }
+        if (chunkFlows.size == 1) return chunkFlows.single()
+        return combine(chunkFlows) { chunks ->
+            chunks
+                .asSequence()
+                .flatMap { it.asSequence() }
+                .distinctBy { it.id }
+                .sortedBy { it.name }
+                .toList()
+        }
+    }
     val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()
     val allFixturesFlow: Flow<List<Fixture>> = db.fixtureDao().getFixturesFlow()
     val allRecordsFlow: Flow<List<HistoricalRecord>> = db.historicalRecordDao().getAllRecordsFlow()
