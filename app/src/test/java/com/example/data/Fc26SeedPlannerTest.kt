@@ -86,7 +86,7 @@ class Fc26SeedPlannerTest {
         assertEquals(0, plan.report.successfullyMappedLoans)
         assertTrue(plan.loans.isEmpty())
         val mapped = plan.players.single()
-        assertEquals(2L, mapped.teamId)
+        assertNull(mapped.teamId)
         assertTrue(mapped.isOnLoan)
         assertTrue(mapped.isFc26LoanOwnershipQuarantined())
         assertNull(mapped.originalTeamId)
