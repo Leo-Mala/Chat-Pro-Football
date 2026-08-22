@@ -60,8 +60,13 @@ class Phase105CriticalUiGoldenTest {
     val composeTestRule = createComposeRule()
 
     private val expectedHashes: Map<String, String> by lazy {
-        File("src/test/screenshots/phase_10_5_ui.sha256")
-            .readLines()
+        val manifest = sequenceOf(
+            File("app/src/test/screenshots/phase_10_5_ui.sha256"),
+            File("src/test/screenshots/phase_10_5_ui.sha256")
+        ).firstOrNull { it.isFile }
+            ?: error("Manifesto de golden Phase 10.5 não encontrado no diretório de trabalho ${File(".").absolutePath}")
+
+        manifest.readLines()
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() && !it.startsWith("#") }
