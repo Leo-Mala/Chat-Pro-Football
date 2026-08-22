@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -131,6 +132,29 @@ class GameRepositoryFixtureScheduleTest {
         } catch (_: IllegalArgumentException) {
             // esperado
         }
+    }
+
+    @Test
+    fun unknownNonVirtualTeamReferenceIsRejectedWithoutPersistingFixture() = runTest {
+        seedTeams(1L)
+        val invalid = Fixture(
+            id = 40L,
+            season = 2026,
+            week = 4,
+            matchSlot = MatchSlot.WEEKEND,
+            homeTeamId = 1L,
+            awayTeamId = 999_999L,
+            competitionType = "SERIE_A"
+        )
+
+        try {
+            repository.saveFixtures(listOf(invalid))
+            fail("Fixture com clube real não persistido deveria falhar fechado.")
+        } catch (_: IllegalArgumentException) {
+            // esperado
+        }
+
+        assertTrue(repository.getAllFixtures().isEmpty())
     }
 
     private suspend fun seedTeams(vararg ids: Long) {
