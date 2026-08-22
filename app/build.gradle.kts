@@ -15,10 +15,9 @@ val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
 val releaseStorePassword = System.getenv("STORE_PASSWORD")
 val releaseKeyAlias = System.getenv("KEY_ALIAS") ?: "upload"
 val releaseKeyPassword = System.getenv("KEY_PASSWORD")
-val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank() &&
-  !releaseStorePassword.isNullOrBlank() &&
+val hasReleaseSigning = !releaseStorePassword.isNullOrBlank() &&
   !releaseKeyPassword.isNullOrBlank() &&
-  file(releaseKeystorePath).isFile
+  releaseKeystorePath?.let { file(it).isFile } == true
 
 android {
   namespace = "com.example"
