@@ -36,7 +36,9 @@ import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
 import java.security.MessageDigest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
@@ -293,6 +295,17 @@ class Phase105CriticalUiGoldenTest {
         viewModel.getOrCreateSession(slotId)
         viewModel._currentSaveId.value = slotId
 
+        // Prime the WhileSubscribed StateFlow before the composition exists. This guarantees
+        // that the dashboard's first lifecycle-aware collection starts from the complete persisted
+        // 15-player roster instead of a valid but transient 11-starter emission.
+        withTimeout(8_000L) {
+            viewModel.playerRoster.first { loadedRoster ->
+                loadedRoster.size == expectedHomeRoster.size &&
+                    loadedRoster.associate { it.id to it.energy } ==
+                        expectedHomeRoster.associate { it.id to it.energy }
+            }
+        }
+
         val surface = mutableStateOf("career")
         composeTestRule.setContent {
             // Ripples/pressed indications are transient input feedback, not product layout. Under
@@ -341,11 +354,7 @@ class Phase105CriticalUiGoldenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 8_000) {
-            val loadedRoster = viewModel.playerRoster.value
-            loadedRoster.size == expectedHomeRoster.size &&
-                loadedRoster.associate { it.id to it.energy } ==
-                    expectedHomeRoster.associate { it.id to it.energy } &&
-                composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
+            composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
                 composeTestRule.onAllNodesWithText("Atlético QA", substring = true)
                     .fetchSemanticsNodes().isNotEmpty() &&
                 composeTestRule.onAllNodesWithText(
