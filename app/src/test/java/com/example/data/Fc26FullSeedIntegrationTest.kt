@@ -268,7 +268,9 @@ class Fc26FullSeedIntegrationTest {
         val ambiguousPlayers = matchByStatus[Fc26ClubMatchStatus.AMBIGUOUS].orEmpty().sumOf { it.playerCount }
         val audits = Fc26ClubMatcher.auditCandidates(dataset, teams, limitPerClub = 5)
         val matchBySourceId = plan.report.clubMatches.associateBy { it.sourceClubTeamId }
-        val auditHead = System.getenv("GITHUB_SHA") ?: "LOCAL"
+        val auditHead = System.getenv("AUDIT_HEAD_SHA")?.takeIf { it.isNotBlank() }
+            ?: System.getenv("GITHUB_SHA")
+            ?: "LOCAL"
         val loanStatusCounts = plan.report.loanResolutions
             .groupingBy { it.status.name }
             .eachCount()
