@@ -41,6 +41,9 @@ interface TeamDao {
     @Query("SELECT id FROM teams WHERE id IN (:ids)")
     suspend fun getExistingTeamIds(ids: List<Long>): List<Long>
 
+    @Query("SELECT * FROM teams WHERE id IN (:ids) ORDER BY name ASC")
+    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>>
+
     /**
      * Upsert evita a semântica DELETE+INSERT do SQLite REPLACE. Isso é essencial depois que Team
      * se torna tabela-pai de FKs de Player/Fixture no schema V21.

@@ -67,9 +67,11 @@ class TargetedUiFlowDaoTest {
         )
 
         val teams = repository.getTeamsByCountryDivisionFlow("Brasil", 1).first()
+        val selectedTeams = repository.getTeamsByIdsFlow(listOf(20L, 40L)).first()
         val fixtures = repository.getPlayedFixturesForCompetitionFlow(2026, "SERIE_A").first()
 
         assertEquals(listOf(10L, 20L), teams.map { it.id }.sorted())
+        assertEquals(listOf(20L, 40L), selectedTeams.map { it.id }.sorted())
         assertEquals(listOf(1L), fixtures.map { it.id })
     }
 

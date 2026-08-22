@@ -45,6 +45,9 @@ fun DashboardTab(
 
     val roster by viewModel.playerRoster.collectAsStateWithLifecycle()
     val leagueFixtures by viewModel.playerLeagueFixtures.collectAsStateWithLifecycle()
+    val dashboardSeasonFixtures by viewModel.dashboardSeasonFixtures.collectAsStateWithLifecycle()
+    val dashboardSeasonTeams by viewModel.dashboardSeasonTeams.collectAsStateWithLifecycle()
+    val nextOpponentTeam by viewModel.nextOpponentTeam.collectAsStateWithLifecycle()
     val formation by viewModel.playerFormation.collectAsStateWithLifecycle()
     val style by viewModel.playerStyle.collectAsStateWithLifecycle()
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
@@ -183,7 +186,7 @@ fun DashboardTab(
             val fix = nextFixture!!
             val isHome = fix.homeTeamId == s.playerTeamId
             val opponentId = if (isHome) fix.awayTeamId else fix.homeTeamId
-            val dbOpponent = allTeams.find { it.id == opponentId }
+            val dbOpponent = nextOpponentTeam?.takeIf { it.id == opponentId }
             val virtualOpponent = if (dbOpponent == null) GlobalFootballSystem.getVirtualTeam(opponentId) else null
             val opponentName = dbOpponent?.name ?: virtualOpponent?.name ?: "CPU"
             val opponentRating = dbOpponent?.rating ?: virtualOpponent?.rating ?: 50
@@ -615,8 +618,8 @@ fun DashboardTab(
         DashboardNewsFeedSection(
             save = s,
             playerTeam = pTeam,
-            allTeams = allTeams,
-            allFixtures = allFixtures,
+            allTeams = dashboardSeasonTeams,
+            allFixtures = dashboardSeasonFixtures,
             transactions = transactionHistory
         )
 

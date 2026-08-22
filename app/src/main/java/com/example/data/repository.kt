@@ -20,6 +20,7 @@ class GameRepository(internal val db: AppDatabase) {
     fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>> =
         db.teamDao().getTeamsByCountryDivisionFlow(country, division)
     fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)
+    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>> = db.teamDao().getTeamsByIdsFlow(ids)
     val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()
     val allFixturesFlow: Flow<List<Fixture>> = db.fixtureDao().getFixturesFlow()
     val allRecordsFlow: Flow<List<HistoricalRecord>> = db.historicalRecordDao().getAllRecordsFlow()

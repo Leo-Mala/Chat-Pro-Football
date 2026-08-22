@@ -295,6 +295,67 @@ class GameViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(emptyList())
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                if (save == null) flowOf(emptyList())
+                else r.getFixturesForSeasonFlow(save.currentSeason)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dashboardSeasonTeams: StateFlow<List<Team>> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(emptyList())
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                if (save == null) {
+                    flowOf(emptyList())
+                } else {
+                    r.getFixturesForSeasonFlow(save.currentSeason).flatMapLatest { fixtures ->
+                        val teamIds = fixtures
+                            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+                            .filter { it > 0L }
+                            .distinct()
+                        if (teamIds.isEmpty()) flowOf(emptyList())
+                        else r.getTeamsByIdsFlow(teamIds)
+                    }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val nextOpponentTeam: StateFlow<Team?> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(null)
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                if (save == null || save.playerTeamId <= 0L) {
+                    flowOf(null)
+                } else {
+                    r.getNextFixtureForTeamFlow(
+                        season = save.currentSeason,
+                        week = save.currentWeek,
+                        teamId = save.playerTeamId
+                    ).flatMapLatest { fixture ->
+                        if (fixture == null) {
+                            flowOf(null)
+                        } else {
+                            val opponentId = if (fixture.homeTeamId == save.playerTeamId) {
+                                fixture.awayTeamId
+                            } else {
+                                fixture.homeTeamId
+                            }
+                            if (opponentId > 0L) r.getTeamFlow(opponentId) else flowOf(null)
+                        }
+                    }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val playerRoster: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
         if (r == null) {
             flowOf(emptyList())
