@@ -1,0 +1,296 @@
+package com.example
+
+import android.app.Application
+import android.content.Context
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.datastore.preferences.core.edit
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.Fixture
+import com.example.data.GamePreferencesRepository
+import com.example.data.GameSave
+import com.example.data.Player
+import com.example.data.Team
+import com.example.data.dataStore
+import com.example.data.local.SlotDatabaseFactory
+import com.example.data.repository.GameSaveRepository
+import com.example.ui.screens.CareerDashboardScreen
+import com.example.ui.screens.LiveMatchScreen
+import com.example.ui.screens.TeamSelectionScreen
+import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.viewmodel.GameViewModel
+import com.example.usecase.TacticsUseCase
+import com.example.usecase.YouthAcademyUseCase
+import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.github.takahirom.roborazzi.captureRoboImage
+import kotlinx.coroutines.runBlocking
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * Golden final das telas críticas da Fase 10.5.
+ *
+ * O slot é materializado antes de ser selecionado pelo ViewModel. Isso impede o bootstrap de um
+ * banco vazio de concorrer com o fixture e evita que IDs artificiais colidam com o universo
+ * factual FC26. Os IDs QA ficam deliberadamente fora do espaço usado pelos seeds de produção.
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [34])
+class Phase105CriticalUiGoldenTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    @Test
+    fun criticalProductScreens_matchPersistedCareerFixture() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val context: Context = application
+        val slotId = "5"
+
+        context.dataStore.edit { it.clear() }
+        context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+
+        val databaseFactory = SlotDatabaseFactory(context)
+        val saveRepository = GameSaveRepository(context, databaseFactory)
+        val repository = saveRepository.getRepositoryForSlot(slotId)
+
+        val homeId = 8_800_000_001L
+        val rivalId = 8_800_000_002L
+        val thirdId = 8_800_000_003L
+        val fourthId = 8_800_000_004L
+
+        val teams = listOf(
+            Team(
+                id = homeId,
+                name = "Atlético QA",
+                city = "Belo Horizonte",
+                state = "MG",
+                country = "Brasil",
+                division = 1,
+                isPlayerControlled = true,
+                rating = 82,
+                stadiumName = "Arena QA",
+                logoUrl = null,
+                colorHex = "#111111"
+            ),
+            Team(
+                id = rivalId,
+                name = "Cruzeiro QA",
+                city = "Belo Horizonte",
+                state = "MG",
+                country = "Brasil",
+                division = 1,
+                rating = 80,
+                stadiumName = "Estádio QA Azul",
+                logoUrl = null,
+                colorHex = "#0033A0"
+            ),
+            Team(
+                id = thirdId,
+                name = "Palmeiras QA",
+                city = "São Paulo",
+                state = "SP",
+                country = "Brasil",
+                division = 1,
+                rating = 83,
+                logoUrl = null,
+                colorHex = "#006437"
+            ),
+            Team(
+                id = fourthId,
+                name = "Flamengo QA",
+                city = "Rio de Janeiro",
+                state = "RJ",
+                country = "Brasil",
+                division = 1,
+                rating = 84,
+                logoUrl = null,
+                colorHex = "#C4122C"
+            )
+        )
+        repository.saveTeams(teams)
+
+        val positions = listOf(
+            "GOL", "LAT", "ZAG", "ZAG", "LAT", "VOL", "VOL", "MEI", "MEI", "ATA", "ATA",
+            "GOL", "ZAG", "MEI", "ATA"
+        )
+        val players = teams.flatMapIndexed { teamIndex, team ->
+            positions.mapIndexed { index, position ->
+                Player(
+                    id = 8_810_000_000L + teamIndex * 100L + index,
+                    teamId = team.id,
+                    name = "${team.name.substringBefore(' ')} QA ${index + 1}",
+                    age = 20 + (index % 12),
+                    nationality = "Brasil",
+                    position = position,
+                    force = (86 - index - teamIndex).coerceAtLeast(65),
+                    energy = 88 + (index % 12),
+                    moral = 76 + (index % 15),
+                    salary = 40_000L + index * 2_500L,
+                    contractDurationWeeks = 104,
+                    isStarter = index < 11,
+                    market_value = 2_000_000L + index * 250_000L,
+                    min_price = 1_800_000L + index * 200_000L,
+                    max_price = 2_600_000L + index * 300_000L,
+                    finishing = 70 + (index % 15),
+                    passing = 68 + (index % 16),
+                    pace = 69 + (index % 14),
+                    strength = 67 + (index % 15),
+                    vision = 66 + (index % 17),
+                    defense = 64 + (index % 18),
+                    potential = (90 - index / 2).coerceAtLeast(78)
+                )
+            }
+        }
+        repository.savePlayers(players)
+
+        val nextFixture = Fixture(
+            id = 8_820_000_003L,
+            season = 2026,
+            week = 2,
+            homeTeamId = homeId,
+            awayTeamId = rivalId,
+            competitionType = "SERIE_A"
+        )
+        repository.saveFixtures(
+            listOf(
+                Fixture(
+                    id = 8_820_000_001L,
+                    season = 2026,
+                    week = 1,
+                    homeTeamId = homeId,
+                    awayTeamId = thirdId,
+                    homeScore = 2,
+                    awayScore = 1,
+                    competitionType = "SERIE_A",
+                    isPlayed = true
+                ),
+                Fixture(
+                    id = 8_820_000_002L,
+                    season = 2026,
+                    week = 1,
+                    homeTeamId = rivalId,
+                    awayTeamId = fourthId,
+                    homeScore = 0,
+                    awayScore = 0,
+                    competitionType = "SERIE_A",
+                    isPlayed = true
+                ),
+                nextFixture,
+                Fixture(
+                    id = 8_820_000_004L,
+                    season = 2026,
+                    week = 2,
+                    homeTeamId = thirdId,
+                    awayTeamId = fourthId,
+                    competitionType = "SERIE_A"
+                )
+            )
+        )
+        repository.saveGameSave(
+            GameSave(
+                coachName = "Técnico QA",
+                coachReputation = 78,
+                currentWeek = 2,
+                currentSeason = 2026,
+                playerTeamId = homeId,
+                bankBalance = 42_500_000L,
+                stadiumCapacity = 42_000,
+                sponsorWeekly = 550_000L,
+                sponsorName = "Patrocinador QA",
+                sponsorWeeksRemaining = 24,
+                academyLevel = 3,
+                academyWeeklyInvestment = 120_000L,
+                playerFormation = "4-3-3",
+                playerStyle = "Equilibrado"
+            )
+        )
+
+        val preferencesRepository = GamePreferencesRepository(context.dataStore, context)
+        val viewModel = GameViewModel(
+            application = application,
+            saveRepository = saveRepository,
+            preferencesRepo = preferencesRepository,
+            youthAcademyUseCase = YouthAcademyUseCase(),
+            tacticsUseCase = TacticsUseCase()
+        )
+        viewModel.selectSaveSlot(slotId)
+
+        val surface = mutableStateOf("career")
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                when (surface.value) {
+                    "career" -> CareerDashboardScreen(viewModel)
+                    "team_selection" -> TeamSelectionScreen(
+                        viewModel = viewModel,
+                        coachName = "Técnico QA",
+                        onBack = {}
+                    )
+                    else -> LiveMatchScreen(viewModel)
+                }
+            }
+        }
+
+        fun capture(fileName: String) {
+            composeTestRule.waitForIdle()
+            composeTestRule.onRoot().captureRoboImage(
+                filePath = "src/test/screenshots/$fileName"
+            )
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 8_000) {
+            viewModel.gameSave.value?.playerTeamId == homeId &&
+                viewModel.playerTeam.value?.id == homeId &&
+                composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
+        capture("dashboard.png")
+
+        fun navigateTo(tag: String, fileName: String) {
+            composeTestRule.onNodeWithTag(tag).performScrollTo().performClick()
+            composeTestRule.waitForIdle()
+            capture(fileName)
+        }
+
+        navigateTo("squad_tab", "squad.png")
+        navigateTo("tactics_tab", "tactics.png")
+        navigateTo("market_tab", "transfers.png")
+        navigateTo("finance_tab", "finances.png")
+        navigateTo("standings_tab", "standings.png")
+
+        composeTestRule.runOnIdle { surface.value = "team_selection" }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("coach_name_input").assertIsDisplayed()
+        capture("team_selection.png")
+
+        viewModel.liveMatchFixture = nextFixture
+        viewModel.liveMatchHomeTeam = teams[0]
+        viewModel.liveMatchAwayTeam = teams[1]
+        viewModel.liveMatchHomePlayers = players.filter { it.teamId == homeId && it.isStarter }.take(11)
+        viewModel.liveMatchAwayPlayers = players.filter { it.teamId == rivalId && it.isStarter }.take(11)
+        viewModel._matchMinute.value = 67
+        viewModel._matchHomeScore.value = 2
+        viewModel._matchAwayScore.value = 1
+        viewModel._matchEvents.value = emptyList()
+        viewModel._matchState.value = GameViewModel.MatchState.PLAYING
+
+        composeTestRule.runOnIdle { surface.value = "match" }
+        composeTestRule.waitForIdle()
+        capture("live_match.png")
+    }
+}
