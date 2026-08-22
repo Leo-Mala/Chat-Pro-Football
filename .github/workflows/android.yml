@@ -285,14 +285,16 @@ jobs:
 
   production-release:
     name: Protected production Release Candidate signing
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: release
     steps:
-      - name: Checkout trusted workflow-dispatch ref
+      - name: Checkout trusted main ref
         uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
