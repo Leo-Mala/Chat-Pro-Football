@@ -1,0 +1,134 @@
+package com.example.usecase
+
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.AppDatabase
+import com.example.data.Atributos
+import com.example.data.Fc26LoanResolution
+import com.example.data.Fc26LoanResolutionStatus
+import com.example.data.GameRepository
+import com.example.data.GameSave
+import com.example.data.Player
+import com.example.data.Team
+import com.example.data.isFc26LoanOwnershipQuarantined
+import com.example.data.isTransferMarketCandidateFor
+import com.example.data.markFc26LoanResolution
+import com.example.data.markFc26UnassignedSourceClub
+import com.example.data.sourceMetadataOrNull
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class Fc26BorrowerUnresolvedOwnershipTest {
+
+    private lateinit var db: AppDatabase
+    private lateinit var repository: GameRepository
+
+    @Before
+    fun setup() {
+        db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            AppDatabase::class.java
+        ).allowMainThreadQueries().build()
+        repository = GameRepository(db)
+    }
+
+    @After
+    fun tearDown() {
+        db.close()
+    }
+
+    @Test
+    fun `borrower unresolved signals cannot become free agents or market ownership`() = runTest {
+        repository.saveTeams(
+            listOf(
+                Team(USER_TEAM_ID, "User FC", "A", "SP", "Brasil", 1, rating = 75),
+                Team(OTHER_TEAM_ID, "Other FC", "B", "RJ", "Brasil", 1, rating = 75)
+            )
+        )
+        val save = GameSave(playerTeamId = USER_TEAM_ID, bankBalance = 50_000_000L)
+        repository.saveGameSave(save)
+        val transfers = ProcessTransfersUseCase(repository)
+        val statuses = listOf(
+            Fc26LoanResolutionStatus.BORROWER_NOT_FOUND,
+            Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
+        )
+
+        statuses.forEachIndexed { index, status ->
+            val id = 700L + index
+            val source = sourcePlayer(id).markFc26UnassignedSourceClub()
+            val sourceMetadata = requireNotNull(source.sourceMetadataOrNull())
+            val quarantined = source.markFc26LoanResolution(
+                Fc26LoanResolution(
+                    sourcePlayerId = id,
+                    playerId = id,
+                    playerName = source.name,
+                    ownerSourceName = "Factual Owner",
+                    borrowerSourceTeamId = 999L,
+                    borrowerSourceName = "Unresolved Borrower",
+                    ownerTeamId = null,
+                    borrowerTeamId = null,
+                    status = status,
+                    reason = "borrower cannot be resolved safely"
+                )
+            )
+            repository.savePlayers(listOf(quarantined))
+
+            assertNull(quarantined.teamId)
+            assertNull(quarantined.originalTeamId)
+            assertTrue(quarantined.isOnLoan)
+            assertTrue(quarantined.isFc26LoanOwnershipQuarantined())
+            assertFalse(quarantined.isTransferMarketCandidateFor(USER_TEAM_ID))
+            assertFalse(quarantined.isTransferMarketCandidateFor(OTHER_TEAM_ID))
+            assertNull(repository.getActiveLoanForPlayer(id))
+
+            val metadata = requireNotNull(quarantined.sourceMetadataOrNull())
+            assertEquals("LOAN_OWNERSHIP_UNRESOLVED", metadata.assignmentStatus)
+            assertEquals(status.name, metadata.loanResolutionStatus)
+            assertEquals("NOT_AVAILABLE", metadata.loanTemporalCoverage)
+            assertEquals(sourceMetadata.sourceContractDurationWeeks, metadata.sourceContractDurationWeeks)
+            assertEquals(sourceMetadata.sourceSalary, metadata.sourceSalary)
+            assertTrue((metadata.sourceContractDurationWeeks ?: 0) > 0)
+            assertTrue((metadata.sourceSalary ?: 0L) > 0L)
+
+            val purchase = transfers.executePurchase(
+                save = save,
+                player = quarantined,
+                price = 1_000_000L,
+                currentRoster = emptyList()
+            )
+            assertTrue("$status must not be purchasable as a free agent", purchase is ProcessTransfersUseCase.TransferResult.Error)
+            assertEquals(quarantined, repository.getPlayer(id))
+            assertEquals(50_000_000L, repository.getGameSave()?.bankBalance)
+        }
+    }
+
+    private fun sourcePlayer(id: Long) = Player(
+        id = id,
+        teamId = null,
+        name = "Borrower unresolved $id",
+        age = 23,
+        position = "ATA",
+        force = 81,
+        potential = 88,
+        salary = 90_000L,
+        contractDurationWeeks = 52,
+        atributos = Atributos(finalizacao = 85, velocidade = 86),
+        atributosJson = """{"import":{"source":"FC26","sourcePlayerId":$id,"datasetVersion":"test","birthDateIso":"2003-01-01","primaryPosition":"ST","alternativePositions":[],"sourceClubTeamId":999,"sourceClubName":"Unresolved Borrower","leagueId":1,"leagueName":"Test League","clubLoanedFrom":"Factual Owner"}}"""
+    )
+
+    companion object {
+        private const val USER_TEAM_ID = 10L
+        private const val OTHER_TEAM_ID = 20L
+    }
+}
