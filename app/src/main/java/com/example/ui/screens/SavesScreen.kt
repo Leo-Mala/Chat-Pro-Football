@@ -318,7 +318,11 @@ fun SavesContent(
                                                 showDeleteConfirm = false
                                             }
                                         ) {
-                                            Text("EXCLUIR", color = NeonRedAccent, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "EXCLUIR",
+                                                color = NeonRedAccent,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     },
                                     dismissButton = {
