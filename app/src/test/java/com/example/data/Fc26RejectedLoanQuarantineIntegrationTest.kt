@@ -46,7 +46,7 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
             val source = requireNotNull(sourceById[resolution.playerId])
             val metadata = requireNotNull(player.sourceMetadataOrNull())
 
-            assertEquals("Borrower roster remains the factual current club", resolution.borrowerTeamId, player.teamId)
+            assertNull("Rejected owner signal must not assign borrower ownership at runtime", player.teamId)
             assertTrue("Rejected owner signal must stay fail-closed", player.isOnLoan)
             assertTrue(player.isFc26LoanOwnershipQuarantined())
             assertNull("Unknown owner must never be invented", player.originalTeamId)
@@ -56,7 +56,7 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
             assertEquals("LOAN_OWNERSHIP_UNRESOLVED", metadata.assignmentStatus)
             assertEquals(resolution.status.name, metadata.loanResolutionStatus)
             assertEquals("NOT_AVAILABLE", metadata.loanTemporalCoverage)
-            assertEquals(resolution.borrowerTeamId, metadata.loanBorrowerTeamId)
+            assertEquals("Factual borrower identity stays auditable only in metadata", resolution.borrowerTeamId, metadata.loanBorrowerTeamId)
             assertEquals(source.stableId, player.id)
             assertEquals(source.overall, player.force)
             assertEquals(source.potential, player.potential)
