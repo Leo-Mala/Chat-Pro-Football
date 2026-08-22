@@ -217,6 +217,7 @@ class Phase105CriticalUiGoldenTest {
             }
         }
         repository.savePlayers(players)
+        val expectedHomeRoster = players.filter { it.teamId == homeId }
 
         val nextFixture = Fixture(
             id = 8_820_000_003L,
@@ -339,7 +340,11 @@ class Phase105CriticalUiGoldenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 8_000) {
-            composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
+            val loadedRoster = viewModel.playerRoster.value
+            loadedRoster.size == expectedHomeRoster.size &&
+                loadedRoster.associate { it.id to it.energy } ==
+                    expectedHomeRoster.associate { it.id to it.energy } &&
+                composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
                 composeTestRule.onAllNodesWithText("Atlético QA", substring = true)
                     .fetchSemanticsNodes().isNotEmpty()
         }
