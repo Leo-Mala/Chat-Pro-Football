@@ -123,6 +123,56 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
+      - name: Setup Release Signing
+        id: release_signing
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_keystore="$RUNNER_TEMP/pro-football-release.jks"
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && \
+             [ -n "$RELEASE_STORE_PASSWORD" ] && \
+             [ -n "$RELEASE_KEY_ALIAS" ] && \
+             [ -n "$RELEASE_KEY_PASSWORD" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$release_keystore"
+            chmod 600 "$release_keystore"
+            production=true
+            store_password="$RELEASE_STORE_PASSWORD"
+            key_alias="$RELEASE_KEY_ALIAS"
+            key_password="$RELEASE_KEY_PASSWORD"
+            echo "Persistent release signing credentials loaded from GitHub Secrets."
+          else
+            # Chave efêmera serve apenas para provar que APK/AAB Release são realmente assinados e
+            # instaláveis durante a validação. O gate final abaixo impede classificar RC/publicável
+            # sem o keystore persistente de produção.
+            production=false
+            store_password="ci-validation-only"
+            key_alias="ci-validation"
+            key_password="ci-validation-only"
+            keytool -genkeypair -v \
+              -keystore "$release_keystore" \
+              -storepass "$store_password" \
+              -alias "$key_alias" \
+              -keypass "$key_password" \
+              -keyalg RSA -keysize 2048 -validity 30 \
+              -dname "CN=Pro Football CI Validation, O=CI, C=BR"
+            echo "::warning::Persistent release-signing secrets are absent; using ephemeral validation signing. Final RC gate will remain blocked."
+          fi
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=$store_password"
+            echo "KEY_ALIAS=$key_alias"
+            echo "KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+          echo "production=$production" >> "$GITHUB_OUTPUT"
+          printf '{"productionSigning":%s,"keystoreSource":"%s"}\n' \
+            "$production" "$([ "$production" = true ] && echo github-secrets || echo ephemeral-ci-validation)" \
+            > "$RUNNER_TEMP/release-signing-status.json"
+
       - name: Build Debug APK
         shell: bash
         run: |
@@ -136,8 +186,14 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew assembleRelease bundleRelease --stacktrace
-          test -n "$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
-          test -n "$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)"
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$release_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose "$release_apk"
+          jarsigner -verify "$release_aab"
 
       - name: Run core regression and migration-save safety
         shell: bash
@@ -254,6 +310,24 @@ jobs:
           path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload release-signing audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signing-status
+          path: ${{ runner.temp }}/release-signing-status.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require persistent release signing for Release Candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.release_signing.outputs.production }}" != "true" ]; then
+            echo "::error::Release candidate requires persistent signing secrets: RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD."
+            exit 1
+          fi
+          echo "Persistent production release signing verified."
 
   materialize-fc26-asset:
     name: Materialize deterministic FC26 asset
