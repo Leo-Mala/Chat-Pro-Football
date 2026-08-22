@@ -1,6 +1,7 @@
 package com.example.data
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -55,7 +56,23 @@ class GameRepository(internal val db: AppDatabase) {
 
     suspend fun getGameSave(): GameSave? = db.gameSaveDao().getGameSave()
     suspend fun saveGameSave(save: GameSave) = db.gameSaveDao().insertOrUpdate(save)
-    suspend fun deleteSave() = db.gameSaveDao().deleteSave()
+
+    /**
+     * Não permite transformar uma carreira existente em "slot vazio" por uma exclusão parcial.
+     *
+     * Novo Jogo só usa esta limpeza quando o slot já foi semanticamente classificado como vazio.
+     * Uma carreira persistida precisa ser removida pelo fluxo explícito de exclusão do slot, que
+     * fecha a instância Room e apaga o banco físico inteiro. A CancellationException encerra de
+     * forma não-fatal qualquer cadeia destrutiva acidental e faz transações Room retrocederem.
+     */
+    suspend fun deleteSave() {
+        if (db.gameSaveDao().getGameSave() != null) {
+            throw CancellationException(
+                "Exclusão parcial de GameSave bloqueada: remova explicitamente o banco do slot."
+            )
+        }
+        db.gameSaveDao().deleteSave()
+    }
 
     suspend fun promoteAcademyPlayerAtomically(
         expectedPlayerTeamId: Long,
@@ -163,7 +180,6 @@ class GameRepository(internal val db: AppDatabase) {
         players.expireNonLoanContractsAtOneWeek()
         players.decrementLongerContractsOneWeek()
     }
-
     suspend fun insertPlayersIfNotExists(players: List<Player>) = db.withTransaction {
         if (players.size > 100) {
             players.chunked(100).forEach { db.playerDao().insertPlayers(it) }
