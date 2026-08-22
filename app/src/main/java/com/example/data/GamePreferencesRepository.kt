@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.SaveSlotMetadata
 import com.example.data.repository.GameSaveRepository
+import com.example.data.repository.SlotDatabaseInspection
 import com.example.data.repository.SlotDatabaseState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,7 @@ class GamePreferencesRepository @Inject constructor(
         private val AUTOLINEUP_KEY = booleanPreferencesKey("autolineup_enabled")
         private val WATCHLIST_KEY = stringSetPreferencesKey("watchlist_players")
         private const val TAG = "GamePreferencesRepo"
+        private const val MAX_RECONCILIATION_RETRIES = 3
     }
 
     private data class StoredSlotMetadata(
@@ -103,89 +105,127 @@ class GamePreferencesRepository @Inject constructor(
     /**
      * Reconcilia metadata derivada com o conteúdo autoritativo de cada banco Room.
      *
-     * A existência de carreira nunca depende apenas de DataStore/SharedPreferences nem apenas de
-     * File.exists(). O registro `game_save(id=1)` lido com sucesso é a autoridade para uma carreira
-     * válida. Se a leitura do banco falhar, o slot fica ocupado em RECOVERY_REQUIRED (fail-closed).
+     * Cada slot é inspecionado antes e depois de qualquer efeito em metadata. Se criação,
+     * exclusão ou recuperação alterar o estado semântico durante a passagem, o resultado antigo
+     * é descartado e o slot é reconciliado novamente. Assim uma chamada atrasada nunca publica
+     * save fantasma nem rebaixa uma carreira criada concorrentemente para slot vazio.
      */
-    suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
-        val prefs = try {
-            dataStore.data.first()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Falha ao ler DataStore de metadata; usando fallback legado e Room", e)
-            null
+    suspend fun loadSaveSlots(): List<SaveSlotMetadata> =
+        (1..5).map { index -> reconcileSlot(index.toString()) }
+
+    private suspend fun readPreferencesSnapshot(): Preferences? = try {
+        dataStore.data.first()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "Falha ao ler DataStore de metadata; usando fallback legado e Room", e)
+        null
+    }
+
+    private suspend fun reconcileSlot(saveId: String, attempt: Int = 0): SaveSlotMetadata {
+        val stored = readStoredSlotMetadata(readPreferencesSnapshot(), saveId)
+        val before = saveRepository.inspectSlot(saveId)
+        val projected = projectInspection(saveId, stored, before)
+
+        // Esta é a última operação suspensiva antes de publicar o slot. Se qualquer mutação venceu
+        // a corrida depois da primeira inspeção, a projeção obsoleta é descartada e recalculada.
+        val after = saveRepository.inspectSlot(saveId)
+        if (sameSemanticSnapshot(before, after)) {
+            return projected
         }
 
-        return (1..5).map { i ->
-            val id = i.toString()
-            val stored = readStoredSlotMetadata(prefs, id)
-            val inspection = saveRepository.inspectSlot(id)
+        if (attempt >= MAX_RECONCILIATION_RETRIES) {
+            val latestStored = readStoredSlotMetadata(readPreferencesSnapshot(), saveId)
+            return recoveryMetadata(
+                saveId = saveId,
+                stored = latestStored,
+                message = "O estado do slot mudou repetidamente durante a reconciliação. Os dados foram preservados e um novo jogo está bloqueado."
+            )
+        }
+        return reconcileSlot(saveId, attempt + 1)
+    }
 
-            when (inspection.state) {
-                SlotDatabaseState.MISSING,
-                SlotDatabaseState.EMPTY -> {
-                    if (stored.exists) {
-                        try {
-                            removeSlotMetadata(id)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            // O estado semântico do Room continua prevalecendo mesmo se o saneamento
-                            // da projeção falhar; a falha fica registrada e será tentada novamente.
-                            Log.e(TAG, "Falha ao sanear metadata fantasma do slot $id", e)
-                        }
-                    }
-                    SaveSlotMetadata(id = id, exists = false)
-                }
-
-                SlotDatabaseState.VALID_CAREER -> {
-                    val save = checkNotNull(inspection.save)
-                    val authoritative = SaveSlotMetadata(
-                        id = id,
-                        exists = true,
-                        coachName = save.coachName,
-                        teamName = inspection.teamName ?: "Sem Clube",
-                        season = save.currentSeason,
-                        week = save.currentWeek,
-                        balance = save.bankBalance
-                    )
-
-                    if (!stored.matches(authoritative)) {
-                        try {
-                            updateSlotMetadata(
-                                saveId = id,
-                                coachName = authoritative.coachName,
-                                teamName = authoritative.teamName,
-                                season = authoritative.season,
-                                week = authoritative.week,
-                                balance = authoritative.balance
-                            )
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            // Metadata é reconstruível. Uma falha simultânea dos dois stores nunca
-                            // pode rebaixar uma carreira Room válida para "slot vazio".
-                            Log.e(TAG, "Carreira do slot $id recuperada, mas metadata não pôde ser reconstruída", e)
-                        }
-                    }
-                    authoritative
-                }
-
-                SlotDatabaseState.RECOVERY_REQUIRED -> {
-                    SaveSlotMetadata(
-                        id = id,
-                        exists = true,
-                        coachName = stored.coachName.ifBlank { "Carreira preservada" },
-                        teamName = stored.teamName.ifBlank { "Recuperação necessária" },
-                        season = stored.season,
-                        week = stored.week,
-                        balance = stored.balance,
-                        recoveryRequired = true,
-                        recoveryMessage = "O banco deste slot não pôde ser validado. Os dados foram preservados e um novo jogo está bloqueado."
-                    )
+    private suspend fun projectInspection(
+        saveId: String,
+        stored: StoredSlotMetadata,
+        inspection: SlotDatabaseInspection
+    ): SaveSlotMetadata = when (inspection.state) {
+        SlotDatabaseState.MISSING,
+        SlotDatabaseState.EMPTY -> {
+            if (stored.exists) {
+                try {
+                    removeSlotMetadata(saveId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Falha ao sanear metadata fantasma do slot $saveId", e)
                 }
             }
+            SaveSlotMetadata(id = saveId, exists = false)
+        }
+
+        SlotDatabaseState.VALID_CAREER -> {
+            val save = checkNotNull(inspection.save)
+            val authoritative = SaveSlotMetadata(
+                id = saveId,
+                exists = true,
+                coachName = save.coachName,
+                teamName = inspection.teamName ?: "Sem Clube",
+                season = save.currentSeason,
+                week = save.currentWeek,
+                balance = save.bankBalance
+            )
+
+            if (!stored.matches(authoritative)) {
+                try {
+                    updateSlotMetadata(
+                        saveId = saveId,
+                        coachName = authoritative.coachName,
+                        teamName = authoritative.teamName,
+                        season = authoritative.season,
+                        week = authoritative.week,
+                        balance = authoritative.balance
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Carreira do slot $saveId recuperada, mas metadata não pôde ser reconstruída", e)
+                }
+            }
+            authoritative
+        }
+
+        SlotDatabaseState.RECOVERY_REQUIRED -> recoveryMetadata(saveId, stored)
+    }
+
+    private fun recoveryMetadata(
+        saveId: String,
+        stored: StoredSlotMetadata,
+        message: String = "O banco deste slot não pôde ser validado. Os dados foram preservados e um novo jogo está bloqueado."
+    ): SaveSlotMetadata = SaveSlotMetadata(
+        id = saveId,
+        exists = true,
+        coachName = stored.coachName.ifBlank { "Carreira preservada" },
+        teamName = stored.teamName.ifBlank { "Recuperação necessária" },
+        season = stored.season,
+        week = stored.week,
+        balance = stored.balance,
+        recoveryRequired = true,
+        recoveryMessage = message
+    )
+
+    private fun sameSemanticSnapshot(
+        first: SlotDatabaseInspection,
+        second: SlotDatabaseInspection
+    ): Boolean {
+        if (first.state != second.state) return false
+        return when (first.state) {
+            SlotDatabaseState.VALID_CAREER ->
+                first.save == second.save && first.teamName == second.teamName
+            SlotDatabaseState.RECOVERY_REQUIRED ->
+                first.failureReason == second.failureReason
+            SlotDatabaseState.MISSING,
+            SlotDatabaseState.EMPTY -> true
         }
     }
 
