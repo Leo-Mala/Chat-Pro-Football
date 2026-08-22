@@ -100,12 +100,12 @@ internal fun Player.markFc26UnassignedSourceClub(): Player {
 /**
  * Persiste a decisão de resolução do sinal de empréstimo FC26 no envelope factual existente.
  * RESOLVED materializa owner/borrower normalmente. Quando o borrower é conhecido mas o owner é
- * ausente ou ambíguo, o jogador permanece no roster factual do borrower porém entra em quarentena
- * operacional: `isOnLoan=true`, owner ausente e sem PlayerLoan. Essa combinação é intencionalmente
- * inconsistente para os gates de ownership existentes, que recusam compra/venda/reempréstimo em vez
- * de transformar o borrower em proprietário. Salário/contrato runtime são zerados e preservados no
- * metadata, evitando uma expiração semanal que pudesse liberar a quarentena como ownership comum.
- * O snapshot não contém datas de empréstimo, portanto a cobertura temporal é NOT_AVAILABLE.
+ * ausente ou ambíguo, o jogador entra em quarentena operacional e deixa de ser atribuído a qualquer
+ * clube runtime (`teamId=null`, `isOnLoan=true`, owner ausente e sem PlayerLoan). O borrower factual
+ * continua preservado em `loanBorrowerTeamId` no metadata, mas nunca é promovido a proprietário nem
+ * recebe direitos de mercado, renovação, aposentadoria/replacement ou reempréstimo. Salário/contrato
+ * runtime são zerados e seus valores de origem preservados no metadata. O snapshot não contém datas
+ * de empréstimo, portanto a cobertura temporal é NOT_AVAILABLE.
  */
 internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Player {
     require(id == resolution.playerId) { "Resolução FC26 aplicada ao jogador errado." }
@@ -151,6 +151,7 @@ internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Play
         }
         quarantineOwnership -> copy(
             atributosJson = updatedJson,
+            teamId = null,
             contractDurationWeeks = 0,
             salary = 0L,
             originalTeamId = null,
@@ -174,5 +175,5 @@ internal fun Player.isFc26UnassignedSourceClub(): Boolean =
 
 /** Estado fail-closed de um sinal factual de empréstimo cujo owner não pôde ser determinado. */
 internal fun Player.isFc26LoanOwnershipQuarantined(): Boolean =
-    isOnLoan && originalTeamId == null &&
+    teamId == null && isOnLoan && originalTeamId == null &&
         atributosJson?.contains(FC26_LOAN_OWNERSHIP_UNRESOLVED_JSON_MARKER) == true
