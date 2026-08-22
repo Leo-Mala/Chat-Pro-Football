@@ -73,12 +73,13 @@ class GameSaveRepository @Inject constructor(
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
      *
      * - arquivo ausente -> MISSING;
-     * - arquivo legível sem `GameSave` -> EMPTY;
+     * - arquivo legível sem `GameSave` e sem payload de domínio -> EMPTY;
      * - `GameSave` legível -> VALID_CAREER;
-     * - qualquer falha de abertura/migration/leitura -> RECOVERY_REQUIRED.
+     * - payload residual sem `GameSave`, ou falha de abertura/migration/leitura -> RECOVERY_REQUIRED.
      *
-     * Falhas nunca são convertidas em slot vazio. Isso é a barreira central que impede uma
-     * restauração parcial ou corrupção de virar autorização implícita para reseed destrutivo.
+     * Falhas e estados ambíguos nunca são convertidos em slot vazio. Isso é a barreira central que
+     * impede uma restauração parcial, uma exclusão interrompida ou corrupção de virar autorização
+     * implícita para reseed destrutivo.
      */
     suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
         val file = databaseFileForSlot(slotId)
@@ -90,7 +91,15 @@ class GameSaveRepository @Inject constructor(
             val repository = getRepositoryForSlot(slotId)
             val save = repository.getGameSave()
             if (save == null) {
-                SlotDatabaseInspection(SlotDatabaseState.EMPTY)
+                val database = getDatabaseForSlot(slotId)
+                if (hasResidualDomainPayload(database)) {
+                    SlotDatabaseInspection(
+                        state = SlotDatabaseState.RECOVERY_REQUIRED,
+                        failureReason = "ResidualDataWithoutGameSave"
+                    )
+                } else {
+                    SlotDatabaseInspection(SlotDatabaseState.EMPTY)
+                }
             } else {
                 val teamName = repository.getTeam(save.playerTeamId)?.name ?: "Sem Clube"
                 SlotDatabaseInspection(
@@ -108,6 +117,41 @@ class GameSaveRepository @Inject constructor(
                 failureReason = e.javaClass.simpleName.ifBlank { "DatabaseReadFailure" }
             )
         }
+    }
+
+    /**
+     * Determina se um banco sem `GameSave` é realmente vazio.
+     *
+     * A consulta usa o catálogo SQLite para não depender de uma lista manual de entidades. Tabelas
+     * internas do SQLite/Room e a própria `game_save` são ignoradas; qualquer linha persistida em
+     * outra tabela é tratada como payload potencialmente recuperável e bloqueia Novo Jogo.
+     *
+     * Este caminho só roda quando `GameSave` está ausente, portanto não adiciona custo à abertura
+     * normal de carreiras e evita materializar listas grandes de jogadores/fixtures em memória.
+     */
+    private fun hasResidualDomainPayload(database: AppDatabase): Boolean {
+        val sqlite = database.openHelper.readableDatabase
+        val tables = mutableListOf<String>()
+        sqlite.query(
+            "SELECT name FROM sqlite_master " +
+                "WHERE type = 'table' " +
+                "AND name NOT LIKE 'sqlite_%' " +
+                "AND name NOT IN ('android_metadata', 'room_master_table', 'game_save')"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                tables += cursor.getString(0)
+            }
+        }
+
+        for (table in tables) {
+            val quotedTable = table.replace("\"", "\"\"")
+            sqlite.query("SELECT 1 FROM \"$quotedTable\" LIMIT 1").use { cursor ->
+                if (cursor.moveToFirst()) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     /** Fail-closed preflight usado antes de qualquer criação destrutiva de nova carreira. */
