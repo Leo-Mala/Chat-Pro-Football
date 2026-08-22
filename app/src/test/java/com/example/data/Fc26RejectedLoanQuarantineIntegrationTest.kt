@@ -15,7 +15,7 @@ import org.robolectric.annotation.Config
 class Fc26RejectedLoanQuarantineIntegrationTest {
 
     @Test
-    fun `full FC26 snapshot quarantines unresolved owners without inventing ownership`() {
+    fun `full FC26 snapshot quarantines every unresolved ownership signal`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dataset = requireNotNull(Fc26NormalizedDatasetLoader.loadValidatedOrNull(context.assets))
         val teams = buildCurrentUniverse()
@@ -30,15 +30,35 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
         val playersById = plan.players.associateBy { it.id }
         val sourceById = dataset.players.associateBy { it.stableId }
         val loansByPlayerId = plan.loans.associateBy { it.playerId }
-        val quarantinedResolutions = plan.report.loanResolutions.filter { resolution ->
-            resolution.status == Fc26LoanResolutionStatus.OWNER_NOT_FOUND ||
-                resolution.status == Fc26LoanResolutionStatus.AMBIGUOUS_OWNER
-        }
+        val quarantinedStatuses = setOf(
+            Fc26LoanResolutionStatus.OWNER_NOT_FOUND,
+            Fc26LoanResolutionStatus.AMBIGUOUS_OWNER,
+            Fc26LoanResolutionStatus.BORROWER_NOT_FOUND,
+            Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
+        )
+        val quarantinedResolutions = plan.report.loanResolutions.filter { it.status in quarantinedStatuses }
 
-        assertTrue("The current FC26 snapshot must exercise unresolved-owner quarantine", quarantinedResolutions.isNotEmpty())
+        assertEquals(plan.report.rejectedLoans, quarantinedResolutions.size)
         assertEquals(
             plan.report.ownerNotFound,
             quarantinedResolutions.count { it.status == Fc26LoanResolutionStatus.OWNER_NOT_FOUND }
+        )
+        assertEquals(
+            plan.report.borrowerNotFound,
+            quarantinedResolutions.count { it.status == Fc26LoanResolutionStatus.BORROWER_NOT_FOUND }
+        )
+        assertEquals(
+            plan.report.ambiguousLoans,
+            quarantinedResolutions.count {
+                it.status == Fc26LoanResolutionStatus.AMBIGUOUS_OWNER ||
+                    it.status == Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
+            }
+        )
+        assertTrue("The current FC26 snapshot must exercise borrower-unresolved quarantine",
+            quarantinedResolutions.any {
+                it.status == Fc26LoanResolutionStatus.BORROWER_NOT_FOUND ||
+                    it.status == Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
+            }
         )
 
         quarantinedResolutions.forEach { resolution ->
@@ -46,17 +66,20 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
             val source = requireNotNull(sourceById[resolution.playerId])
             val metadata = requireNotNull(player.sourceMetadataOrNull())
 
-            assertNull("Rejected owner signal must not assign borrower ownership at runtime", player.teamId)
-            assertTrue("Rejected owner signal must stay fail-closed", player.isOnLoan)
+            assertNull("Rejected ownership signal must not create runtime club ownership", player.teamId)
+            assertTrue("Rejected ownership signal must stay fail-closed", player.isOnLoan)
             assertTrue(player.isFc26LoanOwnershipQuarantined())
-            assertNull("Unknown owner must never be invented", player.originalTeamId)
+            assertNull("Unresolved ownership must never be invented", player.originalTeamId)
             assertNull("Rejected signal must never create a PlayerLoan", loansByPlayerId[resolution.playerId])
             assertEquals(0, player.contractDurationWeeks)
             assertEquals(0L, player.salary)
             assertEquals("LOAN_OWNERSHIP_UNRESOLVED", metadata.assignmentStatus)
             assertEquals(resolution.status.name, metadata.loanResolutionStatus)
             assertEquals("NOT_AVAILABLE", metadata.loanTemporalCoverage)
-            assertEquals("Factual borrower identity stays auditable only in metadata", resolution.borrowerTeamId, metadata.loanBorrowerTeamId)
+            assertEquals(resolution.ownerTeamId, metadata.loanOwnerTeamId)
+            assertEquals(resolution.borrowerTeamId, metadata.loanBorrowerTeamId)
+            assertTrue("Source contract provenance must survive quarantine", (metadata.sourceContractDurationWeeks ?: 0) > 0)
+            assertTrue("Source salary provenance must survive quarantine", (metadata.sourceSalary ?: 0L) > 0L)
             assertEquals(source.stableId, player.id)
             assertEquals(source.overall, player.force)
             assertEquals(source.potential, player.potential)
