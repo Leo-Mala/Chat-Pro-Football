@@ -76,6 +76,26 @@ class TargetedUiFlowDaoTest {
     }
 
     @Test
+    fun targetedTeamFlowSupportsMoreThanSqliteBindLimit() = runTest {
+        val teams = (1L..1_200L).map { id ->
+            Team(
+                id = id,
+                name = "Time $id",
+                city = "Cidade $id",
+                state = "BR",
+                country = "Brasil",
+                division = 1
+            )
+        }
+        repository.saveTeams(teams)
+
+        val selectedTeams = repository.getTeamsByIdsFlow(teams.map { it.id }).first()
+
+        assertEquals(1_200, selectedTeams.size)
+        assertEquals(teams.map { it.id }.toSet(), selectedTeams.map { it.id }.toSet())
+    }
+
+    @Test
     fun nextFixtureFlowSkipsPlayedAndOtherTeamsAndReturnsEarliestPendingMatch() = runTest {
         repository.saveTeams(
             listOf(
