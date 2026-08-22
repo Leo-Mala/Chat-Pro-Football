@@ -10,10 +10,13 @@ import kotlin.math.roundToInt
 
 fun GameViewModel.ensureSaveActiveForEditor() {
     viewModelScope.launch(Dispatchers.IO) {
+        val targetSaveId = _currentSaveId.value ?: "1"
+        // Materializa/valida Room em IO antes de publicar currentSaveId. Isso impede que
+        // activeRepositoryFlow reaja na main thread e seja o primeiro chamador da abertura eager.
+        val currentRepository = getOrCreateSession(targetSaveId).repository
         if (_currentSaveId.value == null) {
-            _currentSaveId.value = "1"
+            _currentSaveId.value = targetSaveId
         }
-        val currentRepository = getActiveRepository() ?: repo
 
         var dbTeams = currentRepository.getAllTeams()
         if (dbTeams.isEmpty()) {
