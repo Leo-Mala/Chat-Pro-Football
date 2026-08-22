@@ -46,12 +46,14 @@ class Phase106PreCareerSeedStateTest {
     }
 
     @After
-    fun tearDown() = runBlocking {
-        saveRepository.closeAllDatabases()
-        context.dataStore.edit { it.clear() }
-        context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
-            .edit().clear().commit()
-        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+    fun tearDown() {
+        runBlocking {
+            saveRepository.closeAllDatabases()
+            context.dataStore.edit { it.clear() }
+            context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
+                .edit().clear().commit()
+            context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+        }
     }
 
     @Test
