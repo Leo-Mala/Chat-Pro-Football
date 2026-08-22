@@ -168,11 +168,17 @@ class FinanceUseCase(private val repository: GameRepository) {
                     player.teamId != loan.borrowerTeamId ||
                     player.originalTeamId != loan.ownerTeamId
                 ) {
+                    // A diverging row cannot promote the current roster to permanent owner. Keep
+                    // the main-contract facts intact, invalidate the relationship and quarantine
+                    // ownership with no runtime club until an explicit, trusted career/editor event
+                    // repairs it. `isOnLoan=true` + owner null makes all market/contract gates fail
+                    // closed once this PlayerLoan leaves the ACTIVE set.
                     updatedLoans += loan.copy(remainingWeeks = 0, status = "INVALID")
                     repository.updatePlayer(
                         player.copy(
+                            teamId = null,
                             originalTeamId = null,
-                            isOnLoan = false,
+                            isOnLoan = true,
                             loanWeeksRemaining = 0,
                             isStarter = false
                         )
@@ -481,17 +487,6 @@ class FinanceUseCase(private val repository: GameRepository) {
 
         val updatedSave = currentSave.copy(bankBalance = currentSave.bankBalance - cost)
         repository.saveGameSave(updatedSave)
-
-        repository.saveTransaction(
-            TransactionRecord(
-                week = currentSave.currentWeek,
-                season = currentSave.currentSeason,
-                type = "MELHORIA_CT",
-                description = "Ampliação do CT para Nível ${currentLevel + 1}",
-                amount = cost,
-                isIncome = false
-            )
-        )
 
         FinanceResult.Success(
             updatedSave,
