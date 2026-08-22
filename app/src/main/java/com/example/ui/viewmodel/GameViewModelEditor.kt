@@ -20,8 +20,8 @@ private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean
 }
 
 fun GameViewModel.ensureSaveActiveForEditor(
-    onReady: (Boolean) -> Unit = {},
-    preparationCheckpoint: suspend () -> Unit = {}
+    preparationCheckpoint: suspend () -> Unit = {},
+    onReady: (Boolean) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
         val targetSaveId = _currentSaveId.value ?: "1"
