@@ -7,7 +7,9 @@ on:
       - '.github/workflows/phase105-record-final-ui.yml'
       - 'app/src/test/java/com/example/MainMenuScreenshotTest.kt'
       - 'app/src/test/java/com/example/SavesScreenshotTest.kt'
+      - 'app/src/test/java/com/example/Phase105CriticalUiScreenshotTest.kt'
       - 'app/src/test/java/com/example/Phase105CriticalUiGoldenTest.kt'
+      - 'app/src/test/screenshots/**'
       - 'app/src/main/**'
       - 'app/build.gradle.kts'
       - 'gradle/**'
@@ -105,7 +107,7 @@ jobs:
             testDebugUnitTest \
             --tests com.example.MainMenuScreenshotTest \
             --tests com.example.SavesScreenshotTest \
-            --tests com.example.Phase105CriticalUiGoldenTest \
+            --tests com.example.Phase105CriticalUiScreenshotTest \
             -Proborazzi.test.record=true \
             -PexcludeStressTests=true \
             --no-build-cache \
