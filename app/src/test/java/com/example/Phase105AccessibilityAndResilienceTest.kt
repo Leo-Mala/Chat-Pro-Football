@@ -76,61 +76,63 @@ class Phase105AccessibilityAndResilienceTest {
     }
 
     @Test
-    fun persistedSlot_reopensAfterDatabaseFactoryRestart() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val slotId = "4"
-        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+    fun persistedSlot_reopensAfterDatabaseFactoryRestart() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val slotId = "4"
+            context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
 
-        val firstFactory = SlotDatabaseFactory(context)
-        val firstSaveRepository = GameSaveRepository(context, firstFactory)
-        val firstRepository = firstSaveRepository.getRepositoryForSlot(slotId)
-        val team = Team(
-            id = 44_001L,
-            name = "Clube Persistente",
-            city = "Belo Horizonte",
-            state = "MG",
-            country = "Brasil",
-            division = 1,
-            isPlayerControlled = true,
-            rating = 77
-        )
-        val player = Player(
-            id = 44_101L,
-            teamId = team.id,
-            name = "Jogador Persistente",
-            age = 24,
-            position = "MEI",
-            force = 76,
-            isStarter = true
-        )
-        firstRepository.saveTeams(listOf(team))
-        firstRepository.savePlayers(listOf(player))
-        firstRepository.saveGameSave(
-            GameSave(
-                coachName = "Reopen QA",
-                currentSeason = 2029,
-                currentWeek = 17,
-                playerTeamId = team.id,
-                bankBalance = 19_500_000L
+            val firstFactory = SlotDatabaseFactory(context)
+            val firstSaveRepository = GameSaveRepository(context, firstFactory)
+            val firstRepository = firstSaveRepository.getRepositoryForSlot(slotId)
+            val team = Team(
+                id = 44_001L,
+                name = "Clube Persistente",
+                city = "Belo Horizonte",
+                state = "MG",
+                country = "Brasil",
+                division = 1,
+                isPlayerControlled = true,
+                rating = 77
             )
-        )
-        firstSaveRepository.checkpointSlot(slotId)
-        firstSaveRepository.closeAllDatabases()
+            val player = Player(
+                id = 44_101L,
+                teamId = team.id,
+                name = "Jogador Persistente",
+                age = 24,
+                position = "MEI",
+                force = 76,
+                isStarter = true
+            )
+            firstRepository.saveTeams(listOf(team))
+            firstRepository.savePlayers(listOf(player))
+            firstRepository.saveGameSave(
+                GameSave(
+                    coachName = "Reopen QA",
+                    currentSeason = 2029,
+                    currentWeek = 17,
+                    playerTeamId = team.id,
+                    bankBalance = 19_500_000L
+                )
+            )
+            firstSaveRepository.checkpointSlot(slotId)
+            firstSaveRepository.closeAllDatabases()
 
-        val reopenedFactory = SlotDatabaseFactory(context)
-        val reopenedSaveRepository = GameSaveRepository(context, reopenedFactory)
-        val reopenedRepository = reopenedSaveRepository.getRepositoryForSlot(slotId)
+            val reopenedFactory = SlotDatabaseFactory(context)
+            val reopenedSaveRepository = GameSaveRepository(context, reopenedFactory)
+            val reopenedRepository = reopenedSaveRepository.getRepositoryForSlot(slotId)
 
-        val reopenedSave = reopenedRepository.getGameSave()
-        assertNotNull(reopenedSave)
-        assertEquals("Reopen QA", reopenedSave?.coachName)
-        assertEquals(2029, reopenedSave?.currentSeason)
-        assertEquals(17, reopenedSave?.currentWeek)
-        assertEquals(19_500_000L, reopenedSave?.bankBalance)
-        assertEquals("Clube Persistente", reopenedRepository.getTeam(team.id)?.name)
-        assertEquals("Jogador Persistente", reopenedRepository.getPlayer(player.id)?.name)
+            val reopenedSave = reopenedRepository.getGameSave()
+            assertNotNull(reopenedSave)
+            assertEquals("Reopen QA", reopenedSave?.coachName)
+            assertEquals(2029, reopenedSave?.currentSeason)
+            assertEquals(17, reopenedSave?.currentWeek)
+            assertEquals(19_500_000L, reopenedSave?.bankBalance)
+            assertEquals("Clube Persistente", reopenedRepository.getTeam(team.id)?.name)
+            assertEquals("Jogador Persistente", reopenedRepository.getPlayer(player.id)?.name)
 
-        reopenedSaveRepository.closeAllDatabases()
-        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+            reopenedSaveRepository.closeAllDatabases()
+            context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+        }
     }
 }
