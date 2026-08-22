@@ -1,9 +1,9 @@
 name: Phase 10.5 Apply Refactor
 
 on:
-  push:
-    branches:
-      - agent/phase-10-5
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened]
     paths:
       - 'tools/phase10_5/apply_viewmodel_refactor.py'
       - '.github/workflows/phase10-5-apply-refactor.yml'
@@ -13,12 +13,13 @@ permissions:
 
 jobs:
   apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Phase 10.5 branch
         uses: actions/checkout@v6
         with:
-          ref: agent/phase-10-5
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Apply fail-closed refactor
@@ -42,4 +43,4 @@ jobs:
                   app/src/main/java/com/example/data/daos.kt \
                   app/src/main/java/com/example/data/repository.kt
           git commit -m 'refactor: route lineup and dashboard through targeted domain flows'
-          git push origin HEAD:agent/phase-10-5
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
