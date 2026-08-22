@@ -99,20 +99,18 @@ internal fun Player.markFc26UnassignedSourceClub(): Player {
 
 /**
  * Persiste a decisão de resolução do sinal de empréstimo FC26 no envelope factual existente.
- * RESOLVED materializa owner/borrower normalmente. Quando owner OU borrower não podem ser resolvidos
- * deterministicamente (ausente/ambíguo), o jogador entra em quarentena operacional e deixa de ser
- * atribuído a qualquer clube runtime (`teamId=null`, `isOnLoan=true`, sem owner operacional e sem
- * PlayerLoan). Identidades factuais resolvidas parcialmente permanecem apenas no metadata; nenhuma
- * delas é promovida a ownership de gameplay. Salário/contrato runtime são zerados, preservando os
- * valores de origem já registrados no envelope. O snapshot não contém datas de empréstimo, portanto
- * a cobertura temporal é NOT_AVAILABLE.
+ * RESOLVED materializa owner/borrower normalmente. Qualquer outro status representa um sinal factual
+ * de empréstimo que não pôde ser materializado com segurança; o jogador entra em quarentena
+ * operacional e deixa de ser atribuído a qualquer clube runtime (`teamId=null`, `isOnLoan=true`, sem
+ * owner operacional e sem PlayerLoan). Isso inclui ausência/ambiguidade de owner/borrower, metadata
+ * incompleto e referências inconsistentes. Identidades factuais resolvidas parcialmente permanecem
+ * apenas no metadata; nenhuma delas é promovida a ownership de gameplay. Salário/contrato runtime são
+ * zerados, preservando os valores de origem já registrados no envelope. O snapshot não contém datas
+ * de empréstimo, portanto a cobertura temporal é NOT_AVAILABLE.
  */
 internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Player {
     require(id == resolution.playerId) { "Resolução FC26 aplicada ao jogador errado." }
-    val quarantineOwnership = resolution.status == Fc26LoanResolutionStatus.OWNER_NOT_FOUND ||
-        resolution.status == Fc26LoanResolutionStatus.AMBIGUOUS_OWNER ||
-        resolution.status == Fc26LoanResolutionStatus.BORROWER_NOT_FOUND ||
-        resolution.status == Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
+    val quarantineOwnership = resolution.status != Fc26LoanResolutionStatus.RESOLVED
     val json = atributosJson?.takeIf { it.isNotBlank() } ?: return this
     val updatedJson = runCatching {
         val root = JsonParser.parseString(json).asJsonObject
