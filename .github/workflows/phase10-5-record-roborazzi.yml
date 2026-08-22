@@ -72,13 +72,16 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug, O=Android, C=US"
 
-      - name: Discover and record Roborazzi baselines
+      - name: Record only real product screenshot tests
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew tasks --all | grep -i roborazzi || true
-          ./gradlew recordRoborazziDebug --stacktrace
+          ./gradlew testDebugUnitTest \
+            -Proborazzi.test.record=true \
+            --tests com.example.MainMenuScreenshotTest \
+            --tests com.example.SavesScreenshotTest \
+            --stacktrace
           echo 'Generated screenshot files:'
           find . -type f \( -name 'main_menu.png' -o -name 'saves_empty.png' -o -name 'saves_existing.png' \) -print
           count=$(find . -type f \( -name 'main_menu.png' -o -name 'saves_empty.png' -o -name 'saves_existing.png' \) | wc -l)
