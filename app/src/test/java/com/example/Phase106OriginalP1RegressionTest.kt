@@ -45,10 +45,12 @@ class Phase106OriginalP1RegressionTest {
     }
 
     @After
-    fun tearDown() = runBlocking {
-        saveRepository.closeAllDatabases()
-        clearMetadata()
-        context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+    fun tearDown() {
+        runBlocking {
+            saveRepository.closeAllDatabases()
+            clearMetadata()
+            context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+        }
     }
 
     @Test
