@@ -12,6 +12,7 @@ import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -202,8 +203,14 @@ class FinanceUseCaseTest {
     }
 
     @Test
-    fun upgradeTrainingCenter_upgrades_team_tc_level() = runTest {
-        val save = GameSave(id = 1, bankBalance = 10_000_000L, playerTeamId = 10L)
+    fun upgradeTrainingCenter_upgrades_team_tc_level_and_records_expense() = runTest {
+        val save = GameSave(
+            id = 1,
+            currentSeason = 2026,
+            currentWeek = 12,
+            bankBalance = 10_000_000L,
+            playerTeamId = 10L
+        )
         repository.saveGameSave(save)
         val team = Team(id = 10L, name = "Meu Time", city = "SP", state = "SP", division = 1, trainingCenterLevel = 1)
         repository.saveTeams(listOf(team))
@@ -211,7 +218,17 @@ class FinanceUseCaseTest {
         val result = useCase.upgradeTrainingCenter(save)
 
         assertTrue(result is FinanceUseCase.FinanceResult.Success)
+        val success = result as FinanceUseCase.FinanceResult.Success
+        assertEquals(5_000_000L, success.updatedSave.bankBalance)
+        assertEquals(5_000_000L, repository.getGameSave()?.bankBalance)
         val updatedTeam = repository.getTeam(10L)
         assertEquals(2, updatedTeam?.trainingCenterLevel)
+
+        val expense = repository.getAllTransactions().single { it.type == "MELHORIA_CT" }
+        assertEquals(2026, expense.season)
+        assertEquals(12, expense.week)
+        assertEquals("Ampliação do CT para Nível 2", expense.description)
+        assertEquals(5_000_000L, expense.amount)
+        assertFalse(expense.isIncome)
     }
 }
