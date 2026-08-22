@@ -21,9 +21,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.isOwnedLoanedOutBy
 import com.example.ui.components.RetroPlayerCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
+import com.example.ui.viewmodel.renewContract
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +35,7 @@ fun PlayerListScreen(
 ) {
     // Read-only projection of the active SaveSession; this screen never seeds or switches databases.
     val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
+    val save by viewModel.gameSave.collectAsStateWithLifecycle()
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedPosition by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -181,7 +184,28 @@ fun PlayerListScreen(
                     items = filteredPlayers,
                     key = { player -> player.id }
                 ) { player ->
-                    RetroPlayerCard(player = player)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        RetroPlayerCard(player = player)
+                        if (player.isOwnedLoanedOutBy(save?.playerTeamId)) {
+                            Button(
+                                onClick = { viewModel.renewContract(player, 52) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("renew_loaned_out_${player.id}"),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = TurfDeepGreen,
+                                    contentColor = AccentLime
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    "RENOVAR CONTRATO — EMPRESTADO PARA FORA",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
