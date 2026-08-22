@@ -1,0 +1,41 @@
+name: Phase 10.6 Patch Runner
+
+on:
+  push:
+    branches:
+      - agent/phase-10-6-save-durability-recovery
+    paths:
+      - .github/phase106-run-patch
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/phase-10-6-save-durability-recovery
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 .github/scripts/phase106_apply_patch.py
+      - name: Validate diff
+        run: |
+          git diff --check
+          grep -q 'SlotRecoveryRequiredException' app/src/main/java/com/example/data/repository/GameSaveRepository.kt
+          grep -q 'SELECT COUNT(*) FROM game_save' app/src/main/java/com/example/data/repository.kt
+          grep -q 'sameSemanticSnapshot' app/src/main/java/com/example/data/GamePreferencesRepository.kt
+          grep -q 'initialInspection = saveRepository.inspectSlot' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          test -f app/src/test/java/com/example/Phase106LifecycleRaceRegressionTest.kt
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/example/data/repository/GameSaveRepository.kt \
+                  app/src/main/java/com/example/data/repository.kt \
+                  app/src/main/java/com/example/data/GamePreferencesRepository.kt \
+                  app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
+                  app/src/test/java/com/example/Phase106LifecycleRaceRegressionTest.kt
+          git commit -m 'fix(save): close phase 10.6 lifecycle races'
+          git push origin HEAD:agent/phase-10-6-save-durability-recovery
