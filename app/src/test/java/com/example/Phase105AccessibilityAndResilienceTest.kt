@@ -15,8 +15,10 @@ import com.example.data.GameSave
 import com.example.data.Player
 import com.example.data.Team
 import com.example.data.local.SlotDatabaseFactory
+import com.example.data.model.SaveSlotMetadata
 import com.example.data.repository.GameSaveRepository
 import com.example.ui.screens.MainMenuContent
+import com.example.ui.screens.SavesContent
 import com.example.ui.screens.TeamBadge
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.runBlocking
@@ -57,6 +59,38 @@ class Phase105AccessibilityAndResilienceTest {
         composeTestRule.onNodeWithTag("new_game_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("open_saves_button").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("open_editor_button").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun saves_largeFontOnShortScreen_keepsBackNavigationReachable() {
+        val slots = (1..3).map { index ->
+            SaveSlotMetadata(
+                id = index.toString(),
+                exists = index == 1,
+                coachName = if (index == 1) "Técnico de Acessibilidade" else "",
+                teamName = if (index == 1) "Atlético Teste" else "",
+                season = 2026,
+                week = 12,
+                balance = 42_500_000L,
+                updatedAt = 0L
+            )
+        }
+
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 3f, fontScale = 1.6f)) {
+                MyApplicationTheme {
+                    SavesContent(
+                        saveSlots = slots,
+                        onSelectSlot = {},
+                        onDeleteSlot = {},
+                        onBack = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("save_slot_1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("back_to_menu_button").performScrollTo().assertIsDisplayed()
     }
 
     @Test
