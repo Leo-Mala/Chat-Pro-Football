@@ -39,7 +39,7 @@ class SavesScreenshotTest {
         }
 
         composeTestRule.onNodeWithTag("save_slot_1").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Novo Perfil", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("save_slot_2").assertIsDisplayed()
         composeTestRule.onNodeWithTag("back_to_menu_button").assertIsDisplayed()
         composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/saves_empty.png")
     }
