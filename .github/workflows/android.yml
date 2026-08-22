@@ -11,6 +11,8 @@ on:
       - 'tools/fc26/**'
       - 'reports/fc26_*'
       - 'reports/phase_10_4_fc26_safe_loans.md'
+      - 'reports/phase_10_5_post_10_4_audit_and_final_roadmap.md'
+      - 'metadata.json'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
@@ -129,6 +131,14 @@ jobs:
           ./gradlew --version
           ./gradlew assembleDebug --stacktrace
 
+      - name: Build Release APK and AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease bundleRelease --stacktrace
+          test -n "$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)"
+
       - name: Run core regression and migration-save safety
         shell: bash
         run: |
@@ -221,11 +231,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      - name: Upload APK Artifact
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 1
 
@@ -260,10 +286,6 @@ jobs:
           HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          # The mapping/performance audit is intentionally NOT committed here.
-          # Runtime timings vary between CI executions and would otherwise create
-          # an endless synchronize -> CI -> bot commit loop. It remains available
-          # as the validation job artifact.
           paths=(
             app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin
             app/src/main/assets/football/fc26/fc26_manifest.json
