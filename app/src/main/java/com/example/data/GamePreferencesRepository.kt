@@ -234,8 +234,9 @@ class GamePreferencesRepository @Inject constructor(
         SlotDatabaseState.EMPTY -> !metadata.exists && !metadata.recoveryRequired
 
         SlotDatabaseState.VALID_CAREER -> {
-            val save = inspection.save ?: return false
-            metadata.exists &&
+            val save = inspection.save
+            save != null &&
+                metadata.exists &&
                 !metadata.recoveryRequired &&
                 metadata.coachName == save.coachName &&
                 metadata.teamName == (inspection.teamName ?: "Sem Clube") &&
