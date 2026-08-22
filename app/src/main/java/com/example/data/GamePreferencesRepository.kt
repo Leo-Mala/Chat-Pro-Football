@@ -8,6 +8,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.SaveSlotMetadata
 import com.example.data.repository.GameSaveRepository
 import com.example.data.repository.SlotDatabaseState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -109,6 +110,8 @@ class GamePreferencesRepository @Inject constructor(
     suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
         val prefs = try {
             dataStore.data.first()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao ler DataStore de metadata; usando fallback legado e Room", e)
             null
@@ -125,6 +128,8 @@ class GamePreferencesRepository @Inject constructor(
                     if (stored.exists) {
                         try {
                             removeSlotMetadata(id)
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             // O estado semântico do Room continua prevalecendo mesmo se o saneamento
                             // da projeção falhar; a falha fica registrada e será tentada novamente.
@@ -156,6 +161,8 @@ class GamePreferencesRepository @Inject constructor(
                                 week = authoritative.week,
                                 balance = authoritative.balance
                             )
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             // Metadata é reconstruível. Uma falha simultânea dos dois stores nunca
                             // pode rebaixar uma carreira Room válida para "slot vazio".
@@ -231,6 +238,8 @@ class GamePreferencesRepository @Inject constructor(
                 prefs[longPreferencesKey("slot_${saveId}_balance")] = balance
             }
             dataStoreSucceeded = true
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             dataStoreFailure = e
             Log.e(TAG, "Falha ao persistir metadata do slot $saveId no DataStore", e)
@@ -270,6 +279,8 @@ class GamePreferencesRepository @Inject constructor(
                 prefs.remove(longPreferencesKey("slot_${saveId}_balance"))
             }
             dataStoreSucceeded = true
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             dataStoreFailure = e
             Log.e(TAG, "Falha ao remover metadata do slot $saveId do DataStore", e)
@@ -285,7 +296,7 @@ class GamePreferencesRepository @Inject constructor(
             .commit()
 
         if (!legacySucceeded) {
-            Log.e(TAG, "Falha ao remover metadata do slot $saveId do SharedPreferences legado")
+            Log.e(TAG, "Falha ao remover metadata do slot $saveId no SharedPreferences legado")
         }
 
         if (!dataStoreSucceeded && !legacySucceeded) {
