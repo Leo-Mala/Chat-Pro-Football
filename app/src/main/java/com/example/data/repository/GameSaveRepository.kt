@@ -72,18 +72,37 @@ class GameSaveRepository @Inject constructor(
         }
     }
 
+    /**
+     * Abertura de Room é intencionalmente eager neste ponto. `Room.databaseBuilder().build()` é
+     * lazy e deixaria uma janela na qual o arquivo principal ainda não existe depois do preflight;
+     * forçar `writableDatabase` materializa o SQLite validado antes de entregar a instância.
+     */
     @Synchronized
     fun getDatabaseForSlot(slotId: String): AppDatabase {
         requirePhysicalOpenAllowed(slotId)
-        return databaseFactory.getDatabaseForSlot(slotId)
+        val database = databaseFactory.getDatabaseForSlot(slotId)
+        requirePhysicalOpenAllowed(slotId)
+        database.openHelper.writableDatabase
+        return database
     }
 
     @Synchronized
     fun getRepositoryForSlot(slotId: String): GameRepository {
         requirePhysicalOpenAllowed(slotId)
-        return repositories.getOrPut(slotId) {
-            GameRepository(databaseFactory.getDatabaseForSlot(slotId))
+        repositories[slotId]?.let { return it }
+
+        val database = databaseFactory.getDatabaseForSlot(slotId)
+        // Segunda inspeção imediatamente antes do primeiro acesso SQLite. Se restore/filesystem
+        // mudou entre build e open, a instância é fechada sem tocar no conjunto recuperável.
+        try {
+            requirePhysicalOpenAllowed(slotId)
+            database.openHelper.writableDatabase
+        } catch (e: Exception) {
+            databaseFactory.closeAndRemoveSlot(slotId)
+            throw e
         }
+
+        return GameRepository(database).also { repositories[slotId] = it }
     }
 
     fun databaseNameForSlot(slotId: String): String {
