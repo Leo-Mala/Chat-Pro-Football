@@ -30,11 +30,34 @@ class ContractLifecycleUseCase(private val repository: GameRepository) {
         val freshPlayer = repository.getPlayer(playerId)
             ?: return@withTransaction RenewalResult.Rejected("Jogador não encontrado no banco de dados!")
 
-        if (freshPlayer.teamId != save.playerTeamId && freshPlayer.originalTeamId != save.playerTeamId) {
-            return@withTransaction RenewalResult.Rejected("O jogador não pertence ao seu clube!")
-        }
-        if (freshPlayer.teamId == null && !freshPlayer.isOnLoan) {
-            return@withTransaction RenewalResult.Rejected("Agentes livres não podem ter contratos renovados!")
+        if (freshPlayer.isOnLoan) {
+            val activeLoan = repository.getActiveLoanForPlayer(playerId)
+                ?: return@withTransaction RenewalResult.Rejected(
+                    "Ownership de empréstimo incompleto; renovação recusada por segurança."
+                )
+            val consistentLoanState =
+                activeLoan.ownerTeamId > 0L &&
+                    activeLoan.borrowerTeamId > 0L &&
+                    activeLoan.ownerTeamId != activeLoan.borrowerTeamId &&
+                    freshPlayer.teamId == activeLoan.borrowerTeamId &&
+                    freshPlayer.originalTeamId == activeLoan.ownerTeamId
+            if (!consistentLoanState) {
+                return@withTransaction RenewalResult.Rejected(
+                    "Estado Player/PlayerLoan inconsistente; renovação recusada por segurança."
+                )
+            }
+            if (activeLoan.ownerTeamId != save.playerTeamId) {
+                return@withTransaction RenewalResult.Rejected(
+                    "Somente o clube proprietário pode renovar o contrato principal do jogador emprestado."
+                )
+            }
+        } else {
+            if (freshPlayer.teamId != save.playerTeamId) {
+                return@withTransaction RenewalResult.Rejected("O jogador não pertence ao seu clube!")
+            }
+            if (freshPlayer.teamId == null) {
+                return@withTransaction RenewalResult.Rejected("Agentes livres não podem ter contratos renovados!")
+            }
         }
 
         val updatedPlayer = freshPlayer.copy(
