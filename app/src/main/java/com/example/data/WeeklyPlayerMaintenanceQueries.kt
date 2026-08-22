@@ -4,7 +4,7 @@ package com.example.data
  * Phase 9.13 query/action-set layer for the weekly CPU roster lifecycle.
  *
  * These queries intentionally use lightweight scalar projections instead of materializing every
- * Player entity. The database schema remains V21: no entity, index or migration change is required.
+ * Player entity. The database schema remains V22: no entity, index or migration change is required.
  */
 internal data class WeeklyRosterAggregate(
     val teamId: Long,
@@ -15,6 +15,18 @@ internal data class WeeklyRosterAggregate(
 internal data class WeeklyRenewalCandidate(
     val id: Long,
     val teamId: Long,
+    val age: Int,
+    val position: String,
+    val force: Int,
+    val potential: Int,
+    /** Loaned-out players are owned by [teamId] but are not part of that owner's sporting roster. */
+    val countsInRoster: Boolean = true
+)
+
+internal data class WeeklyLoanRenewalCandidate(
+    val id: Long,
+    val ownerTeamId: Long,
+    val borrowerTeamId: Long,
     val age: Int,
     val position: String,
     val force: Int,
@@ -80,6 +92,52 @@ internal fun GameRepository.getWeeklyRenewalCandidates(windowWeeks: Int): List<W
                     WeeklyRenewalCandidate(
                         id = it.getLong(idIndex),
                         teamId = it.getLong(teamIdIndex),
+                        age = it.getInt(ageIndex),
+                        position = it.getString(positionIndex),
+                        force = it.getInt(forceIndex),
+                        potential = it.getInt(potentialIndex),
+                        countsInRoster = true
+                    )
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Lightweight projection of expiring players who are currently playing for a borrower while their
+ * main contract remains owned by [Player.originalTeamId]. The active PlayerLoan is deliberately
+ * validated by the caller before this projection is used as ownership authority.
+ */
+internal fun GameRepository.getWeeklyLoanRenewalCandidates(windowWeeks: Int): List<WeeklyLoanRenewalCandidate> {
+    require(windowWeeks > 0)
+    val cursor = db.openHelper.writableDatabase.query(
+        """
+        SELECT id, originalTeamId AS ownerTeamId, teamId AS borrowerTeamId,
+               age, position, force, potential
+        FROM players
+        WHERE teamId IS NOT NULL
+          AND originalTeamId IS NOT NULL
+          AND isOnLoan = 1
+          AND contractDurationWeeks BETWEEN 1 AND $windowWeeks
+        ORDER BY originalTeamId ASC, id ASC
+        """.trimIndent()
+    )
+    return cursor.use {
+        val idIndex = it.getColumnIndexOrThrow("id")
+        val ownerTeamIdIndex = it.getColumnIndexOrThrow("ownerTeamId")
+        val borrowerTeamIdIndex = it.getColumnIndexOrThrow("borrowerTeamId")
+        val ageIndex = it.getColumnIndexOrThrow("age")
+        val positionIndex = it.getColumnIndexOrThrow("position")
+        val forceIndex = it.getColumnIndexOrThrow("force")
+        val potentialIndex = it.getColumnIndexOrThrow("potential")
+        buildList {
+            while (it.moveToNext()) {
+                add(
+                    WeeklyLoanRenewalCandidate(
+                        id = it.getLong(idIndex),
+                        ownerTeamId = it.getLong(ownerTeamIdIndex),
+                        borrowerTeamId = it.getLong(borrowerTeamIdIndex),
                         age = it.getInt(ageIndex),
                         position = it.getString(positionIndex),
                         force = it.getInt(forceIndex),
