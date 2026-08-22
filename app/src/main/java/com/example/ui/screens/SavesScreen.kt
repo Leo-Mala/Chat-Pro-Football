@@ -25,13 +25,32 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.SaveSlotMetadata
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
 
 @Composable
 fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
     val saveSlots by viewModel.saveSlots.collectAsStateWithLifecycle()
+    SavesContent(
+        saveSlots = saveSlots,
+        onSelectSlot = viewModel::selectSaveSlot,
+        onDeleteSlot = viewModel::deleteSaveSlot,
+        onBack = onBack
+    )
+}
 
+/**
+ * Renderização pura da seleção de carreiras. Mantém persistência/navegação no chamador e permite
+ * regressão visual determinística dos estados vazio e preenchido sem instanciar Hilt/ViewModel.
+ */
+@Composable
+fun SavesContent(
+    saveSlots: List<SaveSlotMetadata>,
+    onSelectSlot: (String) -> Unit,
+    onDeleteSlot: (String) -> Unit,
+    onBack: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -47,7 +66,6 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
     ) {
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Futuristic Glowing Icon Logo Container
         Box(
             modifier = Modifier
                 .size(80.dp)
@@ -57,7 +75,7 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
         ) {
             Icon(
                 imageVector = Icons.Default.SportsSoccer,
-                contentDescription = "Soccer Ball",
+                contentDescription = "Bola de futebol",
                 tint = AccentLime,
                 modifier = Modifier.size(44.dp)
             )
@@ -86,7 +104,6 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(36.dp))
 
-        // Bento grid header description
         Text(
             text = "Selecione seu Perfil de Carreira",
             fontSize = 15.sp,
@@ -99,12 +116,12 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(saveSlots) { slot ->
-                // Custom glassy card with neon outline
+            items(saveSlots, key = { it.id }) { slot ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { viewModel.selectSaveSlot(slot.id) },
+                        .testTag("save_slot_${slot.id}")
+                        .clickable { onSelectSlot(slot.id) },
                     colors = CardDefaults.cardColors(
                         containerColor = if (slot.exists) CardSurfaceDark.copy(alpha = 0.85f) else CardSurfaceDark.copy(alpha = 0.4f)
                     ),
@@ -124,7 +141,6 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
                             .padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left status indicator
                         Box(
                             modifier = Modifier
                                 .size(52.dp)
@@ -141,7 +157,7 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
                         ) {
                             Icon(
                                 imageVector = if (slot.exists) Icons.Default.AccountBox else Icons.Default.Add,
-                                contentDescription = null,
+                                contentDescription = if (slot.exists) "Carreira existente" else "Novo perfil",
                                 tint = if (slot.exists) AccentGold else Color.Gray.copy(alpha = 0.7f),
                                 modifier = Modifier.size(28.dp)
                             )
@@ -196,15 +212,17 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
                         }
 
                         if (slot.exists) {
-                            var showDeleteConfirm by remember { mutableStateOf(false) }
+                            var showDeleteConfirm by remember(slot.id) { mutableStateOf(false) }
 
                             IconButton(
                                 onClick = { showDeleteConfirm = true },
-                                modifier = Modifier.testTag("delete_slot_${slot.id}")
+                                modifier = Modifier
+                                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                    .testTag("delete_slot_${slot.id}")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "Deletar Save",
+                                    contentDescription = "Deletar carreira do slot ${slot.id}",
                                     tint = NeonRedAccent.copy(alpha = 0.8f)
                                 )
                             }
@@ -218,7 +236,7 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
                                     confirmButton = {
                                         TextButton(
                                             onClick = {
-                                                viewModel.deleteSaveSlot(slot.id)
+                                                onDeleteSlot(slot.id)
                                                 showDeleteConfirm = false
                                             }
                                         ) {
@@ -244,7 +262,7 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
             onClick = onBack,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .testTag("back_to_menu_button"),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
             border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.4f)),
