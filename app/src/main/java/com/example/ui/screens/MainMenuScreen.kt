@@ -9,13 +9,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -23,23 +22,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.ui.components.bounceClick
 import com.example.ui.components.pulseGlow
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
 
+/**
+ * Wrapper compatível com a navegação atual. O menu não depende de estado de carreira, portanto o
+ * conteúdo visual fica separado do ViewModel para permitir preview/screenshot test determinístico
+ * e evitar uma coleta de GameSave que não era usada para renderização.
+ */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun MainMenuScreen(
     viewModel: GameViewModel,
     onNewGame: () -> Unit,
     onOpenSaves: () -> Unit,
     onOpenEditor: () -> Unit
 ) {
-    val gameSave by viewModel.gameSave.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    MainMenuContent(
+        onNewGame = onNewGame,
+        onOpenSaves = onOpenSaves,
+        onOpenEditor = onOpenEditor
+    )
+}
 
+@Composable
+fun MainMenuContent(
+    onNewGame: () -> Unit,
+    onOpenSaves: () -> Unit,
+    onOpenEditor: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -55,7 +69,6 @@ fun MainMenuScreen(
     ) {
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Futuristic Glowing Icon Logo Container
         Box(
             modifier = Modifier
                 .size(110.dp)
@@ -69,7 +82,7 @@ fun MainMenuScreen(
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = "PF Logo Crest",
+                contentDescription = "Escudo Pro Football",
                 modifier = Modifier.size(96.dp)
             )
         }
@@ -96,7 +109,6 @@ fun MainMenuScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Stadium Hero Graphic with dynamic dark gloss overlay
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -109,7 +121,7 @@ fun MainMenuScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 Image(
                     painter = painterResource(id = R.drawable.stadium_banner_1783311196063),
-                    contentDescription = "Stadium Banner",
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -150,12 +162,11 @@ fun MainMenuScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Actions List - Re-styled with premium tactile feedback and subtle borders
         Button(
             onClick = onNewGame,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .pulseGlow()
                 .bounceClick()
                 .testTag("new_game_button"),
@@ -174,7 +185,7 @@ fun MainMenuScreen(
             onClick = onOpenSaves,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .bounceClick()
                 .testTag("open_saves_button"),
             colors = ButtonDefaults.buttonColors(
@@ -200,7 +211,7 @@ fun MainMenuScreen(
             onClick = onOpenEditor,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .bounceClick()
                 .testTag("open_editor_button"),
             colors = ButtonDefaults.buttonColors(
