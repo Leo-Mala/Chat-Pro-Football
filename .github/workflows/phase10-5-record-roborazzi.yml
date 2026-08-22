@@ -84,8 +84,10 @@ jobs:
           count=$(find . -type f \( -name 'main_menu.png' -o -name 'saves_empty.png' -o -name 'saves_existing.png' \) | wc -l)
           test "$count" -eq 3
 
-      - name: Commit baselines
+      - name: Commit baselines on latest branch head
         shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
@@ -97,4 +99,6 @@ jobs:
             exit 1
           fi
           git commit -m 'test: record Phase 10.5 Roborazzi golden baselines'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git fetch origin "$HEAD_BRANCH"
+          git rebase "origin/$HEAD_BRANCH"
+          git push origin HEAD:"$HEAD_BRANCH"
