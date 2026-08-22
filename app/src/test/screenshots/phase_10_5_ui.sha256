@@ -1,7 +1,8 @@
-# Phase 10.5 final UI goldens recorded by GitHub Actions on head 1c85a8f375b5c76d817abd06ab25a843e384f868
+# Phase 10.5 final UI golden manifest: original recordings head 1c85a8f375b5c76d817abd06ab25a843e384f868.
+# finances.png was re-reviewed on cbe38e50f5ba82d314bcdf4a9b7b13417dd2bd10 after two deterministic renders showed the original retained a transient Market-tab interaction background; the stable Finance-selected frame is pinned below.
 # Any visual change must be explicitly re-recorded and reviewed; normal tests compare fresh captures to these SHA-256 values.
 0ba082953330f6883ec303e3d67743a6688992421a2cd7899fc99c02fc4cc521  dashboard.png
-64118cf91b4e516c2ecc05b4fe602409d29ac121b1154d5e5da1997b2d1d4251  finances.png
+e046a1135af7d0146404fcf6aa58ebc3f09576a75995bad554963bbad64c5f2e  finances.png
 da8687cdd31146f0bad9a7da7ef53bca0f23871320fa84c2663a8d7c816df18e  live_match.png
 51fbe6f36eab83fd74b328b9da673bdc45a0cea3a3fb68b954d1f8fb5a236fdf  main_menu.png
 4817f5e517816020888a08e4c288733c18c9039e287f11317e16e73fbff13d47  saves_empty.png
