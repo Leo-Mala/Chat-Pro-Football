@@ -27,9 +27,11 @@ private val safeSlotSelectionMutex = Mutex()
  */
 fun GameViewModel.selectSaveSlotSafely(saveId: String) {
     viewModelScope.launch(Dispatchers.IO) {
-        val previousSaveId = currentSaveId.value
         try {
             safeSlotSelectionMutex.withLock {
+                // Captura dentro da fila: em dois toques rápidos, a segunda tentativa vê a sessão
+                // que a primeira acabou de publicar, mesmo que ambas tenham sido enfileiradas antes.
+                val previousSaveId = currentSaveId.value
                 try {
                     selectSaveSlot(saveId)
                 } catch (e: CancellationException) {
