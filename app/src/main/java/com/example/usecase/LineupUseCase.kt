@@ -13,8 +13,10 @@ import com.example.data.Player
 class LineupUseCase(private val repository: GameRepository) {
 
     sealed interface Result {
-        data class Success(val message: String) : Result
-        data class Rejected(val message: String) : Result
+        val message: String
+
+        data class Success(override val message: String) : Result
+        data class Rejected(override val message: String) : Result
     }
 
     suspend fun setPlayerStarter(playerId: Long, isStarter: Boolean): Result =
