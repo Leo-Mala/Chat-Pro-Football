@@ -114,11 +114,22 @@ class LineupUseCase(private val repository: GameRepository) {
             val message: String
 
             if (bench.position == GOALKEEPER) {
-                roster.firstOrNull {
-                    it.isStarter && it.id != starter.id && it.position == GOALKEEPER
-                }?.let { otherGoalkeeper ->
-                    updates += otherGoalkeeper.copy(isStarter = false)
+                val currentGoalkeeper = roster.firstOrNull {
+                    it.isStarter && it.position == GOALKEEPER
                 }
+                when {
+                    starter.position == GOALKEEPER -> {
+                        updates += starter.copy(isStarter = false)
+                    }
+                    currentGoalkeeper != null -> {
+                        // Trocar o goleiro não pode derrubar também um jogador de linha e deixar 10 titulares.
+                        updates += currentGoalkeeper.copy(isStarter = false)
+                    }
+                    else -> {
+                        updates += starter.copy(isStarter = false)
+                    }
+                }
+                updates += bench.copy(isStarter = true)
                 message = "Goleiro titular alterado!"
             } else if (starter.position == GOALKEEPER) {
                 val otherGoalkeeper = roster.firstOrNull {
@@ -129,14 +140,16 @@ class LineupUseCase(private val repository: GameRepository) {
                         "Não é permitido jogar sem um goleiro titular!"
                     )
                 }
+                updates += starter.copy(isStarter = false)
+                updates += bench.copy(isStarter = true)
                 message = "Substituição realizada!"
             } else {
+                updates += starter.copy(isStarter = false)
+                updates += bench.copy(isStarter = true)
                 message = "Substituição realizada!"
             }
 
-            updates += starter.copy(isStarter = false)
-            updates += bench.copy(isStarter = true)
-            repository.updatePlayers(updates)
+            repository.updatePlayers(updates.distinctBy { it.id })
             Result.Success(message)
         }
 
