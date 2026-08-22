@@ -1,58 +1,87 @@
 package com.example.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
+import com.example.data.repository.SlotRecoveryRequiredException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-fun GameViewModel.ensureSaveActiveForEditor() {
+fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
     viewModelScope.launch(Dispatchers.IO) {
         val targetSaveId = _currentSaveId.value ?: "1"
-        // Materializa/valida Room em IO antes de publicar currentSaveId. Isso impede que
-        // activeRepositoryFlow reaja na main thread e seja o primeiro chamador da abertura eager.
-        val currentRepository = getOrCreateSession(targetSaveId).repository
-        if (_currentSaveId.value == null) {
-            _currentSaveId.value = targetSaveId
-        }
+        try {
+            // Materializa/valida Room em IO antes de publicar currentSaveId. Isso impede que
+            // activeRepositoryFlow reaja na main thread e seja o primeiro chamador da abertura eager.
+            val currentRepository = getOrCreateSession(targetSaveId).repository
+            if (_currentSaveId.value == null) {
+                _currentSaveId.value = targetSaveId
+            }
 
-        var dbTeams = currentRepository.getAllTeams()
-        if (dbTeams.isEmpty()) {
-            val seededTeams = mutableListOf<Team>()
-            for (countryKey in GlobalFootballSystem.keys) {
-                val templates = DefaultData.getTeamsForCountry(countryKey)
-                for (t in templates) {
-                    val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
-                    seededTeams.add(
-                        Team(
-                            id = globalId,
-                            name = t.name,
-                            city = t.city,
-                            state = t.state,
-                            country = countryKey,
-                            division = t.division,
-                            rating = t.rating,
-                            stadiumName = t.stadium,
-                            logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
-                            isPlayerControlled = (globalId == 1L)
+            var dbTeams = currentRepository.getAllTeams()
+            if (dbTeams.isEmpty()) {
+                val seededTeams = mutableListOf<Team>()
+                for (countryKey in GlobalFootballSystem.keys) {
+                    val templates = DefaultData.getTeamsForCountry(countryKey)
+                    for (t in templates) {
+                        val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                        seededTeams.add(
+                            Team(
+                                id = globalId,
+                                name = t.name,
+                                city = t.city,
+                                state = t.state,
+                                country = countryKey,
+                                division = t.division,
+                                rating = t.rating,
+                                stadiumName = t.stadium,
+                                logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
+                                isPlayerControlled = (globalId == 1L)
+                            )
                         )
-                    )
+                    }
                 }
+                currentRepository.saveTeams(seededTeams)
+                dbTeams = seededTeams
             }
-            currentRepository.saveTeams(seededTeams)
-            dbTeams = seededTeams
-        }
 
-        val allDbPlayers = currentRepository.getAllPlayers()
-        if (allDbPlayers.isEmpty()) {
-            val allPlayersToSave = mutableListOf<Player>()
-            for (t in dbTeams) {
-                val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
-                allPlayersToSave.addAll(roster)
+            val allDbPlayers = currentRepository.getAllPlayers()
+            if (allDbPlayers.isEmpty()) {
+                val allPlayersToSave = mutableListOf<Player>()
+                for (t in dbTeams) {
+                    val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
+                    allPlayersToSave.addAll(roster)
+                }
+                currentRepository.savePlayers(allPlayersToSave)
             }
-            currentRepository.savePlayers(allPlayersToSave)
+
+            withContext(Dispatchers.Main) {
+                onReady(true)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SlotRecoveryRequiredException) {
+            Log.w(
+                "GameViewModel",
+                "Editor bloqueado para slot $targetSaveId em recuperação: ${e.inspection.failureReason}"
+            )
+            exitToSavesMenu()
+            loadSaveSlots()
+            withContext(Dispatchers.Main) {
+                onReady(false)
+            }
+        } catch (e: Exception) {
+            Log.e("GameViewModel", "Falha fail-closed ao preparar editor no slot $targetSaveId", e)
+            exitToSavesMenu()
+            loadSaveSlots()
+            withContext(Dispatchers.Main) {
+                onReady(false)
+            }
         }
     }
 }
