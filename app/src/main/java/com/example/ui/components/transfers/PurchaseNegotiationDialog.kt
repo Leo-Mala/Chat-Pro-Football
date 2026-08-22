@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Player
+import com.example.data.isInRosterLoanConversionFor
 import com.example.ui.components.finances.ScoutSelectionDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.*
@@ -36,6 +37,7 @@ fun PurchaseNegotiationDialog(
     val roster by viewModel.playerRoster.collectAsStateWithLifecycle()
     val rosterSize = roster.size
     val balance = save?.bankBalance ?: 0L
+    val isInRosterLoanConversion = player.isInRosterLoanConversionFor(save?.playerTeamId)
 
     val isGlobalReveal = save?.globalScoutRevealWeeksRemaining ?: 0 > 0
     val isUserTeam = player.teamId == save?.playerTeamId
@@ -101,7 +103,7 @@ fun PurchaseNegotiationDialog(
                     }
                 }
 
-                if (rosterSize >= 30) {
+                if (rosterSize >= 30 && !isInRosterLoanConversion) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color.Red.copy(alpha = 0.1f)),
                         border = BorderStroke(1.dp, Color.Red),
@@ -286,7 +288,7 @@ fun PurchaseNegotiationDialog(
                                 }
                             }
                         },
-                        enabled = rosterSize < 30 && balance >= marketValue,
+                        enabled = (rosterSize < 30 || isInRosterLoanConversion) && balance >= marketValue,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentGold, contentColor = TurfDeepGreen)
                     ) {
@@ -394,7 +396,7 @@ fun PurchaseNegotiationDialog(
                                     offerResult = result
                                 }
                             },
-                            enabled = rosterSize < 30 && balance >= reqBalance && !isSubmitting,
+                            enabled = (rosterSize < 30 || isInRosterLoanConversion) && balance >= reqBalance && !isSubmitting,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = AccentLime, contentColor = TurfDeepGreen)
                         ) {

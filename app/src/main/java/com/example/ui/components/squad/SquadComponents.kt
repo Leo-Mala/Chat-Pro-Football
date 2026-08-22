@@ -93,7 +93,6 @@ fun PlayerActionDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header Player Info Card
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -116,7 +115,6 @@ fun PlayerActionDialog(
                         }
                     }
 
-                    // Nota Geral Badge Card
                     Card(
                         colors = CardDefaults.cardColors(containerColor = TurfDeepGreen),
                         shape = RoundedCornerShape(10.dp)
@@ -133,7 +131,6 @@ fun PlayerActionDialog(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f))
 
-                // Contract & Season Stats Summary
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
                         Text("Contrato: ${player.contractDurationWeeks} sem.", color = Color.Gray, fontSize = 11.sp)
@@ -145,12 +142,10 @@ fun PlayerActionDialog(
                     }
                 }
 
-                // --- ATRIBUTOS COM ABAS ---
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Selector de Abas
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -268,32 +263,38 @@ fun PlayerActionDialog(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = TurfDeepGreen, contentColor = AccentLime)
                 ) {
-                    Text("RENOVAR POR 1 ANO (Aumento de 10%)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(
+                        if (player.isOnLoan) "DEVOLVER AO CLUBE PROPRIETÁRIO" else "RENOVAR POR 1 ANO (Aumento de 10%)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            onSell("VISTA")
-                            onDismiss()
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f), contentColor = Color.Red)
+                if (!player.isOnLoan) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("VENDER À VISTA", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                    }
-                    Button(
-                        onClick = {
-                            onSell("PARCELADO")
-                            onDismiss()
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentGold.copy(alpha = 0.2f), contentColor = AccentGold)
-                    ) {
-                        Text("PARCELAR 3x", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Button(
+                            onClick = {
+                                onSell("VISTA")
+                                onDismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f), contentColor = Color.Red)
+                        ) {
+                            Text("VENDER À VISTA", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = {
+                                onSell("PARCELADO")
+                                onDismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentGold.copy(alpha = 0.2f), contentColor = AccentGold)
+                        ) {
+                            Text("PARCELAR 3x", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
                     }
                 }
 
@@ -338,7 +339,6 @@ fun PlayerCard(player: Player, onClick: () -> Unit) {
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Position emblem with custom cyber styling
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -378,7 +378,6 @@ fun PlayerCard(player: Player, onClick: () -> Unit) {
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            // Player description
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -462,7 +461,6 @@ fun PlayerCard(player: Player, onClick: () -> Unit) {
                 }
             }
 
-            // Stats columns - styled to be clean and legible
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(44.dp)) {
                 Text("FOR", color = Color.White.copy(alpha = 0.4f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 Text("${player.force}", color = AccentGold, fontSize = 16.sp, fontWeight = FontWeight.Black)

@@ -51,9 +51,9 @@ fun MarketTab(viewModel: GameViewModel) {
     val isWindowOpen = save?.let { GameCalendar.isTransferWindowOpen(it.currentSeason, it.currentWeek) } ?: false
     val currentDateStr = save?.let { GameCalendar.getLongFormattedDate(it.currentSeason, it.currentWeek) } ?: ""
 
-    val availablePlayers = remember(allPlayers, searchQuery, searchPos, searchMinForce, searchMaxAge, searchMaxPrice, searchSortBy) {
+    val availablePlayers = remember(allPlayers, save?.playerTeamId, searchQuery, searchPos, searchMinForce, searchMaxAge, searchMaxPrice, searchSortBy) {
         allPlayers.filter { player ->
-            player.teamId != save?.playerTeamId &&
+            player.isTransferMarketCandidateFor(save?.playerTeamId) &&
             (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
             (searchPos == "TODOS" || player.position == searchPos) &&
             player.force >= searchMinForce &&
@@ -74,7 +74,6 @@ fun MarketTab(viewModel: GameViewModel) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Sub-Tab Switcher
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -116,7 +115,6 @@ fun MarketTab(viewModel: GameViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                // Header Info
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("MERCADO DE ATLETAS", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Black, fontSize = 16.sp)
@@ -144,7 +142,6 @@ fun MarketTab(viewModel: GameViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Economic news drainage panel
                 if (save?.activeNewsTitle != null) {
                     item {
                         Card(
@@ -174,7 +171,6 @@ fun MarketTab(viewModel: GameViewModel) {
                     }
                 }
 
-                // Incoming Offers Section
                 if (isWindowOpen && incomingOffers.isNotEmpty()) {
                     item {
                         Text("📩 PROPOSTAS RECEBIDAS PELO SEU ELENCO (${incomingOffers.size})", color = AccentLime, fontWeight = FontWeight.Bold, fontSize = 11.sp)
@@ -251,7 +247,6 @@ fun MarketTab(viewModel: GameViewModel) {
                     }
                 }
 
-                // Filters Section
                 item {
                     var filtersExpanded by remember { mutableStateOf(false) }
                     Card(
@@ -270,7 +265,6 @@ fun MarketTab(viewModel: GameViewModel) {
                                 }
                             }
 
-                            // Name Search Input
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
@@ -321,7 +315,6 @@ fun MarketTab(viewModel: GameViewModel) {
 
                             if (filtersExpanded) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    // Min Force
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text("Força Mínima (OVR):", color = Color.Gray, fontSize = 11.sp)
@@ -336,7 +329,6 @@ fun MarketTab(viewModel: GameViewModel) {
                                         )
                                     }
 
-                                    // Max Age
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text("Idade Máxima:", color = Color.Gray, fontSize = 11.sp)
@@ -351,7 +343,6 @@ fun MarketTab(viewModel: GameViewModel) {
                                         )
                                     }
 
-                                    // Max Price
                                     Column {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text("Preço Máximo:", color = Color.Gray, fontSize = 11.sp)
@@ -367,7 +358,6 @@ fun MarketTab(viewModel: GameViewModel) {
                                         )
                                     }
 
-                                    // Sort Order
                                     Column {
                                         Text("Ordenar por:", color = Color.Gray, fontSize = 11.sp)
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -393,7 +383,6 @@ fun MarketTab(viewModel: GameViewModel) {
                     }
                 }
 
-                // Table Columns Headers
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -518,7 +507,6 @@ fun MarketTab(viewModel: GameViewModel) {
                 }
             }
         } else if (currentSubTab == "OLHEIRO") {
-            // Olheiro (Monitorados) panel
             val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
             val watchedPlayers = allPlayers.filter { it.id in watchlist }
 
@@ -605,7 +593,6 @@ fun MarketTab(viewModel: GameViewModel) {
                 }
             }
         } else {
-            // Staff Panel
             Box(modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())

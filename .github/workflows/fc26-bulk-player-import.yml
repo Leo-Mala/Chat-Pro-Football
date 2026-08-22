@@ -5,11 +5,13 @@ on:
     branches: [ "main" ]
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - 'app/src/main/java/com/example/data/Fc26LoanResolver.kt'
       - 'app/src/main/java/com/example/data/Fc26SeedPlanner.kt'
       - 'app/src/main/java/com/example/data/Fc26PlayerMetadata.kt'
       - 'app/src/main/java/com/example/usecase/CpuSquadManagementUseCase.kt'
       - 'app/src/test/java/com/example/data/Fc26*'
       - 'reports/fc26_*'
+      - 'reports/phase_10_4_fc26_safe_loans.md'
       - '.github/workflows/fc26-bulk-player-import.yml'
   workflow_dispatch:
 
@@ -103,6 +105,7 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
+            --tests com.example.data.Fc26RejectedLoanQuarantineIntegrationTest \
             --tests com.example.data.Fc26SeedPlannerTest \
             --tests com.example.data.Fc26PlayerMapperTest \
             --tests com.example.data.StableRealPlayerIdentityTest \
@@ -110,12 +113,43 @@ jobs:
             -PexcludeStressTests=true \
             --stacktrace
 
-      - name: Verify Room schema V21
+      - name: Stamp Phase 10.4 audit head
+        env:
+          AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          grep -Eq 'version\s*=\s*21' app/src/main/java/com/example/data/database.kt
-          test -f 'app/schemas/com.example.data.AppDatabase/21.json'
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path('reports/phase_10_4_fc26_loans_audit.json')
+          if not path.is_file():
+              raise SystemExit(f'Missing Phase 10.4 loan audit: {path}')
+          data = json.loads(path.read_text())
+          data['auditHead'] = os.environ['AUDIT_HEAD_SHA']
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
+          print(f"Phase 10.4 audit stamped: {data['auditHead']}")
+          PY
+
+      - name: Verify current Room schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          db_version=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('app/src/main/java/com/example/data/database.kt').read_text()
+          match = re.search(r'\bversion\s*=\s*(\d+)', source)
+          if not match:
+              raise SystemExit('Could not resolve Room database version')
+          print(match.group(1))
+          PY
+          )
+          schema_file="app/schemas/com.example.data.AppDatabase/${db_version}.json"
+          test -f "$schema_file"
+          git ls-files --error-unmatch "$schema_file" >/dev/null
+          echo "Room schema validated and tracked: $schema_file"
 
       - name: Upload FC26 bulk reports
         uses: actions/upload-artifact@v4
@@ -125,6 +159,7 @@ jobs:
             reports/fc26_bulk_import_report.json
             reports/fc26_bulk_import_unresolved.json
             reports/fc26_club_mapping_report.json
+            reports/phase_10_4_fc26_loans_audit.json
           if-no-files-found: error
           retention-days: 1
 

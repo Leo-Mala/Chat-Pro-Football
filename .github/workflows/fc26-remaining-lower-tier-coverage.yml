@@ -16,6 +16,7 @@ on:
       - 'app/src/test/java/com/example/data/Fc26RemainingLowerTierCoverageReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26FactualTargetMaterializationReportTest.kt'
       - 'reports/fc26_remaining_lower_tier_audit_phase_9_11a2.md'
+      - 'reports/phase_10_4_fc26_safe_loans.md'
       - '.github/workflows/fc26-remaining-lower-tier-coverage.yml'
   workflow_dispatch:
 
@@ -188,7 +189,7 @@ jobs:
             --tests com.example.OneHundredSeasonMatchByMatchStressTest \
             --stacktrace
 
-      - name: Verify Room schema V21
+      - name: Verify current Room schema
         id: room_schema
         shell: bash
         run: |
@@ -203,11 +204,11 @@ jobs:
           print(match.group(1))
           PY
           )
-          test "$db_version" = "21"
           schema_file="app/schemas/com.example.data.AppDatabase/${db_version}.json"
           test -f "$schema_file"
+          git ls-files --error-unmatch "$schema_file" >/dev/null
           echo "schema_file=$schema_file" >> "$GITHUB_OUTPUT"
-          echo "Room schema validated unchanged: $schema_file"
+          echo "Current Room schema validated and tracked: $schema_file"
 
       - name: Upload Phase 9.11A2 audit artifacts
         uses: actions/upload-artifact@v4

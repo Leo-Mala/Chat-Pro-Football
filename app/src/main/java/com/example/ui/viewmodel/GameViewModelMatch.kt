@@ -282,8 +282,10 @@ suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
 
 private suspend fun GameViewModel.prepareWeeklyIncomingOffer(): IncomingOffer? {
     val save = repo.getGameSave() ?: return null
-    val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
-    if (userPlayers.size <= 16) return null
+    val userRoster = repo.getPlayersByTeam(save.playerTeamId)
+    if (userRoster.size <= 16) return null
+    val ownedCandidates = userRoster.filterNot { it.isOnLoan }
+    if (ownedCandidates.isEmpty()) return null
     val otherTeams = repo.getAllTeams().filter { it.id != save.playerTeamId }
     if (otherTeams.isEmpty()) return null
 
@@ -291,7 +293,7 @@ private suspend fun GameViewModel.prepareWeeklyIncomingOffer(): IncomingOffer? {
     val rand = kotlin.random.Random(seed)
     if (rand.nextDouble() >= 0.4) return null
 
-    val candidatePlayer = userPlayers.shuffled(rand).firstOrNull() ?: return null
+    val candidatePlayer = ownedCandidates.shuffled(rand).firstOrNull() ?: return null
     val buyerTeam = otherTeams.shuffled(rand).firstOrNull() ?: return null
     val baseVal = candidatePlayer.calculateMarketValue()
     val variation = 0.85 + (rand.nextDouble() * 0.3)
@@ -372,19 +374,20 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
                 it.isPlayed && it.homeTeamId == save.playerTeamId
             }
 
+            // Snapshot loans use the main contract as their only trusted expiry signal. CPU owners
+            // must make their normal sporting retention decision while that ownership relation is
+            // still active, before FinanceUseCase closes a one-week contract as free agency.
+            val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
+            cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
+
             val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
             val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
 
-            // A CPU decide renovações imediatamente antes do único tick semanal de contratos.
-            val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
-            cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
             processTransfersUseCase.processWeeklyContractsAndLoans()
             cpuSquadManagement.processWeeklyAfterContracts()
 
-            // Stage UI-only incoming offer state; publish only after the Room transaction commits.
             stagedIncomingOffer = prepareWeeklyIncomingOffer()
 
-            // Execute monthly evolution every 4 weeks, including the canonical final week (48).
             if (monthlyPeriod != null) {
                 val committedPreparedPlan = preparedMonthlyPlan?.let { plan ->
                     playerEvolutionUseCase.commitMonthlyEvolution(
@@ -397,10 +400,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
                 }
             }
 
-            // Progress domestic/continental cups only after every match of the week is complete.
             CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
-
-            // Progress Super Mundial de Clubes knockouts / champion recording.
             SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
 
             if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
