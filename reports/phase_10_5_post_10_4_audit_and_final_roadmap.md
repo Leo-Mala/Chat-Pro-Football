@@ -1,4 +1,4 @@
-# Fase 10.5 — Auditoria pós-10.4 e Roadmap Técnico Final
+# Fase 10.5 — Modernização Técnica Integrada + Certificação Final
 
 ## 1. Baseline oficial
 
@@ -10,7 +10,7 @@
 - PR #34: permanece congelado em Draft no head `c421dafee0ecdd2ea23f7d4f794228ab5f881131`
 - PR #27: permanece congelado; qualquer reaproveitamento futuro exige re-auditoria sobre a `main` atual, nunca merge direto do branch antigo.
 
-Esta auditoria não altera jogadores, elencos, clubes, ratings, atributos FC26 ou conteúdo factual. O objetivo é concluir a modernização técnica antes de qualquer nova trilha factual.
+Esta fase não altera jogadores, elencos, clubes, ratings, atributos FC26 ou conteúdo factual. O objetivo é concluir toda a modernização técnica e a certificação final em uma única fase antes de qualquer nova trilha factual.
 
 ## 2. Estado consolidado já concluído
 
@@ -54,7 +54,7 @@ As aproximações documentadas da Fase 10.3 permanecem aceitas até a trilha pó
 
 ### 2.4 Performance
 
-O benchmark atual trabalha com 60.885 jogadores persistidos. Os budgets de persistência inicial, reopen/full reload, evolução mensal e heap permanecem obrigatórios. Nenhuma fase futura pode relaxar thresholds para esconder regressão.
+O benchmark atual trabalha com 60.885 jogadores persistidos. Os budgets de persistência inicial, reopen/full reload, evolução mensal e heap permanecem obrigatórios. Nenhum threshold pode ser relaxado para esconder regressão.
 
 ## 3. Dívidas técnicas confirmadas na `main`
 
@@ -83,7 +83,7 @@ Ainda precisam de certificação explícita:
 
 ### 3.4 Release engineering e identidade
 
-O projeto ainda usa configuração provisória de produto, incluindo `applicationId = "com.aistudio.brasfutretro.djuxzt"`, `versionCode = 1`, `versionName = "1.0"`, namespace legado e nome `Remix Brasfut Retro Manager`. O CI principal valida Debug/APK, mas não fecha uma matriz de release/AAB assinável e reproduzível.
+O projeto ainda usa configuração provisória de produto, incluindo `applicationId = "com.aistudio.brasfutretro.djuxzt"`, `versionCode = 1`, `versionName = "1.0"`, namespace legado e nome `Remix Brasfut Retro Manager`. O CI principal valida Debug/APK, mas ainda não fecha uma matriz de release/AAB assinável e reproduzível.
 
 ## 4. Lacunas factuais/esportivas não bloqueadoras da modernização
 
@@ -99,12 +99,12 @@ Continuam fora da modernização técnica:
 - AFC Challenge League;
 - OFC Champions League;
 - FIFA Intercontinental Cup ainda catalog-only;
-- competition state/national-cup rules ainda parcialmente genéricas;
+- regras estaduais/copas nacionais ainda parcialmente genéricas;
 - access list/coefficient UEFA completos;
 - ausência de associações nacionais OFC factuais;
-- critérios esportivos que dependem de dados ainda não persistidos.
+- critérios esportivos dependentes de dados ainda não persistidos.
 
-Esses itens pertencem à trilha 11.x e não devem ser antecipados durante a modernização técnica.
+Esses itens pertencem à trilha 11.x e não devem ser antecipados durante a Fase 10.5.
 
 ## 5. Higiene de branches/PRs
 
@@ -120,19 +120,24 @@ Permanece congelado. Não deve ser mergeado diretamente; qualquer ideia reaprove
 
 Foi tecnicamente superado pela Fase 10.4/PR #54 e não deve ser mergeado sobre a `main` atual.
 
-## 6. Roadmap técnico final consolidado
+## 6. Única fase restante da modernização
 
-A partir deste ponto existem **duas fases técnicas restantes** antes de declarar a modernização concluída.
+# FASE 10.5 — MODERNIZAÇÃO TÉCNICA INTEGRADA + CERTIFICAÇÃO FINAL / RELEASE CANDIDATE
 
----
-
-# FASE 10.5 — MODERNIZAÇÃO TÉCNICA INTEGRADA
-
-Esta fase consolida integralmente os antigos escopos 10.5, 10.6, 10.7 e 10.8. Nenhum requisito ou gate foi removido; apenas a execução passa a ser tratada como uma única fase contínua.
+Esta fase consolida integralmente os antigos escopos 10.5, 10.6, 10.7, 10.8 e 10.9. Nenhum requisito ou gate foi removido; apenas a execução passa a ser tratada como um único ciclo contínuo até o release candidate final.
 
 ## Objetivo
 
-Fechar em um único ciclo o hardening arquitetural/performance residual, a modernização UI/UX e acessibilidade, a certificação de lifecycle/resiliência e a engenharia de release/identidade de produto, sem alterar dados factuais ou regras esportivas fora do escopo.
+Fechar, implementar, validar e certificar em um único ciclo:
+
+- hardening arquitetural e performance residual;
+- UI/UX de produção e acessibilidade;
+- compatibilidade, lifecycle e resiliência;
+- release engineering e identidade de produto;
+- auditoria final completa;
+- geração da primeira release candidate tecnicamente final.
+
+Nenhum merge intermediário é obrigatório entre esses blocos. A Fase 10.5 termina apenas quando todos os blocos A–E estiverem completos e auditados no mesmo head final.
 
 ## Bloco A — Arquitetura e performance residual
 
@@ -182,56 +187,7 @@ Fechar em um único ciclo o hardening arquitetural/performance residual, a moder
 9. Produzir APK e AAB release como artifacts de CI.
 10. Garantir que a build release inicia e abre um save válido.
 
-## Gates obrigatórios da Fase 10.5
-
-A Fase 10.5 só pode ser classificada `APTO PARA MERGE` quando todos os blocos A–D estiverem concluídos no mesmo head candidato e os seguintes gates estiverem verdes:
-
-- suíte non-stress completa;
-- regressões de lineup/roster/feedback-after-commit;
-- CareerFunctionalFlow;
-- SaveAtomicity / SaveSlotIsolation;
-- migration continuation/safety;
-- BackupRestoreRoundTrip;
-- startup/recreate/process-reopen tests;
-- smoke da navegação principal;
-- screenshot regressions reais de telas críticas;
-- Compose/Robolectric tests das navegações críticas;
-- comportamento offline/erro remoto sem crash;
-- benchmark de 60.885 jogadores sem relaxar budgets;
-- stress 20 temporadas;
-- stress 100 temporadas match-by-match;
-- FC26 18.405/18.405;
-- `duplicatePlayerIds = 0`;
-- `duplicateTeamIds = 0`;
-- `overallMutated = 0`;
-- `potentialMutated = 0`;
-- `attributesMutated = 0`;
-- Room schema atual rastreado e sem drift;
-- APK Debug preservado;
-- APK Release gerado;
-- AAB Release gerado;
-- signing/configuração de release validada sem segredo no repositório;
-- install/start smoke da variante release quando tecnicamente disponível no CI;
-- nenhum teste removido, ignorado ou enfraquecido;
-- nenhum threshold/timeout relaxado para obter verde;
-- Codex final sem finding material P0/P1/P2;
-- head/base estáveis e merge automático somente pelo `expected_head_sha` auditado.
-
-## Exit gate da Fase 10.5
-
-O merge da Fase 10.5 significa que arquitetura, performance residual, UI/UX, acessibilidade, lifecycle, resiliência, compatibilidade e release engineering estão tecnicamente concluídos. A partir desse merge não devem existir fases intermediárias adicionais antes da certificação final, salvo blocker objetivo descoberto durante a própria validação.
-
----
-
-# FASE 10.6 — CERTIFICAÇÃO FINAL / RELEASE CANDIDATE
-
-Esta fase corresponde ao antigo escopo 10.9, renumerado após a consolidação 10.5–10.8.
-
-## Objetivo
-
-Executar a auditoria de encerramento da modernização e produzir a primeira release candidate tecnicamente final.
-
-## Escopo obrigatório
+## Bloco E — Certificação final / Release Candidate
 
 1. Remover testes placeholder, arquivos temporários, workflows temporários e diagnostics de fase que não pertençam ao produto final.
 2. Revisar todos os TODOs/compat adapters remanescentes e classificar explicitamente legado necessário versus dívida futura.
@@ -252,29 +208,73 @@ Executar a auditoria de encerramento da modernização e produzir a primeira rel
    - aposentadoria;
    - troca de clube do treinador.
 5. Executar FC26, benchmark, stress 20 e 100 temporadas no mesmo head final.
-6. Executar review Codex final e resolver todo P0/P1/P2 material.
-7. Gerar APK/AAB final.
+6. Executar review Codex final e resolver todo finding material P0/P1/P2.
+7. Gerar APK/AAB finais.
 8. Classificar `APTO PARA RELEASE CANDIDATE` somente no head exato auditado.
+9. Só depois dessa classificação aplicar a regra de merge automático do `AGENTS.md` com `expected_head_sha`.
 
-## Exit gate da modernização
+## Gates obrigatórios da Fase 10.5
 
-A modernização técnica termina somente quando:
+A Fase 10.5 só pode ser classificada `APTO PARA MERGE` e `APTO PARA RELEASE CANDIDATE` quando todos os blocos A–E estiverem concluídos no mesmo head candidato e os seguintes gates estiverem verdes:
+
+- suíte non-stress completa;
+- regressões de lineup/roster/feedback-after-commit;
+- CareerFunctionalFlow;
+- SaveAtomicity / SaveSlotIsolation;
+- migration continuation/safety;
+- BackupRestoreRoundTrip;
+- startup/recreate/process-reopen tests;
+- smoke da navegação principal;
+- screenshot regressions reais de telas críticas;
+- Compose/Robolectric tests das navegações críticas;
+- comportamento offline/erro remoto sem crash;
+- matriz completa de gameplay do Bloco E;
+- benchmark de 60.885 jogadores sem relaxar budgets;
+- stress 20 temporadas;
+- stress 100 temporadas match-by-match;
+- FC26 18.405/18.405;
+- `duplicatePlayerIds = 0`;
+- `duplicateTeamIds = 0`;
+- `overallMutated = 0`;
+- `potentialMutated = 0`;
+- `attributesMutated = 0`;
+- Room schema atual rastreado e sem drift;
+- migrations/save slots íntegros;
+- APK Debug preservado;
+- APK Release final gerado;
+- AAB Release final gerado;
+- signing/configuração de release validada sem segredo no repositório;
+- install/start smoke da variante release quando tecnicamente disponível no CI;
+- ausência de teste placeholder residual;
+- ausência de workflow/diagnóstico temporário destinado a remoção;
+- nenhum teste removido, ignorado ou enfraquecido;
+- nenhum threshold/timeout relaxado para obter verde;
+- Codex final sem finding material P0/P1/P2;
+- head/base estáveis;
+- merge automático somente pelo `expected_head_sha` auditado.
+
+## Exit gate definitivo da modernização
+
+A modernização técnica termina no próprio merge da Fase 10.5, e somente quando:
 
 - todos os checks obrigatórios estiverem verdes no mesmo head;
-- release build/AAB existir;
+- release build/APK/AAB existirem;
 - Room/migrations/save slots estiverem íntegros;
 - benchmark não tiver regressão material;
 - stress 20/100 estiver verde;
 - FC26 continuar 18.405/18.405 e imutável;
 - não houver finding Codex material aberto;
 - não houver teste enfraquecido/ignorado;
-- não houver workflow temporário;
+- não houver workflow temporário destinado a remoção;
 - não houver blocker de startup/reopen/release;
-- a build final estiver classificada `APTO PARA RELEASE CANDIDATE`.
+- a build final estiver classificada `APTO PARA RELEASE CANDIDATE`;
+- o head auditado permanecer exatamente o head mergeado.
+
+Não existe Fase 10.6 após essa consolidação. O próximo trabalho numerado, se autorizado, passa diretamente para a trilha 11.x factual/esportiva.
 
 ## 7. Trilha pós-modernização — Fase 11.x
 
-Somente depois do exit gate da Fase 10.6 deve começar a atualização factual/regras não bloqueadoras.
+Somente depois do exit gate e merge da Fase 10.5 deve começar a atualização factual/regras não bloqueadoras.
 
 ### 11.1 — UEFA access list / coeficientes / qualifying
 
@@ -300,10 +300,11 @@ Somente depois do exit gate da Fase 10.6 deve começar a atualização factual/r
 
 ### Para concluir a modernização técnica
 
-Restam **2 fases**:
+Resta **1 fase**:
 
-1. **10.5 — Modernização Técnica Integrada** — arquitetura + performance residual + UI/UX + acessibilidade + lifecycle + resiliência + compatibilidade + release engineering;
-2. **10.6 — Certificação Final / Release Candidate**.
+1. **10.5 — Modernização Técnica Integrada + Certificação Final / Release Candidate**.
+
+Quando a Fase 10.5 for mergeada com todos os gates acima, a modernização técnica estará oficialmente concluída.
 
 ### Depois da modernização
 
@@ -311,4 +312,4 @@ A trilha 11.x é evolução factual/esportiva e não bloqueia a conclusão técn
 
 ## 9. Regra permanente de execução
 
-Cada fase 10.x deve seguir `AGENTS.md`: implementação completa, CI verde, review final, head exato auditado, base válida e classificação `APTO PARA MERGE` antes do merge automático. Nenhum teste pode ser removido, ignorado ou enfraquecido para obter verde.
+A Fase 10.5 segue `AGENTS.md`: implementação completa, CI verde, review final, head exato auditado, base válida e classificação `APTO PARA MERGE` + `APTO PARA RELEASE CANDIDATE` antes do merge automático. Nenhum teste pode ser removido, ignorado ou enfraquecido para obter verde.
