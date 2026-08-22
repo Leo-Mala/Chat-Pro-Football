@@ -2,6 +2,9 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -53,6 +56,7 @@ import org.robolectric.annotation.GraphicsMode
  * manifesto versionado. Alteração visual não aprovada, baseline ausente ou captura diferente
  * falha o teste.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [34])
@@ -289,26 +293,27 @@ class Phase105CriticalUiGoldenTest {
 
         val surface = mutableStateOf("career")
         composeTestRule.setContent {
-            MyApplicationTheme {
-                when (surface.value) {
-                    "career" -> CareerDashboardScreen(viewModel)
-                    "team_selection" -> TeamSelectionScreen(
-                        viewModel = viewModel,
-                        coachName = "Técnico QA",
-                        onBack = {}
-                    )
-                    else -> LiveMatchScreen(viewModel)
+            // Ripples/pressed indications are transient input feedback, not product layout. Under
+            // Robolectric they can outlive a semantic click nondeterministically and contaminate
+            // the next screen's pixels. Disable only that transient feedback inside this golden
+            // composition; navigation still executes the real Tab onClick path.
+            CompositionLocalProvider(LocalRippleConfiguration provides null) {
+                MyApplicationTheme {
+                    when (surface.value) {
+                        "career" -> CareerDashboardScreen(viewModel)
+                        "team_selection" -> TeamSelectionScreen(
+                            viewModel = viewModel,
+                            coachName = "Técnico QA",
+                            onBack = {}
+                        )
+                        else -> LiveMatchScreen(viewModel)
+                    }
                 }
             }
         }
 
         fun settleUiForGolden() {
             composeTestRule.waitForIdle()
-            // Material3 Tab indications under Robolectric can remain in a real-time pressed/ripple
-            // frame after semantic click completion. This bounded test-only delay is intentionally
-            // longer than the indication/TabRow animation, then the Compose clock is drained too;
-            // no production timeout or performance budget is changed.
-            Thread.sleep(750L)
             composeTestRule.mainClock.advanceTimeBy(1_000L)
             composeTestRule.waitForIdle()
         }
