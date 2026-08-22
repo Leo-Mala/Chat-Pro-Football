@@ -19,7 +19,10 @@ private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean
     }
 }
 
-fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
+fun GameViewModel.ensureSaveActiveForEditor(
+    onReady: (Boolean) -> Unit = {},
+    preparationCheckpoint: suspend () -> Unit = {}
+) {
     viewModelScope.launch(Dispatchers.IO) {
         val targetSaveId = _currentSaveId.value ?: "1"
         var editorSession: SaveSession? = null
@@ -32,6 +35,13 @@ fun GameViewModel.ensureSaveActiveForEditor(onReady: (Boolean) -> Unit = {}) {
             if (_currentSaveId.value == null) {
                 _currentSaveId.value = targetSaveId
             }
+            if (!isEditorSessionCurrent(session)) {
+                notifyEditorReady(onReady, false)
+                return@launch
+            }
+
+            // Checkpoint inerte em produção e útil para provar races de lifecycle sem sleeps frágeis.
+            preparationCheckpoint()
             if (!isEditorSessionCurrent(session)) {
                 notifyEditorReady(onReady, false)
                 return@launch
