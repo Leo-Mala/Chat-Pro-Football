@@ -218,6 +218,7 @@ class Phase105CriticalUiGoldenTest {
         }
         repository.savePlayers(players)
         val expectedHomeRoster = players.filter { it.teamId == homeId }
+        val expectedAverageEnergy = expectedHomeRoster.sumOf { it.energy } / expectedHomeRoster.size
 
         val nextFixture = Fixture(
             id = 8_820_000_003L,
@@ -346,7 +347,11 @@ class Phase105CriticalUiGoldenTest {
                     expectedHomeRoster.associate { it.id to it.energy } &&
                 composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
                 composeTestRule.onAllNodesWithText("Atlético QA", substring = true)
-                    .fetchSemanticsNodes().isNotEmpty()
+                    .fetchSemanticsNodes().isNotEmpty() &&
+                composeTestRule.onAllNodesWithText(
+                    "$expectedAverageEnergy% - Elenco Pronto",
+                    substring = false
+                ).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
         captureAndVerify("dashboard.png")
