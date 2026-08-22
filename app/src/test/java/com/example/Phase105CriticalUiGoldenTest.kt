@@ -178,7 +178,7 @@ class Phase105CriticalUiGoldenTest {
             playerFormation = "4-3-3", playerStyle = "Equilibrado"
         ))
 
-        val preferencesRepository = GamePreferencesRepository(context.dataStore, context)
+        val preferencesRepository = GamePreferencesRepository(context.dataStore, context, saveRepository)
         val viewModel = GameViewModel(application, saveRepository, preferencesRepository, YouthAcademyUseCase(), TacticsUseCase())
         viewModel.getOrCreateSession(slotId)
         viewModel._currentSaveId.value = slotId

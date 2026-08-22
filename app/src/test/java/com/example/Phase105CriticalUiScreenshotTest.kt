@@ -67,7 +67,7 @@ class Phase105CriticalUiScreenshotTest {
 
         val databaseFactory = SlotDatabaseFactory(context)
         val saveRepository = GameSaveRepository(context, databaseFactory)
-        val preferencesRepository = GamePreferencesRepository(context.dataStore, context)
+        val preferencesRepository = GamePreferencesRepository(context.dataStore, context, saveRepository)
         val viewModel = GameViewModel(
             application = application,
             saveRepository = saveRepository,

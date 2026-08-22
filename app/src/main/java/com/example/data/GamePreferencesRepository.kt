@@ -1,11 +1,15 @@
 package com.example.data
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
-import com.example.data.local.SlotDatabaseFactory
 import com.example.data.model.SaveSlotMetadata
+import com.example.data.repository.GameSaveRepository
+import com.example.data.repository.SlotDatabaseInspection
+import com.example.data.repository.SlotDatabaseState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -17,14 +21,26 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "ga
 @Singleton
 class GamePreferencesRepository @Inject constructor(
     private val dataStore: DataStore<Preferences>,
-    private val context: Context
+    private val context: Context,
+    private val saveRepository: GameSaveRepository
 ) {
     companion object {
         private val AUTOSAVE_KEY = booleanPreferencesKey("autosave_enabled")
         private val INFINITE_STAMINA_KEY = booleanPreferencesKey("infinite_stamina_enabled")
         private val AUTOLINEUP_KEY = booleanPreferencesKey("autolineup_enabled")
         private val WATCHLIST_KEY = stringSetPreferencesKey("watchlist_players")
+        private const val TAG = "GamePreferencesRepo"
+        private const val MAX_RECONCILIATION_RETRIES = 3
     }
+
+    private data class StoredSlotMetadata(
+        val exists: Boolean,
+        val coachName: String,
+        val teamName: String,
+        val season: Int,
+        val week: Int,
+        val balance: Long
+    )
 
     private val legacyPrefs by lazy {
         context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
@@ -86,40 +102,162 @@ class GamePreferencesRepository @Inject constructor(
         return currentSet
     }
 
-    suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
-        val prefs = try { dataStore.data.first() } catch (e: Exception) { null }
-        return (1..5).map { i ->
-            val id = i.toString()
-            val existsKey = booleanPreferencesKey("slot_${id}_exists")
-            val metadataSaysExists = prefs?.get(existsKey) ?: legacyPrefs.getBoolean("slot_${id}_exists", false)
-            val databaseExists = context
-                .getDatabasePath(SlotDatabaseFactory.databaseNameForSlot(id))
-                .exists()
-            val exists = metadataSaysExists && databaseExists
+    /**
+     * Reconcilia metadata derivada com o conteúdo autoritativo de cada banco Room.
+     *
+     * Cada slot é inspecionado antes e depois de qualquer efeito em metadata. Se criação,
+     * exclusão ou recuperação alterar o estado semântico durante a passagem, o resultado antigo
+     * é descartado e o slot é reconciliado novamente. Assim uma chamada atrasada nunca publica
+     * save fantasma nem rebaixa uma carreira criada concorrentemente para slot vazio.
+     */
+    suspend fun loadSaveSlots(): List<SaveSlotMetadata> =
+        (1..5).map { index -> reconcileSlot(index.toString()) }
 
-            if (metadataSaysExists && !databaseExists) {
-                // Cloud backup intentionally omits the large Room databases. If metadata is
-                // restored without its database, fail closed so the UI never presents a phantom
-                // career that could be opened and overwritten as an empty slot.
-                removeSlotMetadata(id)
-            }
+    private suspend fun readPreferencesSnapshot(): Preferences? = try {
+        dataStore.data.first()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "Falha ao ler DataStore de metadata; usando fallback legado e Room", e)
+        null
+    }
 
-            if (exists) {
-                SaveSlotMetadata(
-                    id = id,
-                    exists = true,
-                    coachName = prefs?.get(stringPreferencesKey("slot_${id}_coach_name")) ?: legacyPrefs.getString("slot_${id}_coach_name", "") ?: "",
-                    teamName = prefs?.get(stringPreferencesKey("slot_${id}_team_name")) ?: legacyPrefs.getString("slot_${id}_team_name", "") ?: "",
-                    season = prefs?.get(intPreferencesKey("slot_${id}_season")) ?: legacyPrefs.getInt("slot_${id}_season", 2026),
-                    week = prefs?.get(intPreferencesKey("slot_${id}_week")) ?: legacyPrefs.getInt("slot_${id}_week", 1),
-                    balance = prefs?.get(longPreferencesKey("slot_${id}_balance")) ?: legacyPrefs.getLong("slot_${id}_balance", 0L)
-                )
-            } else {
-                SaveSlotMetadata(id = id, exists = false)
+    private suspend fun reconcileSlot(saveId: String, attempt: Int = 0): SaveSlotMetadata {
+        val stored = readStoredSlotMetadata(readPreferencesSnapshot(), saveId)
+        val before = saveRepository.inspectSlot(saveId)
+        val projected = projectInspection(saveId, stored, before)
+
+        // Esta é a última operação suspensiva antes de publicar o slot. Se qualquer mutação venceu
+        // a corrida depois da primeira inspeção, a projeção obsoleta é descartada e recalculada.
+        val after = saveRepository.inspectSlot(saveId)
+        if (sameSemanticSnapshot(before, after)) {
+            return projected
+        }
+
+        if (attempt >= MAX_RECONCILIATION_RETRIES) {
+            val latestStored = readStoredSlotMetadata(readPreferencesSnapshot(), saveId)
+            return recoveryMetadata(
+                saveId = saveId,
+                stored = latestStored,
+                message = "O estado do slot mudou repetidamente durante a reconciliação. Os dados foram preservados e um novo jogo está bloqueado."
+            )
+        }
+        return reconcileSlot(saveId, attempt + 1)
+    }
+
+    private suspend fun projectInspection(
+        saveId: String,
+        stored: StoredSlotMetadata,
+        inspection: SlotDatabaseInspection
+    ): SaveSlotMetadata = when (inspection.state) {
+        SlotDatabaseState.MISSING,
+        SlotDatabaseState.EMPTY -> {
+            if (stored.exists) {
+                try {
+                    removeSlotMetadata(saveId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Falha ao sanear metadata fantasma do slot $saveId", e)
+                }
             }
+            SaveSlotMetadata(id = saveId, exists = false)
+        }
+
+        SlotDatabaseState.VALID_CAREER -> {
+            val save = checkNotNull(inspection.save)
+            val authoritative = SaveSlotMetadata(
+                id = saveId,
+                exists = true,
+                coachName = save.coachName,
+                teamName = inspection.teamName ?: "Sem Clube",
+                season = save.currentSeason,
+                week = save.currentWeek,
+                balance = save.bankBalance
+            )
+
+            if (!stored.matches(authoritative)) {
+                try {
+                    updateSlotMetadata(
+                        saveId = saveId,
+                        coachName = authoritative.coachName,
+                        teamName = authoritative.teamName,
+                        season = authoritative.season,
+                        week = authoritative.week,
+                        balance = authoritative.balance
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Carreira do slot $saveId recuperada, mas metadata não pôde ser reconstruída", e)
+                }
+            }
+            authoritative
+        }
+
+        SlotDatabaseState.RECOVERY_REQUIRED -> recoveryMetadata(saveId, stored)
+    }
+
+    private fun recoveryMetadata(
+        saveId: String,
+        stored: StoredSlotMetadata,
+        message: String = "O banco deste slot não pôde ser validado. Os dados foram preservados e um novo jogo está bloqueado."
+    ): SaveSlotMetadata = SaveSlotMetadata(
+        id = saveId,
+        exists = true,
+        coachName = stored.coachName.ifBlank { "Carreira preservada" },
+        teamName = stored.teamName.ifBlank { "Recuperação necessária" },
+        season = stored.season,
+        week = stored.week,
+        balance = stored.balance,
+        recoveryRequired = true,
+        recoveryMessage = message
+    )
+
+    private fun sameSemanticSnapshot(
+        first: SlotDatabaseInspection,
+        second: SlotDatabaseInspection
+    ): Boolean {
+        if (first.state != second.state) return false
+        return when (first.state) {
+            SlotDatabaseState.VALID_CAREER ->
+                first.save == second.save && first.teamName == second.teamName
+            SlotDatabaseState.RECOVERY_REQUIRED ->
+                first.failureReason == second.failureReason
+            SlotDatabaseState.MISSING,
+            SlotDatabaseState.EMPTY -> true
         }
     }
 
+    private fun readStoredSlotMetadata(prefs: Preferences?, saveId: String): StoredSlotMetadata {
+        return StoredSlotMetadata(
+            exists = prefs?.get(booleanPreferencesKey("slot_${saveId}_exists"))
+                ?: legacyPrefs.getBoolean("slot_${saveId}_exists", false),
+            coachName = prefs?.get(stringPreferencesKey("slot_${saveId}_coach_name"))
+                ?: legacyPrefs.getString("slot_${saveId}_coach_name", "").orEmpty(),
+            teamName = prefs?.get(stringPreferencesKey("slot_${saveId}_team_name"))
+                ?: legacyPrefs.getString("slot_${saveId}_team_name", "").orEmpty(),
+            season = prefs?.get(intPreferencesKey("slot_${saveId}_season"))
+                ?: legacyPrefs.getInt("slot_${saveId}_season", 2026),
+            week = prefs?.get(intPreferencesKey("slot_${saveId}_week"))
+                ?: legacyPrefs.getInt("slot_${saveId}_week", 1),
+            balance = prefs?.get(longPreferencesKey("slot_${saveId}_balance"))
+                ?: legacyPrefs.getLong("slot_${saveId}_balance", 0L)
+        )
+    }
+
+    private fun StoredSlotMetadata.matches(authoritative: SaveSlotMetadata): Boolean =
+        exists &&
+            coachName == authoritative.coachName &&
+            teamName == authoritative.teamName &&
+            season == authoritative.season &&
+            week == authoritative.week &&
+            balance == authoritative.balance
+
+    /**
+     * Persiste a projeção de metadata em dois stores. Pelo menos um deles precisa confirmar a
+     * escrita. DataStore é preferido; SharedPreferences usa commit síncrono como fallback durável.
+     */
     suspend fun updateSlotMetadata(
         saveId: String,
         coachName: String,
@@ -128,6 +266,8 @@ class GamePreferencesRepository @Inject constructor(
         week: Int,
         balance: Long
     ) {
+        var dataStoreSucceeded = false
+        var dataStoreFailure: Exception? = null
         try {
             dataStore.edit { prefs ->
                 prefs[booleanPreferencesKey("slot_${saveId}_exists")] = true
@@ -137,18 +277,38 @@ class GamePreferencesRepository @Inject constructor(
                 prefs[intPreferencesKey("slot_${saveId}_week")] = week
                 prefs[longPreferencesKey("slot_${saveId}_balance")] = balance
             }
-        } catch (_: Exception) {}
-        legacyPrefs.edit()
+            dataStoreSucceeded = true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            dataStoreFailure = e
+            Log.e(TAG, "Falha ao persistir metadata do slot $saveId no DataStore", e)
+        }
+
+        val legacySucceeded = legacyPrefs.edit()
             .putBoolean("slot_${saveId}_exists", true)
             .putString("slot_${saveId}_coach_name", coachName)
             .putString("slot_${saveId}_team_name", teamName)
             .putInt("slot_${saveId}_season", season)
             .putInt("slot_${saveId}_week", week)
             .putLong("slot_${saveId}_balance", balance)
-            .apply()
+            .commit()
+
+        if (!legacySucceeded) {
+            Log.e(TAG, "Falha ao persistir metadata do slot $saveId no SharedPreferences legado")
+        }
+
+        if (!dataStoreSucceeded && !legacySucceeded) {
+            throw IllegalStateException(
+                "Nenhum store confirmou a persistência da metadata do slot $saveId",
+                dataStoreFailure
+            )
+        }
     }
 
     suspend fun removeSlotMetadata(saveId: String) {
+        var dataStoreSucceeded = false
+        var dataStoreFailure: Exception? = null
         try {
             dataStore.edit { prefs ->
                 prefs[booleanPreferencesKey("slot_${saveId}_exists")] = false
@@ -158,14 +318,32 @@ class GamePreferencesRepository @Inject constructor(
                 prefs.remove(intPreferencesKey("slot_${saveId}_week"))
                 prefs.remove(longPreferencesKey("slot_${saveId}_balance"))
             }
-        } catch (_: Exception) {}
-        legacyPrefs.edit()
+            dataStoreSucceeded = true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            dataStoreFailure = e
+            Log.e(TAG, "Falha ao remover metadata do slot $saveId do DataStore", e)
+        }
+
+        val legacySucceeded = legacyPrefs.edit()
             .putBoolean("slot_${saveId}_exists", false)
             .remove("slot_${saveId}_coach_name")
             .remove("slot_${saveId}_team_name")
             .remove("slot_${saveId}_season")
             .remove("slot_${saveId}_week")
             .remove("slot_${saveId}_balance")
-            .apply()
+            .commit()
+
+        if (!legacySucceeded) {
+            Log.e(TAG, "Falha ao remover metadata do slot $saveId no SharedPreferences legado")
+        }
+
+        if (!dataStoreSucceeded && !legacySucceeded) {
+            throw IllegalStateException(
+                "Nenhum store confirmou a remoção da metadata do slot $saveId",
+                dataStoreFailure
+            )
+        }
     }
 }

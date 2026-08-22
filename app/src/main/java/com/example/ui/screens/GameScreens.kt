@@ -248,11 +248,22 @@ fun GameApp(
         modifier = Modifier.fillMaxSize(),
         color = TurfPitchDark
     ) {
-        val screenKey = remember(matchState, menuScreenState, currentSaveId, gameSave) {
+        val selectedSlot = currentSaveId?.let { id -> saveSlots.firstOrNull { it.id == id } }
+        val waitingForExistingCareer =
+            currentSaveId != null && gameSave == null && selectedSlot?.exists == true
+
+        val screenKey = remember(
+            matchState,
+            menuScreenState,
+            currentSaveId,
+            gameSave,
+            waitingForExistingCareer
+        ) {
             when {
                 matchState != GameViewModel.MatchState.IDLE -> "LIVE_MATCH"
                 menuScreenState == "EDITOR" -> "EDITOR"
                 currentSaveId == null -> "MENU_$menuScreenState"
+                waitingForExistingCareer -> "CAREER_LOADING"
                 gameSave == null -> "TEAM_SELECTION"
                 else -> "CAREER_DASHBOARD"
             }
@@ -287,7 +298,7 @@ fun GameApp(
                                 onNewGame = {
                                     val emptySlot = saveSlots.firstOrNull { !it.exists }
                                     if (emptySlot != null) {
-                                        viewModel.selectSaveSlot(emptySlot.id)
+                                        viewModel.selectSaveSlotSafely(emptySlot.id)
                                     } else {
                                         menuScreenState = "SAVES"
                                     }
@@ -311,6 +322,26 @@ fun GameApp(
                             TeamAndPlayerEditorScreen(
                                 viewModel = viewModel,
                                 onBack = { menuScreenState = "MAIN_MENU" }
+                            )
+                        }
+                    }
+                }
+                key == "CAREER_LOADING" -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("career_loading_guard"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(color = AccentLime)
+                            Text(
+                                text = "Carregando carreira...",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

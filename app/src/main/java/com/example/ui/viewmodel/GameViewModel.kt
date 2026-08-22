@@ -1365,40 +1365,61 @@ class GameViewModel @Inject constructor(
         _selectedTeamId.value = null
 
         viewModelScope.launch(Dispatchers.IO) {
-            if (session.generation != sessionGeneration.get()) return@launch
-            val targetRepo = session.repository
+            try {
+                if (session.generation != sessionGeneration.get()) return@launch
+                val targetRepo = session.repository
 
-            seedAllDefaultTeams(targetRepo, _selectedCountry.value)
-            if (session.generation != sessionGeneration.get()) return@launch
+                seedAllDefaultTeams(targetRepo, _selectedCountry.value)
+                if (session.generation != sessionGeneration.get()) return@launch
 
-            val teams = targetRepo.getAllTeams()
-            val save = targetRepo.getGameSave()
-            if (save != null) {
-                val targetTeam = targetRepo.getTeam(save.playerTeamId)
-                if (targetTeam != null) {
-                    val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
+                val teams = targetRepo.getAllTeams()
+                val save = targetRepo.getGameSave()
+                if (save != null) {
+                    val targetTeam = targetRepo.getTeam(save.playerTeamId)
+                    if (targetTeam != null) {
+                        val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
+                        withContext(Dispatchers.Main) {
+                            _selectedCountry.value = resolvedCountry
+                        }
+                    }
+                } else {
                     withContext(Dispatchers.Main) {
-                        _selectedCountry.value = resolvedCountry
+                        _selectedCountry.value = "Brasil"
                     }
                 }
-            } else {
-                withContext(Dispatchers.Main) {
-                    _selectedCountry.value = "Brasil"
+
+                repairRostersIfNecessarySync(session)
+
+                if (session.generation != sessionGeneration.get()) return@launch
+
+                if (save != null) {
+                    val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
+                    if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
+                        val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
+                        targetRepo.saveFixtures(newFixtures)
+                    }
                 }
-            }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("GameViewModel", "Falha ao abrir carreira do slot $saveId; preservando para recuperação", e)
+                if (session.generation != sessionGeneration.get()) return@launch
 
-            // Always run robust roster repair synchronously to avoid race condition
-            repairRostersIfNecessarySync(session)
+                sessionGeneration.incrementAndGet()
+                _activeSaveSession.value = null
+                _currentSaveId.value = null
+                _selectedTeamId.value = null
+                _matchState.value = MatchState.IDLE
+                saveRepository.closeAndRemoveSlot(saveId)
 
-            if (session.generation != sessionGeneration.get()) return@launch
-
-            // Auto-heal missing season fixtures
-            if (save != null) {
-                val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
-                if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
-                    val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
-                    targetRepo.saveFixtures(newFixtures)
+                try {
+                    saveSlots.value = preferencesRepo.loadSaveSlots()
+                } catch (reconcileError: kotlinx.coroutines.CancellationException) {
+                    throw reconcileError
+                } catch (reconcileError: Exception) {
+                    Log.e("GameViewModel", "Falha ao reconciliar slot $saveId após erro de abertura", reconcileError)
                 }
+                _toastMessage.emit("Não foi possível abrir a carreira. O slot foi preservado para recuperação.")
             }
         }
     }
@@ -1506,12 +1527,13 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             if (generation != sessionGeneration.get()) return@launch
 
-            targetRepo.deleteSave()
-            targetRepo.deleteFixtures()
-            targetRepo.deleteOffers()
+            targetRepo.withTransaction {
+                targetRepo.deleteSave()
+                targetRepo.deleteFixtures()
+                targetRepo.deleteOffers()
+                seedAllDefaultTeams(targetRepo, country)
+            }
             _selectedTeamId.value = null
-
-            seedAllDefaultTeams(targetRepo, country)
         }
     }
 
@@ -1549,9 +1571,15 @@ class GameViewModel @Inject constructor(
         return youthAcademyUseCase.generateInitialProspects(country)
     }
 
-    private suspend fun performStartNewGameInternal(coachName: String, teamId: Long) {
-        val saveId = _activeSaveSession.value?.slotId ?: return
-        val activeCountry = _selectedCountry.value ?: "BRASIL"
+    private suspend fun performStartNewGameInternal(
+        session: SaveSession,
+        activeCountry: String,
+        coachName: String,
+        teamId: Long
+    ) {
+        val saveId = session.slotId
+        val targetRepo = session.repository
+        val generation = session.generation
         val season = 2026
 
         // 1. Preparação dos dados de times em memória do zero
@@ -1610,54 +1638,76 @@ class GameViewModel @Inject constructor(
             socioTorcedoresCount = initialSocioTorcedores
         )
 
-        // 5. Transação no banco limpando TODAS as tabelas sem exceção
-        repo.withTransaction {
-            repo.deleteSave()
-            repo.deleteTeams()
-            repo.deletePlayers()
-            repo.deleteFixtures()
-            repo.deleteTransactions()
-            repo.deleteOrders()
-            repo.deleteLegends()
-            repo.deleteRecords()
-            repo.deleteOffers()
-            repo.deleteAllHistorico()
-            repo.deleteInstallments()
-            repo.deleteLoans()
-            repo.deleteGlobalStandings()
-
-            repo.saveTeams(dbTeams)
-            repo.savePlayers(allPlayersToSave)
-            repo.saveFixtures(allGeneratedFixtures)
-            repo.saveGameSave(save)
+        // A sessão usada no clique é imutável para esta operação. Nunca redirecione o reset
+        // para a propriedade dinâmica `repo`, que pode apontar para outro slot após uma troca.
+        if (generation != sessionGeneration.get()) {
+            throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo ficou obsoleta antes do commit.")
         }
 
-        _selectedTeamId.value = teamId
+        // 5. Transação no banco capturado limpando TODAS as tabelas sem exceção
+        targetRepo.withTransaction {
+            if (generation != sessionGeneration.get()) {
+                throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo mudou antes da limpeza.")
+            }
+            targetRepo.deleteSave()
+            targetRepo.deleteTeams()
+            targetRepo.deletePlayers()
+            targetRepo.deleteFixtures()
+            targetRepo.deleteTransactions()
+            targetRepo.deleteOrders()
+            targetRepo.deleteLegends()
+            targetRepo.deleteRecords()
+            targetRepo.deleteOffers()
+            targetRepo.deleteAllHistorico()
+            targetRepo.deleteInstallments()
+            targetRepo.deleteLoans()
+            targetRepo.deleteGlobalStandings()
 
-    // A newly created career must immediately be visible in the saves menu.
-    // Do not rely on a later autosave/UI callback to mark the slot as occupied.
-    preferencesRepo.updateSlotMetadata(
-        saveId = saveId,
-        coachName = save.coachName,
-        teamName = playerSelectedTeam?.name ?: "Sem Clube",
-        season = save.currentSeason,
-        week = save.currentWeek,
-        balance = save.bankBalance
-    )
-    saveSlots.value = preferencesRepo.loadSaveSlots()
-}
+            targetRepo.saveTeams(dbTeams)
+            targetRepo.savePlayers(allPlayersToSave)
+            targetRepo.saveFixtures(allGeneratedFixtures)
+            targetRepo.saveGameSave(save)
+        }
+
+        if (generation == sessionGeneration.get()) {
+            _selectedTeamId.value = teamId
+        }
+
+        // A carreira recém-criada deve aparecer imediatamente. A metadata é derivada do
+        // mesmo repositório/slot capturado, mesmo se a UI trocar de sessão após o commit.
+        preferencesRepo.updateSlotMetadata(
+            saveId = saveId,
+            coachName = save.coachName,
+            teamName = playerSelectedTeam?.name ?: "Sem Clube",
+            season = save.currentSeason,
+            week = save.currentWeek,
+            balance = save.bankBalance
+        )
+        saveSlots.value = preferencesRepo.loadSaveSlots()
+    }
 
     fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {
+        val session = _activeSaveSession.value ?: return
+        val activeCountry = _selectedCountry.value
         viewModelScope.launch(Dispatchers.IO) {
             _isStartingNewGame.value = true
             try {
                 simulationMutex.withLock {
-                    performStartNewGameInternal(coachName, selectedTeamId)
+                    if (session.generation != sessionGeneration.get()) return@withLock
+                    performStartNewGameInternal(
+                        session = session,
+                        activeCountry = activeCountry,
+                        coachName = coachName,
+                        teamId = selectedTeamId
+                    )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("GameViewModel", "Erro ao iniciar Novo Jogo no slot ${session.slotId}", e)
+                _toastMessage.emit("Não foi possível iniciar o Novo Jogo. Nenhum save existente foi sobrescrito.")
             } finally {
-                _isStartingNewGame.value = false // Garante que a tela de carregamento SEMPRE feche
+                _isStartingNewGame.value = false
             }
         }
     }

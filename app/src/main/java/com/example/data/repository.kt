@@ -1,6 +1,7 @@
 package com.example.data
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -55,7 +56,28 @@ class GameRepository(internal val db: AppDatabase) {
 
     suspend fun getGameSave(): GameSave? = db.gameSaveDao().getGameSave()
     suspend fun saveGameSave(save: GameSave) = db.gameSaveDao().insertOrUpdate(save)
-    suspend fun deleteSave() = db.gameSaveDao().deleteSave()
+
+    /**
+     * Não permite transformar uma carreira existente em "slot vazio" por uma exclusão parcial.
+     *
+     * Novo Jogo só usa esta limpeza quando o slot já foi semanticamente classificado como vazio.
+     * Qualquer linha em `game_save`, inclusive uma linha não-canônica resultante de corrupção ou
+     * restore parcial, bloqueia a limpeza. A remoção de carreira continua sendo exclusivamente o
+     * fluxo explícito de exclusão física do slot.
+     */
+    suspend fun deleteSave() = db.withTransaction {
+        val gameSaveRowCount = db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM game_save")
+            .use { cursor ->
+                if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            }
+        if (gameSaveRowCount > 0) {
+            throw CancellationException(
+                "Exclusão parcial de GameSave bloqueada: $gameSaveRowCount linha(s) preservada(s); remova explicitamente o banco do slot."
+            )
+        }
+        db.gameSaveDao().deleteSave()
+    }
 
     suspend fun promoteAcademyPlayerAtomically(
         expectedPlayerTeamId: Long,
@@ -163,7 +185,6 @@ class GameRepository(internal val db: AppDatabase) {
         players.expireNonLoanContractsAtOneWeek()
         players.decrementLongerContractsOneWeek()
     }
-
     suspend fun insertPlayersIfNotExists(players: List<Player>) = db.withTransaction {
         if (players.size > 100) {
             players.chunked(100).forEach { db.playerDao().insertPlayers(it) }
