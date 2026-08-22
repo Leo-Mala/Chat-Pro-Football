@@ -56,10 +56,10 @@ class GameRepository(internal val db: AppDatabase) {
     /**
      * Reinicia o estado esportivo da temporada em uma única transação.
      *
-     * O snapshot de [GameSave] e dos jogadores é relido já dentro da transação para que um
-     * comando de reinício nunca sobrescreva silenciosamente saldo, contratos ou transferências
-     * que tenham sido persistidos antes de a transação adquirir o banco. Se a temporada ou o
-     * clube controlado mudaram desde o planejamento do calendário, a operação falha fechada.
+     * O snapshot de [GameSave] é relido já dentro da transação para que um comando de reinício
+     * nunca sobrescreva silenciosamente saldo, contratos ou transferências persistidos antes de a
+     * transação adquirir o banco. O estado sazonal de Player é zerado por action-set SQL, sem
+     * materializar a tabela inteira. Se temporada ou clube mudaram, a operação falha fechada.
      */
     suspend fun restartSeasonStateAtomically(
         expectedSeason: Int,
@@ -92,22 +92,7 @@ class GameRepository(internal val db: AppDatabase) {
             }
         }
 
-        val resetPlayers = db.playerDao().getAllPlayers().map { player ->
-            player.copy(
-                energy = 100,
-                moral = 75,
-                injuryWeeksRemaining = 0,
-                suspensionWeeksRemaining = 0,
-                yellowCardsAccumulated = 0,
-                careerGoals = 0
-            )
-        }
-        if (resetPlayers.size > 100) {
-            resetPlayers.chunked(100).forEach { db.playerDao().updatePlayers(it) }
-        } else if (resetPlayers.isNotEmpty()) {
-            db.playerDao().updatePlayers(resetPlayers)
-        }
-
+        db.playerDao().resetSeasonState()
         db.coachOfferDao().deleteOffers()
         true
     }
@@ -288,7 +273,7 @@ class GameRepository(internal val db: AppDatabase) {
             "Fixture não pode referenciar teamId <= 0."
         }
 
-        val persistedIds = db.teamDao().getAllTeams().asSequence().map { it.id }.toHashSet()
+        val persistedIds = db.teamDao().getExistingTeamIds(requiredIds.toList()).toHashSet()
         val missing = requiredIds.filterNot { it in persistedIds }.sorted()
         if (missing.isEmpty()) return
 
