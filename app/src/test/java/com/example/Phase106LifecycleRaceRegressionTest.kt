@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -99,8 +100,8 @@ class Phase106LifecycleRaceRegressionTest {
         viewModel.selectSaveSlotSafely(slotId)
 
         withTimeout(5_000) {
-            while (viewModel.saveSlots.value.single { it.id == slotId }.recoveryRequired.not()) {
-                delay(10)
+            viewModel.saveSlots.first { slots ->
+                slots.any { it.id == slotId && it.recoveryRequired }
             }
         }
 
@@ -225,6 +226,98 @@ class Phase106LifecycleRaceRegressionTest {
             application.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
                 .getBoolean("slot_${slotId}_exists", false)
         )
+    }
+
+    @Test
+    fun slotAlreadyReconciledIsRevalidatedBeforeWholeListIsPublished() = runBlocking {
+        val slot1 = "1"
+        val expected = createCareer(slot1, "Snapshot que ficará obsoleto", 91_001L)
+
+        // Primeiro deixa a metadata do slot 1 exatamente coerente para que ele não escreva nada
+        // durante a passagem de corrida. O único updateData será o saneamento fantasma do slot 5.
+        preferencesRepository.updateSlotMetadata(
+            saveId = slot1,
+            coachName = expected.coachName,
+            teamName = "Clube $slot1",
+            season = expected.currentSeason,
+            week = expected.currentWeek,
+            balance = expected.bankBalance
+        )
+        preferencesRepository.updateSlotMetadata(
+            saveId = "5",
+            coachName = "Fantasma tardio",
+            teamName = "Sem banco",
+            season = 2030,
+            week = 3,
+            balance = 10L
+        )
+
+        val enteredAtSlot5 = CompletableDeferred<Unit>()
+        val releaseSlot5 = CompletableDeferred<Unit>()
+        val racingRepository = GamePreferencesRepository(
+            OneShotBlockingDataStore(application.dataStore, enteredAtSlot5, releaseSlot5),
+            application,
+            saveRepository
+        )
+
+        val load = async(Dispatchers.Default) { racingRepository.loadSaveSlots() }
+        withTimeout(5_000) { enteredAtSlot5.await() }
+
+        // Neste instante slot 1 já foi projetado como VALID_CAREER; a passagem está presa no slot 5.
+        assertTrue(saveRepository.deleteSlotDatabase(slot1))
+        releaseSlot5.complete(Unit)
+
+        val result = withTimeout(5_000) { load.await() }
+        val publishedSlot1 = result.single { it.id == slot1 }
+        assertFalse("Revalidação global não pode publicar carreira já excluída", publishedSlot1.exists)
+        assertFalse(publishedSlot1.recoveryRequired)
+        assertEquals(SlotDatabaseState.MISSING, saveRepository.inspectSlot(slot1).state)
+    }
+
+    @Test
+    fun failedQueuedSelectionRestoresPreviousSessionWithWorkingGeneration() = runBlocking {
+        val previousSlot = "1"
+        val failingSlot = "2"
+
+        viewModel.selectSaveSlotSafely(previousSlot)
+        withTimeout(5_000) {
+            viewModel.activeSaveSession.first { it?.slotId == previousSlot }
+        }
+        val previousRepository = saveRepository.getRepositoryForSlot(previousSlot)
+        withTimeout(10_000) {
+            previousRepository.allTeamsFlow.first { it.isNotEmpty() }
+        }
+
+        // Limpa o seed pré-carreira para provar que a sessão restaurada executa novamente o worker.
+        previousRepository.deletePlayers()
+        previousRepository.deleteTeams()
+        assertTrue(previousRepository.getAllTeams().isEmpty())
+
+        val failingFile = saveRepository.databaseFileForSlot(failingSlot)
+        failingFile.parentFile?.mkdirs()
+        failingFile.writeBytes(byteArrayOf())
+
+        viewModel.selectSaveSlotSafely(failingSlot)
+
+        withTimeout(5_000) {
+            viewModel.saveSlots.first { slots ->
+                slots.any { it.id == failingSlot && it.recoveryRequired }
+            }
+        }
+        val restored = withTimeout(5_000) {
+            viewModel.activeSaveSession.first { it?.slotId == previousSlot }
+        }
+
+        assertEquals(previousSlot, viewModel.currentSaveId.value)
+        assertEquals(previousSlot, restored?.slotId)
+
+        // Se a geração tivesse ficado obsoleta, o worker restaurado retornaria antes do seed.
+        withTimeout(10_000) {
+            previousRepository.allTeamsFlow.first { it.isNotEmpty() }
+        }
+        assertTrue(previousRepository.getAllTeams().isNotEmpty())
+        assertTrue("Slot que falhou precisa permanecer intacto para recovery", failingFile.exists())
+        assertTrue(failingFile.length() == 0L)
     }
 
     private suspend fun createCareer(slotId: String, coachName: String, teamId: Long): GameSave {
