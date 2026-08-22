@@ -1365,40 +1365,61 @@ class GameViewModel @Inject constructor(
         _selectedTeamId.value = null
 
         viewModelScope.launch(Dispatchers.IO) {
-            if (session.generation != sessionGeneration.get()) return@launch
-            val targetRepo = session.repository
+            try {
+                if (session.generation != sessionGeneration.get()) return@launch
+                val targetRepo = session.repository
 
-            seedAllDefaultTeams(targetRepo, _selectedCountry.value)
-            if (session.generation != sessionGeneration.get()) return@launch
+                seedAllDefaultTeams(targetRepo, _selectedCountry.value)
+                if (session.generation != sessionGeneration.get()) return@launch
 
-            val teams = targetRepo.getAllTeams()
-            val save = targetRepo.getGameSave()
-            if (save != null) {
-                val targetTeam = targetRepo.getTeam(save.playerTeamId)
-                if (targetTeam != null) {
-                    val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
+                val teams = targetRepo.getAllTeams()
+                val save = targetRepo.getGameSave()
+                if (save != null) {
+                    val targetTeam = targetRepo.getTeam(save.playerTeamId)
+                    if (targetTeam != null) {
+                        val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
+                        withContext(Dispatchers.Main) {
+                            _selectedCountry.value = resolvedCountry
+                        }
+                    }
+                } else {
                     withContext(Dispatchers.Main) {
-                        _selectedCountry.value = resolvedCountry
+                        _selectedCountry.value = "Brasil"
                     }
                 }
-            } else {
-                withContext(Dispatchers.Main) {
-                    _selectedCountry.value = "Brasil"
+
+                repairRostersIfNecessarySync(session)
+
+                if (session.generation != sessionGeneration.get()) return@launch
+
+                if (save != null) {
+                    val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
+                    if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
+                        val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
+                        targetRepo.saveFixtures(newFixtures)
+                    }
                 }
-            }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("GameViewModel", "Falha ao abrir carreira do slot $saveId; preservando para recuperação", e)
+                if (session.generation != sessionGeneration.get()) return@launch
 
-            // Always run robust roster repair synchronously to avoid race condition
-            repairRostersIfNecessarySync(session)
+                sessionGeneration.incrementAndGet()
+                _activeSaveSession.value = null
+                _currentSaveId.value = null
+                _selectedTeamId.value = null
+                _matchState.value = MatchState.IDLE
+                saveRepository.closeAndRemoveSlot(saveId)
 
-            if (session.generation != sessionGeneration.get()) return@launch
-
-            // Auto-heal missing season fixtures
-            if (save != null) {
-                val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
-                if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
-                    val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
-                    targetRepo.saveFixtures(newFixtures)
+                try {
+                    saveSlots.value = preferencesRepo.loadSaveSlots()
+                } catch (reconcileError: kotlinx.coroutines.CancellationException) {
+                    throw reconcileError
+                } catch (reconcileError: Exception) {
+                    Log.e("GameViewModel", "Falha ao reconciliar slot $saveId após erro de abertura", reconcileError)
                 }
+                _toastMessage.emit("Não foi possível abrir a carreira. O slot foi preservado para recuperação.")
             }
         }
     }
@@ -1506,12 +1527,13 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             if (generation != sessionGeneration.get()) return@launch
 
-            targetRepo.deleteSave()
-            targetRepo.deleteFixtures()
-            targetRepo.deleteOffers()
+            targetRepo.withTransaction {
+                targetRepo.deleteSave()
+                targetRepo.deleteFixtures()
+                targetRepo.deleteOffers()
+                seedAllDefaultTeams(targetRepo, country)
+            }
             _selectedTeamId.value = null
-
-            seedAllDefaultTeams(targetRepo, country)
         }
     }
 

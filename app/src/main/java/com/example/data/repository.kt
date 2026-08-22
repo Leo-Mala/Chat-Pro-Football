@@ -65,7 +65,7 @@ class GameRepository(internal val db: AppDatabase) {
      * fecha a instância Room e apaga o banco físico inteiro. A CancellationException encerra de
      * forma não-fatal qualquer cadeia destrutiva acidental e faz transações Room retrocederem.
      */
-    suspend fun deleteSave() {
+    suspend fun deleteSave() = db.withTransaction {
         if (db.gameSaveDao().getGameSave() != null) {
             throw CancellationException(
                 "Exclusão parcial de GameSave bloqueada: remova explicitamente o banco do slot."
