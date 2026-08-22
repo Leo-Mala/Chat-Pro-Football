@@ -47,6 +47,10 @@ class GameSaveRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val databaseFactory: SlotDatabaseFactory
 ) {
+    companion object {
+        private val SQLITE_FILE_HEADER = "SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)
+    }
+
     private val repositories = mutableMapOf<String, GameRepository>()
 
     @Synchronized
@@ -69,6 +73,25 @@ class GameSaveRepository @Inject constructor(
         return context.getDatabasePath(databaseNameForSlot(slotId))
     }
 
+    private fun hasCanonicalSqliteHeader(file: File): Boolean {
+        if (file.length() < SQLITE_FILE_HEADER.size) return false
+        return try {
+            file.inputStream().use { input ->
+                val actual = ByteArray(SQLITE_FILE_HEADER.size)
+                var offset = 0
+                while (offset < actual.size) {
+                    val read = input.read(actual, offset, actual.size - offset)
+                    if (read <= 0) return false
+                    offset += read
+                }
+                actual.contentEquals(SQLITE_FILE_HEADER)
+            }
+        } catch (e: Exception) {
+            Log.e("GameSaveRepository", "Falha ao ler cabeçalho SQLite de ${file.name}", e)
+            false
+        }
+    }
+
     /**
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
      *
@@ -79,8 +102,11 @@ class GameSaveRepository @Inject constructor(
      * - arquivo ausente -> MISSING;
      * - banco legível sem `GameSave` -> EMPTY / estado pré-carreira;
      * - `GameSave` legível -> VALID_CAREER;
-     * - arquivo truncado a zero bytes ou falha de abertura/migration/leitura -> RECOVERY_REQUIRED.
+     * - arquivo truncado, com cabeçalho SQLite inválido, ou falha de abertura/migration/leitura ->
+     *   RECOVERY_REQUIRED.
      *
+     * O cabeçalho físico é validado antes de abrir Room para que um restore parcial/arquivo
+     * corrompido nunca seja silenciosamente recriado pelo SQLite e confundido com banco vazio.
      * Assim, conteúdo derivado/reconstruível nunca vira uma segunda fonte de verdade, enquanto
      * corrupção ou incompatibilidade continuam fail-closed e nunca autorizam reseed destrutivo.
      */
@@ -93,6 +119,12 @@ class GameSaveRepository @Inject constructor(
             return SlotDatabaseInspection(
                 state = SlotDatabaseState.RECOVERY_REQUIRED,
                 failureReason = "ZeroLengthDatabaseFile"
+            )
+        }
+        if (!hasCanonicalSqliteHeader(file)) {
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "InvalidSQLiteHeader"
             )
         }
 
