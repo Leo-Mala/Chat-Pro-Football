@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.GamePreferencesRepository
 import com.example.data.dataStore
 import com.example.data.local.SlotDatabaseFactory
+import com.example.data.repository.GameSaveRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertFalse
@@ -20,6 +21,8 @@ import org.robolectric.annotation.Config
 class GamePreferencesRestoreSafetyTest {
 
     private lateinit var context: Context
+    private lateinit var databaseFactory: SlotDatabaseFactory
+    private lateinit var saveRepository: GameSaveRepository
     private lateinit var repository: GamePreferencesRepository
 
     @Before
@@ -32,13 +35,16 @@ class GamePreferencesRestoreSafetyTest {
                 .clear()
                 .commit()
             context.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot("2"))
-            repository = GamePreferencesRepository(context.dataStore, context)
+            databaseFactory = SlotDatabaseFactory(context)
+            saveRepository = GameSaveRepository(context, databaseFactory)
+            repository = GamePreferencesRepository(context.dataStore, context, saveRepository)
         }
     }
 
     @After
     fun tearDown() {
         runBlocking {
+            saveRepository.closeAllDatabases()
             context.dataStore.edit { it.clear() }
             context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
                 .edit()
