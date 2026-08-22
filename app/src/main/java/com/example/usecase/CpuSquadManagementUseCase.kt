@@ -9,6 +9,7 @@ import com.example.data.WeeklyRenewalCandidate
 import com.example.data.WeeklyRenewalDecision
 import com.example.data.applyWeeklyRenewals
 import com.example.data.getMaxPersistedPlayerId
+import com.example.data.getWeeklyLoanRenewalCandidates
 import com.example.data.getWeeklyRenewalCandidates
 import com.example.data.getWeeklyRosterAggregates
 import com.example.data.isFc26UnassignedSourceClub
@@ -55,8 +56,32 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         if (cpuTeams.isEmpty()) return@withTransaction 0
 
         val aggregateByTeam = repository.getWeeklyRosterAggregates()
-        val expiringByTeam = repository.getWeeklyRenewalCandidates(RENEWAL_WINDOW_WEEKS)
-            .groupBy { it.teamId }
+        val activeLoansByPlayerId = repository.getActiveLoans().associateBy { it.playerId }
+
+        val regularExpiring = repository.getWeeklyRenewalCandidates(RENEWAL_WINDOW_WEEKS)
+        val loanedOutExpiring = repository.getWeeklyLoanRenewalCandidates(RENEWAL_WINDOW_WEEKS)
+            .mapNotNull { candidate ->
+                val activeLoan = activeLoansByPlayerId[candidate.id] ?: return@mapNotNull null
+                val consistentLoanOwnership =
+                    candidate.ownerTeamId > 0L &&
+                        candidate.borrowerTeamId > 0L &&
+                        candidate.ownerTeamId != candidate.borrowerTeamId &&
+                        activeLoan.ownerTeamId == candidate.ownerTeamId &&
+                        activeLoan.borrowerTeamId == candidate.borrowerTeamId
+                if (!consistentLoanOwnership) return@mapNotNull null
+
+                WeeklyRenewalCandidate(
+                    id = candidate.id,
+                    teamId = candidate.ownerTeamId,
+                    age = candidate.age,
+                    position = candidate.position,
+                    force = candidate.force,
+                    potential = candidate.potential,
+                    countsInRoster = false
+                )
+            }
+
+        val expiringByTeam = (regularExpiring + loanedOutExpiring).groupBy { it.teamId }
         val decisions = ArrayList<WeeklyRenewalDecision>()
 
         for (team in cpuTeams) {
@@ -67,17 +92,21 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
                 )
             if (expiring.isEmpty()) continue
 
+            // Loaned-out players remain owned by this club but are not part of its sporting roster.
+            // They therefore participate in the normal sporting retention decision without being
+            // treated as mandatory roster-size/goalkeeper renewals.
+            val rosterExpiring = expiring.filter { it.countsInRoster }
             val aggregate = aggregateByTeam[team.id]
             val rosterSize = aggregate?.rosterSize ?: 0
-            val survivorsWithoutRenewal = rosterSize - expiring.size
+            val survivorsWithoutRenewal = rosterSize - rosterExpiring.size
             val mandatoryForSize = (MIN_SQUAD_SIZE - survivorsWithoutRenewal).coerceAtLeast(0)
             val onlyGoalkeeper = if (aggregate?.goalkeeperCount == 1) {
-                expiring.singleOrNull { it.position == "GOL" }
+                rosterExpiring.singleOrNull { it.position == "GOL" }
             } else {
                 null
             }
 
-            val mustRenewIds = expiring.take(mandatoryForSize).mapTo(mutableSetOf()) { it.id }
+            val mustRenewIds = rosterExpiring.take(mandatoryForSize).mapTo(mutableSetOf()) { it.id }
             onlyGoalkeeper?.let { mustRenewIds.add(it.id) }
 
             for (player in expiring) {
