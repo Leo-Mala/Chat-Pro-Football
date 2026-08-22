@@ -1,0 +1,197 @@
+name: Phase 10.6 captured session fix
+
+on:
+  push:
+    branches:
+      - agent/phase-10-6-save-durability-recovery
+    paths:
+      - '.github/workflows/phase106-newgame-session-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Patch new-game flow by function boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent, indent
+
+          path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          text = path.read_text()
+          start_marker = '    private suspend fun performStartNewGameInternal('
+          end_marker = '\n\n    fun startNewGame(coachName: String, teamId: Long) {'
+          if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+              raise SystemExit('new-game function boundaries are not unique')
+
+          replacement = indent(dedent('''\
+          private suspend fun performStartNewGameInternal(
+              session: SaveSession,
+              activeCountry: String,
+              coachName: String,
+              teamId: Long
+          ) {
+              val saveId = session.slotId
+              val targetRepo = session.repository
+              val generation = session.generation
+              val season = 2026
+
+              // 1. Preparação dos dados de times em memória do zero
+              val newTeamsToSeed = mutableListOf<Team>()
+              for (countryKey in GlobalFootballSystem.keys) {
+                  val templates = DefaultData.getTeamsForCountry(countryKey)
+                  for (t in templates) {
+                      val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                      newTeamsToSeed.add(
+                          Team(
+                              id = globalId,
+                              name = t.name,
+                              city = t.city,
+                              state = t.state,
+                              country = countryKey,
+                              division = t.division,
+                              rating = t.rating,
+                              stadiumName = t.stadium,
+                              logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
+                              isPlayerControlled = (globalId == teamId)
+                          )
+                      )
+                  }
+              }
+              val dbTeams = newTeamsToSeed
+
+              // 2. Geração limpa de jogadores para todos os times
+              val allPlayersToSave = mutableListOf<Player>()
+              for (t in dbTeams) {
+                  val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
+                  allPlayersToSave.addAll(roster)
+              }
+
+              // 3. Cálculo do calendário em memória ANTES da transação do banco
+              val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)
+
+              // 4. Preparação dos metadados do GameSave em memória
+              val playerSelectedTeam = dbTeams.find { it.id == teamId }
+              val initialAcademyProspects = generateInitialProspects(activeCountry)
+              val initialSocioTorcedores = (playerSelectedTeam?.rating ?: 50) * 400
+
+              val initBal = getInitialBalanceForTeam(playerSelectedTeam?.rating ?: 50, playerSelectedTeam?.division ?: 1)
+              val initSponsWeekly = getAnnualSponsorForTeam(playerSelectedTeam?.name ?: "", playerSelectedTeam?.rating ?: 50, playerSelectedTeam?.division ?: 1) / 10
+
+              val save = GameSave(
+                  coachName = coachName,
+                  coachReputation = 30,
+                  currentWeek = 1,
+                  currentSeason = season,
+                  playerTeamId = teamId,
+                  bankBalance = initBal,
+                  stadiumCapacity = DefaultData.getStadiumCapacityForTeam(playerSelectedTeam?.name ?: "", playerSelectedTeam?.rating ?: 50),
+                  ticketPrice = 20.0,
+                  sponsorWeekly = initSponsWeekly,
+                  academyProspects = initialAcademyProspects,
+                  socioTorcedoresCount = initialSocioTorcedores
+              )
+
+              // A sessão usada no clique é imutável para esta operação. Nunca redirecione o reset
+              // para a propriedade dinâmica `repo`, que pode apontar para outro slot após uma troca.
+              if (generation != sessionGeneration.get()) {
+                  throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo ficou obsoleta antes do commit.")
+              }
+
+              // 5. Transação no banco capturado limpando TODAS as tabelas sem exceção
+              targetRepo.withTransaction {
+                  if (generation != sessionGeneration.get()) {
+                      throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo mudou antes da limpeza.")
+                  }
+                  targetRepo.deleteSave()
+                  targetRepo.deleteTeams()
+                  targetRepo.deletePlayers()
+                  targetRepo.deleteFixtures()
+                  targetRepo.deleteTransactions()
+                  targetRepo.deleteOrders()
+                  targetRepo.deleteLegends()
+                  targetRepo.deleteRecords()
+                  targetRepo.deleteOffers()
+                  targetRepo.deleteAllHistorico()
+                  targetRepo.deleteInstallments()
+                  targetRepo.deleteLoans()
+                  targetRepo.deleteGlobalStandings()
+
+                  targetRepo.saveTeams(dbTeams)
+                  targetRepo.savePlayers(allPlayersToSave)
+                  targetRepo.saveFixtures(allGeneratedFixtures)
+                  targetRepo.saveGameSave(save)
+              }
+
+              if (generation == sessionGeneration.get()) {
+                  _selectedTeamId.value = teamId
+              }
+
+              // A carreira recém-criada deve aparecer imediatamente. A metadata é derivada do
+              // mesmo repositório/slot capturado, mesmo se a UI trocar de sessão após o commit.
+              preferencesRepo.updateSlotMetadata(
+                  saveId = saveId,
+                  coachName = save.coachName,
+                  teamName = playerSelectedTeam?.name ?: "Sem Clube",
+                  season = save.currentSeason,
+                  week = save.currentWeek,
+                  balance = save.bankBalance
+              )
+              saveSlots.value = preferencesRepo.loadSaveSlots()
+          }
+
+          fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {
+              val session = _activeSaveSession.value ?: return
+              val activeCountry = _selectedCountry.value
+              viewModelScope.launch(Dispatchers.IO) {
+                  _isStartingNewGame.value = true
+                  try {
+                      simulationMutex.withLock {
+                          if (session.generation != sessionGeneration.get()) return@withLock
+                          performStartNewGameInternal(
+                              session = session,
+                              activeCountry = activeCountry,
+                              coachName = coachName,
+                              teamId = selectedTeamId
+                          )
+                      }
+                  } catch (e: kotlinx.coroutines.CancellationException) {
+                      throw e
+                  } catch (e: Exception) {
+                      Log.e("GameViewModel", "Erro ao iniciar Novo Jogo no slot ${session.slotId}", e)
+                      _toastMessage.emit("Não foi possível iniciar o Novo Jogo. Nenhum save existente foi sobrescrito.")
+                  } finally {
+                      _isStartingNewGame.value = false
+                  }
+              }
+          }
+          '''), '    ').rstrip()
+
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+
+      - name: Commit exact fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Leo-Mala"
+          git config user.email "leomalaj10@gmail.com"
+          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          git commit -m "fix(save): pin new game to captured slot session"
+          git push origin HEAD:${{ github.ref_name }}
