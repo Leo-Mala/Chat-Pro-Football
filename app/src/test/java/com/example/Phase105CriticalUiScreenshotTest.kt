@@ -3,7 +3,7 @@ package com.example
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -250,7 +250,7 @@ class Phase105CriticalUiScreenshotTest {
         composeTestRule.waitUntil(timeoutMillis = 8_000) {
             composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNodeWithTag("dashboard_tab").assertExists()
+        composeTestRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
         capture("dashboard.png")
 
         fun navigateTo(tag: String, fileName: String) {
@@ -267,7 +267,7 @@ class Phase105CriticalUiScreenshotTest {
 
         composeTestRule.runOnIdle { surface.value = "team_selection" }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("coach_name_input").assertExists()
+        composeTestRule.onNodeWithTag("coach_name_input").assertIsDisplayed()
         capture("team_selection.png")
 
         viewModel.liveMatchFixture = repository.getFixturesForWeek(2026, 2)
