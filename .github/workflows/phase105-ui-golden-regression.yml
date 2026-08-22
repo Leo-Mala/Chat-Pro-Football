@@ -107,6 +107,7 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew \
+            -Droborazzi.test.record=true \
             -Drobolectric.offline=true \
             -Drobolectric.dependency.dir="$ROBOLECTRIC_RUNTIME_DIR" \
             testDebugUnitTest \
