@@ -23,8 +23,19 @@ jobs:
   record-final-ui:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
+      - name: Checkout exact PR head
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact PR head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -64,17 +75,41 @@ jobs:
           }
           GOOGLE_EOF
 
+      - name: Prefetch Robolectric SDK 34 runtime with checksum verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='14-robolectric-10818077-i7'
+          base="https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented/$version"
+          runtime_dir="$RUNNER_TEMP/robolectric-runtime"
+          jar="android-all-instrumented-$version.jar"
+          mkdir -p "$runtime_dir"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+            "$base/$jar" -o "$runtime_dir/$jar"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+            "$base/$jar.sha256" -o "$runtime_dir/$jar.sha256"
+          expected="$(awk '{print $1}' "$runtime_dir/$jar.sha256")"
+          actual="$(sha256sum "$runtime_dir/$jar" | awk '{print $1}')"
+          test "$actual" = "$expected"
+          test "$(stat -c%s "$runtime_dir/$jar")" -gt 100000000
+          echo "ROBOLECTRIC_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+
       - name: Record real product baselines
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew testDebugUnitTest \
+          ./gradlew \
+            -Drobolectric.offline=true \
+            -Drobolectric.dependency.dir="$ROBOLECTRIC_RUNTIME_DIR" \
+            testDebugUnitTest \
             --tests com.example.MainMenuScreenshotTest \
             --tests com.example.SavesScreenScreenshotTest \
             --tests com.example.Phase105CriticalUiScreenshotTest \
             -Proborazzi.test.record=true \
             -PexcludeStressTests=true \
+            --no-build-cache \
+            --rerun-tasks \
             --stacktrace
 
       - name: Require all critical baselines
