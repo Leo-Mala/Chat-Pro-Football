@@ -1,0 +1,105 @@
+name: Phase 10.5 Dashboard Secondary Targeted Flows
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/phase10-5-dashboard-secondary-flows.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Scope opponent and news lookups without global tables
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one anchor, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'app/src/main/java/com/example/data/daos.kt',
+              '''    @Query("SELECT id FROM teams WHERE id IN (:ids)")\n    suspend fun getExistingTeamIds(ids: List<Long>): List<Long>\n''',
+              '''    @Query("SELECT id FROM teams WHERE id IN (:ids)")\n    suspend fun getExistingTeamIds(ids: List<Long>): List<Long>\n\n    @Query("SELECT * FROM teams WHERE id IN (:ids) ORDER BY name ASC")\n    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>>\n'''
+          )
+
+          replace_once(
+              'app/src/main/java/com/example/data/repository.kt',
+              '''    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)\n    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n''',
+              '''    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)\n    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>> = db.teamDao().getTeamsByIdsFlow(ids)\n    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n'''
+          )
+
+          vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          vm = vm_path.read_text()
+          anchor = '''    val playerRoster: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n'''
+          if vm.count(anchor) != 1:
+              raise SystemExit('GameViewModel playerRoster anchor not unique')
+          additional = '''    val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n        if (r == null) {\n            flowOf(emptyList())\n        } else {\n            r.gameSaveFlow.flatMapLatest { save ->\n                if (save == null) flowOf(emptyList())\n                else r.getFixturesForSeasonFlow(save.currentSeason)\n            }\n        }\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n    val dashboardSeasonTeams: StateFlow<List<Team>> = activeRepositoryFlow.flatMapLatest { r ->\n        if (r == null) {\n            flowOf(emptyList())\n        } else {\n            r.gameSaveFlow.flatMapLatest { save ->\n                if (save == null) {\n                    flowOf(emptyList())\n                } else {\n                    r.getFixturesForSeasonFlow(save.currentSeason).flatMapLatest { fixtures ->\n                        val teamIds = fixtures\n                            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }\n                            .filter { it > 0L }\n                            .distinct()\n                        if (teamIds.isEmpty()) flowOf(emptyList())\n                        else r.getTeamsByIdsFlow(teamIds)\n                    }\n                }\n            }\n        }\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n    val nextOpponentTeam: StateFlow<Team?> = activeRepositoryFlow.flatMapLatest { r ->\n        if (r == null) {\n            flowOf(null)\n        } else {\n            r.gameSaveFlow.flatMapLatest { save ->\n                if (save == null || save.playerTeamId <= 0L) {\n                    flowOf(null)\n                } else {\n                    r.getNextFixtureForTeamFlow(\n                        season = save.currentSeason,\n                        week = save.currentWeek,\n                        teamId = save.playerTeamId\n                    ).flatMapLatest { fixture ->\n                        if (fixture == null) {\n                            flowOf(null)\n                        } else {\n                            val opponentId = if (fixture.homeTeamId == save.playerTeamId) {\n                                fixture.awayTeamId\n                            } else {\n                                fixture.homeTeamId\n                            }\n                            if (opponentId > 0L) r.getTeamFlow(opponentId) else flowOf(null)\n                        }\n                    }\n                }\n            }\n        }\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)\n\n'''
+          vm_path.write_text(vm.replace(anchor, additional + anchor, 1))
+
+          dash_path = Path('app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt')
+          dash = dash_path.read_text()
+          collect_anchor = '''    val leagueFixtures by viewModel.playerLeagueFixtures.collectAsStateWithLifecycle()\n    val formation by viewModel.playerFormation.collectAsStateWithLifecycle()\n'''
+          if dash.count(collect_anchor) != 1:
+              raise SystemExit('Dashboard collector anchor not unique')
+          dash = dash.replace(
+              collect_anchor,
+              '''    val leagueFixtures by viewModel.playerLeagueFixtures.collectAsStateWithLifecycle()\n    val dashboardSeasonFixtures by viewModel.dashboardSeasonFixtures.collectAsStateWithLifecycle()\n    val dashboardSeasonTeams by viewModel.dashboardSeasonTeams.collectAsStateWithLifecycle()\n    val nextOpponentTeam by viewModel.nextOpponentTeam.collectAsStateWithLifecycle()\n    val formation by viewModel.playerFormation.collectAsStateWithLifecycle()\n''',
+              1
+          )
+          dash = dash.replace(
+              '''            val dbOpponent = allTeams.find { it.id == opponentId }\n''',
+              '''            val dbOpponent = nextOpponentTeam?.takeIf { it.id == opponentId }\n''',
+              1
+          )
+          dash = dash.replace(
+              '''            allTeams = allTeams,\n            allFixtures = allFixtures,\n''',
+              '''            allTeams = dashboardSeasonTeams,\n            allFixtures = dashboardSeasonFixtures,\n''',
+              1
+          )
+          if 'allTeams.find' in dash or 'allTeams = allTeams' in dash or 'allFixtures = allFixtures' in dash:
+              raise SystemExit('Dashboard still contains stale global-table references')
+          dash_path.write_text(dash)
+
+          test_path = Path('app/src/test/java/com/example/data/TargetedUiFlowDaoTest.kt')
+          test = test_path.read_text()
+          old = '''        val teams = repository.getTeamsByCountryDivisionFlow("Brasil", 1).first()\n        val fixtures = repository.getPlayedFixturesForCompetitionFlow(2026, "SERIE_A").first()\n\n        assertEquals(listOf(10L, 20L), teams.map { it.id }.sorted())\n        assertEquals(listOf(1L), fixtures.map { it.id })\n'''
+          new = '''        val teams = repository.getTeamsByCountryDivisionFlow("Brasil", 1).first()\n        val selectedTeams = repository.getTeamsByIdsFlow(listOf(20L, 40L)).first()\n        val fixtures = repository.getPlayedFixturesForCompetitionFlow(2026, "SERIE_A").first()\n\n        assertEquals(listOf(10L, 20L), teams.map { it.id }.sorted())\n        assertEquals(listOf(20L, 40L), selectedTeams.map { it.id }.sorted())\n        assertEquals(listOf(1L), fixtures.map { it.id })\n'''
+          if test.count(old) != 1:
+              raise SystemExit('TargetedUiFlowDaoTest expected block not found')
+          test_path.write_text(test.replace(old, new, 1))
+          PY
+
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/example/data/daos.kt \
+                  app/src/main/java/com/example/data/repository.kt \
+                  app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
+                  app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt \
+                  app/src/test/java/com/example/data/TargetedUiFlowDaoTest.kt
+          git commit -m 'fix: complete targeted Dashboard data flows'
+          git fetch origin "$HEAD_BRANCH"
+          git rebase "origin/$HEAD_BRANCH"
+          git push origin HEAD:"$HEAD_BRANCH"
