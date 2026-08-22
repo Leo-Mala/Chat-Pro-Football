@@ -48,8 +48,9 @@ import org.robolectric.annotation.GraphicsMode
  * O slot é materializado antes de ser conectado ao ViewModel. O golden não chama selectSaveSlot(),
  * porque esse fluxo deliberadamente executa bootstrap/reparo e já é coberto pelos testes de
  * lifecycle; aqui o objetivo é proteger somente a renderização/navegação de uma carreira já
- * persistida. Capturas frescas são gravadas em build/ e comparadas por SHA-256 com o manifesto
- * versionado. Alteração visual não aprovada, baseline ausente ou captura diferente falha o teste.
+ * persistida. Capturas frescas são gravadas no build/ do módulo e comparadas por SHA-256 com o
+ * manifesto versionado. Alteração visual não aprovada, baseline ausente ou captura diferente
+ * falha o teste.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -59,12 +60,21 @@ class Phase105CriticalUiGoldenTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    private val moduleDir: File by lazy {
+        when {
+            File("app/build.gradle.kts").isFile -> File("app")
+            File("build.gradle.kts").isFile && File("src/test").isDirectory -> File(".")
+            else -> error(
+                "Diretório do módulo app não encontrado a partir de ${File(".").absolutePath}"
+            )
+        }
+    }
+
     private val expectedHashes: Map<String, String> by lazy {
-        val manifest = sequenceOf(
-            File("app/src/test/screenshots/phase_10_5_ui.sha256"),
-            File("src/test/screenshots/phase_10_5_ui.sha256")
-        ).firstOrNull { it.isFile }
-            ?: error("Manifesto de golden Phase 10.5 não encontrado no diretório de trabalho ${File(".").absolutePath}")
+        val manifest = File(moduleDir, "src/test/screenshots/phase_10_5_ui.sha256")
+        require(manifest.isFile) {
+            "Manifesto de golden Phase 10.5 não encontrado em ${manifest.absolutePath}"
+        }
 
         manifest.readLines()
             .asSequence()
@@ -281,9 +291,12 @@ class Phase105CriticalUiGoldenTest {
             composeTestRule.waitForIdle()
             val expected = expectedHashes[fileName]
             assertNotNull("Golden SHA-256 ausente para $fileName", expected)
-            val actualFile = File("build/phase105-golden-actual/$fileName")
+            val actualFile = File(moduleDir, "build/phase105-golden-actual/$fileName")
             actualFile.parentFile?.mkdirs()
-            composeTestRule.onRoot().captureRoboImage(filePath = actualFile.path)
+            composeTestRule.onRoot().captureRoboImage(filePath = actualFile.absolutePath)
+            require(actualFile.isFile) {
+                "Captura Roborazzi não foi materializada em ${actualFile.absolutePath}"
+            }
             assertEquals(
                 "Regressão visual detectada em $fileName. Regrave o baseline somente após revisão explícita da mudança.",
                 expected,
