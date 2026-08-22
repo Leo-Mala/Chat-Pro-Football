@@ -32,6 +32,9 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE id = :id")
     suspend fun getTeam(id: Long): Team?
 
+    @Query("SELECT id FROM teams WHERE id IN (:ids)")
+    suspend fun getExistingTeamIds(ids: List<Long>): List<Long>
+
     /**
      * Upsert evita a semântica DELETE+INSERT do SQLite REPLACE. Isso é essencial depois que Team
      * se torna tabela-pai de FKs de Player/Fixture no schema V21.
@@ -71,6 +74,21 @@ interface PlayerDao {
 
     @Query("SELECT * FROM players WHERE id = :id")
     suspend fun getPlayer(id: Long): Player?
+
+    /**
+     * Reset sazonal em action-set SQL. Só toca nos campos esportivos que pertencem ao reset e
+     * evita materializar dezenas de milhares de Player apenas para gravar valores constantes.
+     */
+    @Query("""
+        UPDATE players
+        SET energy = 100,
+            moral = 75,
+            injuryWeeksRemaining = 0,
+            suspensionWeeksRemaining = 0,
+            yellowCardsAccumulated = 0,
+            careerGoals = 0
+    """)
+    suspend fun resetSeasonState(): Int
 
     /**
      * Phase 9.12B: aplica o ciclo semanal de contratos como conjuntos de ações SQL.
