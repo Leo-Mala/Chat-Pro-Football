@@ -5,10 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -43,6 +43,10 @@ fun SavesScreen(viewModel: GameViewModel, onBack: () -> Unit) {
 /**
  * Renderização pura da seleção de carreiras. Mantém persistência/navegação no chamador e permite
  * regressão visual determinística dos estados vazio e preenchido sem instanciar Hilt/ViewModel.
+ *
+ * O shell inteiro é rolável. A lista possui no máximo os slots de carreira suportados pelo jogo,
+ * portanto um Column simples evita nested scrolling e mantém cabeçalho + botão Voltar alcançáveis
+ * em dispositivos baixos e com font scale de acessibilidade elevado.
  */
 @Composable
 fun SavesContent(
@@ -61,6 +65,7 @@ fun SavesContent(
             )
             .statusBarsPadding()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -99,7 +104,8 @@ fun SavesContent(
             fontSize = 12.sp,
             color = AccentLime,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            letterSpacing = 2.sp,
+            textAlign = TextAlign.Center
         )
 
         Spacer(modifier = Modifier.height(36.dp))
@@ -109,28 +115,37 @@ fun SavesContent(
             fontSize = 15.sp,
             color = Color.White.copy(alpha = 0.7f),
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.align(Alignment.Start).padding(bottom = 12.dp)
+            modifier = Modifier
+                .align(Alignment.Start)
+                .padding(bottom = 12.dp)
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
+        Column(
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(saveSlots, key = { it.id }) { slot ->
+            saveSlots.forEach { slot ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("save_slot_${slot.id}")
                         .clickable { onSelectSlot(slot.id) },
                     colors = CardDefaults.cardColors(
-                        containerColor = if (slot.exists) CardSurfaceDark.copy(alpha = 0.85f) else CardSurfaceDark.copy(alpha = 0.4f)
+                        containerColor = if (slot.exists) {
+                            CardSurfaceDark.copy(alpha = 0.85f)
+                        } else {
+                            CardSurfaceDark.copy(alpha = 0.4f)
+                        }
                     ),
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(
                         width = 1.2.dp,
                         brush = Brush.horizontalGradient(
-                            colors = if (slot.exists) listOf(AccentGold.copy(alpha = 0.4f), Color.Transparent)
-                            else listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
+                            colors = if (slot.exists) {
+                                listOf(AccentGold.copy(alpha = 0.4f), Color.Transparent)
+                            } else {
+                                listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
+                            }
                         )
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -145,12 +160,14 @@ fun SavesContent(
                             modifier = Modifier
                                 .size(52.dp)
                                 .background(
-                                    if (slot.exists) AccentGold.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f),
+                                    if (slot.exists) AccentGold.copy(alpha = 0.12f)
+                                    else Color.White.copy(alpha = 0.05f),
                                     RoundedCornerShape(14.dp)
                                 )
                                 .border(
                                     1.dp,
-                                    if (slot.exists) AccentGold.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
+                                    if (slot.exists) AccentGold.copy(alpha = 0.3f)
+                                    else Color.White.copy(alpha = 0.1f),
                                     RoundedCornerShape(14.dp)
                                 ),
                             contentAlignment = Alignment.Center
@@ -230,8 +247,19 @@ fun SavesContent(
                             if (showDeleteConfirm) {
                                 AlertDialog(
                                     onDismissRequest = { showDeleteConfirm = false },
-                                    title = { Text("Apagar Slot de Carreira ${slot.id}?", fontWeight = FontWeight.Bold, color = Color.White) },
-                                    text = { Text("Isso apagará permanentemente todos os seus dados e conquistas. Deseja prosseguir?", color = Color.White.copy(alpha = 0.8f)) },
+                                    title = {
+                                        Text(
+                                            "Apagar Slot de Carreira ${slot.id}?",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    },
+                                    text = {
+                                        Text(
+                                            "Isso apagará permanentemente todos os seus dados e conquistas. Deseja prosseguir?",
+                                            color = Color.White.copy(alpha = 0.8f)
+                                        )
+                                    },
                                     containerColor = NeonMidnightSurface,
                                     confirmButton = {
                                         TextButton(
@@ -240,7 +268,11 @@ fun SavesContent(
                                                 showDeleteConfirm = false
                                             }
                                         ) {
-                                            Text("EXCLUIR", color = NeonRedAccent, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "EXCLUIR",
+                                                color = NeonRedAccent,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     },
                                     dismissButton = {
@@ -275,7 +307,14 @@ fun SavesContent(
                 tint = Color.White.copy(alpha = 0.6f)
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Text("VOLTAR AO MENU", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 0.5.sp)
+            Text(
+                "VOLTAR AO MENU",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                letterSpacing = 0.5.sp,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
