@@ -65,6 +65,11 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
             val player = requireNotNull(playersById[resolution.playerId])
             val source = requireNotNull(sourceById[resolution.playerId])
             val metadata = requireNotNull(player.sourceMetadataOrNull())
+            val expectedSourceMetadata = requireNotNull(
+                Fc26PlayerMapper.toPlayer(source, null)
+                    .markFc26UnassignedSourceClub()
+                    .sourceMetadataOrNull()
+            )
 
             assertNull("Rejected ownership signal must not create runtime club ownership", player.teamId)
             assertTrue("Rejected ownership signal must stay fail-closed", player.isOnLoan)
@@ -78,8 +83,8 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
             assertEquals("NOT_AVAILABLE", metadata.loanTemporalCoverage)
             assertEquals(resolution.ownerTeamId, metadata.loanOwnerTeamId)
             assertEquals(resolution.borrowerTeamId, metadata.loanBorrowerTeamId)
-            assertTrue("Source contract provenance must survive quarantine", (metadata.sourceContractDurationWeeks ?: 0) > 0)
-            assertTrue("Source salary provenance must survive quarantine", (metadata.sourceSalary ?: 0L) > 0L)
+            assertEquals(expectedSourceMetadata.sourceContractDurationWeeks, metadata.sourceContractDurationWeeks)
+            assertEquals(expectedSourceMetadata.sourceSalary, metadata.sourceSalary)
             assertEquals(source.stableId, player.id)
             assertEquals(source.overall, player.force)
             assertEquals(source.potential, player.potential)
