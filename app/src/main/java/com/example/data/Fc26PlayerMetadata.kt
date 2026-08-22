@@ -99,18 +99,20 @@ internal fun Player.markFc26UnassignedSourceClub(): Player {
 
 /**
  * Persiste a decisão de resolução do sinal de empréstimo FC26 no envelope factual existente.
- * RESOLVED materializa owner/borrower normalmente. Quando o borrower é conhecido mas o owner é
- * ausente ou ambíguo, o jogador entra em quarentena operacional e deixa de ser atribuído a qualquer
- * clube runtime (`teamId=null`, `isOnLoan=true`, owner ausente e sem PlayerLoan). O borrower factual
- * continua preservado em `loanBorrowerTeamId` no metadata, mas nunca é promovido a proprietário nem
- * recebe direitos de mercado, renovação, aposentadoria/replacement ou reempréstimo. Salário/contrato
- * runtime são zerados e seus valores de origem preservados no metadata. O snapshot não contém datas
- * de empréstimo, portanto a cobertura temporal é NOT_AVAILABLE.
+ * RESOLVED materializa owner/borrower normalmente. Quando owner OU borrower não podem ser resolvidos
+ * deterministicamente (ausente/ambíguo), o jogador entra em quarentena operacional e deixa de ser
+ * atribuído a qualquer clube runtime (`teamId=null`, `isOnLoan=true`, sem owner operacional e sem
+ * PlayerLoan). Identidades factuais resolvidas parcialmente permanecem apenas no metadata; nenhuma
+ * delas é promovida a ownership de gameplay. Salário/contrato runtime são zerados, preservando os
+ * valores de origem já registrados no envelope. O snapshot não contém datas de empréstimo, portanto
+ * a cobertura temporal é NOT_AVAILABLE.
  */
 internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Player {
     require(id == resolution.playerId) { "Resolução FC26 aplicada ao jogador errado." }
     val quarantineOwnership = resolution.status == Fc26LoanResolutionStatus.OWNER_NOT_FOUND ||
-        resolution.status == Fc26LoanResolutionStatus.AMBIGUOUS_OWNER
+        resolution.status == Fc26LoanResolutionStatus.AMBIGUOUS_OWNER ||
+        resolution.status == Fc26LoanResolutionStatus.BORROWER_NOT_FOUND ||
+        resolution.status == Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
     val json = atributosJson?.takeIf { it.isNotBlank() } ?: return this
     val updatedJson = runCatching {
         val root = JsonParser.parseString(json).asJsonObject
@@ -124,8 +126,15 @@ internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Play
             import.addProperty("loanBorrowerTeamId", requireNotNull(resolution.borrowerTeamId))
         } else if (quarantineOwnership) {
             import.addProperty("assignmentStatus", FC26_LOAN_OWNERSHIP_UNRESOLVED)
-            import.addProperty("sourceContractDurationWeeks", contractDurationWeeks)
-            import.addProperty("sourceSalary", salary)
+            if (!import.has("sourceContractDurationWeeks") || import.get("sourceContractDurationWeeks").isJsonNull) {
+                import.addProperty("sourceContractDurationWeeks", contractDurationWeeks)
+            }
+            if (!import.has("sourceSalary") || import.get("sourceSalary").isJsonNull) {
+                import.addProperty("sourceSalary", salary)
+            }
+            resolution.ownerTeamId?.takeIf { it > 0L }?.let {
+                import.addProperty("loanOwnerTeamId", it)
+            }
             resolution.borrowerTeamId?.takeIf { it > 0L }?.let {
                 import.addProperty("loanBorrowerTeamId", it)
             }
@@ -139,7 +148,7 @@ internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Play
             val borrowerTeamId = requireNotNull(resolution.borrowerTeamId)
             require(ownerTeamId != borrowerTeamId)
             require(teamId == borrowerTeamId) {
-                "Roster FC26 diverge do borrower resolvido: player=$id teamId=$teamId borrower=$borrowerTeamId"
+                "FC26 roster/borrower divergence for player=$id: roster=$teamId borrower=$borrowerTeamId"
             }
             copy(
                 atributosJson = updatedJson,
@@ -173,7 +182,7 @@ internal fun Player.markFc26LoanResolution(resolution: Fc26LoanResolution): Play
 internal fun Player.isFc26UnassignedSourceClub(): Boolean =
     teamId == null && atributosJson?.contains(FC26_UNASSIGNED_SOURCE_CLUB_JSON_MARKER) == true
 
-/** Estado fail-closed de um sinal factual de empréstimo cujo owner não pôde ser determinado. */
+/** Estado fail-closed de um sinal factual de empréstimo cujo ownership não pôde ser determinado. */
 internal fun Player.isFc26LoanOwnershipQuarantined(): Boolean =
     teamId == null && isOnLoan && originalTeamId == null &&
         atributosJson?.contains(FC26_LOAN_OWNERSHIP_UNRESOLVED_JSON_MARKER) == true
