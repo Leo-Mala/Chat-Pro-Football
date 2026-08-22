@@ -6,6 +6,15 @@ import com.example.data.repository.SlotRecoveryRequiredException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * Serializa somente o trecho de seleção que valida/abre/publica a sessão. O trabalho posterior já
+ * usa `sessionGeneration`; esta fila evita que dois toques rápidos em slots frios invertam a ordem
+ * de publicação enquanto as aberturas acontecem em IO.
+ */
+private val safeSlotSelectionMutex = Mutex()
 
 /**
  * Único entrypoint de UI para seleção de slot.
@@ -18,7 +27,9 @@ import kotlinx.coroutines.launch
 fun GameViewModel.selectSaveSlotSafely(saveId: String) {
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            selectSaveSlot(saveId)
+            safeSlotSelectionMutex.withLock {
+                selectSaveSlot(saveId)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: SlotRecoveryRequiredException) {
