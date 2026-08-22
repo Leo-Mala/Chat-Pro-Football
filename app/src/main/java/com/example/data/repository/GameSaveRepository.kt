@@ -75,7 +75,8 @@ class GameSaveRepository @Inject constructor(
      * - arquivo ausente -> MISSING;
      * - arquivo legível sem `GameSave` e sem payload de domínio -> EMPTY;
      * - `GameSave` legível -> VALID_CAREER;
-     * - payload residual sem `GameSave`, ou falha de abertura/migration/leitura -> RECOVERY_REQUIRED.
+     * - arquivo truncado a zero bytes, payload residual sem `GameSave`, ou falha de
+     *   abertura/migration/leitura -> RECOVERY_REQUIRED.
      *
      * Falhas e estados ambíguos nunca são convertidos em slot vazio. Isso é a barreira central que
      * impede uma restauração parcial, uma exclusão interrompida ou corrupção de virar autorização
@@ -85,6 +86,12 @@ class GameSaveRepository @Inject constructor(
         val file = databaseFileForSlot(slotId)
         if (!file.exists()) {
             return SlotDatabaseInspection(SlotDatabaseState.MISSING)
+        }
+        if (file.length() == 0L) {
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "ZeroLengthDatabaseFile"
+            )
         }
 
         return try {
