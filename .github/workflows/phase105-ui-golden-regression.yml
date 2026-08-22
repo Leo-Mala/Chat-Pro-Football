@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - '.github/workflows/phase105-ui-golden-regression.yml'
-      - 'app/src/test/screenshots/phase_10_5_sha256.txt'
+      - 'app/src/test/screenshots/phase_10_5_ui.sha256'
       - 'app/src/test/java/com/example/MainMenuScreenshotTest.kt'
       - 'app/src/test/java/com/example/SavesScreenshotTest.kt'
       - 'app/src/test/java/com/example/Phase105CriticalUiGoldenTest.kt'
@@ -120,10 +120,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required_count=11
-          manifest='app/src/test/screenshots/phase_10_5_sha256.txt'
+          cd app/src/test/screenshots
+          manifest='phase_10_5_ui.sha256'
           test -s "$manifest"
-          test "$(grep -c '^[0-9a-f]\{64\}  app/src/test/screenshots/.*\.png$' "$manifest")" -eq "$required_count"
+          test "$(grep -c '^[0-9a-f]\{64\}  .*\.png$' "$manifest")" -eq 11
           sha256sum -c "$manifest"
 
       - name: Upload rendered critical UI
@@ -131,6 +131,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: phase-10-5-ui-golden-verification
-          path: app/src/test/screenshots/*.png
+          path: |
+            app/build/phase105-golden-actual/*.png
+            app/src/test/screenshots/*.png
           if-no-files-found: ignore
           retention-days: 1
