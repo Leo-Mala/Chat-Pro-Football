@@ -26,6 +26,7 @@ import com.example.ui.components.RetroPlayerCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
 import com.example.ui.viewmodel.renewContract
+import com.example.ui.viewmodel.sellPlayer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -203,6 +204,50 @@ fun PlayerListScreen(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Black
                                 )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        viewModel.sellPlayer(
+                                            player = player,
+                                            price = player.calculateMarketValue(),
+                                            paymentType = "VISTA"
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("sell_loaned_out_cash_${player.id}"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.Red.copy(alpha = 0.2f),
+                                        contentColor = Color.Red
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("VENDER À VISTA", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                }
+                                Button(
+                                    onClick = {
+                                        viewModel.sellPlayer(
+                                            player = player,
+                                            price = player.calculateMarketValue(),
+                                            paymentType = "PARCELADO"
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("sell_loaned_out_installments_${player.id}"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AccentGold.copy(alpha = 0.2f),
+                                        contentColor = AccentGold
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("VENDER 3x", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                }
                             }
                         }
                     }
