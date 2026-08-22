@@ -105,13 +105,43 @@ class GamePreferencesRepository @Inject constructor(
     /**
      * Reconcilia metadata derivada com o conteúdo autoritativo de cada banco Room.
      *
-     * Cada slot é inspecionado antes e depois de qualquer efeito em metadata. Se criação,
-     * exclusão ou recuperação alterar o estado semântico durante a passagem, o resultado antigo
-     * é descartado e o slot é reconciliado novamente. Assim uma chamada atrasada nunca publica
-     * save fantasma nem rebaixa uma carreira criada concorrentemente para slot vazio.
+     * Além da revalidação por slot, o conjunto inteiro é reinspecionado depois de todos os slots
+     * terem sido projetados. Isso impede que um slot reconciliado no início da passagem seja
+     * publicado com snapshot antigo caso mude enquanto os slots seguintes ainda são processados.
      */
-    suspend fun loadSaveSlots(): List<SaveSlotMetadata> =
-        (1..5).map { index -> reconcileSlot(index.toString()) }
+    suspend fun loadSaveSlots(): List<SaveSlotMetadata> = reconcileAllSlots()
+
+    private suspend fun reconcileAllSlots(attempt: Int = 0): List<SaveSlotMetadata> {
+        val saveIds = (1..5).map(Int::toString)
+        val projected = saveIds.map { saveId -> reconcileSlot(saveId) }
+
+        // Última barreira global antes de devolver a lista ao StateFlow da UI. Nenhum efeito de
+        // metadata ocorre depois desta varredura quando todos os snapshots continuam coerentes.
+        val finalInspections = saveIds.map { saveId -> saveRepository.inspectSlot(saveId) }
+        val stable = projected.indices.all { index ->
+            projectionMatchesInspection(projected[index], finalInspections[index])
+        }
+        if (stable) return projected
+
+        if (attempt >= MAX_RECONCILIATION_RETRIES) {
+            return projected.indices.map { index ->
+                val metadata = projected[index]
+                val inspection = finalInspections[index]
+                if (projectionMatchesInspection(metadata, inspection)) {
+                    metadata
+                } else {
+                    val stored = readStoredSlotMetadata(readPreferencesSnapshot(), saveIds[index])
+                    recoveryMetadata(
+                        saveId = saveIds[index],
+                        stored = stored,
+                        message = "O estado do slot mudou repetidamente durante a reconciliação global. Os dados foram preservados e um novo jogo está bloqueado."
+                    )
+                }
+            }
+        }
+
+        return reconcileAllSlots(attempt + 1)
+    }
 
     private suspend fun readPreferencesSnapshot(): Preferences? = try {
         dataStore.data.first()
@@ -127,8 +157,6 @@ class GamePreferencesRepository @Inject constructor(
         val before = saveRepository.inspectSlot(saveId)
         val projected = projectInspection(saveId, stored, before)
 
-        // Esta é a última operação suspensiva antes de publicar o slot. Se qualquer mutação venceu
-        // a corrida depois da primeira inspeção, a projeção obsoleta é descartada e recalculada.
         val after = saveRepository.inspectSlot(saveId)
         if (sameSemanticSnapshot(before, after)) {
             return projected
@@ -196,6 +224,27 @@ class GamePreferencesRepository @Inject constructor(
         }
 
         SlotDatabaseState.RECOVERY_REQUIRED -> recoveryMetadata(saveId, stored)
+    }
+
+    private fun projectionMatchesInspection(
+        metadata: SaveSlotMetadata,
+        inspection: SlotDatabaseInspection
+    ): Boolean = when (inspection.state) {
+        SlotDatabaseState.MISSING,
+        SlotDatabaseState.EMPTY -> !metadata.exists && !metadata.recoveryRequired
+
+        SlotDatabaseState.VALID_CAREER -> {
+            val save = inspection.save ?: return false
+            metadata.exists &&
+                !metadata.recoveryRequired &&
+                metadata.coachName == save.coachName &&
+                metadata.teamName == (inspection.teamName ?: "Sem Clube") &&
+                metadata.season == save.currentSeason &&
+                metadata.week == save.currentWeek &&
+                metadata.balance == save.bankBalance
+        }
+
+        SlotDatabaseState.RECOVERY_REQUIRED -> metadata.exists && metadata.recoveryRequired
     }
 
     private fun recoveryMetadata(
