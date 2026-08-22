@@ -1,27 +1,34 @@
 package com.example.ui.viewmodel
 
 import android.util.Log
+import androidx.lifecycle.viewModelScope
 import com.example.data.repository.SlotRecoveryRequiredException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Único entrypoint de UI para seleção de slot.
  *
- * `GameSaveRepository` valida e materializa o SQLite antes de devolver uma instância. Se o
- * filesystem, migration ou a tabela `game_save` exigirem recuperação, a abertura falha antes de
- * `GameViewModel.selectSaveSlot()` conseguir criar sessão ou executar seed. Este wrapper transforma
- * essa falha síncrona em uma nova reconciliação visível, preservando os artefatos e mantendo Novo
- * Jogo bloqueado.
+ * Toda validação física/semântica e a abertura eager do Room acontecem em Dispatchers.IO. Assim,
+ * migrations, WAL recovery e consultas de `game_save` nunca bloqueiam a thread de composição.
+ * `GameViewModel.selectSaveSlot()` só publica a sessão depois que `getRepositoryForSlot()` retorna
+ * com sucesso; qualquer falha fail-closed é reconciliada sem tocar nos artefatos recuperáveis.
  */
 fun GameViewModel.selectSaveSlotSafely(saveId: String) {
-    try {
-        selectSaveSlot(saveId)
-    } catch (e: SlotRecoveryRequiredException) {
-        Log.w("GameViewModel", "Slot $saveId bloqueado antes da abertura: ${e.inspection.failureReason}")
-        loadSaveSlots()
-    } catch (e: Exception) {
-        // Falha de migration/open também precisa voltar à inspeção semântica; loadSaveSlots()
-        // classificará o banco como RECOVERY_REQUIRED sem apagá-lo.
-        Log.e("GameViewModel", "Falha fail-closed ao selecionar slot $saveId", e)
-        loadSaveSlots()
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            selectSaveSlot(saveId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SlotRecoveryRequiredException) {
+            Log.w("GameViewModel", "Slot $saveId bloqueado antes da abertura: ${e.inspection.failureReason}")
+            loadSaveSlots()
+        } catch (e: Exception) {
+            // Falha de migration/open também precisa voltar à inspeção semântica; loadSaveSlots()
+            // classificará o banco como RECOVERY_REQUIRED sem apagá-lo.
+            Log.e("GameViewModel", "Falha fail-closed ao selecionar slot $saveId", e)
+            loadSaveSlots()
+        }
     }
 }
