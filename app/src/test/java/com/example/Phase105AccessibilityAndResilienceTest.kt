@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GameSave
 import com.example.data.Player
@@ -65,7 +66,7 @@ class Phase105AccessibilityAndResilienceTest {
                 TeamBadge(
                     teamName = "Atlético Teste",
                     logoUrl = "malformed://offline-logo",
-                    size = androidx.compose.ui.unit.dp(64f)
+                    size = 64.dp
                 )
             }
         }
