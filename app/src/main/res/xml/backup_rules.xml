@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Todos os bancos Room por slot vivem no domínio database e precisam viajar juntos. -->
-    <include domain="database" path="." />
-    <!-- DataStore Preferences usa files/datastore; contém metadados dos slots e preferências. -->
+    <!--
+      Android 11 e anteriores usam este arquivo para cloud backup. Bancos Room completos por slot
+      são deliberadamente excluídos porque um save FC26 normal excede a quota de backup do app.
+      Metadados pequenos continuam protegidos; Android 12+ usa data_extraction_rules.xml e mantém
+      os bancos completos apenas no fluxo device-to-device, que não depende da quota de cloud.
+    -->
+    <exclude domain="database" path="." />
     <include domain="file" path="datastore/" />
-    <!-- Compatibilidade com metadados/preferências de versões legadas. -->
     <include domain="sharedpref" path="brasfut_retro_saves.xml" />
 </full-backup-content>
