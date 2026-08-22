@@ -143,7 +143,7 @@ class GameRepositoryFixtureScheduleTest {
             week = 4,
             matchSlot = MatchSlot.WEEKEND,
             homeTeamId = 1L,
-            awayTeamId = 999_999L,
+            awayTeamId = GlobalFootballSystem.VIRTUAL_TEAM_ID_FLOOR - 1L,
             competitionType = "SERIE_A"
         )
 
