@@ -53,9 +53,10 @@ object RepositoryModule {
     @Singleton
     fun provideGamePreferencesRepository(
         dataStore: DataStore<Preferences>,
-        @ApplicationContext context: Context
+        @ApplicationContext context: Context,
+        gameSaveRepository: GameSaveRepository
     ): GamePreferencesRepository {
-        return GamePreferencesRepository(dataStore, context)
+        return GamePreferencesRepository(dataStore, context, gameSaveRepository)
     }
 
     @Provides
