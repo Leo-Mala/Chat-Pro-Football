@@ -298,7 +298,7 @@ fun GameApp(
                                 onNewGame = {
                                     val emptySlot = saveSlots.firstOrNull { !it.exists }
                                     if (emptySlot != null) {
-                                        viewModel.selectSaveSlot(emptySlot.id)
+                                        viewModel.selectSaveSlotSafely(emptySlot.id)
                                     } else {
                                         menuScreenState = "SAVES"
                                     }
