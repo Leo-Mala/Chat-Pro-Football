@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <!--
-      Android 11 e anteriores usam este arquivo para cloud backup. Bancos Room completos por slot
-      são deliberadamente excluídos porque um save FC26 normal excede a quota de backup do app.
-      Metadados pequenos continuam protegidos; Android 12+ usa data_extraction_rules.xml e mantém
-      os bancos completos apenas no fluxo device-to-device, que não depende da quota de cloud.
+      Android 11 e anteriores usam este arquivo para cloud backup. Como existem regras <include>,
+      somente os caminhos explicitamente incluídos participam do backup; os bancos Room por slot
+      ficam fora por omissão, evitando estourar a quota de cloud do app. Android 12+ usa
+      data_extraction_rules.xml e mantém os bancos completos apenas no fluxo device-to-device.
     -->
-    <exclude domain="database" path="." />
     <include domain="file" path="datastore/" />
     <include domain="sharedpref" path="brasfut_retro_saves.xml" />
 </full-backup-content>
