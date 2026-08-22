@@ -2,14 +2,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <!--
-          Bancos Room completos não entram no cloud backup: um único slot FC26 pode persistir
-          dezenas de milhares de jogadores e ultrapassar a quota de backup por app. O cloud
-          preserva apenas metadados/preferências pequenos; saves completos são transferidos no
-          fluxo device-to-device abaixo.
+          Como existem regras <include>, somente os caminhos explicitamente incluídos participam
+          do cloud backup. Os bancos Room completos por slot ficam fora por omissão para evitar a
+          quota de backup por app; saves completos seguem pelo fluxo device-to-device abaixo.
         -->
         <include domain="file" path="datastore/" />
         <include domain="sharedpref" path="brasfut_retro_saves.xml" />
-        <exclude domain="database" path="." />
     </cloud-backup>
     <device-transfer>
         <!-- Device-to-device não usa a quota de cloud backup e deve levar todos os slots Room. -->
