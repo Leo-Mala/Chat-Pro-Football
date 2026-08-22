@@ -21,14 +21,23 @@ private val safeSlotSelectionMutex = Mutex()
  *
  * Toda validação física/semântica e a abertura eager do Room acontecem em Dispatchers.IO. Assim,
  * migrations, WAL recovery e consultas de `game_save` nunca bloqueiam a thread de composição.
- * `GameViewModel.selectSaveSlot()` só publica a sessão depois que `getRepositoryForSlot()` retorna
- * com sucesso; qualquer falha fail-closed é reconciliada sem tocar nos artefatos recuperáveis.
+ * Se uma seleção enfileirada falhar depois de invalidar a geração, a sessão anterior é republicada
+ * com uma geração nova antes de liberar o mutex, evitando deixar o slot anterior funcionalmente
+ * obsoleto.
  */
 fun GameViewModel.selectSaveSlotSafely(saveId: String) {
     viewModelScope.launch(Dispatchers.IO) {
+        val previousSaveId = currentSaveId.value
         try {
             safeSlotSelectionMutex.withLock {
-                selectSaveSlot(saveId)
+                try {
+                    selectSaveSlot(saveId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    restorePreviousSelectionAfterFailedOpen(previousSaveId, saveId)
+                    throw e
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -36,10 +45,31 @@ fun GameViewModel.selectSaveSlotSafely(saveId: String) {
             Log.w("GameViewModel", "Slot $saveId bloqueado antes da abertura: ${e.inspection.failureReason}")
             loadSaveSlots()
         } catch (e: Exception) {
-            // Falha de migration/open também precisa voltar à inspeção semântica; loadSaveSlots()
-            // classificará o banco como RECOVERY_REQUIRED sem apagá-lo.
             Log.e("GameViewModel", "Falha fail-closed ao selecionar slot $saveId", e)
             loadSaveSlots()
         }
+    }
+}
+
+/**
+ * `selectSaveSlot()` incrementa a geração antes de abrir o novo repositório. Se a abertura falhar,
+ * a sessão anterior ainda está publicada, porém sua geração fica obsoleta. Recriá-la aqui restaura
+ * a invariância `session.generation == sessionGeneration` sem tocar no banco que falhou.
+ */
+private fun GameViewModel.restorePreviousSelectionAfterFailedOpen(
+    previousSaveId: String?,
+    failedSaveId: String
+) {
+    if (previousSaveId == null || previousSaveId == failedSaveId) return
+
+    try {
+        selectSaveSlot(previousSaveId)
+    } catch (restoreError: Exception) {
+        Log.e(
+            "GameViewModel",
+            "Falha ao restaurar sessão anterior $previousSaveId após erro no slot $failedSaveId",
+            restoreError
+        )
+        exitToSavesMenu()
     }
 }
