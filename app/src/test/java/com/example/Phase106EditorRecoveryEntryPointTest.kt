@@ -87,6 +87,45 @@ class Phase106EditorRecoveryEntryPointTest {
         assertTrue(slot.recoveryRequired)
     }
 
+    @Test
+    fun editorPreparationBecomingStaleNeverNavigatesOrSeedsAfterExit() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val ready = CompletableDeferred<Boolean>()
+
+        viewModel.ensureSaveActiveForEditor(
+            onReady = { success -> ready.complete(success) },
+            preparationCheckpoint = {
+                entered.complete(Unit)
+                release.await()
+            }
+        )
+
+        // A sessão já foi validada/publicada, mas nenhum seed ocorreu ainda.
+        withTimeout(5_000) { entered.await() }
+        assertTrue(viewModel.currentSaveId.value == "1")
+
+        // Simula lifecycle/menu mudando enquanto o preparo do editor está suspenso.
+        viewModel.exitToSavesMenu()
+        assertNull(viewModel.currentSaveId.value)
+        release.complete(Unit)
+
+        val success = withTimeout(5_000) { ready.await() }
+        assertFalse("Callback obsoleto não pode navegar para o editor", success)
+        assertNull("Saída do menu precisa continuar autoritativa", viewModel.currentSaveId.value)
+        assertNull("Sessão obsoleta não pode ser republicada", viewModel.activeSaveSession.value)
+
+        val repository = saveRepository.getRepositoryForSlot("1")
+        assertTrue(
+            "Preparo obsoleto precisa abortar antes do seed de times",
+            repository.getAllTeams().isEmpty()
+        )
+        assertTrue(
+            "Preparo obsoleto precisa abortar antes do seed de jogadores",
+            repository.getAllPlayers().isEmpty()
+        )
+    }
+
     private fun clearSlotOne() {
         val name = SlotDatabaseFactory.databaseNameForSlot("1")
         val file = application.getDatabasePath(name)
