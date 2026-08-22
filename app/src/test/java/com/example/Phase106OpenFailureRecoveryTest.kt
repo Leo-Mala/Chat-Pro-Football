@@ -11,6 +11,7 @@ import com.example.data.dataStore
 import com.example.data.local.SlotDatabaseFactory
 import com.example.data.repository.GameSaveRepository
 import com.example.ui.viewmodel.GameViewModel
+import com.example.ui.viewmodel.selectSaveSlotSafely
 import com.example.usecase.TacticsUseCase
 import com.example.usecase.YouthAcademyUseCase
 import kotlinx.coroutines.delay
@@ -108,7 +109,7 @@ class Phase106OpenFailureRecoveryTest {
         dbFile.writeBytes("phase-10.6-open-failure".toByteArray())
         assertTrue(dbFile.exists())
 
-        viewModel.selectSaveSlot(slotId)
+        viewModel.selectSaveSlotSafely(slotId)
 
         repeat(200) {
             val recovery = viewModel.saveSlots.value.firstOrNull { it.id == slotId }?.recoveryRequired == true
