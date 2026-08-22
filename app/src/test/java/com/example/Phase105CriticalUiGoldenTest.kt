@@ -29,6 +29,7 @@ import com.example.ui.viewmodel.GameViewModel
 import com.example.usecase.TacticsUseCase
 import com.example.usecase.YouthAcademyUseCase
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
 import java.security.MessageDigest
@@ -90,6 +91,20 @@ class Phase105CriticalUiGoldenTest {
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
         return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun recordingOptions(): RoborazziOptions {
+        val previous = System.getProperty("roborazzi.test.record")
+        System.setProperty("roborazzi.test.record", "true")
+        return try {
+            RoborazziOptions()
+        } finally {
+            if (previous == null) {
+                System.clearProperty("roborazzi.test.record")
+            } else {
+                System.setProperty("roborazzi.test.record", previous)
+            }
+        }
     }
 
     @Test
@@ -293,7 +308,10 @@ class Phase105CriticalUiGoldenTest {
             assertNotNull("Golden SHA-256 ausente para $fileName", expected)
             val actualFile = File(moduleDir, "build/phase105-golden-actual/$fileName")
             actualFile.parentFile?.mkdirs()
-            composeTestRule.onRoot().captureRoboImage(filePath = actualFile.absolutePath)
+            composeTestRule.onRoot().captureRoboImage(
+                file = actualFile,
+                roborazziOptions = recordingOptions()
+            )
             require(actualFile.isFile) {
                 "Captura Roborazzi não foi materializada em ${actualFile.absolutePath}"
             }
