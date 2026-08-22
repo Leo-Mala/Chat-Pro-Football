@@ -1,5 +1,6 @@
 package com.example.usecase
 
+import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.AppDatabase
@@ -68,20 +69,7 @@ class Fc26BorrowerUnresolvedOwnershipTest {
             val id = 700L + index
             val source = sourcePlayer(id).markFc26UnassignedSourceClub()
             val sourceMetadata = requireNotNull(source.sourceMetadataOrNull())
-            val quarantined = source.markFc26LoanResolution(
-                Fc26LoanResolution(
-                    sourcePlayerId = id,
-                    playerId = id,
-                    playerName = source.name,
-                    ownerSourceName = "Factual Owner",
-                    borrowerSourceTeamId = 999L,
-                    borrowerSourceName = "Unresolved Borrower",
-                    ownerTeamId = null,
-                    borrowerTeamId = null,
-                    status = status,
-                    reason = "borrower cannot be resolved safely"
-                )
-            )
+            val quarantined = quarantine(source, status)
             repository.savePlayers(listOf(quarantined))
 
             assertNull(quarantined.teamId)
@@ -112,6 +100,60 @@ class Fc26BorrowerUnresolvedOwnershipTest {
             assertEquals(50_000_000L, repository.getGameSave()?.bankBalance)
         }
     }
+
+    @Test
+    fun `borrower unresolved quarantine survives Room close and reopen`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "phase_10_4_borrower_quarantine_reopen.db"
+        context.deleteDatabase(databaseName)
+        var fileDb: AppDatabase? = null
+        try {
+            fileDb = AppDatabase.buildDatabaseWithName(context, databaseName)
+            var fileRepository = GameRepository(fileDb)
+            val quarantined = quarantine(
+                sourcePlayer(900L).markFc26UnassignedSourceClub(),
+                Fc26LoanResolutionStatus.BORROWER_NOT_FOUND
+            )
+            fileRepository.savePlayers(listOf(quarantined))
+            fileDb.close()
+            fileDb = null
+
+            fileDb = AppDatabase.buildDatabaseWithName(context, databaseName)
+            fileRepository = GameRepository(fileDb)
+            val reopened = requireNotNull(fileRepository.getPlayer(quarantined.id))
+
+            assertEquals(quarantined.id, reopened.id)
+            assertEquals(quarantined.force, reopened.force)
+            assertEquals(quarantined.potential, reopened.potential)
+            assertEquals(quarantined.atributos, reopened.atributos)
+            assertNull(reopened.teamId)
+            assertNull(reopened.originalTeamId)
+            assertTrue(reopened.isOnLoan)
+            assertTrue(reopened.isFc26LoanOwnershipQuarantined())
+            assertFalse(reopened.isTransferMarketCandidateFor(USER_TEAM_ID))
+            assertNull(fileRepository.getActiveLoanForPlayer(reopened.id))
+            assertEquals("BORROWER_NOT_FOUND", reopened.sourceMetadataOrNull()?.loanResolutionStatus)
+        } finally {
+            fileDb?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    private fun quarantine(source: Player, status: Fc26LoanResolutionStatus): Player =
+        source.markFc26LoanResolution(
+            Fc26LoanResolution(
+                sourcePlayerId = source.id,
+                playerId = source.id,
+                playerName = source.name,
+                ownerSourceName = "Factual Owner",
+                borrowerSourceTeamId = 999L,
+                borrowerSourceName = "Unresolved Borrower",
+                ownerTeamId = null,
+                borrowerTeamId = null,
+                status = status,
+                reason = "borrower cannot be resolved safely"
+            )
+        )
 
     private fun sourcePlayer(id: Long) = Player(
         id = id,
