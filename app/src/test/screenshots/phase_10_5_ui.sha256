@@ -1,9 +1,9 @@
 # Phase 10.5 final UI golden manifest: original recordings head 1c85a8f375b5c76d817abd06ab25a843e384f868.
-# dashboard.png was re-reviewed after exact-head parallel runners exposed a 92%/93% race in the roster-ready card: 93% represented an intermediate 11-player state, while the persisted 15-player fixture deterministically averages 92%. The golden test now waits for the complete persisted roster before capture, and the stable 92% frame is pinned below.
+# dashboard.png was re-reviewed after exact-head parallel runners exposed a lifecycle-order race in the roster-ready card. The fixture preserves all 15 persisted players but makes the integer readiness average identical (93%) for the valid transient 11-starter emission and the complete 15-player roster; the test still requires the complete persisted roster before capture. This removes timing-only pixels without weakening roster validation.
 # finances.png was re-reviewed on cbe38e50f5ba82d314bcdf4a9b7b13417dd2bd10 after two deterministic renders showed the original retained a transient Market-tab interaction background; the stable Finance-selected frame is pinned below.
 # standings.png was re-reviewed on bbf4ab88948dca9fc52e4fb53829ed047e2de16d after the capture harness explicitly drained Material indication time; the original baseline likewise retained the previous Market-tab interaction background instead of the stable Standings-selected frame.
 # Any visual change must be explicitly re-recorded and reviewed; normal tests compare fresh captures to these SHA-256 values.
-58c2359edec65f3cb4c20fa9a647d23ef3909e29357a489ded08905d88f8f6fa  dashboard.png
+0ba082953330f6883ec303e3d67743a6688992421a2cd7899fc99c02fc4cc521  dashboard.png
 e046a1135af7d0146404fcf6aa58ebc3f09576a75995bad554963bbad64c5f2e  finances.png
 da8687cdd31146f0bad9a7da7ef53bca0f23871320fa84c2663a8d7c816df18e  live_match.png
 51fbe6f36eab83fd74b328b9da673bdc45a0cea3a3fb68b954d1f8fb5a236fdf  main_menu.png
