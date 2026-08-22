@@ -304,9 +304,11 @@ class Phase105CriticalUiGoldenTest {
 
         fun settleUiForGolden() {
             composeTestRule.waitForIdle()
-            // waitForIdle() does not guarantee that Material interaction/ripple indications have
-            // left their transient pressed frame. Advancing the Compose clock makes the golden
-            // represent the stable selected tab rather than a race-dependent pointer animation.
+            // Material3 Tab indications under Robolectric can remain in a real-time pressed/ripple
+            // frame after semantic click completion. This bounded test-only delay is intentionally
+            // longer than the indication/TabRow animation, then the Compose clock is drained too;
+            // no production timeout or performance budget is changed.
+            Thread.sleep(750L)
             composeTestRule.mainClock.advanceTimeBy(1_000L)
             composeTestRule.waitForIdle()
         }
