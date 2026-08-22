@@ -18,6 +18,21 @@ fun Player.isTransferMarketCandidateFor(teamId: Long?): Boolean {
 }
 
 /**
+ * True quando uma compra seria a conversão permanente de um jogador que já ocupa uma vaga no
+ * roster esportivo do comprador. É uma projeção de UI: o use case ainda revalida PlayerLoan e
+ * ownership dentro da transação antes de concluir a operação.
+ */
+fun Player.isInRosterLoanConversionFor(teamId: Long?): Boolean {
+    if (teamId == null || teamId <= 0L) return false
+    val borrowerTeamId = this.teamId ?: return false
+    val ownerTeamId = originalTeamId ?: return false
+    return isOnLoan &&
+        borrowerTeamId == teamId &&
+        ownerTeamId > 0L &&
+        ownerTeamId != teamId
+}
+
+/**
  * Read-only UI projection for a club's players currently loaned to another roster.
  * This is intentionally stricter than checking [originalTeamId] alone: incomplete/quarantined loan
  * state and non-positive endpoints are never exposed as owner-manageable. Domain actions still
