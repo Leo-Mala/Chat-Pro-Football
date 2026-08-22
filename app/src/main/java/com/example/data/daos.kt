@@ -26,6 +26,9 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE country = :leagueCountry ORDER BY division ASC, rating DESC, name ASC")
     fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>>
 
+    @Query("SELECT * FROM teams WHERE country = :country AND division = :division ORDER BY rating DESC, name ASC")
+    fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>>
+
     @Query("SELECT * FROM teams ORDER BY division ASC, rating DESC, name ASC")
     suspend fun getAllTeams(): List<Team>
 
@@ -168,6 +171,9 @@ interface FixtureDao {
 
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>>
+
+    @Query("SELECT * FROM fixtures WHERE season = :season AND competitionType = :competitionType AND isPlayed = 1 ORDER BY week ASC, matchSlot ASC, id ASC")
+    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>
 
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>

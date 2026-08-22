@@ -48,6 +48,32 @@ class TargetedUiFlowDaoTest {
     }
 
     @Test
+    fun dashboardLeagueFlowsExcludeOtherDivisionsCompetitionsAndSeasons() = runTest {
+        repository.saveTeams(
+            listOf(
+                Team(10L, "Usuário", "Cidade", "MG", "Brasil", 1),
+                Team(20L, "Rival", "Cidade", "SP", "Brasil", 1),
+                Team(30L, "Segunda", "Cidade", "RJ", "Brasil", 2),
+                Team(40L, "Exterior", "Cidade", "", "Argentina", 1)
+            )
+        )
+        repository.saveFixtures(
+            listOf(
+                Fixture(1L, 2026, 1, 10L, 20L, 2, 0, competitionType = "SERIE_A", isPlayed = true),
+                Fixture(2L, 2026, 2, 10L, 20L, competitionType = "SERIE_A", isPlayed = false),
+                Fixture(3L, 2026, 3, 10L, 20L, 1, 0, competitionType = "COPA", isPlayed = true),
+                Fixture(4L, 2025, 4, 10L, 20L, 1, 1, competitionType = "SERIE_A", isPlayed = true)
+            )
+        )
+
+        val teams = repository.getTeamsByCountryDivisionFlow("Brasil", 1).first()
+        val fixtures = repository.getPlayedFixturesForCompetitionFlow(2026, "SERIE_A").first()
+
+        assertEquals(listOf(10L, 20L), teams.map { it.id }.sorted())
+        assertEquals(listOf(1L), fixtures.map { it.id })
+    }
+
+    @Test
     fun nextFixtureFlowSkipsPlayedAndOtherTeamsAndReturnsEarliestPendingMatch() = runTest {
         repository.saveTeams(
             listOf(

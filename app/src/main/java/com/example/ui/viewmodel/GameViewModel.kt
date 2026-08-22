@@ -242,6 +242,59 @@ class GameViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /**
+     * Dashboard league context is intentionally scoped to the controlled club instead of
+     * observing every Team/Fixture row in the save. Repository switching remains flatMapLatest,
+     * so an old slot cannot keep feeding the new session.
+     */
+    val playerLeagueTeams: StateFlow<List<Team>> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(emptyList())
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                val teamId = save?.playerTeamId ?: 0L
+                if (teamId <= 0L) {
+                    flowOf(emptyList())
+                } else {
+                    r.getTeamFlow(teamId).flatMapLatest { team ->
+                        if (team == null) flowOf(emptyList())
+                        else r.getTeamsByCountryDivisionFlow(team.country, team.division)
+                    }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val playerLeagueFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(emptyList())
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                val teamId = save?.playerTeamId ?: 0L
+                if (save == null || teamId <= 0L) {
+                    flowOf(emptyList())
+                } else {
+                    r.getTeamFlow(teamId).flatMapLatest { team ->
+                        if (team == null) {
+                            flowOf(emptyList())
+                        } else {
+                            val competitionType = when (team.division) {
+                                1 -> "SERIE_A"
+                                2 -> "SERIE_B"
+                                3 -> "SERIE_C"
+                                else -> "SERIE_D"
+                            }
+                            r.getPlayedFixturesForCompetitionFlow(
+                                season = save.currentSeason,
+                                competitionType = competitionType
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val playerRoster: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
         if (r == null) {
             flowOf(emptyList())
