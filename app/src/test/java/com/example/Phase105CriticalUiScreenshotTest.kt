@@ -41,8 +41,8 @@ import org.robolectric.annotation.GraphicsMode
  * Golden fixture de produto da Fase 10.5.
  *
  * Usa os composables reais conectados a um GameViewModel e a um banco Room de slot real em
- * Robolectric. Assim, os screenshots exercitam exatamente os flows/queries direcionados usados
- * pela carreira, em vez de componentes placeholder ou snapshots montados fora do produto.
+ * Robolectric. A sessão é ativada sem disparar bootstrap/reparo assíncrono antes da instalação
+ * da fixture determinística; lifecycle/bootstrap possuem regressões próprias.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -76,8 +76,9 @@ class Phase105CriticalUiScreenshotTest {
             tacticsUseCase = TacticsUseCase()
         )
 
-        viewModel.selectSaveSlot(slotId)
-        val repository = saveRepository.getRepositoryForSlot(slotId)
+        val session = viewModel.getOrCreateSession(slotId)
+        viewModel._currentSaveId.value = slotId
+        val repository = session.repository
 
         val teams = listOf(
             Team(
