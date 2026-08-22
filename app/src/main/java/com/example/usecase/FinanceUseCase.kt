@@ -488,6 +488,17 @@ class FinanceUseCase(private val repository: GameRepository) {
         val updatedSave = currentSave.copy(bankBalance = currentSave.bankBalance - cost)
         repository.saveGameSave(updatedSave)
 
+        repository.saveTransaction(
+            TransactionRecord(
+                week = currentSave.currentWeek,
+                season = currentSave.currentSeason,
+                type = "MELHORIA_CT",
+                description = "Ampliação do CT para Nível ${currentLevel + 1}",
+                amount = cost,
+                isIncome = false
+            )
+        )
+
         FinanceResult.Success(
             updatedSave,
             "Centro de Treinamento ampliado para o Nível ${currentLevel + 1}!"
