@@ -25,25 +25,30 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Apply exact guarded replacements
+      - name: Apply exact function replacements
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          from textwrap import dedent, indent
 
-          def replace_once_or_verify(text, old, new, label):
-              old_count = text.count(old)
-              new_count = text.count(new)
-              if old_count == 1:
-                  return text.replace(old, new, 1), True
-              if old_count == 0 and new_count == 1:
+          def replace_between(text, start_marker, end_marker, replacement, label):
+              starts = text.count(start_marker)
+              ends = text.count(end_marker)
+              if starts != 1 or ends != 1:
+                  raise SystemExit(f'{label} boundary mismatch: start={starts} end={ends}')
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              current = text[start:end]
+              if current == replacement:
                   return text, False
-              raise SystemExit(f'{label} anchor mismatch: old={old_count} new={new_count}')
+              return text[:start] + replacement + text[end:], True
 
           repo_path = Path('app/src/main/java/com/example/data/repository.kt')
           repo_text = repo_path.read_text()
-          old_repo = '''    suspend fun deleteSave() {
+          repo_replacement = indent(dedent('''\
+          suspend fun deleteSave() = db.withTransaction {
               if (db.gameSaveDao().getGameSave() != null) {
                   throw CancellationException(
                       "Exclusão parcial de GameSave bloqueada: remova explicitamente o banco do slot."
@@ -51,151 +56,127 @@ jobs:
               }
               db.gameSaveDao().deleteSave()
           }
-          '''
-          new_repo = '''    suspend fun deleteSave() = db.withTransaction {
-              if (db.gameSaveDao().getGameSave() != null) {
-                  throw CancellationException(
-                      "Exclusão parcial de GameSave bloqueada: remova explicitamente o banco do slot."
-                  )
-              }
-              db.gameSaveDao().deleteSave()
-          }
-          '''
-          repo_text, _ = replace_once_or_verify(repo_text, old_repo, new_repo, 'repository.kt deleteSave')
+          '''), '    ')
+          repo_text, _ = replace_between(
+              repo_text,
+              '    suspend fun deleteSave()',
+              '\n\n    suspend fun promoteAcademyPlayerAtomically',
+              repo_replacement.rstrip(),
+              'repository.kt deleteSave'
+          )
           repo_path.write_text(repo_text)
 
           vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           vm_text = vm_path.read_text()
+          select_replacement = indent(dedent('''\
+          fun selectSaveSlot(saveId: String) {
+              val gen = sessionGeneration.incrementAndGet()
+              val repository = saveRepository.getRepositoryForSlot(saveId)
+              val session = SaveSession(saveId, repository, gen)
+              _activeSaveSession.value = session
+              _currentSaveId.value = saveId
+              _selectedTeamId.value = null
 
-          old_select = '''        viewModelScope.launch(Dispatchers.IO) {
-              if (session.generation != sessionGeneration.get()) return@launch
-              val targetRepo = session.repository
+              viewModelScope.launch(Dispatchers.IO) {
+                  try {
+                      if (session.generation != sessionGeneration.get()) return@launch
+                      val targetRepo = session.repository
 
-              seedAllDefaultTeams(targetRepo, _selectedCountry.value)
-              if (session.generation != sessionGeneration.get()) return@launch
+                      seedAllDefaultTeams(targetRepo, _selectedCountry.value)
+                      if (session.generation != sessionGeneration.get()) return@launch
 
-              val teams = targetRepo.getAllTeams()
-              val save = targetRepo.getGameSave()
-              if (save != null) {
-                  val targetTeam = targetRepo.getTeam(save.playerTeamId)
-                  if (targetTeam != null) {
-                      val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
-                      withContext(Dispatchers.Main) {
-                          _selectedCountry.value = resolvedCountry
-                      }
-                  }
-              } else {
-                  withContext(Dispatchers.Main) {
-                      _selectedCountry.value = "Brasil"
-                  }
-              }
-
-              // Always run robust roster repair synchronously to avoid race condition
-              repairRostersIfNecessarySync(session)
-
-              if (session.generation != sessionGeneration.get()) return@launch
-
-              // Auto-heal missing season fixtures
-              if (save != null) {
-                  val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
-                  if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
-                      val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
-                      targetRepo.saveFixtures(newFixtures)
-                  }
-              }
-          }
-          '''
-          new_select = '''        viewModelScope.launch(Dispatchers.IO) {
-              try {
-                  if (session.generation != sessionGeneration.get()) return@launch
-                  val targetRepo = session.repository
-
-                  seedAllDefaultTeams(targetRepo, _selectedCountry.value)
-                  if (session.generation != sessionGeneration.get()) return@launch
-
-                  val teams = targetRepo.getAllTeams()
-                  val save = targetRepo.getGameSave()
-                  if (save != null) {
-                      val targetTeam = targetRepo.getTeam(save.playerTeamId)
-                      if (targetTeam != null) {
-                          val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
+                      val teams = targetRepo.getAllTeams()
+                      val save = targetRepo.getGameSave()
+                      if (save != null) {
+                          val targetTeam = targetRepo.getTeam(save.playerTeamId)
+                          if (targetTeam != null) {
+                              val resolvedCountry = DefaultData.getCountryForTeam(targetTeam.name)
+                              withContext(Dispatchers.Main) {
+                                  _selectedCountry.value = resolvedCountry
+                              }
+                          }
+                      } else {
                           withContext(Dispatchers.Main) {
-                              _selectedCountry.value = resolvedCountry
+                              _selectedCountry.value = "Brasil"
                           }
                       }
-                  } else {
-                      withContext(Dispatchers.Main) {
-                          _selectedCountry.value = "Brasil"
+
+                      repairRostersIfNecessarySync(session)
+
+                      if (session.generation != sessionGeneration.get()) return@launch
+
+                      if (save != null) {
+                          val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
+                          if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
+                              val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
+                              targetRepo.saveFixtures(newFixtures)
+                          }
                       }
-                  }
+                  } catch (e: kotlinx.coroutines.CancellationException) {
+                      throw e
+                  } catch (e: Exception) {
+                      Log.e("GameViewModel", "Falha ao abrir carreira do slot $saveId; preservando para recuperação", e)
+                      if (session.generation != sessionGeneration.get()) return@launch
 
-                  // Always run robust roster repair synchronously to avoid race condition
-                  repairRostersIfNecessarySync(session)
+                      sessionGeneration.incrementAndGet()
+                      _activeSaveSession.value = null
+                      _currentSaveId.value = null
+                      _selectedTeamId.value = null
+                      _matchState.value = MatchState.IDLE
+                      saveRepository.closeAndRemoveSlot(saveId)
 
-                  if (session.generation != sessionGeneration.get()) return@launch
-
-                  // Auto-heal missing season fixtures
-                  if (save != null) {
-                      val seasonFixtures = targetRepo.getFixturesForSeason(save.currentSeason)
-                      if (seasonFixtures.isEmpty() && teams.isNotEmpty()) {
-                          val newFixtures = generateFixturesForSeason(save.currentSeason, teams, save.playerTeamId)
-                          targetRepo.saveFixtures(newFixtures)
+                      try {
+                          saveSlots.value = preferencesRepo.loadSaveSlots()
+                      } catch (reconcileError: kotlinx.coroutines.CancellationException) {
+                          throw reconcileError
+                      } catch (reconcileError: Exception) {
+                          Log.e("GameViewModel", "Falha ao reconciliar slot $saveId após erro de abertura", reconcileError)
                       }
+                      _toastMessage.emit("Não foi possível abrir a carreira. O slot foi preservado para recuperação.")
                   }
-              } catch (e: kotlinx.coroutines.CancellationException) {
-                  throw e
-              } catch (e: Exception) {
-                  Log.e("GameViewModel", "Falha ao abrir carreira do slot $saveId; preservando para recuperação", e)
-                  if (session.generation != sessionGeneration.get()) return@launch
+              }
+          }
+          '''), '    ')
+          vm_text, _ = replace_between(
+              vm_text,
+              '    fun selectSaveSlot(saveId: String) {',
+              '\n\n    fun repairRostersIfNecessary()',
+              select_replacement.rstrip(),
+              'GameViewModel selectSaveSlot'
+          )
 
-                  sessionGeneration.incrementAndGet()
-                  _activeSaveSession.value = null
-                  _currentSaveId.value = null
+          country_replacement = indent(dedent('''\
+          fun selectCountry(country: String) {
+              val session = _activeSaveSession.value ?: return
+              val targetRepo = session.repository
+              val generation = session.generation
+              _selectedCountry.value = country
+
+              viewModelScope.launch(Dispatchers.IO) {
+                  if (generation != sessionGeneration.get()) return@launch
+
+                  targetRepo.withTransaction {
+                      targetRepo.deleteSave()
+                      targetRepo.deleteFixtures()
+                      targetRepo.deleteOffers()
+                      seedAllDefaultTeams(targetRepo, country)
+                  }
                   _selectedTeamId.value = null
-                  _matchState.value = MatchState.IDLE
-                  saveRepository.closeAndRemoveSlot(saveId)
-
-                  try {
-                      saveSlots.value = preferencesRepo.loadSaveSlots()
-                  } catch (reconcileError: kotlinx.coroutines.CancellationException) {
-                      throw reconcileError
-                  } catch (reconcileError: Exception) {
-                      Log.e("GameViewModel", "Falha ao reconciliar slot $saveId após erro de abertura", reconcileError)
-                  }
-                  _toastMessage.emit("Não foi possível abrir a carreira. O slot foi preservado para recuperação.")
               }
           }
-          '''
-          vm_text, _ = replace_once_or_verify(vm_text, old_select, new_select, 'GameViewModel selectSaveSlot')
-
-          old_country = '''        viewModelScope.launch(Dispatchers.IO) {
-              if (generation != sessionGeneration.get()) return@launch
-
-              targetRepo.deleteSave()
-              targetRepo.deleteFixtures()
-              targetRepo.deleteOffers()
-              _selectedTeamId.value = null
-
-              seedAllDefaultTeams(targetRepo, country)
-          }
-          '''
-          new_country = '''        viewModelScope.launch(Dispatchers.IO) {
-              if (generation != sessionGeneration.get()) return@launch
-
-              targetRepo.withTransaction {
-                  targetRepo.deleteSave()
-                  targetRepo.deleteFixtures()
-                  targetRepo.deleteOffers()
-                  seedAllDefaultTeams(targetRepo, country)
-              }
-              _selectedTeamId.value = null
-          }
-          '''
-          vm_text, _ = replace_once_or_verify(vm_text, old_country, new_country, 'GameViewModel selectCountry')
+          '''), '    ')
+          vm_text, _ = replace_between(
+              vm_text,
+              '    fun selectCountry(country: String) {',
+              '\n\n    enum class MatchState',
+              country_replacement.rstrip(),
+              'GameViewModel selectCountry'
+          )
           vm_path.write_text(vm_text)
           PY
 
           git diff --check
+          git diff --stat -- app/src/main/java/com/example/data/repository.kt app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
           git diff -- app/src/main/java/com/example/data/repository.kt app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
 
       - name: Commit exact fixes when needed
