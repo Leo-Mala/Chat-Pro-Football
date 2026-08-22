@@ -11,6 +11,8 @@ on:
       - 'tools/fc26/**'
       - 'reports/fc26_*'
       - 'reports/phase_10_4_fc26_safe_loans.md'
+      - 'reports/phase_10_5_post_10_4_audit_and_final_roadmap.md'
+      - 'metadata.json'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
@@ -67,20 +69,11 @@ jobs:
             app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
             app/src/main/assets/football/fc26/fc26_manifest.json
 
-      - name: Setup google-services.json
-        env:
-          GOOGLE_SERVICES_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      - name: Setup validation google-services.json
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "$GOOGLE_SERVICES_SECRET" ]; then
-            if echo "$GOOGLE_SERVICES_SECRET" | grep -q '^{'; then
-              echo "$GOOGLE_SERVICES_SECRET" > app/google-services.json
-            else
-              echo "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
-            fi
-          else
-            cat << 'GOOGLE_EOF' > app/google-services.json
+          cat << 'GOOGLE_EOF' > app/google-services.json
           {
             "project_info": {
               "project_number": "1234567890",
@@ -103,7 +96,6 @@ jobs:
             "configuration_version": "1"
           }
           GOOGLE_EOF
-          fi
 
       - name: Setup Debug Keystore
         shell: bash
@@ -121,6 +113,30 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
+      - name: Setup ephemeral Release signing for validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_keystore="$RUNNER_TEMP/pro-football-validation-release.jks"
+          store_password="ci-validation-only"
+          key_alias="ci-validation"
+          key_password="ci-validation-only"
+          keytool -genkeypair -v \
+            -keystore "$release_keystore" \
+            -storepass "$store_password" \
+            -alias "$key_alias" \
+            -keypass "$key_password" \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=Pro Football CI Validation, O=CI, C=BR"
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=$store_password"
+            echo "KEY_ALIAS=$key_alias"
+            echo "KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+          printf '{"productionSigning":false,"keystoreSource":"ephemeral-ci-validation"}\n' \
+            > "$RUNNER_TEMP/release-signing-status.json"
+
       - name: Build Debug APK
         shell: bash
         run: |
@@ -129,11 +145,39 @@ jobs:
           ./gradlew --version
           ./gradlew assembleDebug --stacktrace
 
+      - name: Build and verify validation Release APK and AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease bundleRelease --stacktrace
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$release_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+
+      - name: Run Release startup smoke in validated chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
+
       - name: Run core regression and migration-save safety
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+
+      - name: Upload real UI screenshot captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-10-5-ui-screenshots
+          path: app/src/test/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Materialize FC26 and Phase 9.14 audit reports independently of cache
         shell: bash
@@ -221,11 +265,153 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      - name: Upload APK Artifact
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload validation Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk-validation
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload validation Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab-validation
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload validation release-signing audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signing-status-validation
+          path: ${{ runner.temp }}/release-signing-status.json
+          if-no-files-found: error
+          retention-days: 1
+
+  production-release:
+    name: Protected production Release Candidate signing
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    steps:
+      - name: Checkout exact validated dispatch SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact validated SHA before secrets
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::Production checkout SHA $actual_sha differs from validated dispatch SHA $EXPECTED_SHA."
+            exit 1
+          fi
+          echo "Production checkout pinned to validated SHA: $actual_sha"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Setup production google-services.json
+        env:
+          GOOGLE_SERVICES_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$GOOGLE_SERVICES_SECRET" ]; then
+            echo "::error::GOOGLE_SERVICES_JSON is required for the protected production Release Candidate job."
+            exit 1
+          fi
+          if echo "$GOOGLE_SERVICES_SECRET" | grep -q '^{'; then
+            printf '%s' "$GOOGLE_SERVICES_SECRET" > app/google-services.json
+          else
+            printf '%s' "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
+          fi
+
+      - name: Setup persistent production Release signing
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Missing protected production secret: $required"
+              exit 1
+            fi
+          done
+          release_keystore="$RUNNER_TEMP/pro-football-production-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$release_keystore"
+          chmod 600 "$release_keystore"
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
+            echo "KEY_ALIAS=$RELEASE_KEY_ALIAS"
+            echo "KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          printf '{"productionSigning":true,"keystoreSource":"protected-github-secrets","commit":"%s"}\n' \
+            "$GITHUB_SHA" > "$RUNNER_TEMP/release-signing-status.json"
+
+      - name: Build and strictly verify production Release APK and AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --stacktrace
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$release_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+
+      - name: Upload production Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk-production
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload production Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab-production
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload production signing audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signing-status-production
+          path: ${{ runner.temp }}/release-signing-status.json
           if-no-files-found: error
           retention-days: 1
 
@@ -260,10 +446,6 @@ jobs:
           HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          # The mapping/performance audit is intentionally NOT committed here.
-          # Runtime timings vary between CI executions and would otherwise create
-          # an endless synchronize -> CI -> bot commit loop. It remains available
-          # as the validation job artifact.
           paths=(
             app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin
             app/src/main/assets/football/fc26/fc26_manifest.json

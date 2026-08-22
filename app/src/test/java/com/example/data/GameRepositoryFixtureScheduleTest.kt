@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -131,6 +132,61 @@ class GameRepositoryFixtureScheduleTest {
         } catch (_: IllegalArgumentException) {
             // esperado
         }
+    }
+
+    @Test
+    fun unknownNonVirtualTeamReferenceIsRejectedWithoutPersistingFixture() = runTest {
+        seedTeams(1L)
+        val invalid = Fixture(
+            id = 40L,
+            season = 2026,
+            week = 4,
+            matchSlot = MatchSlot.WEEKEND,
+            homeTeamId = 1L,
+            awayTeamId = GlobalFootballSystem.VIRTUAL_TEAM_ID_FLOOR - 1L,
+            competitionType = "SERIE_A"
+        )
+
+        try {
+            repository.saveFixtures(listOf(invalid))
+            fail("Fixture com clube real não persistido deveria falhar fechado.")
+        } catch (_: IllegalArgumentException) {
+            // esperado
+        }
+
+        assertTrue(repository.getAllFixtures().isEmpty())
+    }
+
+    @Test
+    fun fullCalendarReferenceValidationSupportsMoreThanSqliteBindLimit() = runTest {
+        val teamIds = (1L..1_200L).toList()
+        repository.saveTeams(
+            teamIds.map { id ->
+                Team(
+                    id = id,
+                    name = "Time $id",
+                    city = "Cidade $id",
+                    state = "BR",
+                    country = "Brasil",
+                    division = 1
+                )
+            }
+        )
+        val fixtures = teamIds.chunked(2).mapIndexed { index, pair ->
+            Fixture(
+                id = 10_000L + index,
+                season = 2026,
+                week = 1,
+                matchSlot = MatchSlot.WEEKEND,
+                homeTeamId = pair[0],
+                awayTeamId = pair[1],
+                competitionType = "SERIE_A"
+            )
+        }
+
+        repository.saveFixtures(fixtures)
+
+        assertEquals(600, repository.getFixturesForSeason(2026).size)
     }
 
     private suspend fun seedTeams(vararg ids: Long) {

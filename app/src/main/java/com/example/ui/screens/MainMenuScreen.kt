@@ -3,19 +3,20 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -23,23 +24,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.ui.components.bounceClick
 import com.example.ui.components.pulseGlow
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.GameViewModel
 
+/**
+ * Wrapper compatível com a navegação atual. O menu não depende de estado de carreira, portanto o
+ * conteúdo visual fica separado do ViewModel para permitir preview/screenshot test determinístico
+ * e evitar uma coleta de GameSave que não era usada para renderização.
+ */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun MainMenuScreen(
     viewModel: GameViewModel,
     onNewGame: () -> Unit,
     onOpenSaves: () -> Unit,
     onOpenEditor: () -> Unit
 ) {
-    val gameSave by viewModel.gameSave.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    MainMenuContent(
+        onNewGame = onNewGame,
+        onOpenSaves = onOpenSaves,
+        onOpenEditor = onOpenEditor
+    )
+}
 
+@Composable
+fun MainMenuContent(
+    onNewGame: () -> Unit,
+    onOpenSaves: () -> Unit,
+    onOpenEditor: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -50,12 +66,12 @@ fun MainMenuScreen(
             )
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(24.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Futuristic Glowing Icon Logo Container
         Box(
             modifier = Modifier
                 .size(110.dp)
@@ -69,7 +85,7 @@ fun MainMenuScreen(
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = "PF Logo Crest",
+                contentDescription = "Escudo Pro Football",
                 modifier = Modifier.size(96.dp)
             )
         }
@@ -91,31 +107,31 @@ fun MainMenuScreen(
             fontSize = 12.sp,
             color = AccentLime,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            letterSpacing = 2.sp,
+            textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Stadium Hero Graphic with dynamic dark gloss overlay
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(190.dp),
+                .heightIn(min = 150.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
             border = BorderStroke(1.2.dp, Brush.verticalGradient(listOf(Color.White.copy(0.12f), Color.Transparent))),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp)) {
                 Image(
                     painter = painterResource(id = R.drawable.stadium_banner_1783311196063),
-                    contentDescription = "Stadium Banner",
-                    modifier = Modifier.fillMaxSize(),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop
                 )
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .matchParentSize()
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
@@ -134,7 +150,8 @@ fun MainMenuScreen(
                         color = AccentLime,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp
+                        letterSpacing = 1.5.sp,
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -148,14 +165,13 @@ fun MainMenuScreen(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(32.dp))
 
-        // Actions List - Re-styled with premium tactile feedback and subtle borders
         Button(
             onClick = onNewGame,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .pulseGlow()
                 .bounceClick()
                 .testTag("new_game_button"),
@@ -174,7 +190,7 @@ fun MainMenuScreen(
             onClick = onOpenSaves,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .bounceClick()
                 .testTag("open_saves_button"),
             colors = ButtonDefaults.buttonColors(
@@ -190,7 +206,8 @@ fun MainMenuScreen(
                 text = "ACESSAR SAVES / SLOTS",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
+                letterSpacing = 0.5.sp,
+                textAlign = TextAlign.Center
             )
         }
 
@@ -200,7 +217,7 @@ fun MainMenuScreen(
             onClick = onOpenEditor,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .bounceClick()
                 .testTag("open_editor_button"),
             colors = ButtonDefaults.buttonColors(
@@ -216,10 +233,11 @@ fun MainMenuScreen(
                 text = "EDITOR TÉCNICO",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
+                letterSpacing = 0.5.sp,
+                textAlign = TextAlign.Center
             )
         }
 
-        Spacer(modifier = Modifier.height(30.dp))
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }

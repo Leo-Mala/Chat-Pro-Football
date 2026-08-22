@@ -41,10 +41,13 @@ fun DashboardTab(
     val saveState by viewModel.gameSave.collectAsStateWithLifecycle()
     val nextFixture by viewModel.playerNextFixture.collectAsStateWithLifecycle()
     val playerTeam by viewModel.playerTeam.collectAsStateWithLifecycle()
-    val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()
+    val leagueTeams by viewModel.playerLeagueTeams.collectAsStateWithLifecycle()
 
     val roster by viewModel.playerRoster.collectAsStateWithLifecycle()
-    val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()
+    val leagueFixtures by viewModel.playerLeagueFixtures.collectAsStateWithLifecycle()
+    val dashboardSeasonFixtures by viewModel.dashboardSeasonFixtures.collectAsStateWithLifecycle()
+    val dashboardSeasonTeams by viewModel.dashboardSeasonTeams.collectAsStateWithLifecycle()
+    val nextOpponentTeam by viewModel.nextOpponentTeam.collectAsStateWithLifecycle()
     val formation by viewModel.playerFormation.collectAsStateWithLifecycle()
     val style by viewModel.playerStyle.collectAsStateWithLifecycle()
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
@@ -60,18 +63,10 @@ fun DashboardTab(
     val pTeam = playerTeam
     if (pTeam == null || s == null) return
 
-    val playerTeamPosition = remember(allFixtures, allTeams, pTeam) {
-        val selectedLeague = when (pTeam.division) {
-            1 -> "SERIE_A"
-            2 -> "SERIE_B"
-            3 -> "SERIE_C"
-            else -> "SERIE_D"
-        }
-        val leagueTeams = allTeams.filter { it.country == pTeam.country && it.division == pTeam.division }
+    val playerTeamPosition = remember(leagueFixtures, leagueTeams, pTeam) {
         val map = leagueTeams.associateWith { StandingRow(it.name) }.toMutableMap()
-        val playedFixtures = allFixtures.filter { it.competitionType == selectedLeague && it.isPlayed }
 
-        for (f in playedFixtures) {
+        for (f in leagueFixtures) {
             val homeT = leagueTeams.find { it.id == f.homeTeamId }
             val awayT = leagueTeams.find { it.id == f.awayTeamId }
             val hG = f.homeScore ?: 0
@@ -191,7 +186,7 @@ fun DashboardTab(
             val fix = nextFixture!!
             val isHome = fix.homeTeamId == s.playerTeamId
             val opponentId = if (isHome) fix.awayTeamId else fix.homeTeamId
-            val dbOpponent = allTeams.find { it.id == opponentId }
+            val dbOpponent = nextOpponentTeam?.takeIf { it.id == opponentId }
             val virtualOpponent = if (dbOpponent == null) GlobalFootballSystem.getVirtualTeam(opponentId) else null
             val opponentName = dbOpponent?.name ?: virtualOpponent?.name ?: "CPU"
             val opponentRating = dbOpponent?.rating ?: virtualOpponent?.rating ?: 50
@@ -623,8 +618,8 @@ fun DashboardTab(
         DashboardNewsFeedSection(
             save = s,
             playerTeam = pTeam,
-            allTeams = allTeams,
-            allFixtures = allFixtures,
+            allTeams = dashboardSeasonTeams,
+            allFixtures = dashboardSeasonFixtures,
             transactions = transactionHistory
         )
 

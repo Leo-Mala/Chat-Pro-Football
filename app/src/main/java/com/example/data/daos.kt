@@ -26,11 +26,23 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE country = :leagueCountry ORDER BY division ASC, rating DESC, name ASC")
     fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>>
 
+    @Query("SELECT * FROM teams WHERE country = :country AND division = :division ORDER BY rating DESC, name ASC")
+    fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>>
+
     @Query("SELECT * FROM teams ORDER BY division ASC, rating DESC, name ASC")
     suspend fun getAllTeams(): List<Team>
 
     @Query("SELECT * FROM teams WHERE id = :id")
     suspend fun getTeam(id: Long): Team?
+
+    @Query("SELECT * FROM teams WHERE id = :id")
+    fun getTeamFlow(id: Long): Flow<Team?>
+
+    @Query("SELECT id FROM teams WHERE id IN (:ids)")
+    suspend fun getExistingTeamIds(ids: List<Long>): List<Long>
+
+    @Query("SELECT * FROM teams WHERE id IN (:ids) ORDER BY name ASC")
+    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>>
 
     /**
      * Upsert evita a semântica DELETE+INSERT do SQLite REPLACE. Isso é essencial depois que Team
@@ -71,6 +83,21 @@ interface PlayerDao {
 
     @Query("SELECT * FROM players WHERE id = :id")
     suspend fun getPlayer(id: Long): Player?
+
+    /**
+     * Reset sazonal em action-set SQL. Só toca nos campos esportivos que pertencem ao reset e
+     * evita materializar dezenas de milhares de Player apenas para gravar valores constantes.
+     */
+    @Query("""
+        UPDATE players
+        SET energy = 100,
+            moral = 75,
+            injuryWeeksRemaining = 0,
+            suspensionWeeksRemaining = 0,
+            yellowCardsAccumulated = 0,
+            careerGoals = 0
+    """)
+    suspend fun resetSeasonState(): Int
 
     /**
      * Phase 9.12B: aplica o ciclo semanal de contratos como conjuntos de ações SQL.
@@ -148,11 +175,27 @@ interface FixtureDao {
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>>
 
+    @Query("SELECT * FROM fixtures WHERE season = :season AND competitionType = :competitionType AND isPlayed = 1 ORDER BY week ASC, matchSlot ASC, id ASC")
+    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>
+
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>>
+
+    @Query(
+        """
+        SELECT * FROM fixtures
+        WHERE season = :season
+          AND week >= :week
+          AND isPlayed = 0
+          AND (homeTeamId = :teamId OR awayTeamId = :teamId)
+        ORDER BY week ASC, matchSlot ASC, id ASC
+        LIMIT 1
+        """
+    )
+    fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?>
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture>

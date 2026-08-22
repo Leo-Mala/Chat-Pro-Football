@@ -11,28 +11,38 @@ ksp {
   arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+val hasReleaseSigning = !releaseStorePassword.isNullOrBlank() &&
+  !releaseKeyPassword.isNullOrBlank() &&
+  releaseKeystorePath?.let { file(it).isFile } == true
+
 android {
   namespace = "com.example"
   compileSdk = 35
 
   defaultConfig {
+    // Mantido por compatibilidade de upgrade/save nesta fase. A identidade visível do produto é Pro Football.
     applicationId = "com.aistudio.brasfutretro.djuxzt"
     minSdk = 24
     targetSdk = 35
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 30
+    versionName = "3.0.0"
     multiDexEnabled = true
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   signingConfigs {
-    create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+    if (hasReleaseSigning) {
+      create("release") {
+        storeFile = file(requireNotNull(releaseKeystorePath))
+        storePassword = releaseStorePassword
+        keyAlias = releaseKeyAlias
+        keyPassword = releaseKeyPassword
+      }
     }
     create("debugConfig") {
       val rootKeystore = file("${rootDir}/debug.keystore")
@@ -53,7 +63,9 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      if (hasReleaseSigning) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
     debug {
       signingConfig = signingConfigs.getByName("debugConfig")
@@ -73,8 +85,6 @@ android {
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)

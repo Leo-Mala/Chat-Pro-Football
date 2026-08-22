@@ -2,6 +2,8 @@ package com.example.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 
 class GameRepository(internal val db: AppDatabase) {
     suspend fun <R> withTransaction(block: suspend () -> R): R =
@@ -17,6 +19,25 @@ class GameRepository(internal val db: AppDatabase) {
     val gameSaveFlow: Flow<GameSave?> = db.gameSaveDao().getGameSaveFlow()
     val allTeamsFlow: Flow<List<Team>> = db.teamDao().getAllTeamsFlow()
     fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>> = db.teamDao().getTeamsByLeagueFlow(leagueCountry)
+    fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>> =
+        db.teamDao().getTeamsByCountryDivisionFlow(country, division)
+    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)
+    fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>> {
+        val distinctIds = ids.distinct()
+        if (distinctIds.isEmpty()) return flowOf(emptyList())
+        val chunkFlows = distinctIds
+            .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
+            .map { chunk -> db.teamDao().getTeamsByIdsFlow(chunk) }
+        if (chunkFlows.size == 1) return chunkFlows.single()
+        return combine(chunkFlows) { chunks ->
+            chunks
+                .asSequence()
+                .flatMap { it.asSequence() }
+                .distinctBy { it.id }
+                .sortedBy { it.name }
+                .toList()
+        }
+    }
     val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()
     val allFixturesFlow: Flow<List<Fixture>> = db.fixtureDao().getFixturesFlow()
     val allRecordsFlow: Flow<List<HistoricalRecord>> = db.historicalRecordDao().getAllRecordsFlow()
@@ -27,6 +48,10 @@ class GameRepository(internal val db: AppDatabase) {
     fun getPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> = db.playerDao().getPlayersByTeamFlow(teamId)
     fun getLegendsForTeamFlow(teamId: Long): Flow<List<ClubLegend>> = db.clubLegendDao().getLegendsForTeamFlow(teamId)
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)
+    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>> =
+        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)
+    fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =
+        db.fixtureDao().getNextFixtureForTeamFlow(season, week, teamId)
 
     suspend fun getGameSave(): GameSave? = db.gameSaveDao().getGameSave()
     suspend fun saveGameSave(save: GameSave) = db.gameSaveDao().insertOrUpdate(save)
@@ -56,10 +81,10 @@ class GameRepository(internal val db: AppDatabase) {
     /**
      * Reinicia o estado esportivo da temporada em uma única transação.
      *
-     * O snapshot de [GameSave] e dos jogadores é relido já dentro da transação para que um
-     * comando de reinício nunca sobrescreva silenciosamente saldo, contratos ou transferências
-     * que tenham sido persistidos antes de a transação adquirir o banco. Se a temporada ou o
-     * clube controlado mudaram desde o planejamento do calendário, a operação falha fechada.
+     * O snapshot de [GameSave] é relido já dentro da transação para que um comando de reinício
+     * nunca sobrescreva silenciosamente saldo, contratos ou transferências persistidos antes de a
+     * transação adquirir o banco. O estado sazonal de Player é zerado por action-set SQL, sem
+     * materializar a tabela inteira. Se temporada ou clube mudaram, a operação falha fechada.
      */
     suspend fun restartSeasonStateAtomically(
         expectedSeason: Int,
@@ -92,22 +117,7 @@ class GameRepository(internal val db: AppDatabase) {
             }
         }
 
-        val resetPlayers = db.playerDao().getAllPlayers().map { player ->
-            player.copy(
-                energy = 100,
-                moral = 75,
-                injuryWeeksRemaining = 0,
-                suspensionWeeksRemaining = 0,
-                yellowCardsAccumulated = 0,
-                careerGoals = 0
-            )
-        }
-        if (resetPlayers.size > 100) {
-            resetPlayers.chunked(100).forEach { db.playerDao().updatePlayers(it) }
-        } else if (resetPlayers.isNotEmpty()) {
-            db.playerDao().updatePlayers(resetPlayers)
-        }
-
+        db.playerDao().resetSeasonState()
         db.coachOfferDao().deleteOffers()
         true
     }
@@ -288,7 +298,14 @@ class GameRepository(internal val db: AppDatabase) {
             "Fixture não pode referenciar teamId <= 0."
         }
 
-        val persistedIds = db.teamDao().getAllTeams().asSequence().map { it.id }.toHashSet()
+        // Android devices may expose SQLite builds capped at 999 bind parameters. Keep every IN
+        // query comfortably below that limit so a full-career calendar with thousands of clubs
+        // cannot fail before fixture insertion reaches its own chunked writes.
+        val persistedIds = requiredIds
+            .toList()
+            .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
+            .flatMap { ids -> db.teamDao().getExistingTeamIds(ids) }
+            .toHashSet()
         val missing = requiredIds.filterNot { it in persistedIds }.sorted()
         if (missing.isEmpty()) return
 
@@ -378,4 +395,8 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun saveLoans(loans: List<PlayerLoan>) = db.playerLoanDao().insertLoans(loans)
     suspend fun updateLoan(loan: PlayerLoan) = db.playerLoanDao().updateLoan(loan)
     suspend fun deleteLoans() = db.playerLoanDao().deleteLoans()
+
+    private companion object {
+        const val SQLITE_SAFE_IN_QUERY_SIZE = 900
+    }
 }
