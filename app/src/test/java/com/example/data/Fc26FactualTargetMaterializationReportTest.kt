@@ -205,7 +205,7 @@ class Fc26FactualTargetMaterializationReportTest {
                 "fc26AttributesMutated" to false,
                 "nonStableIdRedirects" to nonStableRedirects.size,
                 "roomMigrationRequired" to false,
-                "roomVersion" to 21
+                "roomVersion" to 22
             )
         )
 
