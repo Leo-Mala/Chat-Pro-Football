@@ -639,8 +639,7 @@ class GameViewModel @Inject constructor(
             if (enabled) {
                 val save = repo.getGameSave()
                 if (save != null) {
-                    val allPls = repo.getAllPlayers()
-                    val myPlayers = allPls.filter { it.teamId == save.playerTeamId }
+                    val myPlayers = repo.getPlayersByTeam(save.playerTeamId)
                     if (myPlayers.isNotEmpty()) {
                         val fullyRestored = myPlayers.map { it.copy(energy = 100) }
                         repo.updatePlayers(fullyRestored)
