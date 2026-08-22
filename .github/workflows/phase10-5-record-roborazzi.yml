@@ -1,0 +1,100 @@
+name: Phase 10.5 Record Roborazzi Baselines
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/phase10-5-record-roborazzi.yml'
+      - 'app/src/test/java/com/example/GreetingScreenshotTest.kt'
+      - 'app/src/test/java/com/example/SavesScreenshotTest.kt'
+      - 'app/src/main/java/com/example/ui/screens/MainMenuScreen.kt'
+      - 'app/src/main/java/com/example/ui/screens/SavesScreen.kt'
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Setup Debug Keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore ~/.android/debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
+
+      - name: Discover and record Roborazzi baselines
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew tasks --all | grep -i roborazzi || true
+          ./gradlew recordRoborazziDebug --stacktrace
+          echo 'Generated screenshot files:'
+          find . -type f \( -name 'main_menu.png' -o -name 'saves_empty.png' -o -name 'saves_existing.png' \) -print
+          count=$(find . -type f \( -name 'main_menu.png' -o -name 'saves_empty.png' -o -name 'saves_existing.png' \) | wc -l)
+          test "$count" -eq 3
+
+      - name: Commit baselines
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          mapfile -t files < <(find . -type f \( -name 'main_menu.png' -o -name 'saves_empty.png' -o -name 'saves_existing.png' \) -print)
+          git add -- "${files[@]}"
+          if git diff --cached --quiet; then
+            echo 'No new baselines were generated.' >&2
+            exit 1
+          fi
+          git commit -m 'test: record Phase 10.5 Roborazzi golden baselines'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
