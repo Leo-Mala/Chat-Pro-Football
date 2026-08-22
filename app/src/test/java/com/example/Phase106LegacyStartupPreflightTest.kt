@@ -72,6 +72,32 @@ class Phase106LegacyStartupPreflightTest {
         assertTrue(wal.readBytes().contentEquals(originalBytes))
     }
 
+    @Test
+    fun validLegacyDatabaseIsAlreadyOpenWhenGuardedFactoryReturns() {
+        val name = SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME
+
+        // Materializa uma base canônica sem passar pelo método que está sob teste.
+        val prepared = AppDatabase.buildDatabaseWithName(context, name)
+        prepared.openHelper.writableDatabase
+        prepared.close()
+        assertTrue(databaseFile.exists())
+        assertTrue(databaseFile.length() > 0L)
+
+        val opened = AppDatabase.getDatabaseWithName(context, name)
+        try {
+            assertTrue(
+                "Factory legado deve forçar o primeiro open antes de devolver o Room",
+                opened.isOpen
+            )
+            assertTrue(
+                "Handle SQLite precisa estar disponível imediatamente no retorno",
+                opened.openHelper.writableDatabase.isOpen
+            )
+        } finally {
+            opened.close()
+        }
+    }
+
     private fun clearArtifacts() {
         val name = SlotDatabaseFactory.LEGACY_SLOT_1_DATABASE_NAME
         context.deleteDatabase(name)
