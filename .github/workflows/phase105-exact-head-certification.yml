@@ -32,11 +32,15 @@ concurrency:
 jobs:
   exact-validation:
     name: Exact-head full validation
-    if: github.event.pull_request.draft == false
+    # This certification is intentionally scoped to the Phase 10.5 release-candidate PR.
+    # Future PRs must use the repository's normal evolving validation instead of inheriting
+    # Phase 10.5 factual/version pins.
+    if: github.event.pull_request.draft == false && github.event.pull_request.number == 55
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       EXACT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PHASE_PR_NUMBER: ${{ github.event.pull_request.number }}
 
     steps:
       - name: Checkout exact PR head
@@ -261,7 +265,7 @@ jobs:
             --tests com.example.OneHundredSeasonMatchByMatchStressTest \
             --stacktrace
 
-      - name: Verify exported Room V22 schema
+      - name: Verify exported Room schema
         id: room_schema
         shell: bash
         run: |
@@ -276,8 +280,12 @@ jobs:
           print(match.group(1))
           PY
           )
-          test "$db_version" = "22"
-          schema_file="app/schemas/com.example.data.AppDatabase/22.json"
+          # Phase 10.5 itself is certified at V22, but the schema path is derived so this
+          # workflow cannot accidentally hard-block a legitimate future schema version.
+          if [ "$PHASE_PR_NUMBER" = "55" ]; then
+            test "$db_version" = "22"
+          fi
+          schema_file="app/schemas/com.example.data.AppDatabase/${db_version}.json"
           test -f "$schema_file"
           git ls-files --error-unmatch "$schema_file" >/dev/null
           git diff --exit-code -- "$schema_file"
@@ -286,6 +294,7 @@ jobs:
             exit 1
           fi
           echo "schema_file=$schema_file" >> "$GITHUB_OUTPUT"
+          echo "Room schema V${db_version}: $schema_file"
 
       - name: Upload exact-head audit artifacts
         uses: actions/upload-artifact@v4
@@ -296,7 +305,7 @@ jobs:
             reports/phase_9_13_weekly_lifecycle_performance.json
             reports/phase_9_14_fallback_architecture.json
             reports/global_main_audit_performance.json
-            app/schemas/com.example.data.AppDatabase/22.json
+            ${{ steps.room_schema.outputs.schema_file }}
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
@@ -306,7 +315,7 @@ jobs:
 
   exact-ui:
     name: Exact-head UI golden and accessibility
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event.pull_request.number == 55
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
