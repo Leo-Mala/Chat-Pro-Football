@@ -57,12 +57,14 @@ class Phase106OpenFailureRecoveryTest {
     }
 
     @After
-    fun tearDown() = runBlocking {
-        saveRepository.closeAllDatabases()
-        application.dataStore.edit { it.clear() }
-        application.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
-            .edit().clear().commit()
-        application.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+    fun tearDown() {
+        runBlocking {
+            saveRepository.closeAllDatabases()
+            application.dataStore.edit { it.clear() }
+            application.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
+                .edit().clear().commit()
+            application.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
+        }
     }
 
     @Test
