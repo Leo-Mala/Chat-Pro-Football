@@ -32,6 +32,9 @@ interface TeamDao {
     @Query("SELECT * FROM teams WHERE id = :id")
     suspend fun getTeam(id: Long): Team?
 
+    @Query("SELECT * FROM teams WHERE id = :id")
+    fun getTeamFlow(id: Long): Flow<Team?>
+
     @Query("SELECT id FROM teams WHERE id IN (:ids)")
     suspend fun getExistingTeamIds(ids: List<Long>): List<Long>
 
@@ -171,6 +174,19 @@ interface FixtureDao {
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>>
+
+    @Query(
+        """
+        SELECT * FROM fixtures
+        WHERE season = :season
+          AND week >= :week
+          AND isPlayed = 0
+          AND (homeTeamId = :teamId OR awayTeamId = :teamId)
+        ORDER BY week ASC, matchSlot ASC, id ASC
+        LIMIT 1
+        """
+    )
+    fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?>
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForWeek(season: Int, week: Int): List<Fixture>

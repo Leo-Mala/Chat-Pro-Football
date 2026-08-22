@@ -17,6 +17,7 @@ class GameRepository(internal val db: AppDatabase) {
     val gameSaveFlow: Flow<GameSave?> = db.gameSaveDao().getGameSaveFlow()
     val allTeamsFlow: Flow<List<Team>> = db.teamDao().getAllTeamsFlow()
     fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>> = db.teamDao().getTeamsByLeagueFlow(leagueCountry)
+    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)
     val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()
     val allFixturesFlow: Flow<List<Fixture>> = db.fixtureDao().getFixturesFlow()
     val allRecordsFlow: Flow<List<HistoricalRecord>> = db.historicalRecordDao().getAllRecordsFlow()
@@ -27,6 +28,8 @@ class GameRepository(internal val db: AppDatabase) {
     fun getPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> = db.playerDao().getPlayersByTeamFlow(teamId)
     fun getLegendsForTeamFlow(teamId: Long): Flow<List<ClubLegend>> = db.clubLegendDao().getLegendsForTeamFlow(teamId)
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)
+    fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =
+        db.fixtureDao().getNextFixtureForTeamFlow(season, week, teamId)
 
     suspend fun getGameSave(): GameSave? = db.gameSaveDao().getGameSave()
     suspend fun saveGameSave(save: GameSave) = db.gameSaveDao().insertOrUpdate(save)

@@ -169,56 +169,8 @@ class GameViewModel @Inject constructor(
     fun setPlayerStarter(playerId: Long, isStarter: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                repo.withTransaction {
-                    val player = repo.getPlayer(playerId) ?: return@withTransaction
-                    val roster = repo.getPlayersByTeam(player.teamId)
-                    
-                    if (isStarter) {
-                        val currentStarters = roster.filter { it.isStarter }
-                        if (player.position == "GOL") {
-                            val currentGK = currentStarters.find { it.position == "GOL" }
-                            if (currentGK != null) {
-                                repo.updatePlayer(currentGK.copy(isStarter = false))
-                                _toastMessage.tryEmit("Goleiro titular alterado!")
-                            } else {
-                                if (currentStarters.size >= 11) {
-                                    val lowestField = currentStarters.filter { it.position != "GOL" }.minByOrNull { it.force }
-                                    if (lowestField != null) {
-                                        repo.updatePlayer(lowestField.copy(isStarter = false))
-                                    }
-                                }
-                                _toastMessage.tryEmit("${player.name} escalado como goleiro titular!")
-                            }
-                        } else {
-                            val currentFieldStarters = currentStarters.filter { it.position != "GOL" }
-                            if (currentFieldStarters.size >= 10) {
-                                val lowestField = currentFieldStarters.minByOrNull { it.force }
-                                if (lowestField != null) {
-                                    repo.updatePlayer(lowestField.copy(isStarter = false))
-                                    _toastMessage.tryEmit("${player.name} escalado! ${lowestField.name} foi para o banco.")
-                                }
-                            } else if (currentStarters.size >= 11) {
-                                val lowest = currentStarters.minByOrNull { it.force }
-                                if (lowest != null) {
-                                    repo.updatePlayer(lowest.copy(isStarter = false))
-                                }
-                                _toastMessage.tryEmit("${player.name} escalado!")
-                            } else {
-                                _toastMessage.tryEmit("${player.name} escalado!")
-                            }
-                        }
-                    } else {
-                        if (player.position == "GOL") {
-                            val startingGKs = roster.count { it.isStarter && it.position == "GOL" }
-                            if (startingGKs <= 1) {
-                                _toastMessage.tryEmit("O time deve jogar com exatamente 1 goleiro titular!")
-                                return@withTransaction
-                            }
-                        }
-                        _toastMessage.tryEmit("${player.name} foi para o banco.")
-                    }
-                    repo.updatePlayer(player.copy(isStarter = isStarter))
-                }
+                val result = lineupUseCase.setPlayerStarter(playerId, isStarter)
+                _toastMessage.emit(result.message)
             } catch (e: Exception) {
                 Log.e("GameViewModel", "Erro ao alterar titularidade de jogador", e)
             }
@@ -227,32 +179,11 @@ class GameViewModel @Inject constructor(
 
     fun swapPlayers(starterId: Long, benchId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            repo.withTransaction {
-                val starter = repo.getPlayer(starterId)
-                val bench = repo.getPlayer(benchId)
-                if (starter != null && bench != null) {
-                    if (bench.position == "GOL") {
-                        val roster = repo.getPlayersByTeam(bench.teamId)
-                        val otherGK = roster.find { it.isStarter && it.id != starter.id && it.position == "GOL" }
-                        if (otherGK != null) {
-                            repo.updatePlayer(otherGK.copy(isStarter = false))
-                        }
-                        _toastMessage.tryEmit("Goleiro titular alterado!")
-                    } else if (starter.position == "GOL" && bench.position != "GOL") {
-                        val roster = repo.getPlayersByTeam(bench.teamId)
-                        val otherGK = roster.find { it.isStarter && it.id != starter.id && it.position == "GOL" }
-                        if (otherGK == null) {
-                            _toastMessage.tryEmit("Não é permitido jogar sem um goleiro titular!")
-                            return@withTransaction
-                        }
-                    } else {
-                        _toastMessage.tryEmit("Substituição realizada!")
-                    }
-
-                    val updatedStarter = starter.copy(isStarter = false)
-                    val updatedBench = bench.copy(isStarter = true)
-                    repo.updatePlayers(listOf(updatedStarter, updatedBench))
-                }
+            try {
+                val result = lineupUseCase.swapPlayers(starterId, benchId)
+                _toastMessage.emit(result.message)
+            } catch (e: Exception) {
+                Log.e("GameViewModel", "Erro ao trocar jogadores da escalação", e)
             }
         }
     }
@@ -300,36 +231,47 @@ class GameViewModel @Inject constructor(
     internal val _selectedTeamId = MutableStateFlow<Long?>(null)
     val selectedTeamId: StateFlow<Long?> = _selectedTeamId.asStateFlow()
 
-    val playerTeam: StateFlow<Team?> = combine(gameSave, allTeams) { save, teams ->
-        save?.let { s -> teams.find { it.id == s.playerTeamId } }
+    val playerTeam: StateFlow<Team?> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(null)
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                val teamId = save?.playerTeamId ?: 0L
+                if (teamId > 0L) r.getTeamFlow(teamId) else flowOf(null)
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val playerRoster: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
         if (r == null) {
             flowOf(emptyList())
         } else {
-            playerTeam.flatMapLatest { team ->
-                if (team != null) {
-                    r.getPlayersForTeamFlow(team.id)
-                } else {
-                    flowOf(emptyList())
-                }
+            r.gameSaveFlow.flatMapLatest { save ->
+                val teamId = save?.playerTeamId ?: 0L
+                if (teamId > 0L) r.getPlayersForTeamFlow(teamId) else flowOf(emptyList())
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val currentWeekFixtures: StateFlow<List<Fixture>> = combine(gameSave, allFixtures) { save, fixtures ->
-        save?.let { s -> fixtures.filter { it.season == s.currentSeason && it.week == s.currentWeek } } ?: emptyList()
+    val currentWeekFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(emptyList())
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                if (save == null) flowOf(emptyList())
+                else r.getFixturesForWeekFlow(save.currentSeason, save.currentWeek)
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val playerNextFixture: StateFlow<Fixture?> = combine(allFixtures, gameSave) { fixtures, save ->
-        if (save == null) null
-        else {
-            fixtures.filter { 
-                !it.isPlayed && 
-                it.week >= save.currentWeek && 
-                (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) 
-            }.minByOrNull { it.week }
+    val playerNextFixture: StateFlow<Fixture?> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(null)
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                if (save == null || save.playerTeamId <= 0L) flowOf(null)
+                else r.getNextFixtureForTeamFlow(save.currentSeason, save.currentWeek, save.playerTeamId)
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -340,6 +282,7 @@ class GameViewModel @Inject constructor(
     val financeUseCase: com.example.usecase.FinanceUseCase get() = com.example.usecase.FinanceUseCase(repo)
     val scoutingUseCase: com.example.usecase.ScoutingUseCase get() = com.example.usecase.ScoutingUseCase(repo)
     val playerEvolutionUseCase: com.example.usecase.PlayerEvolutionUseCase get() = com.example.usecase.PlayerEvolutionUseCase(repo)
+    val lineupUseCase: com.example.usecase.LineupUseCase get() = com.example.usecase.LineupUseCase(repo)
 
     // Match Engine UI states
     internal val _matchState = MutableStateFlow(MatchState.IDLE)
