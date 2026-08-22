@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -40,9 +41,10 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * Golden final das telas críticas da Fase 10.5.
  *
- * O slot é materializado antes de ser selecionado pelo ViewModel. Isso impede o bootstrap de um
- * banco vazio de concorrer com o fixture e evita que IDs artificiais colidam com o universo
- * factual FC26. Os IDs QA ficam deliberadamente fora do espaço usado pelos seeds de produção.
+ * O slot é materializado antes de ser conectado ao ViewModel. O golden não chama selectSaveSlot(),
+ * porque esse fluxo deliberadamente executa bootstrap/reparo e já é coberto pelos testes de
+ * lifecycle; aqui o objetivo é proteger somente a renderização/navegação de uma carreira já
+ * persistida. Os IDs QA ficam fora do espaço usado pelos seeds factuais FC26.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -229,7 +231,8 @@ class Phase105CriticalUiGoldenTest {
             youthAcademyUseCase = YouthAcademyUseCase(),
             tacticsUseCase = TacticsUseCase()
         )
-        viewModel.selectSaveSlot(slotId)
+        viewModel.getOrCreateSession(slotId)
+        viewModel._currentSaveId.value = slotId
 
         val surface = mutableStateOf("career")
         composeTestRule.setContent {
@@ -254,9 +257,9 @@ class Phase105CriticalUiGoldenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 8_000) {
-            viewModel.gameSave.value?.playerTeamId == homeId &&
-                viewModel.playerTeam.value?.id == homeId &&
-                composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodesWithTag("dashboard_tab").fetchSemanticsNodes().isNotEmpty() &&
+                composeTestRule.onAllNodesWithText("Atlético QA", substring = true)
+                    .fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
         capture("dashboard.png")
