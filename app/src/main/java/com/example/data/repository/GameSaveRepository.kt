@@ -201,14 +201,18 @@ class GameSaveRepository @Inject constructor(
     fun deleteSlotDatabase(slotId: String): Boolean {
         closeAndRemoveSlot(slotId)
         val databaseFile = databaseFileForSlot(slotId)
-        val mainDeleted = context.deleteDatabase(databaseNameForSlot(slotId))
-        var sidecarDeleted = false
-        databaseSidecarFiles(databaseFile).forEach { sidecar ->
-            if (sidecar.exists() && sidecar.delete()) {
-                sidecarDeleted = true
+        val sidecars = databaseSidecarFiles(databaseFile)
+        val hadPhysicalArtifact = databaseFile.exists() || sidecars.any { it.exists() }
+
+        context.deleteDatabase(databaseNameForSlot(slotId))
+        sidecars.forEach { sidecar ->
+            if (sidecar.exists()) {
+                sidecar.delete()
             }
         }
-        return mainDeleted || sidecarDeleted
+
+        val allArtifactsRemoved = !databaseFile.exists() && sidecars.none { it.exists() }
+        return hadPhysicalArtifact && allArtifactsRemoved
     }
 
     @Synchronized
