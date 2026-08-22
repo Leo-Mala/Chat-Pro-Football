@@ -121,7 +121,7 @@ jobs:
           assert safety['fc26PotentialMutated'] is False
           assert safety['fc26AttributesMutated'] is False
           assert safety['roomMigrationRequired'] is False
-          assert safety['roomVersion'] == 21
+          assert safety['roomVersion'] == 22
           print('FC26 factual target materialization policy validated')
           print(json.dumps({
               'targetTeams': after['targetTeams'],
