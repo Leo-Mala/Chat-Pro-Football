@@ -129,22 +129,22 @@ fun SavesContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("save_slot_${slot.id}")
-                        .clickable { onSelectSlot(slot.id) },
+                        .clickable(enabled = !slot.recoveryRequired) { onSelectSlot(slot.id) },
                     colors = CardDefaults.cardColors(
-                        containerColor = if (slot.exists) {
-                            CardSurfaceDark.copy(alpha = 0.85f)
-                        } else {
-                            CardSurfaceDark.copy(alpha = 0.4f)
+                        containerColor = when {
+                            slot.recoveryRequired -> CardSurfaceDark.copy(alpha = 0.7f)
+                            slot.exists -> CardSurfaceDark.copy(alpha = 0.85f)
+                            else -> CardSurfaceDark.copy(alpha = 0.4f)
                         }
                     ),
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(
                         width = 1.2.dp,
                         brush = Brush.horizontalGradient(
-                            colors = if (slot.exists) {
-                                listOf(AccentGold.copy(alpha = 0.4f), Color.Transparent)
-                            } else {
-                                listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
+                            colors = when {
+                                slot.recoveryRequired -> listOf(NeonRedAccent.copy(alpha = 0.55f), Color.Transparent)
+                                slot.exists -> listOf(AccentGold.copy(alpha = 0.4f), Color.Transparent)
+                                else -> listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
                             }
                         )
                     ),
@@ -160,22 +160,40 @@ fun SavesContent(
                             modifier = Modifier
                                 .size(52.dp)
                                 .background(
-                                    if (slot.exists) AccentGold.copy(alpha = 0.12f)
-                                    else Color.White.copy(alpha = 0.05f),
+                                    when {
+                                        slot.recoveryRequired -> NeonRedAccent.copy(alpha = 0.12f)
+                                        slot.exists -> AccentGold.copy(alpha = 0.12f)
+                                        else -> Color.White.copy(alpha = 0.05f)
+                                    },
                                     RoundedCornerShape(14.dp)
                                 )
                                 .border(
                                     1.dp,
-                                    if (slot.exists) AccentGold.copy(alpha = 0.3f)
-                                    else Color.White.copy(alpha = 0.1f),
+                                    when {
+                                        slot.recoveryRequired -> NeonRedAccent.copy(alpha = 0.35f)
+                                        slot.exists -> AccentGold.copy(alpha = 0.3f)
+                                        else -> Color.White.copy(alpha = 0.1f)
+                                    },
                                     RoundedCornerShape(14.dp)
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = if (slot.exists) Icons.Default.AccountBox else Icons.Default.Add,
-                                contentDescription = if (slot.exists) "Carreira existente" else "Novo perfil",
-                                tint = if (slot.exists) AccentGold else Color.Gray.copy(alpha = 0.7f),
+                                imageVector = when {
+                                    slot.recoveryRequired -> Icons.Default.Warning
+                                    slot.exists -> Icons.Default.AccountBox
+                                    else -> Icons.Default.Add
+                                },
+                                contentDescription = when {
+                                    slot.recoveryRequired -> "Carreira preservada aguardando recuperação"
+                                    slot.exists -> "Carreira existente"
+                                    else -> "Novo perfil"
+                                },
+                                tint = when {
+                                    slot.recoveryRequired -> NeonRedAccent
+                                    slot.exists -> AccentGold
+                                    else -> Color.Gray.copy(alpha = 0.7f)
+                                },
                                 modifier = Modifier.size(28.dp)
                             )
                         }
@@ -187,44 +205,75 @@ fun SavesContent(
                                 text = "CARREIRA SLOT ${slot.id}".uppercase(),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (slot.exists) AccentGold else Color.Gray,
+                                color = when {
+                                    slot.recoveryRequired -> NeonRedAccent
+                                    slot.exists -> AccentGold
+                                    else -> Color.Gray
+                                },
                                 letterSpacing = 1.5.sp
                             )
                             Spacer(modifier = Modifier.height(2.dp))
-                            if (slot.exists) {
-                                Text(
-                                    text = slot.coachName,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "${slot.teamName} • Temp. ${slot.season} (Sem. ${slot.week})",
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Saldo: R$ %,d".format(slot.balance),
-                                    fontSize = 12.sp,
-                                    color = AccentLime,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else {
-                                Text(
-                                    text = "Novo Perfil",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.4f)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Toque para iniciar do zero",
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.3f)
-                                )
+                            when {
+                                slot.recoveryRequired -> {
+                                    Text(
+                                        text = "RECUPERAÇÃO NECESSÁRIA",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = slot.recoveryMessage
+                                            ?: "Os dados foram preservados. Novo jogo bloqueado neste slot.",
+                                        fontSize = 12.sp,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (slot.coachName.isNotBlank() || slot.teamName.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "${slot.coachName} • ${slot.teamName}",
+                                            fontSize = 11.sp,
+                                            color = Color.White.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                                slot.exists -> {
+                                    Text(
+                                        text = slot.coachName,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "${slot.teamName} • Temp. ${slot.season} (Sem. ${slot.week})",
+                                        fontSize = 12.sp,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Saldo: R$ %,d".format(slot.balance),
+                                        fontSize = 12.sp,
+                                        color = AccentLime,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                else -> {
+                                    Text(
+                                        text = "Novo Perfil",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.4f)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Toque para iniciar do zero",
+                                        fontSize = 12.sp,
+                                        color = Color.White.copy(alpha = 0.3f)
+                                    )
+                                }
                             }
                         }
 
