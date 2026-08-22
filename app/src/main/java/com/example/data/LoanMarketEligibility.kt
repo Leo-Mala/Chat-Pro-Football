@@ -16,3 +16,18 @@ fun Player.isTransferMarketCandidateFor(teamId: Long?): Boolean {
         this.teamId != teamId
     }
 }
+
+/**
+ * Read-only UI projection for a club's players currently loaned to another roster.
+ * This is intentionally stricter than checking [originalTeamId] alone: incomplete/quarantined loan
+ * state and non-positive endpoints are never exposed as owner-manageable. Domain actions still
+ * revalidate the persisted [PlayerLoan] transactionally before changing a contract or ownership.
+ */
+fun Player.isOwnedLoanedOutBy(teamId: Long?): Boolean {
+    if (teamId == null || teamId <= 0L) return false
+    val borrowerTeamId = this.teamId ?: return false
+    return isOnLoan &&
+        originalTeamId == teamId &&
+        borrowerTeamId > 0L &&
+        borrowerTeamId != teamId
+}
