@@ -135,7 +135,7 @@ class Fc26SeedPlannerTest {
         assertEquals(2, plan.players.map { it.id }.distinct().size)
     }
 
-    @Test fun `owner equal borrower is rejected as self loan`() {
+    @Test fun `owner equal borrower is rejected and quarantined as self loan`() {
         val arsenal = team(2L, "Arsenal FC")
         val loaned = sourcePlayer(1L, "Arsenal", sourceId = 501L, fullName = "Self Loan Player", loanedFrom = "Arsenal")
         val dataset = Fc26Dataset(manifest(playerCount = 1, clubCount = 1, loanedPlayerCount = 1), listOf(loaned))
@@ -144,8 +144,17 @@ class Fc26SeedPlannerTest {
 
         assertTrue(plan.loans.isEmpty())
         assertEquals(1, plan.report.selfLoansRejected)
+        assertEquals(1, plan.report.rejectedLoans)
         assertEquals(Fc26LoanResolutionStatus.SELF_LOAN, plan.report.loanResolutions.single().status)
-        assertFalse(plan.players.single().isOnLoan)
+        val mapped = plan.players.single()
+        assertNull(mapped.teamId)
+        assertNull(mapped.originalTeamId)
+        assertTrue(mapped.isOnLoan)
+        assertTrue(mapped.isFc26LoanOwnershipQuarantined())
+        assertEquals(0, mapped.contractDurationWeeks)
+        assertEquals(0L, mapped.salary)
+        assertEquals("LOAN_OWNERSHIP_UNRESOLVED", mapped.sourceMetadataOrNull()?.assignmentStatus)
+        assertEquals(Fc26LoanResolutionStatus.SELF_LOAN.name, mapped.sourceMetadataOrNull()?.loanResolutionStatus)
     }
 
     @Test fun `audited alias resolves owner to canonical identity`() {
