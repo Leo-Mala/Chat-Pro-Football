@@ -1,7 +1,6 @@
 package com.example
 
 import android.content.Context
-import androidx.datastore.preferences.core.clear
 import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GamePreferencesRepository
