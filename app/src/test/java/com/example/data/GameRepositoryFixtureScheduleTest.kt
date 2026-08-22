@@ -157,6 +157,38 @@ class GameRepositoryFixtureScheduleTest {
         assertTrue(repository.getAllFixtures().isEmpty())
     }
 
+    @Test
+    fun fullCalendarReferenceValidationSupportsMoreThanSqliteBindLimit() = runTest {
+        val teamIds = (1L..1_200L).toList()
+        repository.saveTeams(
+            teamIds.map { id ->
+                Team(
+                    id = id,
+                    name = "Time $id",
+                    city = "Cidade $id",
+                    state = "BR",
+                    country = "Brasil",
+                    division = 1
+                )
+            }
+        )
+        val fixtures = teamIds.chunked(2).mapIndexed { index, pair ->
+            Fixture(
+                id = 10_000L + index,
+                season = 2026,
+                week = 1,
+                matchSlot = MatchSlot.WEEKEND,
+                homeTeamId = pair[0],
+                awayTeamId = pair[1],
+                competitionType = "SERIE_A"
+            )
+        }
+
+        repository.saveFixtures(fixtures)
+
+        assertEquals(600, repository.getFixturesForSeason(2026).size)
+    }
+
     private suspend fun seedTeams(vararg ids: Long) {
         repository.saveTeams(
             ids.map { id ->
