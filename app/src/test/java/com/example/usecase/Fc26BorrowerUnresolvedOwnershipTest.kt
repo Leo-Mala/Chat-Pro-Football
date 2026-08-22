@@ -50,7 +50,7 @@ class Fc26BorrowerUnresolvedOwnershipTest {
     }
 
     @Test
-    fun `borrower unresolved signals cannot become free agents or market ownership`() = runTest {
+    fun `rejected borrower signals cannot become free agents or market ownership`() = runTest {
         repository.saveTeams(
             listOf(
                 Team(USER_TEAM_ID, "User FC", "A", "SP", "Brasil", 1, rating = 75),
@@ -62,12 +62,16 @@ class Fc26BorrowerUnresolvedOwnershipTest {
         val transfers = ProcessTransfersUseCase(repository)
         val statuses = listOf(
             Fc26LoanResolutionStatus.BORROWER_NOT_FOUND,
-            Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
+            Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER,
+            Fc26LoanResolutionStatus.UNSUPPORTED_METADATA
         )
 
         statuses.forEachIndexed { index, status ->
             val id = 700L + index
-            val source = sourcePlayer(id).markFc26UnassignedSourceClub()
+            val source = sourcePlayer(
+                id = id,
+                includeBorrowerMetadata = status != Fc26LoanResolutionStatus.UNSUPPORTED_METADATA
+            ).markFc26UnassignedSourceClub()
             val sourceMetadata = requireNotNull(source.sourceMetadataOrNull())
             val quarantined = quarantine(source, status)
             repository.savePlayers(listOf(quarantined))
@@ -146,16 +150,16 @@ class Fc26BorrowerUnresolvedOwnershipTest {
                 playerId = source.id,
                 playerName = source.name,
                 ownerSourceName = "Factual Owner",
-                borrowerSourceTeamId = 999L,
-                borrowerSourceName = "Unresolved Borrower",
+                borrowerSourceTeamId = if (status == Fc26LoanResolutionStatus.UNSUPPORTED_METADATA) null else 999L,
+                borrowerSourceName = if (status == Fc26LoanResolutionStatus.UNSUPPORTED_METADATA) null else "Unresolved Borrower",
                 ownerTeamId = null,
                 borrowerTeamId = null,
                 status = status,
-                reason = "borrower cannot be resolved safely"
+                reason = "borrower cannot be materialized safely"
             )
         )
 
-    private fun sourcePlayer(id: Long) = Player(
+    private fun sourcePlayer(id: Long, includeBorrowerMetadata: Boolean = true) = Player(
         id = id,
         teamId = null,
         name = "Borrower unresolved $id",
@@ -166,7 +170,11 @@ class Fc26BorrowerUnresolvedOwnershipTest {
         salary = 90_000L,
         contractDurationWeeks = 52,
         atributos = Atributos(finalizacao = 85, velocidade = 86),
-        atributosJson = """{"import":{"source":"FC26","sourcePlayerId":$id,"datasetVersion":"test","birthDateIso":"2003-01-01","primaryPosition":"ST","alternativePositions":[],"sourceClubTeamId":999,"sourceClubName":"Unresolved Borrower","leagueId":1,"leagueName":"Test League","clubLoanedFrom":"Factual Owner"}}"""
+        atributosJson = if (includeBorrowerMetadata) {
+            """{"import":{"source":"FC26","sourcePlayerId":$id,"datasetVersion":"test","birthDateIso":"2003-01-01","primaryPosition":"ST","alternativePositions":[],"sourceClubTeamId":999,"sourceClubName":"Unresolved Borrower","leagueId":1,"leagueName":"Test League","clubLoanedFrom":"Factual Owner"}}"""
+        } else {
+            """{"import":{"source":"FC26","sourcePlayerId":$id,"datasetVersion":"test","birthDateIso":"2003-01-01","primaryPosition":"ST","alternativePositions":[],"sourceClubTeamId":null,"sourceClubName":null,"leagueId":1,"leagueName":"Test League","clubLoanedFrom":"Factual Owner"}}"""
+        }
     )
 
     companion object {
