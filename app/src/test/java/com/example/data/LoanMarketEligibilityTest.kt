@@ -18,6 +18,19 @@ class LoanMarketEligibilityTest {
     }
 
     @Test
+    fun `resolved borrower loanee is roster neutral conversion only for borrower`() {
+        val loanee = player(
+            teamId = BORROWER_ID,
+            originalTeamId = OWNER_ID,
+            isOnLoan = true
+        )
+
+        assertTrue(loanee.isInRosterLoanConversionFor(BORROWER_ID))
+        assertFalse(loanee.isInRosterLoanConversionFor(OWNER_ID))
+        assertFalse(loanee.isInRosterLoanConversionFor(THIRD_TEAM_ID))
+    }
+
+    @Test
     fun `owner does not see loaned out player as acquisition target`() {
         val loanee = player(
             teamId = BORROWER_ID,
@@ -41,7 +54,7 @@ class LoanMarketEligibilityTest {
     }
 
     @Test
-    fun `incomplete loan ownership fails closed in market and owner management`() {
+    fun `incomplete loan ownership fails closed in market owner management and conversion`() {
         val inconsistent = player(
             teamId = BORROWER_ID,
             originalTeamId = null,
@@ -51,10 +64,11 @@ class LoanMarketEligibilityTest {
         assertFalse(inconsistent.isTransferMarketCandidateFor(BORROWER_ID))
         assertFalse(inconsistent.isTransferMarketCandidateFor(OWNER_ID))
         assertFalse(inconsistent.isOwnedLoanedOutBy(OWNER_ID))
+        assertFalse(inconsistent.isInRosterLoanConversionFor(BORROWER_ID))
     }
 
     @Test
-    fun `invalid target team identity fails closed in market and owner management`() {
+    fun `invalid target team identity fails closed in market owner management and conversion`() {
         val loanee = player(
             teamId = BORROWER_ID,
             originalTeamId = OWNER_ID,
@@ -67,13 +81,21 @@ class LoanMarketEligibilityTest {
         assertFalse(loanee.isOwnedLoanedOutBy(null))
         assertFalse(loanee.isOwnedLoanedOutBy(0L))
         assertFalse(loanee.isOwnedLoanedOutBy(-1L))
+        assertFalse(loanee.isInRosterLoanConversionFor(null))
+        assertFalse(loanee.isInRosterLoanConversionFor(0L))
+        assertFalse(loanee.isInRosterLoanConversionFor(-1L))
     }
 
     @Test
-    fun `normal own player remains excluded and external player remains available`() {
-        assertFalse(player(teamId = OWNER_ID).isTransferMarketCandidateFor(OWNER_ID))
-        assertTrue(player(teamId = BORROWER_ID).isTransferMarketCandidateFor(OWNER_ID))
-        assertFalse(player(teamId = OWNER_ID).isOwnedLoanedOutBy(OWNER_ID))
+    fun `normal own and external players are never roster neutral loan conversions`() {
+        val own = player(teamId = OWNER_ID)
+        val external = player(teamId = BORROWER_ID)
+
+        assertFalse(own.isTransferMarketCandidateFor(OWNER_ID))
+        assertTrue(external.isTransferMarketCandidateFor(OWNER_ID))
+        assertFalse(own.isOwnedLoanedOutBy(OWNER_ID))
+        assertFalse(own.isInRosterLoanConversionFor(OWNER_ID))
+        assertFalse(external.isInRosterLoanConversionFor(OWNER_ID))
     }
 
     private fun player(
@@ -94,5 +116,6 @@ class LoanMarketEligibilityTest {
     companion object {
         private const val OWNER_ID = 10L
         private const val BORROWER_ID = 20L
+        private const val THIRD_TEAM_ID = 30L
     }
 }
