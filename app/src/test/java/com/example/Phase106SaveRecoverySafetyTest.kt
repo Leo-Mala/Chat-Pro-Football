@@ -16,8 +16,8 @@ import com.example.data.repository.GameSaveRepository
 import com.example.data.repository.SlotDatabaseState
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,6 +56,46 @@ class Phase106SaveRecoverySafetyTest {
     }
 
     @Test
+    fun metadataAndValidDatabaseRemainNormalSave() = runBlocking {
+        val expected = createCareer(
+            slotId = "1",
+            coachName = "Carreira Normal",
+            teamId = 9_001L,
+            teamName = "Clube Normal",
+            season = 2030,
+            week = 8,
+            balance = 81_000_000L
+        )
+        preferencesRepository.updateSlotMetadata(
+            saveId = "1",
+            coachName = expected.coachName,
+            teamName = "Clube Normal",
+            season = expected.currentSeason,
+            week = expected.currentWeek,
+            balance = expected.bankBalance
+        )
+
+        val slot = preferencesRepository.loadSaveSlots().single { it.id == "1" }
+        assertTrue(slot.exists)
+        assertFalse(slot.recoveryRequired)
+        assertEquals(expected.coachName, slot.coachName)
+        assertEquals("Clube Normal", slot.teamName)
+        assertFalse(saveRepository.isNewGameAllowed("1"))
+    }
+
+    @Test
+    fun noMetadataAndNoDatabaseIsTrulyEmpty() = runBlocking {
+        val inspection = saveRepository.inspectSlot("5")
+        assertEquals(SlotDatabaseState.MISSING, inspection.state)
+        assertTrue(inspection.newGameAllowed)
+
+        val slot = preferencesRepository.loadSaveSlots().single { it.id == "5" }
+        assertFalse(slot.exists)
+        assertFalse(slot.recoveryRequired)
+        assertTrue(saveRepository.isNewGameAllowed("5"))
+    }
+
+    @Test
     fun validDatabaseWithoutMetadataIsRecoveredAndProjectionIsRebuiltAfterReopen() = runBlocking {
         val expected = createCareer(
             slotId = "2",
@@ -67,7 +107,7 @@ class Phase106SaveRecoverySafetyTest {
             balance = 91_234_567L
         )
 
-        // Simula process death / restore parcial depois do commit Room e antes da metadata.
+        // Simula process death / restore D2D parcial depois do commit Room e antes da metadata.
         clearMetadata()
         reopenRepositories()
 
@@ -95,6 +135,43 @@ class Phase106SaveRecoverySafetyTest {
         val secondRecovery = preferencesRepository.loadSaveSlots().single { it.id == "2" }
         assertEquals(recovered.copy(updatedAt = secondRecovery.updatedAt), secondRecovery)
         assertEquals(expected, saveRepository.getRepositoryForSlot("2").getGameSave())
+    }
+
+    @Test
+    fun recoverySurvivesRepeatedReopensAndSubsequentCareerWrite() = runBlocking {
+        val original = createCareer(
+            slotId = "2",
+            coachName = "Recovery Persistente",
+            teamId = 9_052L,
+            teamName = "Clube Recovery",
+            season = 2032,
+            week = 11,
+            balance = 52_000_000L
+        )
+        clearMetadata()
+        reopenRepositories()
+
+        val firstRecovered = preferencesRepository.loadSaveSlots().single { it.id == "2" }
+        assertEquals(original.coachName, firstRecovered.coachName)
+
+        // Depois do recovery, uma gravação normal de carreira deve continuar autoritativa e
+        // reconstruir a projeção metadata sem depender do estado anterior.
+        val updated = original.copy(currentWeek = 12, bankBalance = 53_500_000L)
+        saveRepository.getRepositoryForSlot("2").saveGameSave(updated)
+        val afterWrite = preferencesRepository.loadSaveSlots().single { it.id == "2" }
+        assertEquals(12, afterWrite.week)
+        assertEquals(53_500_000L, afterWrite.balance)
+
+        repeat(3) {
+            reopenRepositories()
+            val reopened = preferencesRepository.loadSaveSlots().single { it.id == "2" }
+            assertTrue(reopened.exists)
+            assertFalse(reopened.recoveryRequired)
+            assertEquals(updated.coachName, reopened.coachName)
+            assertEquals(updated.currentWeek, reopened.week)
+            assertEquals(updated.bankBalance, reopened.balance)
+            assertEquals(updated, saveRepository.getRepositoryForSlot("2").getGameSave())
+        }
     }
 
     @Test
@@ -191,6 +268,33 @@ class Phase106SaveRecoverySafetyTest {
     }
 
     @Test
+    fun rapidAlternatingSlotInspectionNeverCrossesCareerData() = runBlocking {
+        val expected = mapOf(
+            "1" to createCareer("1", "Rápido Um", 9_601L, "Clube Um", 2031, 3, 11_000_000L),
+            "2" to createCareer("2", "Rápido Dois", 9_602L, "Clube Dois", 2032, 6, 22_000_000L),
+            "3" to createCareer("3", "Rápido Três", 9_603L, "Clube Três", 2033, 9, 33_000_000L)
+        )
+        clearMetadata()
+        reopenRepositories()
+
+        val order = listOf("1", "2", "3", "2", "1", "3")
+        repeat(20) { iteration ->
+            val slotId = order[iteration % order.size]
+            val inspection = saveRepository.inspectSlot(slotId)
+            assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
+            assertEquals(expected.getValue(slotId), inspection.save)
+            assertFalse(inspection.newGameAllowed)
+
+            val listed = preferencesRepository.loadSaveSlots().associateBy { it.id }
+            expected.forEach { (id, save) ->
+                assertEquals(save.coachName, listed.getValue(id).coachName)
+                assertFalse(listed.getValue(id).recoveryRequired)
+                assertEquals(save, saveRepository.getRepositoryForSlot(id).getGameSave())
+            }
+        }
+    }
+
+    @Test
     fun dataStoreFailureFallsBackToLegacyAndRoomStillRecoversCareer() = runBlocking {
         val expected = createCareer("2", "Fallback Durável", 9_402L, "Clube Fallback", 2035, 21, 44_000_000L)
         val failingRepository = GamePreferencesRepository(
@@ -199,7 +303,8 @@ class Phase106SaveRecoverySafetyTest {
             saveRepository = saveRepository
         )
 
-        // DataStore falha, mas SharedPreferences commit() confirma a projeção durável.
+        // Simula metadata indisponível/corrompida: DataStore falha, mas SharedPreferences commit()
+        // confirma a projeção durável e Room continua sendo a autoridade da carreira.
         failingRepository.updateSlotMetadata(
             saveId = "2",
             coachName = expected.coachName,
@@ -219,7 +324,7 @@ class Phase106SaveRecoverySafetyTest {
     }
 
     @Test
-    fun explicitDeletionRemainsTheOnlyPathThatMakesExistingCareerEmpty() = runBlocking {
+    fun explicitDeletionIsRequiredBeforeIntentionalReplacement() = runBlocking {
         createCareer("5", "Excluir Explicitamente", 9_505L, "Clube Cinco", 2036, 4, 55_000_000L)
         assertEquals(SlotDatabaseState.VALID_CAREER, saveRepository.inspectSlot("5").state)
         assertFalse(saveRepository.isNewGameAllowed("5"))
@@ -232,6 +337,20 @@ class Phase106SaveRecoverySafetyTest {
         assertTrue(inspection.newGameAllowed)
         val slot = preferencesRepository.loadSaveSlots().single { it.id == "5" }
         assertFalse(slot.exists)
+
+        val replacement = createCareer(
+            "5",
+            "Substituição Intencional",
+            9_555L,
+            "Novo Clube Cinco",
+            2040,
+            1,
+            65_000_000L
+        )
+        val replacementInspection = saveRepository.inspectSlot("5")
+        assertEquals(SlotDatabaseState.VALID_CAREER, replacementInspection.state)
+        assertEquals(replacement, replacementInspection.save)
+        assertFalse(replacementInspection.newGameAllowed)
     }
 
     private suspend fun createCareer(
