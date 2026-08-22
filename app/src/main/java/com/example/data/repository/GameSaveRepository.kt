@@ -116,7 +116,10 @@ class GameSaveRepository @Inject constructor(
     @Synchronized
     fun getRepositoryForSlot(slotId: String): GameRepository {
         requirePhysicalOpenAllowed(slotId)
-        repositories[slotId]?.let { return it }
+        repositories[slotId]?.let { repository ->
+            requireSemanticUseAllowed(repository.db)
+            return repository
+        }
 
         val database = databaseFactory.getDatabaseForSlot(slotId)
         try {
