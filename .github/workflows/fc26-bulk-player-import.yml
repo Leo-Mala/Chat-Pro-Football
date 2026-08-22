@@ -5,6 +5,7 @@ on:
     branches: [ "main" ]
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - 'app/src/main/java/com/example/data/Fc26LoanResolver.kt'
       - 'app/src/main/java/com/example/data/Fc26SeedPlanner.kt'
       - 'app/src/main/java/com/example/data/Fc26PlayerMetadata.kt'
       - 'app/src/main/java/com/example/usecase/CpuSquadManagementUseCase.kt'
@@ -103,6 +104,7 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
+            --tests com.example.data.Fc26RejectedLoanQuarantineIntegrationTest \
             --tests com.example.data.Fc26SeedPlannerTest \
             --tests com.example.data.Fc26PlayerMapperTest \
             --tests com.example.data.StableRealPlayerIdentityTest \
