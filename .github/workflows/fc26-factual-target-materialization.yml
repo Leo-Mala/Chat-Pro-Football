@@ -16,6 +16,7 @@ on:
       - 'app/src/test/java/com/example/data/Fc26ClubCandidateReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26FullSeedIntegrationTest.kt'
       - 'app/src/test/java/com/example/data/Fc26RejectedLoanQuarantineIntegrationTest.kt'
+      - 'reports/phase_10_4_fc26_safe_loans.md'
       - '.github/workflows/fc26-factual-target-materialization.yml'
   workflow_dispatch:
 

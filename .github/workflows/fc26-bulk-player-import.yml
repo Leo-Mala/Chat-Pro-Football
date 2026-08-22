@@ -79,20 +79,39 @@ jobs:
           else
             cat << 'GOOGLE_EOF' > app/google-services.json
           {
-            "project_info": {"project_number": "000000000000", "project_id": "ci-local", "storage_bucket": "ci-local.appspot.com"},
-            "client": [{"client_info": {"mobilesdk_app_id": "1:000000000000:android:0000000000000000", "android_client_info": {"package_name": "com.example"}}, "api_key": [{"current_key": "ci-local-key"}]}],
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                "android_client_info": {"package_name": "com.aistudio.brasfutretro.djuxzt"}
+              },
+              "oauth_client": [],
+              "api_key": [{"current_key": "AIzaSyDummyKeyForBuildOnly123456"}],
+              "services": {"appinvite_service": {"status": 1}}
+            }],
             "configuration_version": "1"
           }
           GOOGLE_EOF
           fi
 
       - name: Validate full 18,405-player bulk import explicitly
+        shell: bash
         run: |
+          set -euo pipefail
+          chmod +x gradlew
           ./gradlew testDebugUnitTest \
-            --tests com.example.data.Fc26SeedPlannerTest \
             --tests com.example.data.Fc26FullSeedIntegrationTest \
-            --tests com.example.data.EuropeanNewSaveSeedCoordinatorTest \
-            --no-daemon --stacktrace
+            --tests com.example.data.Fc26RejectedLoanQuarantineIntegrationTest \
+            --tests com.example.data.Fc26SeedPlannerTest \
+            --tests com.example.data.Fc26PlayerMapperTest \
+            --tests com.example.data.StableRealPlayerIdentityTest \
+            --tests com.example.data.EuropeanStableTeamIdentityTest \
+            -PexcludeStressTests=true \
+            --stacktrace
 
       - name: Stamp Phase 10.4 audit head
         env:
@@ -104,50 +123,51 @@ jobs:
           import json
           import os
           from pathlib import Path
-          path = Path("reports/phase_10_4_fc26_loans_audit.json")
+          path = Path('reports/phase_10_4_fc26_loans_audit.json')
           if not path.is_file():
-              raise SystemExit(f"Missing {path}")
-          payload = json.loads(path.read_text(encoding="utf-8"))
-          payload["auditHead"] = os.environ["AUDIT_HEAD_SHA"]
-          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+              raise SystemExit(f'Missing Phase 10.4 loan audit: {path}')
+          data = json.loads(path.read_text())
+          data['auditHead'] = os.environ['AUDIT_HEAD_SHA']
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
+          print(f"Phase 10.4 audit stamped: {data['auditHead']}")
           PY
 
       - name: Verify current Room schema
         shell: bash
         run: |
           set -euo pipefail
-          version="$(python3 - <<'PY'
+          db_version=$(python3 - <<'PY'
           import re
           from pathlib import Path
-          text = Path('app/src/main/java/com/example/data/database.kt').read_text(encoding='utf-8')
-          match = re.search(r'version\s*=\s*(\d+)', text)
+          source = Path('app/src/main/java/com/example/data/database.kt').read_text()
+          match = re.search(r'\bversion\s*=\s*(\d+)', source)
           if not match:
-              raise SystemExit('Unable to detect Room database version')
+              raise SystemExit('Could not resolve Room database version')
           print(match.group(1))
           PY
-          )"
-          schema="app/schemas/com.example.data.AppDatabase/${version}.json"
-          test -f "$schema"
-          git ls-files --error-unmatch "$schema"
-          echo "Room schema V${version} tracked: $schema"
+          )
+          schema_file="app/schemas/com.example.data.AppDatabase/${db_version}.json"
+          test -f "$schema_file"
+          git ls-files --error-unmatch "$schema_file" >/dev/null
+          echo "Room schema validated and tracked: $schema_file"
 
       - name: Upload FC26 bulk reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: fc26-bulk-player-import-reports
           path: |
-            reports/fc26_club_mapping_report.json
             reports/fc26_bulk_import_report.json
             reports/fc26_bulk_import_unresolved.json
+            reports/fc26_club_mapping_report.json
             reports/phase_10_4_fc26_loans_audit.json
           if-no-files-found: error
           retention-days: 1
 
       - name: Upload test report on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: fc26-bulk-player-import-test-report
-          path: app/build/reports/tests/testDebugUnitTest
+          name: fc26-bulk-import-test-report
+          path: app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
           retention-days: 1

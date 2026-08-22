@@ -1,38 +1,53 @@
 # Fase 10.4 — Empréstimos FC26 Seguros
 
-## Estado da fase
+## Estado e escopo
 
 - Repositório: `Leo-Mala/Chat-Pro-Football`
 - Baseline oficial: `main@f9c01e53130fe46762d988600aa3ec18c3ee4e1d`
 - Branch: `agent/phase-10-4-fc26-safe-loans`
 - PR: `#54 — feat: Fase 10.4 — FC26 safe loans`
-- Room: V22, sem mudança de schema e sem migration nova.
-- PR #34 permanece fora do escopo e não foi usado como fonte factual.
-- Head auditado no checkpoint factual FC26: `919a284cf5a6c78e67abec360d2a2d66d5bc4096`.
-- Gate consolidado Android/benchmark/stress: pendente da execução final no head definitivo.
+- Head técnico consolidado antes deste relatório: `5f63c17cc31b42ab3f5fc6edc2e9549c6c2722a9`
+- Room: V22, sem nova migration e sem `fallbackToDestructiveMigration`.
+- PR #34 permanece fora do escopo, Draft e congelado em `c421dafee0ecdd2ea23f7d4f794228ab5f881131`.
+- Não houve pesquisa de novos elencos, API-Football, reaproveitamento factual do PR #34 ou alteração de ratings/atributos FC26.
 
-## Objetivo e fonte factual
+O SHA final não é gravado literalmente neste arquivo porque o próprio conteúdo participa do cálculo do commit. O gate final exige que o artifact `phase_10_4_fc26_loans_audit.json` tenha `auditHead` exatamente igual ao head do PR que contém este relatório; a classificação/merge é registrada no PR após essa validação.
 
-A fase materializa somente empréstimos que podem ser resolvidos deterministicamente a partir do snapshot FC26 já integrado. Não há pesquisa externa, API-Football, atualização de elenco 2026/27 nem reaproveitamento de dados do PR #34.
+## Fonte factual FC26
 
-O snapshot validado contém 18.405 jogadores. A auditoria do pipeline encontrou os seguintes metadados relevantes:
+Snapshot validado:
 
-- `club_team_id`: identidade do clube atual na fonte;
-- `club_name`: nome do clube atual;
-- `club_position`: posição no clube atual;
-- `club_loaned_from`: sinal textual de clube proprietário/origem do empréstimo;
-- `contract_until_year`: informação de contrato principal.
+- 18.405 jogadores;
+- 662 clubes de origem;
+- 1.325 jogadores com `club_loaned_from` não nulo.
 
-O runtime FC26 não fornece data factual confiável de início ou término do empréstimo. `contract_until_year` não é tratado como `loan end`. Portanto:
+Metadados preservados no runtime:
 
-- `startDate`: `NOT_AVAILABLE`;
-- `endDate`: `NOT_AVAILABLE`;
-- nenhuma data de empréstimo é inventada;
-- a política temporal dos empréstimos FC26 sem data é `OPEN_ENDED_UNTIL_EXPLICIT_CAREER_EVENT`.
+- `club_team_id`;
+- `club_name`;
+- `club_position`;
+- `club_loaned_from`;
+- `contract_until_year`.
 
-## Cobertura real do dataset
+`contract_until_year` representa o contrato principal e não é usado como data de término do empréstimo. O snapshot não fornece datas factuais confiáveis de empréstimo, portanto:
 
-Artifact do workflow `FC26 Bulk Player Import #79`, no head `919a284cf5a6c78e67abec360d2a2d66d5bc4096`:
+- `startDate = NOT_AVAILABLE`;
+- `endDate = NOT_AVAILABLE`;
+- política temporal = `OPEN_ENDED_UNTIL_EXPLICIT_CAREER_EVENT`;
+- sentinel runtime: season/week/durationWeeks/remainingWeeks = `0`;
+- nenhuma data, taxa semanal ou opção de compra é inventada.
+
+## Resolução owner / borrower
+
+O borrower é o clube atual factual do snapshot quando existe match canônico seguro. O owner é resolvido a partir de `club_loaned_from`. A resolução aceita apenas identidade explícita/estável, nome/alias exato ou normalização conservadora única. Fuzzy matching é somente diagnóstico e nunca promove uma relação.
+
+Antes de materializar `PlayerLoan` são exigidos `playerId > 0`, owner/borrower positivos, owner diferente do borrower, borrower coerente com o roster atual e ausência de segunda relação ativa incompatível.
+
+Categorias auditáveis: `RESOLVED`, `AMBIGUOUS_OWNER`, `AMBIGUOUS_BORROWER`, `OWNER_NOT_FOUND`, `BORROWER_NOT_FOUND`, `SELF_LOAN`, `DUPLICATE_ACTIVE_LOAN`, `INVALID_REFERENCE` e `UNSUPPORTED_METADATA`.
+
+## Métricas factuais consolidadas
+
+O workflow `FC26 Bulk Player Import #111`, no head técnico `5f63c17c...`, terminou SUCCESS. O artifact manteve as métricas:
 
 | Métrica | Resultado |
 |---|---:|
@@ -41,12 +56,13 @@ Artifact do workflow `FC26 Bulk Player Import #79`, no head `919a284cf5a6c78e67a
 | processedPlayers | 18.405 |
 | importedPlayers | 18.405 |
 | persistedPlayers | 60.885 |
-| jogadores com sinal de empréstimo | 1.325 |
+| datasetLoanPlayers | 1.325 |
 | resolvedLoans | 816 |
 | rejectedLoans | 509 |
-| ambiguousLoans | 1 |
 | ownerNotFound | 60 |
 | borrowerNotFound | 448 |
+| ambiguousBorrower | 1 |
+| ambiguousOwner real no snapshot | 0 |
 | selfLoansRejected | 0 |
 | duplicateLoans | 0 |
 | duplicatePlayerIds | 0 |
@@ -55,231 +71,124 @@ Artifact do workflow `FC26 Bulk Player Import #79`, no head `919a284cf5a6c78e67a
 | potentialMutated | 0 |
 | attributesMutated | 0 |
 
-Distribuição de status medida:
+Distribuição factual: `RESOLVED=816`, `BORROWER_NOT_FOUND=448`, `OWNER_NOT_FOUND=60`, `AMBIGUOUS_BORROWER=1`.
 
-- `RESOLVED`: 816;
-- `BORROWER_NOT_FOUND`: 448;
-- `OWNER_NOT_FOUND`: 60;
-- `AMBIGUOUS_BORROWER`: 1.
+## Fail-closed e quarentena
 
-Os 509 casos rejeitados não são promovidos por heurística. Eles permanecem fail-closed e auditáveis.
+Nenhum dos 509 sinais rejeitados é convertido em ownership por heurística.
 
-## Resolução de owner, borrower e aliases
+- borrower não resolvido/ambíguo permanece sem clube runtime negociável;
+- owner não resolvido/ambíguo entra em estado de quarentena `LOAN_OWNERSHIP_UNRESOLVED`;
+- a quarentena não cria `PlayerLoan` fictício;
+- não autoriza venda, recompra, reempréstimo, renovação de contrato, aposentadoria com prospecto para o borrower ou qualquer inferência de ownership;
+- corrupção/stale state detectada pelo financeiro também termina em quarentena ou owner verificado, nunca em promoção do roster atual para owner.
 
-O borrower é o clube atual do jogador no snapshot, desde que esse clube tenha associação canônica segura no universo do jogo. O owner é resolvido a partir de `club_loaned_from`.
+IDs, force/overall, potential e `Atributos` permanecem factuais e imutáveis.
 
-A resolução reutiliza as identidades/aliases conservadores já suportados pelo projeto. São aceitos apenas matches determinísticos: identidade explícita auditada, identidade estável conhecida, nome/alias exato e normalização conservadora única. Similaridade textual/fuzzy pode aparecer apenas em diagnóstico e nunca promove um candidato a relação persistida.
+## Lifecycle de empréstimo
 
-Antes da persistência são exigidos:
+Para relações `RESOLVED`:
 
-- `playerId > 0`;
-- `ownerTeamId > 0`;
-- `borrowerTeamId > 0`;
-- `ownerTeamId != borrowerTeamId`;
-- borrower igual ao roster atual resolvido;
-- nenhuma segunda relação ativa incompatível para o mesmo jogador;
-- nenhuma referência ambígua ou inexistente.
-
-## Fail-closed
-
-A resolução classifica explicitamente falhas, em vez de usar um booleano genérico. O domínio suporta as categorias:
-
-- `RESOLVED`;
-- `AMBIGUOUS_OWNER`;
-- `AMBIGUOUS_BORROWER`;
-- `OWNER_NOT_FOUND`;
-- `BORROWER_NOT_FOUND`;
-- `SELF_LOAN`;
-- `DUPLICATE_ACTIVE_LOAN`;
-- `INVALID_REFERENCE`;
-- `UNSUPPORTED_METADATA`.
-
-Uma inconsistência de empréstimo não aborta a importação completa dos 18.405 jogadores. Apenas a relação insegura deixa de ser materializada.
-
-## Owner x roster esportivo
-
-Para uma relação `RESOLVED`:
-
-- o jogador permanece uma única linha/identidade;
-- `Player.teamId` representa o borrower e, portanto, o roster esportivo atual;
-- `Player.originalTeamId` preserva o owner;
+- há uma única identidade de jogador;
+- `Player.teamId` é o roster esportivo borrower;
+- `Player.originalTeamId` é o owner;
 - `Player.isOnLoan = true`;
-- `PlayerLoan` persiste a relação owner/borrower separadamente;
-- o owner não recebe uma segunda cópia escalável do jogador.
+- `PlayerLoan` guarda owner/borrower e estado temporal.
 
-O mercado passou a diferenciar roster atual de propriedade. O borrower pode abrir negociação para compra permanente do atleta que está em seu elenco por empréstimo, enquanto o owner não vê o próprio atleta emprestado para fora como alvo de aquisição.
+O sentinel FC26 open-ended não sofre countdown inventado. O empréstimo pode terminar por retorno/recall explícito, transferência permanente ou perda real do vínculo principal.
 
-## Idempotência
+`LoanLifecycleUseCase.returnToOwner` revalida Player/PlayerLoan dentro da transação. Linha stale não movimenta o jogador. Se o contrato principal já expirou, o jogador vira free agent; o contrato não é recriado.
 
-A relação FC26 usa identidade determinística de snapshot baseada no `playerId`, dentro de namespace próprio. Reprocessar o mesmo snapshot gera os mesmos players e os mesmos loans.
-
-Os testes verificam que a mesma relação inserida novamente não cria duplicidade e que o novo-save seed é one-shot por `GameRepository`, impedindo reaproveitamento acidental do snapshot em operações posteriores.
-
-## New Save, save/reopen e isolamento
-
-O caminho real de novo save consome `players` e `loans` do mesmo plano factual. A seed temporária é associada ao `GameRepository` do slot e removida após consumo; não existe cache global de empréstimos compartilhado entre saves.
-
-O teste de integração fecha e reabre o banco Room e verifica:
-
-- mesmo `playerId`;
-- mesmo owner;
-- mesmo borrower;
-- status `ACTIVE` preservado;
-- roster no borrower;
-- propriedade no owner;
-- mesma contagem de empréstimos ativos.
-
-Teste dedicado com dois bancos independentes confirma que encerrar um empréstimo em um save não altera o outro.
-
-## Lifecycle e política temporal
-
-Empréstimos FC26 sem data factual são persistidos com sentinel temporal explícito (`0`) e reconhecidos por `Fc26LoanPolicy.isUnknownEndSnapshotLoan`. Esse sentinel significa desconhecido, não “vence agora”.
-
-Consequências:
-
-- não há decremento semanal inventado;
-- não há taxa semanal inventada;
-- não há retorno automático por data inexistente;
-- encerramento ocorre por evento explícito da carreira, como retorno comandado, transferência definitiva ou perda do vínculo principal;
-- processamento repetido de retorno/encerramento é idempotente.
-
-O integrity check semanal distingue esse sentinel de um empréstimo gameplay inválido com prazo esgotado.
-
-## Retorno ao owner
-
-`LoanLifecycleUseCase.returnToOwner` executa em transação Room única. Para contrato principal ainda ativo, move o roster de volta ao owner, limpa `originalTeamId`, `isOnLoan` e o estado de prazo do empréstimo, e marca `PlayerLoan` como concluído.
-
-Se o contrato principal já expirou, o jogador é liberado como free agent em vez de ter o contrato recriado.
-
-O retorno preserva `playerId`, overall/force, potential, atributos e evolução/histórico já persistidos.
-
-## Transferência permanente durante empréstimo
-
-Compra/venda definitiva é mantida dentro do `ProcessTransfersUseCase` para que:
-
-- saldo;
-- histórico financeiro;
-- parcelas;
-- contrato;
-- roster;
-- propriedade;
-- fechamento do `PlayerLoan`
-
-participem da mesma transação.
-
-O fluxo valida novamente Player e PlayerLoan dentro da transação. Uma linha ativa stale não autoriza ownership: a operação falha fechada se `isOnLoan`, borrower, owner e `originalTeamId` divergirem.
-
-O borrower não pode vender um jogador que não possui. O owner pode vender um jogador emprestado para fora mesmo estando no mínimo de 16 jogadores ativos, pois a venda não reduz seu roster esportivo atual.
-
-Na conversão de empréstimo em compra definitiva, o wage-cap substitui o salário atual do loanee pelo novo salário contratual; não soma os dois salários. A mesma regra vale para compra à vista e parcelada.
-
-Um teste com trigger SQLite força falha no histórico após mutações intermediárias e comprova rollback conjunto de saldo, Player, PlayerLoan e histórico.
+O fluxo de retorno/recall foi ligado à UI de produção com autorização ownership-aware.
 
 ## Contratos
 
-Contrato principal e período de empréstimo continuam conceitos separados. A fase não usa `contract_until_year` como fim de empréstimo e não destrói o contrato do owner ao materializar a relação.
+Borrower não pode renovar o contrato principal de um loanee. O owner humano pode renovar um jogador emprestado para fora pela projeção owner-side da UI.
 
-Não foi necessário redesign do sistema de contratos nem mudança de schema.
+Para owner CPU, a manutenção semanal inclui loanees consistentes na decisão de retenção por `originalTeamId`. Essa decisão ocorre antes de `FinanceUseCase`, impedindo que um snapshot loan seja encerrado/free-agent antes de a CPU ter oportunidade de renovar o contrato principal.
 
-## Room
+Se um snapshot loan chega à última semana sem renovação válida, ele é encerrado no mesmo fechamento semanal, sem uma semana extra de ownership artificial.
 
-O schema permanece V22 porque já existiam:
+## Transferências permanentes e UI
 
-- `Player.teamId`;
-- `Player.originalTeamId`;
-- `Player.isOnLoan`;
-- tabela `player_loans` com `playerId`, `ownerTeamId`, `borrowerTeamId`, status e campos temporais.
+O borrower pode converter seu loanee em compra permanente, mas não pode vendê-lo como owner. O owner pode vender um jogador emprestado para fora mesmo com exatamente 16 atletas no roster ativo, porque essa venda não reduz seu elenco esportivo atual.
 
-Não há `fallbackToDestructiveMigration`, limpeza de banco ou recriação automática de saves. Nenhuma migration V22→V23 foi necessária.
+Na conversão compra/parcelamento, o wage-cap substitui o salário do loanee pelo novo salário contratual e não soma os dois. Saldo, histórico, parcelas, contrato, roster, ownership e encerramento do `PlayerLoan` participam da mesma transação Room.
 
-O workflow FC26 tinha uma verificação histórica hardcoded em V21. Ela foi corrigida para ler a versão atual de `database.kt` e exigir o schema correspondente versionado, sem enfraquecer a barreira de imutabilidade das superfícies Room/identidade.
+A UI owner-side expõe renovação e venda (à vista/parcelada) para jogadores emprestados para fora. A geração semanal de ofertas não cria propostas impossíveis para jogadores apenas recebidos por empréstimo.
 
-## Coroutines e transações
+## Atomicidade, save/reopen e isolamento
 
-A fase não introduz `GlobalScope`, `runBlocking` em produção ou parsing do universo FC26 dentro de transações. O planejamento/resolução do snapshot ocorre antes da persistência; transações carregam apenas as mutações necessárias.
+Testes cobrem:
 
-O lifecycle semanal não usa `getAllPlayers()` para loans. Os empréstimos ativos são agrupados por borrower e usam consultas de roster por `teamId`. O helper temporário com `IN (:ids)` foi removido, evitando limite de variáveis SQLite e alteração de DAO protegida.
+- rollback forçado após mutações intermediárias;
+- Player, PlayerLoan, saldo e histórico restaurados juntos;
+- novo save com players/loans do mesmo plano factual;
+- save/reopen preservando playerId, owner, borrower, status e contagem ativa;
+- isolamento entre slots independentes;
+- seed one-shot por `GameRepository` sem cache global compartilhado.
 
-## UI
+## Room e concorrência
 
-Não houve redesign. O ajuste mínimo no mercado usa ownership para:
+- schema atual verificado: `app/schemas/com.example.data.AppDatabase/22.json`;
+- artifact Android #758 contém `22.json` com `version: 22`;
+- nenhuma migration V22→V23 foi criada;
+- nenhuma limpeza/destructive migration foi adicionada;
+- sem `GlobalScope` ou `runBlocking` novo em produção;
+- resolução/parsing do universo FC26 ocorre fora das transações;
+- caminho semanal de loans não materializa `getAllPlayers()` e evita `IN (:ids)` massivo.
 
-- permitir ao borrower negociar a compra permanente de um loanee em seu roster;
-- impedir que o owner veja seu próprio jogador emprestado para fora como alvo de compra;
-- não materializar ou exibir data de término inexistente.
+## Performance
 
-A geração semanal de ofertas recebidas exclui atletas que o clube apenas recebeu por empréstimo.
+`Android CI Build #758` executou `GlobalMainAuditPerformanceStressTest` no head `5f63c17c...` e terminou SUCCESS.
 
-## Testes específicos da Fase 10.4
+| Medição | Resultado | Budget existente |
+|---|---:|---:|
+| persistedPlayers | 60.885 | — |
+| initialPersistenceMillis | 3.622 ms | 20.289 ms |
+| reopenAndFullPlayerReloadMillis | 16.108 ms | 47.181 ms |
+| monthlyEvolutionMillis | 19.354 ms | 65.553 ms |
+| observedCheckpointPeakHeapBytes | 441.392.576 | 762.995.562 |
 
-Cobertura adicionada/atualizada inclui:
+Nenhum threshold foi aumentado ou afrouxado.
 
-- jogador normal permanece normal;
-- owner/borrower válido;
-- owner inexistente;
-- borrower inexistente;
-- self-loan;
-- alias canônico;
-- alias ambíguo fail-closed;
-- importação/relação determinística e idempotente;
-- jogador único e roster somente no borrower;
-- propriedade no owner;
-- save/reopen;
-- isolamento entre saves;
-- retorno ao owner e retorno repetido;
-- empréstimo FC26 open-ended sem countdown inventado;
-- compra definitiva encerrando loan;
-- cobrança única;
-- borrower impedido de vender;
-- owner autorizado a vender loanee sem reduzir roster ativo;
-- conversão à vista/parcelada sem dupla contagem salarial;
-- stale loan row rejeitado;
-- rollback atômico forçado por trigger SQLite;
-- integrity check aceitando o sentinel FC26 válido;
-- visibilidade ownership-aware no mercado;
-- invariantes 18.405/IDs/ratings/atributos.
+## Gates técnicos consolidados
+
+No head técnico `5f63c17cc31b42ab3f5fc6edc2e9549c6c2722a9`:
+
+- Android CI Build #758: SUCCESS;
+- FC26 Bulk Player Import #111: SUCCESS;
+- FC26 Factual Club Target Materialization #103: SUCCESS;
+- FC26 Remaining Lower-Tier Coverage #30: SUCCESS;
+- `assembleDebug`: PASS;
+- suíte unitária/regressão/migration-save safety: PASS;
+- materialização FC26/Phase 9.14 sem cache: PASS;
+- benchmark 60K: PASS;
+- stress 20 temporadas: PASS;
+- stress 100 temporadas match-by-match: PASS;
+- save-slot/Room migration safety: PASS;
+- Room V22 exportado e rastreado: PASS;
+- APK debug artifact: presente.
+
+O commit que contém este relatório restaura também o gate Bulk mais forte (incluindo `Fc26RejectedLoanQuarantineIntegrationTest`, mapper/identity tests e `-PexcludeStressTests=true`) e faz Android/Bulk/Factual/Lower-Tier reagirem ao relatório, garantindo revalidação do head final sem remoção ou enfraquecimento de testes.
 
 ## Review técnico / Codex
 
-A primeira revisão Codex encontrou sete findings P2. Seis exigiam correção de código e receberam correções/regressões: wage-cap da conversão, roster-floor do owner, UI de compra pelo borrower, geração de ofertas para loanees, sentinel do integrity check e autorização por loan row stale. O sétimo finding (`IN (:ids)`) ficou obsoleto porque o helper/DAO temporário já havia sido removido e o caminho final usa rosters por borrower.
+As rodadas de Codex encontraram problemas de ownership/lifecycle/UI, todos endereçados com correções e regressões: dupla contagem salarial, roster-floor, compra de loanee na UI, ofertas impossíveis, sentinel open-ended, stale loan ownership, fechamento da última semana, retorno stale, classificação de owner ambíguo, sentinel com playerId inválido, quarentena de owner/borrower não resolvido, renovação ownership-aware, aposentadoria em quarentena, wiring de retorno, renovação CPU antes do financeiro e venda owner-side.
 
-As threads serão encerradas somente após CI verde e nova revisão Codex no head definitivo.
+A revisão Codex final deve ocorrer sobre o head exato que contém este relatório. Findings materiais P0/P1/P2 impedem merge e exigem nova correção + nova rodada completa de CI. A classificação final APTO/NÃO APTO é registrada no PR depois dessa revisão, sem alterar novamente este relatório se não houver mudança de código.
 
-## Gates consolidados
+## Riscos residuais
 
-Checkpoint factual já comprovado:
+O risco residual é informacional: 509 sinais factuais não podem ser materializados como loans completos porque falta identidade canônica segura de owner/borrower no universo atual. Eles permanecem fail-closed e auditáveis. Uma futura expansão de identidades poderá resolvê-los sem alterar playerId, ratings ou atributos.
 
-- FC26 Bulk Player Import #79: SUCCESS;
-- artifact `fc26-bulk-player-import-reports` no head `919a284cf5a6c78e67abec360d2a2d66d5bc4096`;
-- FC26 18.405/18.405;
-- duplicatePlayerIds = 0;
-- duplicateTeamIds = 0;
-- overallMutated = 0;
-- potentialMutated = 0;
-- attributesMutated = 0;
-- save/reopen do snapshot: PASS;
-- Room V22 verificado: PASS.
+## Critério de conclusão
 
-Ainda pendente neste checkpoint intermediário:
+A Fase 10.4 só é considerada concluída quando o head final que contém este documento tiver:
 
-- suíte Android consolidada final;
-- benchmark 60K final;
-- stress 20 temporadas;
-- stress 100 temporadas match-by-match;
-- novo Codex no head definitivo;
-- resolução final das review threads;
-- comparação `auditHead == PR head` do head definitivo.
-
-## Riscos residuais e itens não implementados por falta de dado factual
-
-- Data factual de início do empréstimo: `NOT_AVAILABLE`.
-- Data factual de término do empréstimo: `NOT_AVAILABLE`.
-- Taxa semanal factual do empréstimo FC26: não materializada quando não existe na fonte.
-- Opção de compra factual: não inventada.
-- Casos com owner/borrower ausentes ou ambíguos: rejeitados, não inferidos.
-
-O principal risco residual é informacional, não de identidade: os 509 sinais rejeitados só poderão ser materializados no futuro se o próprio snapshot/fonte canônica fornecer informação suficiente ou se a identidade de clube correspondente passar a existir de maneira auditada no universo do jogo.
-
-## Conclusão provisória
-
-A implementação preserva os invariantes FC26 e materializa apenas relações owner/borrower comprováveis. O estado deste documento ainda é provisório até a conclusão de Android CI, benchmark 60K, stress 20/100, Codex final e auditoria do head exato. A classificação APTO/NÃO APTO e o merge somente serão registrados após esses gates.
+1. Android/Bulk/Factual/Lower-Tier SUCCESS;
+2. `phase_10_4_fc26_loans_audit.json.auditHead == PR head`;
+3. Room V22 e APK artifacts presentes;
+4. Codex final sem finding material não resolvido;
+5. PR/base/head estáveis e sem conflito;
+6. classificação **APTO PARA MERGE** seguida de merge automático com `expected_head_sha`.

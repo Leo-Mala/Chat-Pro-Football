@@ -16,6 +16,7 @@ on:
       - 'app/src/test/java/com/example/data/Fc26RemainingLowerTierCoverageReportTest.kt'
       - 'app/src/test/java/com/example/data/Fc26FactualTargetMaterializationReportTest.kt'
       - 'reports/fc26_remaining_lower_tier_audit_phase_9_11a2.md'
+      - 'reports/phase_10_4_fc26_safe_loans.md'
       - '.github/workflows/fc26-remaining-lower-tier-coverage.yml'
   workflow_dispatch:
 
