@@ -30,7 +30,11 @@ import com.example.usecase.TacticsUseCase
 import com.example.usecase.YouthAcademyUseCase
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,7 +48,8 @@ import org.robolectric.annotation.GraphicsMode
  * O slot é materializado antes de ser conectado ao ViewModel. O golden não chama selectSaveSlot(),
  * porque esse fluxo deliberadamente executa bootstrap/reparo e já é coberto pelos testes de
  * lifecycle; aqui o objetivo é proteger somente a renderização/navegação de uma carreira já
- * persistida. Os IDs QA ficam fora do espaço usado pelos seeds factuais FC26.
+ * persistida. Capturas frescas são gravadas em build/ e comparadas por SHA-256 com o manifesto
+ * versionado. Alteração visual não aprovada, baseline ausente ou captura diferente falha o teste.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -53,6 +58,24 @@ class Phase105CriticalUiGoldenTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    private val expectedHashes: Map<String, String> by lazy {
+        File("src/test/screenshots/phase_10_5_ui.sha256")
+            .readLines()
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .associate { line ->
+                val parts = line.split(Regex("\\s+"), limit = 2)
+                require(parts.size == 2) { "Entrada de golden inválida: $line" }
+                parts[1] to parts[0]
+            }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+        return digest.joinToString("") { "%02x".format(it) }
+    }
 
     @Test
     fun criticalProductScreens_matchPersistedCareerFixture() = runBlocking {
@@ -249,10 +272,17 @@ class Phase105CriticalUiGoldenTest {
             }
         }
 
-        fun capture(fileName: String) {
+        fun captureAndVerify(fileName: String) {
             composeTestRule.waitForIdle()
-            composeTestRule.onRoot().captureRoboImage(
-                filePath = "src/test/screenshots/$fileName"
+            val expected = expectedHashes[fileName]
+            assertNotNull("Golden SHA-256 ausente para $fileName", expected)
+            val actualFile = File("build/phase105-golden-actual/$fileName")
+            actualFile.parentFile?.mkdirs()
+            composeTestRule.onRoot().captureRoboImage(filePath = actualFile.path)
+            assertEquals(
+                "Regressão visual detectada em $fileName. Regrave o baseline somente após revisão explícita da mudança.",
+                expected,
+                sha256(actualFile)
             )
         }
 
@@ -262,12 +292,12 @@ class Phase105CriticalUiGoldenTest {
                     .fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
-        capture("dashboard.png")
+        captureAndVerify("dashboard.png")
 
         fun navigateTo(tag: String, fileName: String) {
             composeTestRule.onNodeWithTag(tag).performScrollTo().performClick()
             composeTestRule.waitForIdle()
-            capture(fileName)
+            captureAndVerify(fileName)
         }
 
         navigateTo("squad_tab", "squad.png")
@@ -279,7 +309,7 @@ class Phase105CriticalUiGoldenTest {
         composeTestRule.runOnIdle { surface.value = "team_selection" }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("coach_name_input").assertIsDisplayed()
-        capture("team_selection.png")
+        captureAndVerify("team_selection.png")
 
         viewModel.liveMatchFixture = nextFixture
         viewModel.liveMatchHomeTeam = teams[0]
@@ -294,6 +324,6 @@ class Phase105CriticalUiGoldenTest {
 
         composeTestRule.runOnIdle { surface.value = "match" }
         composeTestRule.waitForIdle()
-        capture("live_match.png")
+        captureAndVerify("live_match.png")
     }
 }
