@@ -38,6 +38,17 @@ data class SlotDatabaseInspection(
 }
 
 /**
+ * Impede que qualquer chamador abra Room sobre um conjunto físico que já exige recuperação.
+ * A exceção carrega a inspeção que motivou o bloqueio para que a UI possa reconciliar o slot sem
+ * tocar nos artefatos recuperáveis.
+ */
+class SlotRecoveryRequiredException(
+    val inspection: SlotDatabaseInspection
+) : IllegalStateException(
+    "Slot exige recuperação antes da abertura: ${inspection.failureReason ?: inspection.state.name}"
+)
+
+/**
  * Gerencia instâncias estáveis de GameRepository/AppDatabase por slot.
  *
  * Um slot nunca deve fechar ou substituir o banco de outro slot. Isso evita que
@@ -55,15 +66,23 @@ class GameSaveRepository @Inject constructor(
 
     private val repositories = mutableMapOf<String, GameRepository>()
 
+    private fun requirePhysicalOpenAllowed(slotId: String) {
+        physicalRecoveryInspection(slotId)?.let { inspection ->
+            throw SlotRecoveryRequiredException(inspection)
+        }
+    }
+
     @Synchronized
     fun getDatabaseForSlot(slotId: String): AppDatabase {
+        requirePhysicalOpenAllowed(slotId)
         return databaseFactory.getDatabaseForSlot(slotId)
     }
 
     @Synchronized
     fun getRepositoryForSlot(slotId: String): GameRepository {
+        requirePhysicalOpenAllowed(slotId)
         return repositories.getOrPut(slotId) {
-            GameRepository(getDatabaseForSlot(slotId))
+            GameRepository(databaseFactory.getDatabaseForSlot(slotId))
         }
     }
 
@@ -101,10 +120,11 @@ class GameSaveRepository @Inject constructor(
     }
 
     /**
-     * Verificação física síncrona que pode ser usada antes da primeira abertura do Room.
-     * Retorna apenas estados que exigem bloqueio imediato; `null` significa que a inspeção
-     * semântica ainda precisa continuar no Room ou que o slot está fisicamente ausente de forma
-     * canônica.
+     * Verificação física síncrona executável antes da primeira abertura do Room.
+     *
+     * Ela não cria arquivos e só devolve estados que exigem bloqueio imediato. `null` significa
+     * que o conjunto físico não apresenta, por si só, um motivo de recovery; a inspeção semântica
+     * ainda pode classificar o conteúdo do Room como EMPTY, VALID_CAREER ou RECOVERY_REQUIRED.
      */
     fun physicalRecoveryInspection(slotId: String): SlotDatabaseInspection? {
         val file = databaseFileForSlot(slotId)
@@ -194,6 +214,8 @@ class GameSaveRepository @Inject constructor(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: SlotRecoveryRequiredException) {
+            e.inspection
         } catch (e: Exception) {
             Log.e("GameSaveRepository", "Falha ao inspecionar banco do slot $slotId", e)
             SlotDatabaseInspection(
