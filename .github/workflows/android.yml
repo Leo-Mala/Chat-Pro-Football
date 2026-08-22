@@ -159,6 +159,12 @@ jobs:
           "$apksigner" verify --verbose --print-certs "$release_apk"
           jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
 
+      - name: Run Release startup smoke in validated chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
+
       - name: Run core regression and migration-save safety
         shell: bash
         run: |
