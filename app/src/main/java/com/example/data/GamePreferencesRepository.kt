@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.data.local.SlotDatabaseFactory
 import com.example.data.model.SaveSlotMetadata
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -90,7 +91,19 @@ class GamePreferencesRepository @Inject constructor(
         return (1..5).map { i ->
             val id = i.toString()
             val existsKey = booleanPreferencesKey("slot_${id}_exists")
-            val exists = prefs?.get(existsKey) ?: legacyPrefs.getBoolean("slot_${id}_exists", false)
+            val metadataSaysExists = prefs?.get(existsKey) ?: legacyPrefs.getBoolean("slot_${id}_exists", false)
+            val databaseExists = context
+                .getDatabasePath(SlotDatabaseFactory.databaseNameForSlot(id))
+                .exists()
+            val exists = metadataSaysExists && databaseExists
+
+            if (metadataSaysExists && !databaseExists) {
+                // Cloud backup intentionally omits the large Room databases. If metadata is
+                // restored without its database, fail closed so the UI never presents a phantom
+                // career that could be opened and overwritten as an empty slot.
+                removeSlotMetadata(id)
+            }
+
             if (exists) {
                 SaveSlotMetadata(
                     id = id,
