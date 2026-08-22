@@ -1,0 +1,49 @@
+name: Phase 10.5 Release Smoke Patch
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/phase10-5-release-smoke-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Add release smoke and self-clean
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/android.yml')
+          text = path.read_text()
+          anchor = '''          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"\n\n      - name: Run core regression and migration-save safety\n'''
+          replacement = '''          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"\n\n      - name: Run release-variant startup smoke\n        shell: bash\n        run: |\n          set -euo pipefail\n          ./gradlew testReleaseUnitTest \\\n            --tests com.example.StartupSmokeTest \\\n            --stacktrace\n\n      - name: Run core regression and migration-save safety\n'''
+          count = text.count(anchor)
+          if count != 1:
+              raise SystemExit(f'expected one release-smoke anchor, found {count}')
+          path.write_text(text.replace(anchor, replacement, 1))
+          PY
+          git diff --check
+          git rm .github/workflows/phase10-5-release-smoke-patch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/android.yml
+          git commit -m 'ci: run startup smoke against Release variant'
+          git fetch origin "$HEAD_BRANCH"
+          git rebase "origin/$HEAD_BRANCH"
+          git push origin HEAD:"$HEAD_BRANCH"
