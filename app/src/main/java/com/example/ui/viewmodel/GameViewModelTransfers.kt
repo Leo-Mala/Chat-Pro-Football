@@ -6,6 +6,7 @@ import com.example.data.Player
 import com.example.usecase.AcademyProspect as DomainAcademyProspect
 import com.example.usecase.CoachCareerUseCase
 import com.example.usecase.ContractLifecycleUseCase
+import com.example.usecase.LoanLifecycleUseCase
 import com.example.usecase.ProcessTransfersUseCase
 import com.example.usecase.TransferNegotiationUseCase
 import com.example.usecase.YouthAcademyManagementUseCase
@@ -100,9 +101,29 @@ fun GameViewModel.buyPlayerAdvanced(
     }
 }
 
+/**
+ * A ação principal do diálogo de elenco é ownership-aware: jogador normal renova contrato; loanee
+ * que está no roster do usuário é devolvido explicitamente ao owner. A renovação propriamente dita
+ * continua protegida por [ContractLifecycleUseCase], então chamadas diretas do borrower também
+ * falham fechadas.
+ */
 fun GameViewModel.renewContract(player: Player, durationWeeks: Int = 52) {
     viewModelScope.launch(Dispatchers.IO) {
         val repository = getActiveRepository() ?: return@launch
+        val save = repository.getGameSave() ?: return@launch
+
+        if (player.isOnLoan && player.teamId == save.playerTeamId) {
+            when (val result = LoanLifecycleUseCase(repository).returnToOwner(player.id)) {
+                is LoanLifecycleUseCase.Result.Returned ->
+                    _toastMessage.emit("${result.player.name} foi devolvido ao clube proprietário.")
+                is LoanLifecycleUseCase.Result.AlreadyClosed ->
+                    _toastMessage.emit("O empréstimo já estava encerrado.")
+                is LoanLifecycleUseCase.Result.Rejected ->
+                    _toastMessage.emit(result.reason)
+            }
+            return@launch
+        }
+
         when (val result = ContractLifecycleUseCase(repository).renewPlayerContract(player.id, durationWeeks)) {
             is ContractLifecycleUseCase.RenewalResult.Success -> _toastMessage.emit(result.message)
             is ContractLifecycleUseCase.RenewalResult.Rejected -> _toastMessage.emit(result.reason)
