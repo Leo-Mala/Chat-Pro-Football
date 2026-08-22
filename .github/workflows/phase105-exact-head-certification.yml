@@ -1,0 +1,427 @@
+name: Phase 10.5 Exact Head Certification
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/phase105-exact-head-certification.yml'
+      - '.github/workflows/android.yml'
+      - '.github/workflows/phase105-ui-golden-regression.yml'
+      - 'app/**'
+      - 'tools/europe_importer/**'
+      - 'tools/fc26/**'
+      - 'reports/fc26_*'
+      - 'reports/phase_10_4_fc26_safe_loans.md'
+      - 'reports/phase_10_5_post_10_4_audit_and_final_roadmap.md'
+      - 'metadata.json'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-10-5-exact-head-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  exact-validation:
+    name: Exact-head full validation
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXACT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXACT_HEAD_SHA"
+          echo "Exact PR head: $actual"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run European bulk importer tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/europe_importer/tests -t .
+
+      - name: Bootstrap and validate deterministic FC26 asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
+            app/src/main/assets/football/fc26/fc26_manifest.json
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Setup Debug Keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Setup ephemeral Release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_keystore="$RUNNER_TEMP/pro-football-exact-head-release.jks"
+          store_password="ci-validation-only"
+          key_alias="ci-validation"
+          key_password="ci-validation-only"
+          keytool -genkeypair -v \
+            -keystore "$release_keystore" \
+            -storepass "$store_password" \
+            -alias "$key_alias" \
+            -keypass "$key_password" \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=Pro Football Exact Head CI, O=CI, C=BR"
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=$store_password"
+            echo "KEY_ALIAS=$key_alias"
+            echo "KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+          printf '{"productionSigning":false,"keystoreSource":"ephemeral-exact-head-validation","commit":"%s"}\n' \
+            "$EXACT_HEAD_SHA" > "$RUNNER_TEMP/release-signing-status.json"
+
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Build and verify Release APK and AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease bundleRelease --stacktrace
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$release_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+
+      - name: Run Release startup smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
+
+      - name: Run non-stress core regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+
+      - name: Materialize FC26 audit reports without cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            --tests com.example.data.Fc26FullSeedIntegrationTest \
+            --tests com.example.data.Phase912WeeklyLifecyclePerformanceTest \
+            --tests com.example.data.Fc26FallbackArchitectureReportTest \
+            -PexcludeStressTests=true \
+            --no-build-cache \
+            --rerun-tasks \
+            --stacktrace
+
+      - name: Measure 60,885-player performance on exact head
+        env:
+          AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            --tests com.example.data.GlobalMainAuditPerformanceStressTest \
+            --no-build-cache \
+            --rerun-tasks \
+            --stacktrace
+
+      - name: Verify FC26 invariants and performance provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          head = os.environ['EXACT_HEAD_SHA']
+          mapping = json.loads(Path('reports/fc26_club_mapping_report.json').read_text())
+          perf = json.loads(Path('reports/global_main_audit_performance.json').read_text())
+          expected = {
+              'datasetPlayers': 18405,
+              'validatedPlayers': 18405,
+              'duplicatePlayerIds': 0,
+              'duplicateTeamIds': 0,
+              'overallMutated': 0,
+              'potentialMutated': 0,
+              'attributesMutated': 0,
+              'loanPlayers': 1325,
+              'resolvedLoans': 816,
+              'rejectedLoans': 509,
+              'borrowerNotFound': 448,
+              'ownerNotFound': 60,
+              'ambiguousLoans': 1,
+              'persistedPlayers': 60885,
+          }
+          for key, value in expected.items():
+              actual = mapping.get(key)
+              if actual != value:
+                  raise SystemExit(f'{key}: expected {value}, got {actual}')
+          if mapping.get('auditHead') != head:
+              raise SystemExit(f"FC26 report head mismatch: {mapping.get('auditHead')} != {head}")
+          if perf.get('auditHead') != head:
+              raise SystemExit(f"Performance report head mismatch: {perf.get('auditHead')} != {head}")
+          if perf.get('persistedPlayers') != 60885:
+              raise SystemExit('Performance universe is not 60,885 players')
+          budgets = perf['regressionBudget']
+          observed = {
+              'initialPersistenceMillis': perf['initialPersistenceMillis'],
+              'fullReloadMillis': perf['reopenAndFullPlayerReloadMillis'],
+              'monthlyEvolutionMillis': perf['monthlyEvolutionMillis'],
+              'peakHeapBytes': perf['observedCheckpointPeakHeapBytes'],
+          }
+          for key, value in observed.items():
+              if value > budgets[key]:
+                  raise SystemExit(f'{key} exceeded budget: {value} > {budgets[key]}')
+          print('FC26 invariants and 60,885-player budgets validated on exact head', head)
+          PY
+
+      - name: Run 20 and 100 season stress tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            --tests com.example.TwentySeasonStressTest \
+            --tests com.example.OneHundredSeasonMatchByMatchStressTest \
+            --stacktrace
+
+      - name: Verify exported Room V22 schema
+        id: room_schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          db_version=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('app/src/main/java/com/example/data/database.kt').read_text()
+          match = re.search(r'\bversion\s*=\s*(\d+)', source)
+          if not match:
+              raise SystemExit('Could not resolve Room database version')
+          print(match.group(1))
+          PY
+          )
+          test "$db_version" = "22"
+          schema_file="app/schemas/com.example.data.AppDatabase/22.json"
+          test -f "$schema_file"
+          git ls-files --error-unmatch "$schema_file" >/dev/null
+          git diff --exit-code -- "$schema_file"
+          if grep -R "fallbackToDestructiveMigration" -n app/src/main; then
+            echo "::error::Destructive Room fallback is forbidden."
+            exit 1
+          fi
+          echo "schema_file=$schema_file" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact-head audit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-10-5-exact-head-audit-${{ github.event.pull_request.head.sha }}
+          path: |
+            reports/fc26_club_mapping_report.json
+            reports/phase_9_13_weekly_lifecycle_performance.json
+            reports/phase_9_14_fallback_architecture.json
+            reports/global_main_audit_performance.json
+            app/schemas/com.example.data.AppDatabase/22.json
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+            ${{ runner.temp }}/release-signing-status.json
+          if-no-files-found: error
+          retention-days: 1
+
+  exact-ui:
+    name: Exact-head UI golden and accessibility
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      EXACT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Prefetch Robolectric SDK 34 runtime with checksum verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='14-robolectric-10818077-i7'
+          base="https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented/$version"
+          runtime_dir="$RUNNER_TEMP/robolectric-runtime"
+          jar="android-all-instrumented-$version.jar"
+          mkdir -p "$runtime_dir"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors "$base/$jar" -o "$runtime_dir/$jar"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors "$base/$jar.sha256" -o "$runtime_dir/$jar.sha256"
+          expected="$(awk '{print $1}' "$runtime_dir/$jar.sha256")"
+          actual="$(sha256sum "$runtime_dir/$jar" | awk '{print $1}')"
+          test "$actual" = "$expected"
+          test "$(stat -c%s "$runtime_dir/$jar")" -gt 100000000
+          echo "ROBOLECTRIC_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+
+      - name: Render and compare all critical UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew \
+            -Drobolectric.offline=true \
+            -Drobolectric.dependency.dir="$ROBOLECTRIC_RUNTIME_DIR" \
+            testDebugUnitTest \
+            --tests com.example.MainMenuScreenshotTest \
+            --tests com.example.SavesScreenshotTest \
+            --tests com.example.Phase105CriticalUiGoldenTest \
+            --tests com.example.Phase105AccessibilityAndResilienceTest \
+            -Proborazzi.test.record=true \
+            -PexcludeStressTests=true \
+            --no-build-cache \
+            --rerun-tasks \
+            --stacktrace
+
+      - name: Verify pinned UI manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest='app/src/test/screenshots/phase_10_5_ui.sha256'
+          test -s "$manifest"
+          test "$(grep -c '^[0-9a-f]\{64\}  .*\.png$' "$manifest")" -eq 11
+          for name in main_menu.png saves_empty.png saves_existing.png; do
+            expected="$(awk -v n="$name" '$2 == n { print $1 }' "$manifest")"
+            test -n "$expected"
+            actual="$(sha256sum "app/src/test/screenshots/$name" | awk '{print $1}')"
+            test "$actual" = "$expected"
+          done
+
+      - name: Upload exact-head rendered UI
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-10-5-exact-head-ui-${{ github.event.pull_request.head.sha }}
+          path: |
+            app/build/phase105-golden-actual/*.png
+            app/src/test/screenshots/main_menu.png
+            app/src/test/screenshots/saves_empty.png
+            app/src/test/screenshots/saves_existing.png
+          if-no-files-found: ignore
+          retention-days: 1
