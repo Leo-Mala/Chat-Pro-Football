@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/phase105-record-final-ui.yml'
       - 'app/src/test/java/com/example/MainMenuScreenshotTest.kt'
-      - 'app/src/test/java/com/example/SavesScreenScreenshotTest.kt'
+      - 'app/src/test/java/com/example/SavesScreenshotTest.kt'
       - 'app/src/test/java/com/example/Phase105CriticalUiGoldenTest.kt'
       - 'app/src/main/**'
       - 'app/build.gradle.kts'
@@ -104,7 +104,7 @@ jobs:
             -Drobolectric.dependency.dir="$ROBOLECTRIC_RUNTIME_DIR" \
             testDebugUnitTest \
             --tests com.example.MainMenuScreenshotTest \
-            --tests com.example.SavesScreenScreenshotTest \
+            --tests com.example.SavesScreenshotTest \
             --tests com.example.Phase105CriticalUiGoldenTest \
             -Proborazzi.test.record=true \
             -PexcludeStressTests=true \
