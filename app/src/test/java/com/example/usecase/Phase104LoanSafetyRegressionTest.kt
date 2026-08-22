@@ -92,6 +92,91 @@ class Phase104LoanSafetyRegressionTest {
     }
 
     @Test
+    fun `borrower cannot renew main contract of a resolved loanee`() = runTest {
+        seedTeams()
+        val before = loanedPlayer()
+        repository.savePlayers(listOf(before))
+        repository.saveLoan(snapshotLoan())
+        repository.saveGameSave(GameSave(playerTeamId = BORROWER_ID))
+
+        val result = ContractLifecycleUseCase(repository).renewPlayerContract(PLAYER_ID, 52)
+
+        assertTrue(result is ContractLifecycleUseCase.RenewalResult.Rejected)
+        assertTrue((result as ContractLifecycleUseCase.RenewalResult.Rejected).reason.contains("proprietário"))
+        assertEquals(before, repository.getPlayer(PLAYER_ID))
+        assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
+    fun `owner can renew main contract while resolved loan remains intact`() = runTest {
+        seedTeams()
+        val before = loanedPlayer()
+        repository.savePlayers(listOf(before))
+        repository.saveLoan(snapshotLoan())
+        repository.saveGameSave(GameSave(playerTeamId = OWNER_ID))
+
+        val result = ContractLifecycleUseCase(repository).renewPlayerContract(PLAYER_ID, 52)
+
+        assertTrue(result is ContractLifecycleUseCase.RenewalResult.Success)
+        val renewed = requireNotNull(repository.getPlayer(PLAYER_ID))
+        assertEquals(before.contractDurationWeeks + 52, renewed.contractDurationWeeks)
+        assertEquals((before.salary * 1.1).toLong(), renewed.salary)
+        assertEquals(BORROWER_ID, renewed.teamId)
+        assertEquals(OWNER_ID, renewed.originalTeamId)
+        assertTrue(renewed.isOnLoan)
+        assertEquals(snapshotLoan(), repository.getActiveLoanForPlayer(PLAYER_ID))
+    }
+
+    @Test
+    fun `stale PlayerLoan cannot authorize contract renewal`() = runTest {
+        seedTeams()
+        repository.savePlayers(listOf(loanedPlayer()))
+        repository.saveLoan(snapshotLoan())
+        repository.saveGameSave(GameSave(playerTeamId = OWNER_ID))
+        val stale = requireNotNull(repository.getPlayer(PLAYER_ID)).copy(originalTeamId = null)
+        repository.updatePlayer(stale)
+
+        val result = ContractLifecycleUseCase(repository).renewPlayerContract(PLAYER_ID, 52)
+
+        assertTrue(result is ContractLifecycleUseCase.RenewalResult.Rejected)
+        assertTrue((result as ContractLifecycleUseCase.RenewalResult.Rejected).reason.contains("inconsistente"))
+        assertEquals(stale, repository.getPlayer(PLAYER_ID))
+    }
+
+    @Test
+    fun `quarantined unresolved owner cannot renew or award borrower ownership`() = runTest {
+        seedTeams()
+        val base = quarantinablePlayer(QUARANTINE_PLAYER_BASE_ID)
+        val quarantined = base.markFc26LoanResolution(
+            Fc26LoanResolution(
+                sourcePlayerId = 90_000L,
+                playerId = base.id,
+                playerName = base.name,
+                ownerSourceName = "Unknown Owner",
+                borrowerSourceTeamId = 1L,
+                borrowerSourceName = "Borrower FC",
+                ownerTeamId = null,
+                borrowerTeamId = BORROWER_ID,
+                status = Fc26LoanResolutionStatus.OWNER_NOT_FOUND,
+                reason = "test rejected ownership"
+            )
+        )
+        repository.savePlayers(listOf(quarantined))
+        repository.saveGameSave(GameSave(playerTeamId = BORROWER_ID))
+
+        val result = ContractLifecycleUseCase(repository).renewPlayerContract(quarantined.id, 52)
+
+        assertTrue(result is ContractLifecycleUseCase.RenewalResult.Rejected)
+        val persisted = requireNotNull(repository.getPlayer(quarantined.id))
+        assertNull("Quarantine must not promote factual borrower to runtime owner", persisted.teamId)
+        assertNull(persisted.originalTeamId)
+        assertTrue(persisted.isFc26LoanOwnershipQuarantined())
+        assertEquals(0, persisted.contractDurationWeeks)
+        assertEquals(0L, persisted.salary)
+        assertNull(repository.getActiveLoanForPlayer(persisted.id))
+    }
+
+    @Test
     fun `unknown and ambiguous owner quarantines block borrower ownership operations`() = runTest {
         seedTeams()
         val save = GameSave(playerTeamId = BORROWER_ID, bankBalance = 50_000_000L)
@@ -121,7 +206,7 @@ class Phase104LoanSafetyRegressionTest {
             )
             repository.savePlayers(listOf(quarantined))
 
-            assertEquals(BORROWER_ID, quarantined.teamId)
+            assertNull(quarantined.teamId)
             assertNull(quarantined.originalTeamId)
             assertTrue(quarantined.isOnLoan)
             assertTrue(quarantined.isFc26LoanOwnershipQuarantined())
