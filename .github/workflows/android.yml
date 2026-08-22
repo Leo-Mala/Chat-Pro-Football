@@ -69,20 +69,11 @@ jobs:
             app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
             app/src/main/assets/football/fc26/fc26_manifest.json
 
-      - name: Setup google-services.json
-        env:
-          GOOGLE_SERVICES_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      - name: Setup validation google-services.json
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "$GOOGLE_SERVICES_SECRET" ]; then
-            if echo "$GOOGLE_SERVICES_SECRET" | grep -q '^{'; then
-              echo "$GOOGLE_SERVICES_SECRET" > app/google-services.json
-            else
-              echo "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
-            fi
-          else
-            cat << 'GOOGLE_EOF' > app/google-services.json
+          cat << 'GOOGLE_EOF' > app/google-services.json
           {
             "project_info": {
               "project_number": "1234567890",
@@ -105,7 +96,6 @@ jobs:
             "configuration_version": "1"
           }
           GOOGLE_EOF
-          fi
 
       - name: Setup Debug Keystore
         shell: bash
@@ -123,54 +113,28 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
-      - name: Setup Release Signing
-        id: release_signing
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      - name: Setup ephemeral Release signing for validation
         shell: bash
         run: |
           set -euo pipefail
-          release_keystore="$RUNNER_TEMP/pro-football-release.jks"
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && \
-             [ -n "$RELEASE_STORE_PASSWORD" ] && \
-             [ -n "$RELEASE_KEY_ALIAS" ] && \
-             [ -n "$RELEASE_KEY_PASSWORD" ]; then
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$release_keystore"
-            chmod 600 "$release_keystore"
-            production=true
-            store_password="$RELEASE_STORE_PASSWORD"
-            key_alias="$RELEASE_KEY_ALIAS"
-            key_password="$RELEASE_KEY_PASSWORD"
-            echo "Persistent release signing credentials loaded from GitHub Secrets."
-          else
-            # Chave efêmera serve apenas para provar que APK/AAB Release são realmente assinados e
-            # instaláveis durante a validação. O gate final abaixo impede classificar RC/publicável
-            # sem o keystore persistente de produção.
-            production=false
-            store_password="ci-validation-only"
-            key_alias="ci-validation"
-            key_password="ci-validation-only"
-            keytool -genkeypair -v \
-              -keystore "$release_keystore" \
-              -storepass "$store_password" \
-              -alias "$key_alias" \
-              -keypass "$key_password" \
-              -keyalg RSA -keysize 2048 -validity 30 \
-              -dname "CN=Pro Football CI Validation, O=CI, C=BR"
-            echo "::warning::Persistent release-signing secrets are absent; using ephemeral validation signing. Final RC gate will remain blocked."
-          fi
+          release_keystore="$RUNNER_TEMP/pro-football-validation-release.jks"
+          store_password="ci-validation-only"
+          key_alias="ci-validation"
+          key_password="ci-validation-only"
+          keytool -genkeypair -v \
+            -keystore "$release_keystore" \
+            -storepass "$store_password" \
+            -alias "$key_alias" \
+            -keypass "$key_password" \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=Pro Football CI Validation, O=CI, C=BR"
           {
             echo "KEYSTORE_PATH=$release_keystore"
             echo "STORE_PASSWORD=$store_password"
             echo "KEY_ALIAS=$key_alias"
             echo "KEY_PASSWORD=$key_password"
           } >> "$GITHUB_ENV"
-          echo "production=$production" >> "$GITHUB_OUTPUT"
-          printf '{"productionSigning":%s,"keystoreSource":"%s"}\n' \
-            "$production" "$([ "$production" = true ] && echo github-secrets || echo ephemeral-ci-validation)" \
+          printf '{"productionSigning":false,"keystoreSource":"ephemeral-ci-validation"}\n' \
             > "$RUNNER_TEMP/release-signing-status.json"
 
       - name: Build Debug APK
@@ -181,7 +145,7 @@ jobs:
           ./gradlew --version
           ./gradlew assembleDebug --stacktrace
 
-      - name: Build Release APK and AAB
+      - name: Build and verify validation Release APK and AAB
         shell: bash
         run: |
           set -euo pipefail
@@ -192,8 +156,8 @@ jobs:
           test -n "$release_aab"
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           test -x "$apksigner"
-          "$apksigner" verify --verbose "$release_apk"
-          jarsigner -verify "$release_aab"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
 
       - name: Run core regression and migration-save safety
         shell: bash
@@ -295,39 +259,131 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload Release APK
+      - name: Upload validation Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: app-release-apk-validation
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload Release AAB
+      - name: Upload validation Release AAB
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-aab
+          name: app-release-aab-validation
           path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload release-signing audit
+      - name: Upload validation release-signing audit
         uses: actions/upload-artifact@v4
         with:
-          name: release-signing-status
+          name: release-signing-status-validation
           path: ${{ runner.temp }}/release-signing-status.json
           if-no-files-found: error
           retention-days: 1
 
-      - name: Require persistent release signing for Release Candidate
+  production-release:
+    name: Protected production Release Candidate signing
+    if: github.event_name == 'workflow_dispatch'
+    needs: validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    steps:
+      - name: Checkout trusted workflow-dispatch ref
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Setup production google-services.json
+        env:
+          GOOGLE_SERVICES_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.release_signing.outputs.production }}" != "true" ]; then
-            echo "::error::Release candidate requires persistent signing secrets: RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD."
+          if [ -z "$GOOGLE_SERVICES_SECRET" ]; then
+            echo "::error::GOOGLE_SERVICES_JSON is required for the protected production Release Candidate job."
             exit 1
           fi
-          echo "Persistent production release signing verified."
+          if echo "$GOOGLE_SERVICES_SECRET" | grep -q '^{'; then
+            printf '%s' "$GOOGLE_SERVICES_SECRET" > app/google-services.json
+          else
+            printf '%s' "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
+          fi
+
+      - name: Setup persistent production Release signing
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Missing protected production secret: $required"
+              exit 1
+            fi
+          done
+          release_keystore="$RUNNER_TEMP/pro-football-production-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$release_keystore"
+          chmod 600 "$release_keystore"
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
+            echo "KEY_ALIAS=$RELEASE_KEY_ALIAS"
+            echo "KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          printf '{"productionSigning":true,"keystoreSource":"protected-github-secrets","commit":"%s"}\n' \
+            "$GITHUB_SHA" > "$RUNNER_TEMP/release-signing-status.json"
+
+      - name: Build and strictly verify production Release APK and AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --stacktrace
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$release_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+
+      - name: Upload production Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk-production
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload production Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab-production
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload production signing audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signing-status-production
+          path: ${{ runner.temp }}/release-signing-status.json
+          if-no-files-found: error
+          retention-days: 1
 
   materialize-fc26-asset:
     name: Materialize deterministic FC26 asset
