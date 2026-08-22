@@ -24,7 +24,8 @@ enum class SlotDatabaseState {
  * Resultado fail-closed da inspeção de um slot.
  *
  * [VALID_CAREER] só é emitido quando o registro autoritativo `game_save(id=1)` foi lido com
- * sucesso. A mera existência do arquivo SQLite nunca é usada como prova de carreira.
+ * sucesso e é a única linha da tabela. A mera existência do arquivo SQLite nunca é usada como
+ * prova de carreira.
  */
 data class SlotDatabaseInspection(
     val state: SlotDatabaseState,
@@ -100,35 +101,23 @@ class GameSaveRepository @Inject constructor(
     }
 
     /**
-     * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
-     *
-     * Contrato de autoridade:
-     * - `game_save(id=1)` é a única prova de uma carreira válida;
-     * - tabelas de times/jogadores/fixtures podem existir antes da criação da carreira porque a UI
-     *   pré-semeia o universo para a seleção de clube, portanto não transformam um slot em save;
-     * - arquivo principal e sidecars ausentes -> MISSING;
-     * - banco legível sem `GameSave` -> EMPTY / estado pré-carreira;
-     * - `GameSave` legível -> VALID_CAREER;
-     * - sidecar órfão, arquivo truncado, cabeçalho SQLite inválido, ou falha de
-     *   abertura/migration/leitura -> RECOVERY_REQUIRED.
-     *
-     * Cabeçalho e conjunto físico de arquivos são validados antes de abrir Room para que restore
-     * parcial/corrupção nunca sejam silenciosamente recriados pelo SQLite e confundidos com banco
-     * vazio. Assim, conteúdo derivado/reconstruível nunca vira uma segunda fonte de verdade,
-     * enquanto corrupção ou incompatibilidade continuam fail-closed e nunca autorizam reseed
-     * destrutivo.
+     * Verificação física síncrona que pode ser usada antes da primeira abertura do Room.
+     * Retorna apenas estados que exigem bloqueio imediato; `null` significa que a inspeção
+     * semântica ainda precisa continuar no Room ou que o slot está fisicamente ausente de forma
+     * canônica.
      */
-    suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
+    fun physicalRecoveryInspection(slotId: String): SlotDatabaseInspection? {
         val file = databaseFileForSlot(slotId)
         if (!file.exists()) {
             val orphanedSidecars = existingDatabaseSidecars(file)
-            if (orphanedSidecars.isNotEmpty()) {
-                return SlotDatabaseInspection(
+            return if (orphanedSidecars.isNotEmpty()) {
+                SlotDatabaseInspection(
                     state = SlotDatabaseState.RECOVERY_REQUIRED,
                     failureReason = "OrphanedSQLiteSidecar:${orphanedSidecars.joinToString(",") { it.name }}"
                 )
+            } else {
+                null
             }
-            return SlotDatabaseInspection(SlotDatabaseState.MISSING)
         }
         if (file.length() == 0L) {
             return SlotDatabaseInspection(
@@ -142,19 +131,66 @@ class GameSaveRepository @Inject constructor(
                 failureReason = "InvalidSQLiteHeader"
             )
         }
+        return null
+    }
+
+    private fun countGameSaveRows(repository: GameRepository): Int {
+        return repository.db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM game_save")
+            .use { cursor ->
+                if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            }
+    }
+
+    /**
+     * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
+     *
+     * Contrato de autoridade:
+     * - `game_save(id=1)` é a única prova de uma carreira válida e deve ser a única linha da tabela;
+     * - tabelas de times/jogadores/fixtures podem existir antes da criação da carreira porque a UI
+     *   pré-semeia o universo para a seleção de clube, portanto não transformam um slot em save;
+     * - arquivo principal e sidecars ausentes -> MISSING;
+     * - banco legível com ZERO linhas em `game_save` -> EMPTY / estado pré-carreira;
+     * - exatamente uma linha `GameSave(id=1)` -> VALID_CAREER;
+     * - qualquer linha inesperada em `game_save`, sidecar órfão, arquivo truncado, cabeçalho SQLite
+     *   inválido, ou falha de abertura/migration/leitura -> RECOVERY_REQUIRED.
+     *
+     * Cabeçalho e conjunto físico de arquivos são validados antes de abrir Room para que restore
+     * parcial/corrupção nunca sejam silenciosamente recriados pelo SQLite e confundidos com banco
+     * vazio. Conteúdo não-canônico na tabela autoritativa também nunca é apagado automaticamente.
+     */
+    suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
+        val file = databaseFileForSlot(slotId)
+        physicalRecoveryInspection(slotId)?.let { return it }
+        if (!file.exists()) {
+            return SlotDatabaseInspection(SlotDatabaseState.MISSING)
+        }
 
         return try {
             val repository = getRepositoryForSlot(slotId)
             val save = repository.getGameSave()
-            if (save == null) {
-                SlotDatabaseInspection(SlotDatabaseState.EMPTY)
-            } else {
-                val teamName = repository.getTeam(save.playerTeamId)?.name ?: "Sem Clube"
-                SlotDatabaseInspection(
-                    state = SlotDatabaseState.VALID_CAREER,
-                    save = save,
-                    teamName = teamName
-                )
+            val gameSaveRowCount = countGameSaveRows(repository)
+
+            when {
+                gameSaveRowCount == 0 && save == null -> {
+                    SlotDatabaseInspection(SlotDatabaseState.EMPTY)
+                }
+
+                gameSaveRowCount == 1 && save != null && save.id == 1 -> {
+                    val teamName = repository.getTeam(save.playerTeamId)?.name ?: "Sem Clube"
+                    SlotDatabaseInspection(
+                        state = SlotDatabaseState.VALID_CAREER,
+                        save = save,
+                        teamName = teamName
+                    )
+                }
+
+                else -> {
+                    SlotDatabaseInspection(
+                        state = SlotDatabaseState.RECOVERY_REQUIRED,
+                        failureReason = "UnexpectedGameSaveRows:count=$gameSaveRowCount,canonical=${save != null}"
+                    )
+                }
             }
         } catch (e: CancellationException) {
             throw e
