@@ -30,12 +30,9 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
         val playersById = plan.players.associateBy { it.id }
         val sourceById = dataset.players.associateBy { it.stableId }
         val loansByPlayerId = plan.loans.associateBy { it.playerId }
-        val quarantinedStatuses = setOf(
-            Fc26LoanResolutionStatus.OWNER_NOT_FOUND,
-            Fc26LoanResolutionStatus.AMBIGUOUS_OWNER,
-            Fc26LoanResolutionStatus.BORROWER_NOT_FOUND,
-            Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
-        )
+        val quarantinedStatuses = Fc26LoanResolutionStatus.values()
+            .filterNot { it == Fc26LoanResolutionStatus.RESOLVED }
+            .toSet()
         val quarantinedResolutions = plan.report.loanResolutions.filter { it.status in quarantinedStatuses }
 
         assertEquals(plan.report.rejectedLoans, quarantinedResolutions.size)
@@ -54,7 +51,8 @@ class Fc26RejectedLoanQuarantineIntegrationTest {
                     it.status == Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
             }
         )
-        assertTrue("The current FC26 snapshot must exercise borrower-unresolved quarantine",
+        assertTrue(
+            "The current FC26 snapshot must exercise borrower-unresolved quarantine",
             quarantinedResolutions.any {
                 it.status == Fc26LoanResolutionStatus.BORROWER_NOT_FOUND ||
                     it.status == Fc26LoanResolutionStatus.AMBIGUOUS_BORROWER
