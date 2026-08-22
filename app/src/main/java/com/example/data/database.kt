@@ -125,9 +125,23 @@ abstract class AppDatabase : RoomDatabase() {
                 .build()
         }
 
+        /**
+         * Caller legado também recebe uma instância eager. O preflight é repetido imediatamente
+         * antes do primeiro open e novamente antes de entregar o handle, fechando a janela em que
+         * `build()` (lazy) poderia devolver um Room ainda não validado.
+         */
         fun getDatabaseWithName(context: Context, name: String): AppDatabase {
             requireLegacyPhysicalOpenAllowed(context, name)
-            return buildDatabaseWithName(context, name)
+            val database = buildDatabaseWithName(context, name)
+            try {
+                requireLegacyPhysicalOpenAllowed(context, name)
+                database.openHelper.writableDatabase
+                requireLegacyPhysicalOpenAllowed(context, name)
+                return database
+            } catch (e: Exception) {
+                database.close()
+                throw e
+            }
         }
 
         fun getDatabase(context: Context): AppDatabase {
