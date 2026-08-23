@@ -118,7 +118,7 @@ class GameSaveRepository @Inject constructor(
         if (!playerTeamExists) {
             return SlotDatabaseInspection(
                 state = SlotDatabaseState.RECOVERY_REQUIRED,
-                failureReason = "MissingControlledTeam:playerTeamId=$playerTeamId"
+                failureReason = "MissingReferencedTeam:playerTeamId=$playerTeamId"
             )
         }
 
@@ -340,7 +340,7 @@ class GameSaveRepository @Inject constructor(
                     if (team == null) {
                         SlotDatabaseInspection(
                             state = SlotDatabaseState.RECOVERY_REQUIRED,
-                            failureReason = "MissingControlledTeam:playerTeamId=${save.playerTeamId}"
+                            failureReason = "MissingReferencedTeam:playerTeamId=${save.playerTeamId}"
                         )
                     } else {
                         SlotDatabaseInspection(
