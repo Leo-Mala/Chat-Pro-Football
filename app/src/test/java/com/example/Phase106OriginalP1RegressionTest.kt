@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.ExistingCareerOverwriteBlockedException
 import com.example.data.GamePreferencesRepository
 import com.example.data.GameSave
 import com.example.data.Team
@@ -11,7 +12,6 @@ import com.example.data.dataStore
 import com.example.data.local.SlotDatabaseFactory
 import com.example.data.repository.GameSaveRepository
 import com.example.data.repository.SlotDatabaseState
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -62,7 +62,8 @@ class Phase106OriginalP1RegressionTest {
             state = "MG",
             country = "Brasil",
             division = 1,
-            rating = 84
+            rating = 84,
+            isPlayerControlled = true
         )
         val originalSave = GameSave(
             coachName = "Técnico P1 Original",
@@ -101,7 +102,8 @@ class Phase106OriginalP1RegressionTest {
         assertFalse(saveRepository.isNewGameAllowed(slotId))
 
         // 2) Defesa em profundidade: mesmo que uma chamada contorne a UI/preflight e tente a
-        // primeira cadeia destrutiva do Novo Jogo, deleteSave() aborta a transação inteira.
+        // primeira cadeia destrutiva do Novo Jogo, deleteSave() aborta a transação inteira com
+        // erro de domínio reportável, não com CancellationException de lifecycle.
         val recoveredRepository = saveRepository.getRepositoryForSlot(slotId)
         var destructiveResetBlocked = false
         try {
@@ -111,7 +113,8 @@ class Phase106OriginalP1RegressionTest {
                 recoveredRepository.deletePlayers()
                 recoveredRepository.deleteFixtures()
             }
-        } catch (_: CancellationException) {
+        } catch (e: ExistingCareerOverwriteBlockedException) {
+            assertEquals(1, e.gameSaveRowCount)
             destructiveResetBlocked = true
         }
         assertTrue("A cadeia destrutiva de Novo Jogo deve abortar", destructiveResetBlocked)
