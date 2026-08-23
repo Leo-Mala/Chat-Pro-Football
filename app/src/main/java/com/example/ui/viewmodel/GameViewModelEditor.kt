@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import com.example.data.repository.SlotRecoveryRequiredException
+import java.util.WeakHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -14,13 +15,20 @@ import kotlin.math.roundToInt
 
 /**
  * O bootstrap do editor pode materializar times/jogadores em um slot pré-carreira. Duas entradas
- * concorrentes não podem observar a mesma tabela vazia e semear o mesmo universo duas vezes.
+ * concorrentes da mesma sessão não podem observar a mesma tabela vazia e semear o mesmo universo
+ * duas vezes.
  *
- * Um único mutex é deliberadamente suficiente: a preparação do editor é uma operação rara de
- * entrada de UI; serializá-la entre slots evita duplicação sem introduzir estado por-slot que
- * precisaria de lifecycle/limpeza próprios.
+ * A serialização é por GameViewModel, não global ao processo. Assim uma sessão encerrada/teste
+ * cancelado nunca consegue manter um mutex global preso e bloquear uma nova sessão independente.
+ * WeakHashMap evita reter ViewModels depois que seu lifecycle termina.
  */
-private val editorPreparationMutex = Mutex()
+private val editorPreparationMutexes = WeakHashMap<GameViewModel, Mutex>()
+private val editorPreparationMutexesGuard = Any()
+
+private fun GameViewModel.editorPreparationMutex(): Mutex =
+    synchronized(editorPreparationMutexesGuard) {
+        editorPreparationMutexes.getOrPut(this) { Mutex() }
+    }
 
 private fun GameViewModel.isEditorSessionCurrent(session: SaveSession): Boolean =
     activeSaveSession.value === session && currentSaveId.value == session.slotId
@@ -40,7 +48,7 @@ fun GameViewModel.ensureSaveActiveForEditor(
         // Checkpoint inerte em produção. Em teste, comprova que uma segunda coroutine realmente
         // chegou à fronteira de serialização antes de verificarmos que ela não entrou no bootstrap.
         preparationAttemptCheckpoint()
-        editorPreparationMutex.withLock {
+        editorPreparationMutex().withLock {
             val targetSaveId = _currentSaveId.value ?: "1"
             var editorSession: SaveSession? = null
             try {
