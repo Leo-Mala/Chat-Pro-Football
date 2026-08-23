@@ -5,7 +5,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.data.APP_DATABASE_SCHEMA_VERSION
 import com.example.data.AppDatabase
-import com.example.data.migrations.MIGRATION_21_22
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -22,37 +21,32 @@ class Phase107MigrationInstrumentedTest {
     )
 
     @Test
-    fun migration21To22RunsOnAndroidSQLiteAndProducesTheExportedV22Schema() {
-        val databaseName = "phase107_migration_21_22.db"
+    fun previousSchemaMigratesToCurrentSchemaOnRealAndroidSQLite() {
+        val currentVersion = APP_DATABASE_SCHEMA_VERSION
+        val previousVersion = currentVersion - 1
+        val databaseName = "current_android_migration_${previousVersion}_${currentVersion}.db"
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(databaseName)
 
         try {
-            migrationHelper.createDatabase(databaseName, 21).close()
+            migrationHelper.createDatabase(databaseName, previousVersion).close()
 
             val migrated = migrationHelper.runMigrationsAndValidate(
                 databaseName,
-                APP_DATABASE_SCHEMA_VERSION,
+                currentVersion,
                 true,
-                MIGRATION_21_22
+                *AppDatabase.ALL_MIGRATIONS
             )
             try {
                 val userVersion = migrated.query("PRAGMA user_version").use { cursor ->
                     assertTrue(cursor.moveToFirst())
                     cursor.getInt(0)
                 }
-                assertEquals(APP_DATABASE_SCHEMA_VERSION, userVersion)
-
-                val indexes = mutableSetOf<String>()
-                migrated.query("PRAGMA index_list(`historico_evolucao`)").use { cursor ->
-                    while (cursor.moveToNext()) {
-                        indexes += cursor.getString(1)
-                    }
+                assertEquals(currentVersion, userVersion)
+                migrated.query("PRAGMA integrity_check").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals("ok", cursor.getString(0))
                 }
-                assertTrue(
-                    "Migration 21->22 must create the evolution date index on Android SQLite",
-                    "index_historico_evolucao_data" in indexes
-                )
             } finally {
                 migrated.close()
             }
