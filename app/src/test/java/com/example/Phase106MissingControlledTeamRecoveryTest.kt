@@ -45,7 +45,7 @@ class Phase106MissingControlledTeamRecoveryTest {
     }
 
     @Test
-    fun canonicalGameSaveWhoseControlledTeamIsMissingRequiresRecoveryBeforeSeed() = runBlocking {
+    fun canonicalGameSaveWhoseReferencedTeamIsMissingRequiresRecoveryBeforeSeed() = runBlocking {
         val name = SlotDatabaseFactory.databaseNameForSlot(slotId)
         val missingTeamId = 987_654_321L
 
@@ -74,7 +74,7 @@ class Phase106MissingControlledTeamRecoveryTest {
 
         val inspection = saveRepository.inspectSlot(slotId)
         assertEquals(SlotDatabaseState.RECOVERY_REQUIRED, inspection.state)
-        assertFalse("GameSave sem clube controlado não é uma carreira jogável", inspection.newGameAllowed)
+        assertFalse("GameSave sem o clube referenciado não é uma carreira jogável", inspection.newGameAllowed)
         assertTrue(inspection.failureReason?.contains("MissingControlledTeam:playerTeamId=$missingTeamId") == true)
 
         var blocked = false
