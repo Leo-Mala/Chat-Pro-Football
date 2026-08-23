@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.example.data.repository.SlotDatabaseState
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -40,8 +41,12 @@ class Phase107ComposeNavigationInstrumentedTest {
         composeRule.waitUntil(timeoutMillis = 30_000) {
             composeRule.onAllNodes(hasTestTag("save_slot_1")).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("save_slot_1").assertIsDisplayed().assertHasClickAction()
+        composeRule.onNodeWithTag("save_slot_1")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
         composeRule.onNodeWithTag("back_to_menu_button")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertHasClickAction()
             .performClick()
