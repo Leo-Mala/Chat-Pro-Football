@@ -39,6 +39,19 @@ install_pair() {
   adb install -r "$test_apk"
 }
 
+verify_new_app_process() {
+  local old_pid="$1"
+  local label="$2"
+  local start_output new_pid
+  start_output="$(adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity")"
+  printf '%s\n' "$start_output" > "$artifact_dir/${label}-direct-start.txt"
+  printf '%s\n' "$start_output" | grep -q 'Status: ok'
+  new_pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')"
+  test -n "$new_pid"
+  test "$new_pid" != "$old_pid"
+  printf 'old_pid=%s\nnew_pid=%s\n' "$old_pid" "$new_pid" > "$artifact_dir/process-restart.txt"
+}
+
 case "$mode" in
   smoke)
     install_pair debug
@@ -67,10 +80,7 @@ case "$mode" in
     sleep 2
     test -z "$(adb shell pidof "$TARGET_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
     run_test 'com.example.Phase107ProcessRestartUiInstrumentedTest#recoveredCareerSurvivesExternalForceStopAndOpensThroughUi' 'process-restart-recovery-ui'
-    new_pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r' || true)"
-    test -n "$new_pid"
-    test "$new_pid" != "$old_pid"
-    printf '%s\n' "$new_pid" > "$artifact_dir/post-restart-pid.txt"
+    verify_new_app_process "$old_pid" 'post-recovery'
     ;;
   release)
     install_pair release
@@ -91,10 +101,7 @@ case "$mode" in
     sleep 2
     test -z "$(adb shell pidof "$TARGET_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
     run_test 'com.example.Phase107ProcessRestartUiInstrumentedTest#recoveredCareerSurvivesExternalForceStopAndOpensThroughUi' 'release-process-restart-recovery'
-    new_pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r' || true)"
-    test -n "$new_pid"
-    test "$new_pid" != "$old_pid"
-    printf 'old_pid=%s\nnew_pid=%s\n' "$old_pid" "$new_pid" > "$artifact_dir/process-restart.txt"
+    verify_new_app_process "$old_pid" 'post-recovery-release'
     ;;
   *)
     echo "unknown mode: $mode" >&2
