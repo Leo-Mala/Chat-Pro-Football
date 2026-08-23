@@ -100,7 +100,7 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew testDebugUnitTest \
-            --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceTest \
+            --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest \
             --no-build-cache \
             --rerun-tasks \
             --stacktrace
