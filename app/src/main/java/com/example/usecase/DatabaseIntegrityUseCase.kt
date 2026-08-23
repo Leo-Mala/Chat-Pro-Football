@@ -75,6 +75,19 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
     }
 
     suspend fun repairDatabase(): IntegrityCheckReport {
+        // Um slot pré-carreira (sem GameSave canônico) pode conter apenas dados de seleção/editor.
+        // Ele continua semanticamente vazio e não deve disparar um preenchimento global de elencos
+        // que compete com a criação do Novo Jogo e será apagado pelo seed transacional da carreira.
+        if (repository.getGameSave() == null) {
+            return IntegrityCheckReport(
+                totalTeamsChecked = 0,
+                teamsRepaired = 0,
+                playersAddedCount = 0,
+                orphanPlayersFixedCount = 0,
+                issuesFound = emptyList()
+            )
+        }
+
         val preflight = validateDatabase()
         if (preflight.issuesFound.isEmpty()) return preflight
 
