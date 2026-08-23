@@ -86,6 +86,7 @@ jobs:
               r'^\.github/(workflows|scripts)/', r'^app/build\.gradle\.kts$', r'^gradle/', r'^gradle\.properties$',
               r'^app/src/main/java/com/example/usecase/(SeasonTransitionUseCase|GenerateCalendarUseCase)',
               r'^app/src/main/java/com/example/data/(SeasonRolloverRepository|repository|daos|database|entities|DefaultData|GlobalFootballSystem|GameCalendar)',
+              r'^app/src/test/java/com/example/data/Phase108',
               r'^app/src/main/java/com/example/data/migrations/', r'^tools/fc26/', r'^reports/phase_10_8_'
           ])
           instrumented = any_match(infra + [r'^app/src/main/', r'^app/src/androidTest/', r'^app/schemas/', r'^tools/fc26/'])
