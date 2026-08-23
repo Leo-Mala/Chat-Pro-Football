@@ -33,6 +33,11 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE)
 class Phase106EditorPreparationSerializationTest {
 
+    companion object {
+        private const val SYNCHRONIZATION_TIMEOUT_MS = 5_000L
+        private const val FULL_BOOTSTRAP_TIMEOUT_MS = 90_000L
+    }
+
     private lateinit var application: Application
     private lateinit var saveRepository: GameSaveRepository
     private lateinit var preferencesRepository: GamePreferencesRepository
@@ -84,7 +89,7 @@ class Phase106EditorPreparationSerializationTest {
             },
             onReady = { firstReady.complete(it) }
         )
-        withTimeout(5_000) { firstEntered.await() }
+        withTimeout(SYNCHRONIZATION_TIMEOUT_MS) { firstEntered.await() }
 
         viewModel.ensureSaveActiveForEditor(
             preparationAttemptCheckpoint = {
@@ -99,7 +104,7 @@ class Phase106EditorPreparationSerializationTest {
 
         // Prova que a segunda coroutine realmente chegou ao mutex; a ausência de entrada no
         // checkpoint interno passa a ser uma propriedade determinística, não uma janela temporal.
-        withTimeout(5_000) { secondAttempted.await() }
+        withTimeout(SYNCHRONIZATION_TIMEOUT_MS) { secondAttempted.await() }
         assertFalse(
             "A segunda preparação não pode atravessar o mutex enquanto a primeira ainda está ativa",
             secondEntered.isCompleted
@@ -108,7 +113,7 @@ class Phase106EditorPreparationSerializationTest {
         releaseFirst.complete(Unit)
         assertTrue("Primeira preparação precisa concluir", awaitMainThreadDeferred(firstReady))
 
-        withTimeout(5_000) { secondEntered.await() }
+        withTimeout(SYNCHRONIZATION_TIMEOUT_MS) { secondEntered.await() }
         val repository = saveRepository.getRepositoryForSlot("1")
         val playersAfterFirstBootstrap = repository.getAllPlayers().size
         assertTrue("Primeiro bootstrap precisa materializar jogadores", playersAfterFirstBootstrap > 0)
@@ -124,8 +129,14 @@ class Phase106EditorPreparationSerializationTest {
         )
     }
 
+    /**
+     * O gate de concorrência continua limitado a 5 s nos checkpoints acima. Somente a espera pelo
+     * bootstrap completo usa uma janela maior, porque esse caminho materializa o universo inteiro de
+     * times/jogadores e sua duração varia com o runner. As asserções funcionais e de serialização não
+     * foram relaxadas.
+     */
     private suspend fun <T> awaitMainThreadDeferred(deferred: CompletableDeferred<T>): T =
-        withTimeout(5_000) {
+        withTimeout(FULL_BOOTSTRAP_TIMEOUT_MS) {
             while (!deferred.isCompleted) {
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 delay(1)
