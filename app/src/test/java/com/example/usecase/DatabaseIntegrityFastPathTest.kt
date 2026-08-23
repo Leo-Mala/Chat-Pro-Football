@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.AppDatabase
 import com.example.data.DefaultData
 import com.example.data.GameRepository
+import com.example.data.GameSave
 import com.example.data.Team
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -51,6 +52,9 @@ class DatabaseIntegrityFastPathTest {
             )
         }
         repository.saveTeams(teams)
+        // Desde a Fase 10.6, somente game_save(id=1) representa uma carreira. Este fixture
+        // valida o fast-path de integridade de uma carreira real, não o estado pré-carreira.
+        repository.saveGameSave(GameSave(playerTeamId = teams.first().id))
 
         val players = teams.flatMap { team ->
             DefaultData.generateRosterForTeam(
