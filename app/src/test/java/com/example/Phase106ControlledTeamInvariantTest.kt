@@ -50,23 +50,29 @@ class Phase106ControlledTeamInvariantTest {
         saveRepository.closeAllDatabases()
         val reopened = GameSaveRepository(context, SlotDatabaseFactory(context))
         try {
+            // O primeiro open protegido já precisa reconciliar a projeção antes de qualquer
+            // consumidor de gameplay poder observar o clube como CPU.
+            val reopenedRepository = reopened.getRepositoryForSlot(slotId)
+            val repairedTeam = reopenedRepository.getTeam(team.id)
+            assertTrue("O clube referenciado pelo GameSave deve ser projetado como controlado", repairedTeam?.isPlayerControlled == true)
+            assertEquals(
+                listOf(team.id),
+                reopenedRepository.getAllTeams().filter { it.isPlayerControlled }.map { it.id }
+            )
+
             val inspection = reopened.inspectSlot(slotId)
             assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
             assertFalse(inspection.newGameAllowed)
             assertEquals(save, inspection.save)
             assertEquals(team.name, inspection.teamName)
-            assertEquals(
-                "O marcador derivado não deve ser alterado silenciosamente durante inspeção",
-                team,
-                reopened.getRepositoryForSlot(slotId).getTeam(team.id)
-            )
+            assertEquals("A reconciliação da projeção não pode alterar o GameSave", save, reopenedRepository.getGameSave())
         } finally {
             reopened.closeAllDatabases()
         }
     }
 
     @Test
-    fun extraControlledMarkerCannotOverrideAuthoritativeGameSave() = runBlocking {
+    fun extraControlledMarkerIsReconciledToAuthoritativeGameSave() = runBlocking {
         val slotId = "3"
         val playerTeam = team(id = 93_003L, name = "Clube do Jogador", controlled = true)
         val staleControlled = team(id = 93_004L, name = "Marcador derivado obsoleto", controlled = true)
@@ -80,7 +86,16 @@ class Phase106ControlledTeamInvariantTest {
         assertFalse(inspection.newGameAllowed)
         assertEquals(save, inspection.save)
         assertEquals(playerTeam.name, inspection.teamName)
-        assertEquals(2, repo.getAllTeams().count { it.isPlayerControlled })
+        assertEquals(
+            "A projeção deve convergir para exatamente o clube referenciado",
+            listOf(playerTeam.id),
+            repo.getAllTeams().filter { it.isPlayerControlled }.map { it.id }
+        )
+        assertFalse(
+            "Marcador derivado duplicado deve ser removido sem invalidar a carreira",
+            repo.getTeam(staleControlled.id)?.isPlayerControlled == true
+        )
+        assertEquals("A reconciliação não pode mutar a autoridade da carreira", save, repo.getGameSave())
     }
 
     @Test
