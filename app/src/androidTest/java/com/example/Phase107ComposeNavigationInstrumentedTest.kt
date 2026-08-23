@@ -90,11 +90,23 @@ class Phase107ComposeNavigationInstrumentedTest {
         assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
         assertTrue(dependencies.gameSaveRepository().databaseFileForSlot(slotId).isFile)
 
+        val gameSaveRowsBeforeRecreate = Phase107TestSupport.sqliteRowCount(slotId, "game_save")
+        val teamsBeforeRecreate = Phase107TestSupport.sqliteRowCount(slotId, "teams")
+        val playersBeforeRecreate = Phase107TestSupport.sqliteRowCount(slotId, "players")
+        assertEquals(1L, gameSaveRowsBeforeRecreate)
+        assertTrue("A real new career must persist teams", teamsBeforeRecreate > 0L)
+        assertTrue("A real new career must persist players", playersBeforeRecreate > 0L)
+
         composeRule.activityRule.scenario.recreate()
         composeRule.waitUntil(timeoutMillis = 60_000) {
             composeRule.onAllNodes(hasTestTag("dashboard_tab")).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
+
+        // Activity recreation must never trigger a second seed over the existing career.
+        assertEquals(gameSaveRowsBeforeRecreate, Phase107TestSupport.sqliteRowCount(slotId, "game_save"))
+        assertEquals(teamsBeforeRecreate, Phase107TestSupport.sqliteRowCount(slotId, "teams"))
+        assertEquals(playersBeforeRecreate, Phase107TestSupport.sqliteRowCount(slotId, "players"))
     }
 
     private fun navigateTab(tag: String) {
