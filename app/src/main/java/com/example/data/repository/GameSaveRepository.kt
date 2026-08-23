@@ -10,6 +10,7 @@ import com.example.data.GameSave
 import com.example.data.local.SlotDatabaseFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -28,8 +29,8 @@ enum class SlotDatabaseState {
  * Resultado fail-closed da inspeção de um slot.
  *
  * [VALID_CAREER] só é emitido quando o registro autoritativo `game_save(id=1)` foi lido com
- * sucesso, é a única linha da tabela e referencia um clube existente. A mera existência do arquivo
- * SQLite nunca é usada como prova de carreira.
+ * sucesso, é a única linha da tabela e `playerTeamId` é exatamente o único clube marcado como
+ * controlado pelo jogador. A mera existência do arquivo SQLite nunca é usada como prova de carreira.
  */
 data class SlotDatabaseInspection(
     val state: SlotDatabaseState,
@@ -60,7 +61,16 @@ class GameSaveRepository @Inject constructor(
         private val SQLITE_SIDECAR_SUFFIXES = listOf("-wal", "-shm", "-journal")
     }
 
-    private val repositories = mutableMapOf<String, GameRepository>()
+    /**
+     * Locks são por slot: exclusão/reopen do mesmo slot são serializados sem bloquear slots
+     * independentes. Os mapas também são concorrentes porque operações de slots diferentes podem
+     * progredir em paralelo.
+     */
+    private val repositories = ConcurrentHashMap<String, GameRepository>()
+    private val slotLifecycleLocks = ConcurrentHashMap<String, Any>()
+
+    private fun slotLifecycleLock(slotId: String): Any =
+        slotLifecycleLocks.computeIfAbsent(slotId) { Any() }
 
     private fun requirePhysicalOpenAllowed(slotId: String) {
         physicalRecoveryInspection(slotId)?.let { inspection ->
@@ -70,9 +80,10 @@ class GameSaveRepository @Inject constructor(
 
     /**
      * Depois que Room materializa a tabela, nenhum `GameSave` representa apenas um banco
-     * pré-carreira. Uma carreira válida exige exatamente `id=1` e o clube controlado referenciado
-     * por `playerTeamId`. Qualquer outra combinação é corrupção/restore parcial e precisa ser
-     * preservada antes de seed, repair ou qualquer mutação de UI.
+     * pré-carreira. Uma carreira válida exige exatamente `id=1`, o clube referenciado por
+     * `playerTeamId` existente e marcado como controlado, e nenhum segundo clube controlado.
+     * Qualquer outra combinação é corrupção/restore parcial e precisa ser preservada antes de
+     * seed, repair ou qualquer mutação de UI.
      */
     private fun semanticRecoveryInspection(database: AppDatabase): SlotDatabaseInspection? {
         val sqlite = database.openHelper.readableDatabase
@@ -94,19 +105,42 @@ class GameSaveRepository @Inject constructor(
             )
         }
 
-        val controlledTeamId = rows.single().second
-        val controlledTeamExists = sqlite
+        val playerTeamId = rows.single().second
+        val playerTeamControlled = sqlite
             .query(
-                "SELECT 1 FROM teams WHERE id = ? LIMIT 1",
-                arrayOf(controlledTeamId)
+                "SELECT isPlayerControlled FROM teams WHERE id = ? LIMIT 1",
+                arrayOf(playerTeamId)
             )
-            .use { cursor -> cursor.moveToFirst() }
-        return if (controlledTeamExists) {
+            .use { cursor ->
+                if (!cursor.moveToFirst()) null else cursor.getInt(0) != 0
+            }
+        if (playerTeamControlled == null) {
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "MissingControlledTeam:playerTeamId=$playerTeamId"
+            )
+        }
+        if (!playerTeamControlled) {
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "PlayerTeamNotControlled:playerTeamId=$playerTeamId"
+            )
+        }
+
+        val controlledTeamIds = sqlite
+            .query("SELECT id FROM teams WHERE isPlayerControlled = 1 ORDER BY id")
+            .use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) add(cursor.getLong(0))
+                }
+            }
+        return if (controlledTeamIds == listOf(playerTeamId)) {
             null
         } else {
             SlotDatabaseInspection(
                 state = SlotDatabaseState.RECOVERY_REQUIRED,
-                failureReason = "MissingControlledTeam:playerTeamId=$controlledTeamId"
+                failureReason =
+                    "ControlledTeamInvariantMismatch:playerTeamId=$playerTeamId,controlledIds=${controlledTeamIds.joinToString(",")}"
             )
         }
     }
@@ -120,10 +154,9 @@ class GameSaveRepository @Inject constructor(
     /**
      * Abertura de Room é eager: `build()` sozinho é lazy e deixaria uma janela em que o arquivo
      * principal ainda não existe após o preflight. A instância só é entregue depois da abertura e
-     * da validação da tabela autoritativa.
+     * da validação da tabela autoritativa. O lock por slot impede reopen concorrente durante delete.
      */
-    @Synchronized
-    fun getDatabaseForSlot(slotId: String): AppDatabase {
+    fun getDatabaseForSlot(slotId: String): AppDatabase = synchronized(slotLifecycleLock(slotId)) {
         requirePhysicalOpenAllowed(slotId)
         val database = databaseFactory.getDatabaseForSlot(slotId)
         try {
@@ -134,15 +167,14 @@ class GameSaveRepository @Inject constructor(
             databaseFactory.closeAndRemoveSlot(slotId)
             throw e
         }
-        return database
+        database
     }
 
-    @Synchronized
-    fun getRepositoryForSlot(slotId: String): GameRepository {
+    fun getRepositoryForSlot(slotId: String): GameRepository = synchronized(slotLifecycleLock(slotId)) {
         requirePhysicalOpenAllowed(slotId)
         repositories[slotId]?.let { repository ->
             requireSemanticUseAllowed(repository.db)
-            return repository
+            return@synchronized repository
         }
 
         val database = databaseFactory.getDatabaseForSlot(slotId)
@@ -155,7 +187,7 @@ class GameSaveRepository @Inject constructor(
             throw e
         }
 
-        return GameRepository(database).also { repositories[slotId] = it }
+        GameRepository(database).also { repositories[slotId] = it }
     }
 
     fun databaseNameForSlot(slotId: String): String = SlotDatabaseFactory.databaseNameForSlot(slotId)
@@ -254,8 +286,8 @@ class GameSaveRepository @Inject constructor(
 
     /**
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
-     * `game_save(id=1)` é a autoridade e só é válida quando é a única linha da tabela e referencia
-     * um clube controlado existente.
+     * `game_save(id=1)` é a autoridade e só é válida quando é a única linha e `playerTeamId` é
+     * exatamente o único clube controlado.
      */
     suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
         val file = databaseFileForSlot(slotId)
@@ -264,6 +296,7 @@ class GameSaveRepository @Inject constructor(
 
         return try {
             val repository = getRepositoryForSlot(slotId)
+            semanticRecoveryInspection(repository.db)?.let { return it }
             val save = repository.getGameSave()
             val gameSaveRowCount = countGameSaveRows(repository)
             when {
@@ -303,38 +336,43 @@ class GameSaveRepository @Inject constructor(
 
     suspend fun isNewGameAllowed(slotId: String): Boolean = inspectSlot(slotId).newGameAllowed
 
-    @Synchronized
-    fun checkpointSlot(slotId: String) {
+    fun checkpointSlot(slotId: String) = synchronized(slotLifecycleLock(slotId)) {
         val db = getDatabaseForSlot(slotId)
         db.openHelper.writableDatabase
             .query("PRAGMA wal_checkpoint(FULL)")
             .use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) }
     }
 
-    @Synchronized
-    fun closeAndRemoveSlot(slotId: String) {
+    private fun closeAndRemoveSlotLocked(slotId: String) {
         repositories.remove(slotId)
         databaseFactory.closeAndRemoveSlot(slotId)
     }
 
+    fun closeAndRemoveSlot(slotId: String) = synchronized(slotLifecycleLock(slotId)) {
+        closeAndRemoveSlotLocked(slotId)
+    }
+
     /**
-     * Exclusão física é uma fronteira destrutiva e, portanto, também respeita cancelamento.
-     * O último check acontece depois de fechar o Room e calcular os artefatos, imediatamente antes
-     * de `Context.deleteDatabase()`. Se o job foi cancelado durante a remoção de metadata ou outra
-     * etapa anterior, o banco permanece intacto e poderá reconstruir a projeção no próximo load.
+     * Exclusão física é uma fronteira destrutiva: o lock permanece retido de close até a
+     * confirmação de remoção, impedindo que o mesmo slot seja reaberto entre essas etapas. O
+     * contexto da coroutine é capturado antes do monitor e revalidado imediatamente antes de
+     * `Context.deleteDatabase()`; cancelamento tardio preserva o arquivo para reconciliação futura.
      */
     suspend fun deleteSlotDatabase(slotId: String): Boolean {
-        closeAndRemoveSlot(slotId)
-        val databaseFile = databaseFileForSlot(slotId)
-        val sidecars = databaseSidecarFiles(databaseFile)
-        val hadPhysicalArtifact = databaseFile.exists() || sidecars.any { it.exists() }
+        val coroutineContext = currentCoroutineContext()
+        return synchronized(slotLifecycleLock(slotId)) {
+            closeAndRemoveSlotLocked(slotId)
+            val databaseFile = databaseFileForSlot(slotId)
+            val sidecars = databaseSidecarFiles(databaseFile)
+            val hadPhysicalArtifact = databaseFile.exists() || sidecars.any { it.exists() }
 
-        currentCoroutineContext().ensureActive()
-        context.deleteDatabase(databaseNameForSlot(slotId))
-        sidecars.forEach { sidecar -> if (sidecar.exists()) sidecar.delete() }
+            coroutineContext.ensureActive()
+            context.deleteDatabase(databaseNameForSlot(slotId))
+            sidecars.forEach { sidecar -> if (sidecar.exists()) sidecar.delete() }
 
-        val allArtifactsRemoved = !databaseFile.exists() && sidecars.none { it.exists() }
-        return hadPhysicalArtifact && allArtifactsRemoved
+            val allArtifactsRemoved = !databaseFile.exists() && sidecars.none { it.exists() }
+            hadPhysicalArtifact && allArtifactsRemoved
+        }
     }
 
     @Synchronized
