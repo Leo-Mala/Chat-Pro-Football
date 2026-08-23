@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.ExistingCareerOverwriteBlockedException
 import com.example.data.GamePreferencesRepository
 import com.example.data.GameRepository
 import com.example.data.GameSave
@@ -136,7 +137,8 @@ class Phase106LifecycleRaceRegressionTest {
         var blocked = false
         try {
             repository.deleteSave()
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: ExistingCareerOverwriteBlockedException) {
+            assertEquals(1, e.gameSaveRowCount)
             blocked = true
         }
         assertTrue("Qualquer linha game_save deve bloquear reset parcial", blocked)
@@ -150,7 +152,8 @@ class Phase106LifecycleRaceRegressionTest {
         blocked = false
         try {
             repository.deleteSave()
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: ExistingCareerOverwriteBlockedException) {
+            assertEquals(2, e.gameSaveRowCount)
             blocked = true
         }
         assertTrue(blocked)
@@ -261,7 +264,6 @@ class Phase106LifecycleRaceRegressionTest {
         val load = async(Dispatchers.Default) { racingRepository.loadSaveSlots() }
         withTimeout(5_000) { enteredAtSlot5.await() }
 
-        // Slot 1 já foi projetado; a passagem está bloqueada no efeito de metadata do slot 5.
         assertTrue(saveRepository.deleteSlotDatabase(slot1))
         releaseSlot5.complete(Unit)
 
@@ -325,7 +327,8 @@ class Phase106LifecycleRaceRegressionTest {
             state = "MG",
             country = "Brasil",
             division = 1,
-            rating = 80
+            rating = 80,
+            isPlayerControlled = true
         )
         val save = GameSave(
             coachName = coachName,
