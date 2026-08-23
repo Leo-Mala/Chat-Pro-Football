@@ -107,7 +107,6 @@ class Phase106SaveRecoverySafetyTest {
             balance = 91_234_567L
         )
 
-        // Simula process death / restore D2D parcial depois do commit Room e antes da metadata.
         clearMetadata()
         reopenRepositories()
 
@@ -130,7 +129,6 @@ class Phase106SaveRecoverySafetyTest {
         assertTrue(context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
             .getBoolean("slot_2_exists", false))
 
-        // Recovery idempotente: perder a projeção novamente continua recuperando o mesmo Room.
         clearMetadata()
         val secondRecovery = preferencesRepository.loadSaveSlots().single { it.id == "2" }
         assertEquals(recovered.copy(updatedAt = secondRecovery.updatedAt), secondRecovery)
@@ -154,8 +152,6 @@ class Phase106SaveRecoverySafetyTest {
         val firstRecovered = preferencesRepository.loadSaveSlots().single { it.id == "2" }
         assertEquals(original.coachName, firstRecovered.coachName)
 
-        // Depois do recovery, uma gravação normal de carreira deve continuar autoritativa e
-        // reconstruir a projeção metadata sem depender do estado anterior.
         val updated = original.copy(currentWeek = 12, bankBalance = 53_500_000L)
         saveRepository.getRepositoryForSlot("2").saveGameSave(updated)
         val afterWrite = preferencesRepository.loadSaveSlots().single { it.id == "2" }
@@ -303,8 +299,6 @@ class Phase106SaveRecoverySafetyTest {
             saveRepository = saveRepository
         )
 
-        // Simula metadata indisponível/corrompida: DataStore falha, mas SharedPreferences commit()
-        // confirma a projeção durável e Room continua sendo a autoridade da carreira.
         failingRepository.updateSlotMetadata(
             saveId = "2",
             coachName = expected.coachName,
@@ -372,7 +366,8 @@ class Phase106SaveRecoverySafetyTest {
                     state = "MG",
                     country = "Brasil",
                     division = 1,
-                    rating = 75
+                    rating = 75,
+                    isPlayerControlled = true
                 )
             )
         )
