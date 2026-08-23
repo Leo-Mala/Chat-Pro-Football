@@ -2,7 +2,9 @@ package com.example
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.APP_DATABASE_SCHEMA_VERSION
+import com.example.data.Team
 import com.example.data.repository.SlotDatabaseState
+import com.example.usecase.DatabaseIntegrityUseCase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +43,45 @@ class Phase107PersistenceInstrumentedTest {
             assertEquals("Phase 10.7 Room", inspection.save?.coachName)
             assertEquals(10_705L, inspection.save?.playerTeamId)
             assertEquals("Instrumented Room Club", inspection.teamName)
+        } finally {
+            Phase107TestSupport.resetSlot(slotId)
+        }
+    }
+
+    @Test
+    fun preCareerSlotDoesNotSelfHealRostersBeforeGameSaveExists() {
+        val slotId = "1"
+        try {
+            Phase107TestSupport.resetSlot(slotId)
+            val saveRepository = Phase107TestSupport.entryPoint().gameSaveRepository()
+            val repository = saveRepository.getRepositoryForSlot(slotId)
+
+            val report = runBlocking {
+                repository.saveTeams(
+                    listOf(
+                        Team(
+                            id = 10_701L,
+                            name = "Pre Career Club",
+                            city = "Instrumented CI",
+                            state = "CI",
+                            country = "Brasil",
+                            division = 1,
+                            rating = 70
+                        )
+                    )
+                )
+                DatabaseIntegrityUseCase(repository).repairDatabase()
+            }
+
+            assertEquals(0, report.totalTeamsChecked)
+            assertEquals(0, report.teamsRepaired)
+            assertEquals(0, report.playersAddedCount)
+            assertEquals(0L, Phase107TestSupport.sqliteRowCount(slotId, "game_save"))
+            assertEquals(0L, Phase107TestSupport.sqliteRowCount(slotId, "players"))
+
+            Phase107TestSupport.closeDatabases()
+            val inspection = runBlocking { saveRepository.inspectSlot(slotId) }
+            assertEquals(SlotDatabaseState.EMPTY, inspection.state)
         } finally {
             Phase107TestSupport.resetSlot(slotId)
         }
