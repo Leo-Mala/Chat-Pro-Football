@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.AppDatabase
 import com.example.data.GameRepository
+import com.example.data.GameSave
 import com.example.data.Player
 import com.example.data.Team
 import kotlinx.coroutines.test.runTest
@@ -43,6 +44,9 @@ class DatabaseIntegrityUseCaseTest {
     fun validateAndRepairDatabase_fixes_teams_with_incomplete_rosters() = runTest {
         val team = Team(id = 1L, name = "Time Incompleto", city = "Sp", state = "SP", division = 1)
         repository.saveTeams(listOf(team))
+        // O reparo de roster é uma operação de carreira. Sem o GameSave canônico, o banco é
+        // pré-carreira e o guard da Fase 10.7 deve corretamente permanecer no-op.
+        repository.saveGameSave(GameSave(playerTeamId = team.id))
 
         // Create only 1 player
         val p1 = Player(id = 1L, teamId = 1L, name = "P1", age = 20, position = "GOL", force = 60)
