@@ -1,10 +1,20 @@
 package com.example.data
 
 import androidx.room.withTransaction
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+
+/**
+ * Erro de domínio para uma tentativa de reset/Novo Jogo que encontrou carreira persistida.
+ * Diferente de CancellationException: o rollback continua ocorrendo, mas o chamador pode
+ * reportar a falha ao usuário sem confundi-la com cancelamento real de lifecycle/coroutine.
+ */
+class ExistingCareerOverwriteBlockedException(
+    val gameSaveRowCount: Int
+) : IllegalStateException(
+    "Exclusão parcial de GameSave bloqueada: $gameSaveRowCount linha(s) preservada(s); remova explicitamente o banco do slot."
+)
 
 class GameRepository(internal val db: AppDatabase) {
     suspend fun <R> withTransaction(block: suspend () -> R): R =
@@ -48,7 +58,7 @@ class GameRepository(internal val db: AppDatabase) {
 
     fun getPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> = db.playerDao().getPlayersByTeamFlow(teamId)
     fun getLegendsForTeamFlow(teamId: Long): Flow<List<ClubLegend>> = db.clubLegendDao().getLegendsForTeamFlow(teamId)
-    fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)
+    fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture?>> = db.fixtureDao().getFixturesForWeekFlow(season, week).map { it.map { fixture -> fixture } }
     fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>> =
         db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)
     fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =
@@ -72,9 +82,7 @@ class GameRepository(internal val db: AppDatabase) {
                 if (cursor.moveToFirst()) cursor.getInt(0) else 0
             }
         if (gameSaveRowCount > 0) {
-            throw CancellationException(
-                "Exclusão parcial de GameSave bloqueada: $gameSaveRowCount linha(s) preservada(s); remova explicitamente o banco do slot."
-            )
+            throw ExistingCareerOverwriteBlockedException(gameSaveRowCount)
         }
         db.gameSaveDao().deleteSave()
     }
