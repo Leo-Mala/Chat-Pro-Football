@@ -58,7 +58,7 @@ class GameRepository(internal val db: AppDatabase) {
 
     fun getPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> = db.playerDao().getPlayersByTeamFlow(teamId)
     fun getLegendsForTeamFlow(teamId: Long): Flow<List<ClubLegend>> = db.clubLegendDao().getLegendsForTeamFlow(teamId)
-    fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture?>> = db.fixtureDao().getFixturesForWeekFlow(season, week).map { it.map { fixture -> fixture } }
+    fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForWeekFlow(season, week)
     fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>> =
         db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)
     fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =
