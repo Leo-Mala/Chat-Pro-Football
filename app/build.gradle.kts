@@ -18,10 +18,12 @@ val releaseKeyPassword = System.getenv("KEY_PASSWORD")
 val hasReleaseSigning = !releaseStorePassword.isNullOrBlank() &&
   !releaseKeyPassword.isNullOrBlank() &&
   releaseKeystorePath?.let { file(it).isFile } == true
+val instrumentedBuildType = providers.gradleProperty("instrumentedBuildType").orElse("debug").get()
 
 android {
   namespace = "com.example"
   compileSdk = 35
+  testBuildType = instrumentedBuildType
 
   defaultConfig {
     // Mantido por compatibilidade de upgrade/save nesta fase. A identidade visível do produto é Pro Football.
@@ -82,7 +84,10 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    animationsDisabled = true
+    unitTests { isIncludeAndroidResources = true }
+  }
 }
 
 dependencies {
@@ -128,6 +133,7 @@ dependencies {
   testImplementation(libs.roborazzi.junit.rule)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  androidTestImplementation(libs.androidx.core)
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
