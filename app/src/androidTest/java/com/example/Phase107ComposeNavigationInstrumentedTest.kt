@@ -70,11 +70,15 @@ class Phase107ComposeNavigationInstrumentedTest {
             composeRule.onAllNodes(hasTestTag("dashboard_tab")).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("dashboard_tab").assertIsDisplayed().assertHasClickAction()
-        composeRule.onNodeWithTag("squad_tab").assertHasClickAction().performClick()
-        composeRule.onNodeWithTag("tactics_tab").assertHasClickAction().performClick()
-        composeRule.onNodeWithTag("finance_tab").assertHasClickAction().performClick()
-        composeRule.onNodeWithTag("standings_tab").assertHasClickAction().performClick()
-        composeRule.onNodeWithTag("dashboard_tab").performClick()
+
+        // Cada clique aguarda a árvore Compose ficar idle para garantir que a tela de destino
+        // realmente foi composta no processo Android instalado, em vez de apenas enfileirar cliques.
+        navigateTab("squad_tab")
+        navigateTab("tactics_tab")
+        navigateTab("market_tab")
+        navigateTab("finance_tab")
+        navigateTab("standings_tab")
+        navigateTab("dashboard_tab")
 
         val dependencies = Phase107TestSupport.entryPoint()
         val occupiedSlots = runBlocking {
@@ -91,5 +95,11 @@ class Phase107ComposeNavigationInstrumentedTest {
             composeRule.onAllNodes(hasTestTag("dashboard_tab")).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
+    }
+
+    private fun navigateTab(tag: String) {
+        composeRule.onNodeWithTag(tag).assertHasClickAction().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(tag).assertIsDisplayed()
     }
 }
