@@ -29,8 +29,9 @@ enum class SlotDatabaseState {
  * Resultado fail-closed da inspeção de um slot.
  *
  * [VALID_CAREER] só é emitido quando o registro autoritativo `game_save(id=1)` foi lido com
- * sucesso, é a única linha da tabela e `playerTeamId` é exatamente o único clube marcado como
- * controlado pelo jogador. A mera existência do arquivo SQLite nunca é usada como prova de carreira.
+ * sucesso, é a única linha da tabela e `playerTeamId` referencia um clube persistido. O marcador
+ * `Team.isPlayerControlled` é uma projeção derivada e não participa da decisão de existência da
+ * carreira. A mera existência do arquivo SQLite nunca é usada como prova de carreira.
  */
 data class SlotDatabaseInspection(
     val state: SlotDatabaseState,
@@ -80,10 +81,12 @@ class GameSaveRepository @Inject constructor(
 
     /**
      * Depois que Room materializa a tabela, nenhum `GameSave` representa apenas um banco
-     * pré-carreira. Uma carreira válida exige exatamente `id=1`, o clube referenciado por
-     * `playerTeamId` existente e marcado como controlado, e nenhum segundo clube controlado.
-     * Qualquer outra combinação é corrupção/restore parcial e precisa ser preservada antes de
-     * seed, repair ou qualquer mutação de UI.
+     * pré-carreira. Uma carreira válida exige exatamente `id=1` e um clube persistido para
+     * `playerTeamId`. O próprio `GameSave` é autoritativo para identificar o clube do jogador;
+     * `Team.isPlayerControlled` é derivado e pode estar ausente/divergente em saves históricos ou
+     * restores parciais de metadata sem que isso autorize classificar a carreira como vazia.
+     *
+     * Linhas não canônicas de `game_save` ou ausência do clube referenciado continuam fail-closed.
      */
     private fun semanticRecoveryInspection(database: AppDatabase): SlotDatabaseInspection? {
         val sqlite = database.openHelper.readableDatabase
@@ -106,43 +109,20 @@ class GameSaveRepository @Inject constructor(
         }
 
         val playerTeamId = rows.single().second
-        val playerTeamControlled = sqlite
+        val playerTeamExists = sqlite
             .query(
-                "SELECT isPlayerControlled FROM teams WHERE id = ? LIMIT 1",
+                "SELECT 1 FROM teams WHERE id = ? LIMIT 1",
                 arrayOf(playerTeamId)
             )
-            .use { cursor ->
-                if (!cursor.moveToFirst()) null else cursor.getInt(0) != 0
-            }
-        if (playerTeamControlled == null) {
+            .use { cursor -> cursor.moveToFirst() }
+        if (!playerTeamExists) {
             return SlotDatabaseInspection(
                 state = SlotDatabaseState.RECOVERY_REQUIRED,
                 failureReason = "MissingControlledTeam:playerTeamId=$playerTeamId"
             )
         }
-        if (!playerTeamControlled) {
-            return SlotDatabaseInspection(
-                state = SlotDatabaseState.RECOVERY_REQUIRED,
-                failureReason = "PlayerTeamNotControlled:playerTeamId=$playerTeamId"
-            )
-        }
 
-        val controlledTeamIds = sqlite
-            .query("SELECT id FROM teams WHERE isPlayerControlled = 1 ORDER BY id")
-            .use { cursor ->
-                buildList {
-                    while (cursor.moveToNext()) add(cursor.getLong(0))
-                }
-            }
-        return if (controlledTeamIds == listOf(playerTeamId)) {
-            null
-        } else {
-            SlotDatabaseInspection(
-                state = SlotDatabaseState.RECOVERY_REQUIRED,
-                failureReason =
-                    "ControlledTeamInvariantMismatch:playerTeamId=$playerTeamId,controlledIds=${controlledTeamIds.joinToString(",")}"
-            )
-        }
+        return null
     }
 
     private fun requireSemanticUseAllowed(database: AppDatabase) {
@@ -310,8 +290,9 @@ class GameSaveRepository @Inject constructor(
 
     /**
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
-     * `game_save(id=1)` é a autoridade e só é válida quando é a única linha e `playerTeamId` é
-     * exatamente o único clube controlado.
+     * `game_save(id=1)` é a autoridade e só é válida quando é a única linha e `playerTeamId`
+     * referencia um clube persistido. O flag `isPlayerControlled` é derivado e não pode transformar
+     * uma carreira existente em slot vazio/recovery por si só.
      *
      * A decisão `arquivo existente -> abrir Room` ocorre sob o MESMO lock de lifecycle usado pela
      * exclusão física. Assim uma inspeção que viu o arquivo antes de um delete nunca pode acordar
