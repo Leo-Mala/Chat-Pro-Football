@@ -55,6 +55,12 @@ def parse_database_versions(source: str) -> tuple[int, int]:
     return int(const_match.group(1)), int(annotation_match.group(1))
 
 
+def parse_minimum_migratable_version(source: str) -> int:
+    match = re.search(r"MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION\s*=\s*(\d+)", source)
+    require(match is not None, "MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION not found")
+    return int(match.group(1))
+
+
 def validate_room_values(current: int, annotation: int) -> None:
     require(current == annotation, f"Room version mismatch: constant={current}, annotation={annotation}")
     require(current >= 2, f"Room schema version is unexpectedly low: {current}")
@@ -65,32 +71,40 @@ def validate_room_repository(root: Path) -> dict[str, Any]:
     source = database_path.read_text(encoding="utf-8")
     current, annotation = parse_database_versions(source)
     validate_room_values(current, annotation)
-    previous = current - 1
-
-    current_schema = root / f"app/schemas/com.example.data.AppDatabase/{current}.json"
-    previous_schema = root / f"app/schemas/com.example.data.AppDatabase/{previous}.json"
-    migration_file = root / f"app/src/main/java/com/example/data/migrations/Migration_{previous}_{current}.kt"
-    migration_symbol = f"MIGRATION_{previous}_{current}"
-
-    require(current_schema.is_file(), f"Missing current Room schema: {current_schema}")
-    require(previous_schema.is_file(), f"Missing previous Room schema: {previous_schema}")
-    require(migration_file.is_file(), f"Missing previous-to-current migration: {migration_file}")
-    require(migration_symbol in source, f"{migration_symbol} is not registered by AppDatabase")
+    minimum = parse_minimum_migratable_version(source)
+    require(1 <= minimum < current, f"Invalid minimum migratable Room version: {minimum}")
     require("ALL_MIGRATIONS" in source, "AppDatabase.ALL_MIGRATIONS is missing")
 
-    destructive = []
-    for path in (root / "app/src/main").rglob("*.kt"):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "fallbackToDestructiveMigration" in text:
-            destructive.append(str(path.relative_to(root)))
-    require(not destructive, f"Destructive Room fallback is forbidden: {destructive}")
+    schema_paths: list[str] = []
+    migration_symbols: list[str] = []
+    for version in range(minimum, current + 1):
+        schema = root / f"app/schemas/com.example.data.AppDatabase/{version}.json"
+        require(schema.is_file(), f"Missing supported Room schema: {schema}")
+        schema_paths.append(str(schema.relative_to(root)))
+
+    for previous in range(minimum, current):
+        target = previous + 1
+        migration_file = root / f"app/src/main/java/com/example/data/migrations/Migration_{previous}_{target}.kt"
+        migration_symbol = f"MIGRATION_{previous}_{target}"
+        require(migration_file.is_file(), f"Missing migration edge: {migration_file}")
+        require(migration_symbol in source, f"{migration_symbol} is not registered by AppDatabase")
+        migration_symbols.append(migration_symbol)
+
+    destructive: list[str] = []
+    production_root = root / "app/src/main"
+    for suffix in ("*.kt", "*.java"):
+        for path in production_root.rglob(suffix):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "fallbackToDestructiveMigration" in text:
+                destructive.append(str(path.relative_to(root)))
+    require(not destructive, f"Destructive Room fallback is forbidden: {sorted(set(destructive))}")
 
     return {
         "currentSchemaVersion": current,
-        "previousSchemaVersion": previous,
-        "migrationSymbol": migration_symbol,
-        "currentSchema": str(current_schema.relative_to(root)),
-        "previousSchema": str(previous_schema.relative_to(root)),
+        "minimumMigratableSchemaVersion": minimum,
+        "previousSchemaVersion": current - 1,
+        "migrationChain": migration_symbols,
+        "supportedSchemas": schema_paths,
     }
 
 
@@ -216,7 +230,8 @@ def self_test() -> None:
 
 
 def audit_repository(root: Path) -> dict[str, Any]:
-    workflows = sorted((root / ".github/workflows").glob("*.yml"))
+    workflow_root = root / ".github/workflows"
+    workflows = sorted(set(workflow_root.glob("*.yml")) | set(workflow_root.glob("*.yaml")))
     require(workflows, "No GitHub Actions workflows found")
     bad_pull_target = []
     for path in workflows:
@@ -235,6 +250,14 @@ def audit_repository(root: Path) -> dict[str, Any]:
     require("AUDIT_HEAD_SHA" in required and "git rev-parse HEAD" in required,
             "Required certification does not prove exact HEAD checkout")
     require("continue-on-error" not in required, "Required certification may not mask failures")
+    require("git diff --no-renames --name-only" in required,
+            "Scope classification must preserve both sides of production-code renames")
+    require("r'^app/src/'" in required,
+            "Required certification must conservatively include Android variant source sets")
+    require("git diff --exit-code -- app/schemas" in required,
+            "Required certification must reject generated Room schema drift")
+    require("git ls-remote origin" in required,
+            "Final certification must re-check the audited base branch before success")
 
     room = validate_room_repository(root)
     return {
