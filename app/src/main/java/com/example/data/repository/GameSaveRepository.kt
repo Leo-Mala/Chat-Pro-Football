@@ -1,7 +1,9 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.util.Log
+import com.example.data.APP_DATABASE_SCHEMA_VERSION
 import com.example.data.AppDatabase
 import com.example.data.GameRepository
 import com.example.data.GameSave
@@ -163,6 +165,22 @@ class GameSaveRepository @Inject constructor(
         }
     }
 
+    private fun readSqliteUserVersion(file: File): Int {
+        val rawDatabase = SQLiteDatabase.openDatabase(
+            file.path,
+            null,
+            SQLiteDatabase.OPEN_READONLY
+        )
+        return try {
+            rawDatabase.rawQuery("PRAGMA user_version", null).use { cursor ->
+                check(cursor.moveToFirst()) { "PRAGMA user_version não retornou linha" }
+                cursor.getInt(0)
+            }
+        } finally {
+            rawDatabase.close()
+        }
+    }
+
     fun physicalRecoveryInspection(slotId: String): SlotDatabaseInspection? {
         val file = databaseFileForSlot(slotId)
         if (!file.exists()) {
@@ -186,6 +204,22 @@ class GameSaveRepository @Inject constructor(
             return SlotDatabaseInspection(
                 state = SlotDatabaseState.RECOVERY_REQUIRED,
                 failureReason = "InvalidSQLiteHeader"
+            )
+        }
+
+        val userVersion = try {
+            readSqliteUserVersion(file)
+        } catch (e: Exception) {
+            Log.e("GameSaveRepository", "Falha ao ler user_version SQLite de ${file.name}", e)
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "UnreadableSQLiteContainer:${e.javaClass.simpleName}"
+            )
+        }
+        if (userVersion !in AppDatabase.MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION..APP_DATABASE_SCHEMA_VERSION) {
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "UnsupportedOrUninitializedSchemaVersion:$userVersion"
             )
         }
         return null
