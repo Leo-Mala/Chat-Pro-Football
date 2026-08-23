@@ -8,7 +8,6 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import com.example.data.repository.SlotDatabaseState
@@ -77,15 +76,15 @@ class Phase107ComposeNavigationInstrumentedTest {
         composeRule.onNodeWithTag("standings_tab").assertHasClickAction().performClick()
         composeRule.onNodeWithTag("dashboard_tab").performClick()
 
-        val entryPoint = Phase107TestSupport.entryPoint()
+        val dependencies = Phase107TestSupport.entryPoint()
         val occupiedSlots = runBlocking {
-            entryPoint.gamePreferencesRepository().loadSaveSlots().filter { it.exists && !it.recoveryRequired }
+            dependencies.gamePreferencesRepository().loadSaveSlots().filter { it.exists && !it.recoveryRequired }
         }
         assertEquals("A fresh installed app must create exactly one career in this test", 1, occupiedSlots.size)
         val slotId = occupiedSlots.single().id
-        val inspection = runBlocking { entryPoint.gameSaveRepository().inspectSlot(slotId) }
+        val inspection = runBlocking { dependencies.gameSaveRepository().inspectSlot(slotId) }
         assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
-        assertTrue(entryPoint.gameSaveRepository().databaseFileForSlot(slotId).isFile)
+        assertTrue(dependencies.gameSaveRepository().databaseFileForSlot(slotId).isFile)
 
         composeRule.activityRule.scenario.recreate()
         composeRule.waitUntil(timeoutMillis = 60_000) {
