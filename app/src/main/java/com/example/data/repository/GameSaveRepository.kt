@@ -26,8 +26,8 @@ enum class SlotDatabaseState {
  * Resultado fail-closed da inspeção de um slot.
  *
  * [VALID_CAREER] só é emitido quando o registro autoritativo `game_save(id=1)` foi lido com
- * sucesso e é a única linha da tabela. A mera existência do arquivo SQLite nunca é usada como
- * prova de carreira.
+ * sucesso, é a única linha da tabela e referencia um clube existente. A mera existência do arquivo
+ * SQLite nunca é usada como prova de carreira.
  */
 data class SlotDatabaseInspection(
     val state: SlotDatabaseState,
@@ -67,24 +67,44 @@ class GameSaveRepository @Inject constructor(
     }
 
     /**
-     * Depois que Room materializa a tabela, zero linhas ou exatamente `id=1` são as únicas formas
-     * que podem prosseguir para uso normal. Qualquer outra combinação é corrupção/restore parcial
-     * e precisa ser preservada antes de seed, repair ou qualquer mutação de UI.
+     * Depois que Room materializa a tabela, nenhum `GameSave` representa apenas um banco
+     * pré-carreira. Uma carreira válida exige exatamente `id=1` e o clube controlado referenciado
+     * por `playerTeamId`. Qualquer outra combinação é corrupção/restore parcial e precisa ser
+     * preservada antes de seed, repair ou qualquer mutação de UI.
      */
     private fun semanticRecoveryInspection(database: AppDatabase): SlotDatabaseInspection? {
-        val ids = database.openHelper.readableDatabase
-            .query("SELECT id FROM game_save ORDER BY id")
+        val sqlite = database.openHelper.readableDatabase
+        val rows = sqlite
+            .query("SELECT id, playerTeamId FROM game_save ORDER BY id")
             .use { cursor ->
                 buildList {
-                    while (cursor.moveToNext()) add(cursor.getInt(0))
+                    while (cursor.moveToNext()) {
+                        add(cursor.getInt(0) to cursor.getLong(1))
+                    }
                 }
             }
-        return if (ids.isEmpty() || ids == listOf(1)) {
+
+        if (rows.isEmpty()) return null
+        if (rows.size != 1 || rows.single().first != 1) {
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "UnexpectedGameSaveRows:ids=${rows.joinToString(",") { it.first.toString() }}"
+            )
+        }
+
+        val controlledTeamId = rows.single().second
+        val controlledTeamExists = sqlite
+            .query(
+                "SELECT 1 FROM teams WHERE id = ? LIMIT 1",
+                arrayOf(controlledTeamId)
+            )
+            .use { cursor -> cursor.moveToFirst() }
+        return if (controlledTeamExists) {
             null
         } else {
             SlotDatabaseInspection(
                 state = SlotDatabaseState.RECOVERY_REQUIRED,
-                failureReason = "UnexpectedGameSaveRows:ids=${ids.joinToString(",")}"
+                failureReason = "MissingControlledTeam:playerTeamId=$controlledTeamId"
             )
         }
     }
@@ -232,7 +252,8 @@ class GameSaveRepository @Inject constructor(
 
     /**
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
-     * `game_save(id=1)` é a autoridade e só é válida quando é a única linha da tabela.
+     * `game_save(id=1)` é a autoridade e só é válida quando é a única linha da tabela e referencia
+     * um clube controlado existente.
      */
     suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
         val file = databaseFileForSlot(slotId)
@@ -246,12 +267,19 @@ class GameSaveRepository @Inject constructor(
             when {
                 gameSaveRowCount == 0 && save == null -> SlotDatabaseInspection(SlotDatabaseState.EMPTY)
                 gameSaveRowCount == 1 && save != null && save.id == 1 -> {
-                    val teamName = repository.getTeam(save.playerTeamId)?.name ?: "Sem Clube"
-                    SlotDatabaseInspection(
-                        state = SlotDatabaseState.VALID_CAREER,
-                        save = save,
-                        teamName = teamName
-                    )
+                    val team = repository.getTeam(save.playerTeamId)
+                    if (team == null) {
+                        SlotDatabaseInspection(
+                            state = SlotDatabaseState.RECOVERY_REQUIRED,
+                            failureReason = "MissingControlledTeam:playerTeamId=${save.playerTeamId}"
+                        )
+                    } else {
+                        SlotDatabaseInspection(
+                            state = SlotDatabaseState.VALID_CAREER,
+                            save = save,
+                            teamName = team.name
+                        )
+                    }
                 }
                 else -> SlotDatabaseInspection(
                     state = SlotDatabaseState.RECOVERY_REQUIRED,
