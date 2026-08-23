@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -15,6 +16,8 @@ import com.example.data.migrations.MIGRATION_19_20
 import com.example.data.migrations.MIGRATION_20_21
 import com.example.data.migrations.MIGRATION_21_22
 import java.io.File
+
+const val APP_DATABASE_SCHEMA_VERSION = 22
 
 @Database(
     entities = [
@@ -32,7 +35,7 @@ import java.io.File
         PlayerLoan::class,
         GlobalLeagueStanding::class
     ],
-    version = 22,
+    version = APP_DATABASE_SCHEMA_VERSION,
     exportSchema = true
 )
 @TypeConverters(AtributosConverter::class, MatchSlotConverter::class)
@@ -75,7 +78,8 @@ abstract class AppDatabase : RoomDatabase() {
         /**
          * Proteção fail-closed para callers legados que ainda abrem um banco pelo nome físico.
          * Um restore parcial não pode deixar Room materializar um arquivo novo sobre um artefato
-         * truncado ou sobre sidecars órfãos antes que a reconciliação de slots consiga classificá-lo.
+         * truncado, não inicializado ou sobre sidecars órfãos antes que a reconciliação consiga
+         * classificá-lo.
          */
         private fun requireLegacyPhysicalOpenAllowed(context: Context, name: String) {
             val databaseFile = context.applicationContext.getDatabasePath(name)
@@ -110,6 +114,33 @@ abstract class AppDatabase : RoomDatabase() {
 
             check(canonicalHeader) {
                 "Database recovery required: invalid SQLite header ${databaseFile.name}"
+            }
+
+            val userVersion = try {
+                val rawDatabase = SQLiteDatabase.openDatabase(
+                    databaseFile.path,
+                    null,
+                    SQLiteDatabase.OPEN_READONLY
+                )
+                try {
+                    rawDatabase.rawQuery("PRAGMA user_version", null).use { cursor ->
+                        check(cursor.moveToFirst()) {
+                            "Database recovery required: unreadable user_version ${databaseFile.name}"
+                        }
+                        cursor.getInt(0)
+                    }
+                } finally {
+                    rawDatabase.close()
+                }
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Database recovery required: unreadable SQLite container ${databaseFile.name}",
+                    e
+                )
+            }
+
+            check(userVersion in MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION..APP_DATABASE_SCHEMA_VERSION) {
+                "Database recovery required: unsupported/uninitialized schema version $userVersion in ${databaseFile.name}"
             }
         }
 
