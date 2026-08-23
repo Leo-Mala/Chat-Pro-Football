@@ -85,6 +85,36 @@ interface PlayerDao {
     suspend fun getPlayer(id: Long): Player?
 
     /**
+     * Phase 10.8: aposentadoria ocorre quando age + 1 >= retirementAge. Carregamos somente esse
+     * subconjunto pequeno em vez de materializar os 60k jogadores para o rollover inteiro.
+     */
+    @Query("SELECT * FROM players WHERE age >= :minimumCurrentAge ORDER BY id ASC")
+    suspend fun getPlayersAtLeastAge(minimumCurrentAge: Int): List<Player>
+
+    /**
+     * Phase 10.8: preserva exatamente a semântica do antigo Player.copy() para não aposentados,
+     * mas em uma única instrução action-set. Nenhum overall/potential/atributo factual é tocado.
+     */
+    @Query("""
+        UPDATE players
+        SET age = age + 1,
+            energy = 100,
+            moral = CASE WHEN moral < 80 THEN 80 ELSE moral END,
+            injuryWeeksRemaining = 0,
+            suspensionWeeksRemaining = 0,
+            yellowCardsAccumulated = 0
+        WHERE age < :retirementCurrentAge
+    """)
+    suspend fun ageAndResetPlayersBelowRetirementAge(retirementCurrentAge: Int): Int
+
+    /**
+     * Phase 10.8: a exclusão em lote mantém a mesma identidade removida pela aposentadoria e evita
+     * um DELETE Room por jogador. O chamador fragmenta ids abaixo do limite conservador do SQLite.
+     */
+    @Query("DELETE FROM players WHERE id IN (:ids)")
+    suspend fun deletePlayersByIds(ids: List<Long>): Int
+
+    /**
      * Reset sazonal em action-set SQL. Só toca nos campos esportivos que pertencem ao reset e
      * evita materializar dezenas de milhares de Player apenas para gravar valores constantes.
      */
@@ -359,6 +389,18 @@ interface PlayerLoanDao {
 
     @Update
     suspend fun updateLoan(loan: PlayerLoan)
+
+    /**
+     * Phase 10.8: finaliza de uma vez os empréstimos dos atletas aposentados. O chamador fragmenta
+     * ids para respeitar builds Android/SQLite com limite conservador de bind parameters.
+     */
+    @Query("""
+        UPDATE player_loans
+        SET remainingWeeks = 0,
+            status = 'COMPLETED'
+        WHERE status = 'ACTIVE' AND playerId IN (:playerIds)
+    """)
+    suspend fun completeActiveLoansForPlayers(playerIds: List<Long>): Int
 
     @Query("DELETE FROM player_loans")
     suspend fun deleteLoans()
