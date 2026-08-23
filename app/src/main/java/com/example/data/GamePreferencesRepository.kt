@@ -6,6 +6,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.SaveSlotMetadata
+import com.example.data.model.SaveSlotsPublicationClock
+import com.example.data.model.SaveSlotsSnapshot
 import com.example.data.repository.GameSaveRepository
 import com.example.data.repository.SlotDatabaseInspection
 import com.example.data.repository.SlotDatabaseState
@@ -105,11 +107,15 @@ class GamePreferencesRepository @Inject constructor(
     /**
      * Reconcilia metadata derivada com o conteúdo autoritativo de cada banco Room.
      *
-     * Além da revalidação por slot, o conjunto inteiro é reinspecionado depois de todos os slots
-     * terem sido projetados. Isso impede que um slot reconciliado no início da passagem seja
-     * publicado com snapshot antigo caso mude enquanto os slots seguintes ainda são processados.
+     * A geração é reservada ANTES da primeira leitura. Ela acompanha o resultado até a fronteira
+     * do StateFlow; se outra reconciliação ou mutação externa começar antes da publicação, a
+     * factory especializada do ViewModel rejeita este snapshot antigo.
      */
-    suspend fun loadSaveSlots(): List<SaveSlotMetadata> = reconcileAllSlots()
+    suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
+        val publicationGeneration = SaveSlotsPublicationClock.reserve()
+        val reconciled = reconcileAllSlots()
+        return SaveSlotsSnapshot(publicationGeneration, reconciled)
+    }
 
     private suspend fun reconcileAllSlots(attempt: Int = 0): List<SaveSlotMetadata> {
         val saveIds = (1..5).map(Int::toString)
@@ -182,7 +188,9 @@ class GamePreferencesRepository @Inject constructor(
         SlotDatabaseState.EMPTY -> {
             if (stored.exists) {
                 try {
-                    removeSlotMetadata(saveId)
+                    // Reconstrução/saneamento interno pertence à mesma geração desta leitura e não
+                    // deve invalidar o próprio snapshot que está sendo reconciliado.
+                    removeSlotMetadataProjection(saveId)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -206,7 +214,7 @@ class GamePreferencesRepository @Inject constructor(
 
             if (!stored.matches(authoritative)) {
                 try {
-                    updateSlotMetadata(
+                    updateSlotMetadataProjection(
                         saveId = saveId,
                         coachName = authoritative.coachName,
                         teamName = authoritative.teamName,
@@ -305,10 +313,23 @@ class GamePreferencesRepository @Inject constructor(
             balance == authoritative.balance
 
     /**
-     * Persiste a projeção de metadata em dois stores. Pelo menos um deles precisa confirmar a
-     * escrita. DataStore é preferido; SharedPreferences usa commit síncrono como fallback durável.
+     * Mutação solicitada por um caller externo invalida snapshots que já retornaram mas ainda não
+     * chegaram ao setter do StateFlow. A persistência interna usada pela própria reconciliação não
+     * passa por esta fronteira para não invalidar o snapshot que ela está reconstruindo.
      */
     suspend fun updateSlotMetadata(
+        saveId: String,
+        coachName: String,
+        teamName: String,
+        season: Int,
+        week: Int,
+        balance: Long
+    ) {
+        SaveSlotsPublicationClock.invalidate()
+        updateSlotMetadataProjection(saveId, coachName, teamName, season, week, balance)
+    }
+
+    private suspend fun updateSlotMetadataProjection(
         saveId: String,
         coachName: String,
         teamName: String,
@@ -357,6 +378,11 @@ class GamePreferencesRepository @Inject constructor(
     }
 
     suspend fun removeSlotMetadata(saveId: String) {
+        SaveSlotsPublicationClock.invalidate()
+        removeSlotMetadataProjection(saveId)
+    }
+
+    private suspend fun removeSlotMetadataProjection(saveId: String) {
         var dataStoreSucceeded = false
         var dataStoreFailure: Exception? = null
         try {
