@@ -88,6 +88,9 @@ android {
     animationsDisabled = true
     unitTests { isIncludeAndroidResources = true }
   }
+  sourceSets {
+    getByName("androidTest").assets.srcDir("$projectDir/schemas")
+  }
 }
 
 dependencies {
@@ -137,6 +140,7 @@ dependencies {
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
+  androidTestImplementation(libs.androidx.room.testing)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
   ksp(libs.androidx.room.compiler)
