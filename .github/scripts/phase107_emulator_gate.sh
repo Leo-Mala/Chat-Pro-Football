@@ -67,10 +67,10 @@ stop_installed_app() {
   test -z "$(get_app_pid)"
 }
 
-compile_debug_target_for_instrumentation() {
-  # Debug cold startup is certified before this optimization. The full instrumentation process is
-  # then AOT-compiled so ART verifier/JIT pauses from the very large Compose graph cannot be
-  # misclassified as save-session deadlocks or input ANRs by ActivityScenario.
+compile_target_for_instrumentation() {
+  # Cold startup is certified before this optimization. Instrumentation then uses AOT compilation
+  # so ART verifier/JIT pauses from the large Compose graph are not confused with lifecycle, save
+  # or input failures. This does not alter APK bytes or bypass the installed-startup gate.
   adb shell cmd package compile -m speed -f "$TARGET_PACKAGE" \
     | tee "$artifact_dir/target-package-compile.txt"
   adb shell cmd package compile -m speed -f "$TEST_PACKAGE" \
@@ -107,13 +107,11 @@ case "$mode" in
     adb shell pm clear "$TARGET_PACKAGE"
     certify_installed_startup 'debug-cold-startup'
     stop_installed_app
-    compile_debug_target_for_instrumentation
+    compile_target_for_instrumentation
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107StartupLifecycleInstrumentedTest' 'startup-lifecycle'
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107ComposeNavigationInstrumentedTest#mainMenuSavesAndCriticalActionsExposeRealComposeSemantics' 'compose-semantics-navigation'
-    adb shell pm clear "$TARGET_PACKAGE"
-    run_test 'com.example.Phase107ComposeNavigationInstrumentedTest#createsAndReopensARealCareerThroughTheInstalledUi' 'real-ui-new-save-reopen'
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107PersistenceInstrumentedTest' 'file-backed-room-recovery-isolation'
     adb shell pm clear "$TARGET_PACKAGE"
@@ -133,7 +131,13 @@ case "$mode" in
     adb shell pm clear "$TARGET_PACKAGE"
     certify_installed_startup 'direct-release-start'
     stop_installed_app
+    compile_target_for_instrumentation
+    adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107StartupLifecycleInstrumentedTest#productionApplicationHiltAndMainActivityStartOnRealAndroid' 'release-startup-hilt-room'
+    adb shell pm clear "$TARGET_PACKAGE"
+    # The full New Game path belongs on the installed Release variant: this is the Phase 10.7 exit
+    # criterion and exercises the real production seed, Room persistence, UI transition and reopen.
+    run_test 'com.example.Phase107ComposeNavigationInstrumentedTest#createsAndReopensARealCareerThroughTheInstalledUi' 'release-real-ui-new-save-reopen'
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107PersistenceInstrumentedTest#fileBackedRoomPersistsReopensAndUsesCurrentSchema' 'release-room-save-reopen'
     adb shell pm clear "$TARGET_PACKAGE"
