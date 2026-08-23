@@ -2,11 +2,11 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.ExistingCareerOverwriteBlockedException
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Team
 import com.example.data.local.SlotDatabaseFactory
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -50,7 +50,8 @@ class Phase106PartialDeleteGuardTest {
             state = "MG",
             country = "Brasil",
             division = 1,
-            rating = 82
+            rating = 82,
+            isPlayerControlled = true
         )
         val save = GameSave(
             coachName = "Técnico Protegido",
@@ -62,20 +63,20 @@ class Phase106PartialDeleteGuardTest {
         repository.saveTeams(listOf(team))
         repository.saveGameSave(save)
 
-        var blocked = false
+        var blocked: ExistingCareerOverwriteBlockedException? = null
         try {
             repository.withTransaction {
-                // Esta é a primeira operação do reset destrutivo de Novo Jogo.
                 repository.deleteSave()
                 repository.deleteTeams()
                 repository.deletePlayers()
                 repository.deleteFixtures()
             }
-        } catch (_: CancellationException) {
-            blocked = true
+        } catch (e: ExistingCareerOverwriteBlockedException) {
+            blocked = e
         }
 
-        assertTrue("A exclusão parcial de carreira existente deve ser fail-closed", blocked)
+        assertTrue("A exclusão parcial de carreira existente deve ser fail-closed", blocked != null)
+        assertEquals("Guard deve explicar quantas linhas bloquearam o reset", 1, blocked?.gameSaveRowCount)
         assertEquals("GameSave original deve sobreviver integralmente", save, repository.getGameSave())
         assertEquals("Clube original não pode ser removido", team, repository.getTeam(team.id))
     }
