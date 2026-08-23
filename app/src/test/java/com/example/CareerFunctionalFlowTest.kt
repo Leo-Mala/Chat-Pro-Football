@@ -355,7 +355,7 @@ class CareerFunctionalFlowTest {
     private fun newHarness(): Harness {
         val factory = SlotDatabaseFactory(application)
         val saveRepository = GameSaveRepository(application, factory)
-        val preferencesRepository = GamePreferencesRepository(application.dataStore, application)
+        val preferencesRepository = GamePreferencesRepository(application.dataStore, application, saveRepository)
         val viewModel = GameViewModel(
             application = application,
             saveRepository = saveRepository,
