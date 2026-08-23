@@ -35,7 +35,7 @@ const val APP_DATABASE_SCHEMA_VERSION = 22
         PlayerLoan::class,
         GlobalLeagueStanding::class
     ],
-    version = APP_DATABASE_SCHEMA_VERSION,
+    version = 22,
     exportSchema = true
 )
 @TypeConverters(AtributosConverter::class, MatchSlotConverter::class)
