@@ -88,6 +88,34 @@ class Phase107PersistenceInstrumentedTest {
     }
 
     @Test
+    fun validCareerStillSelfHealsAMissingRoster() {
+        val slotId = "1"
+        try {
+            Phase107TestSupport.seedCareer(
+                slotId = slotId,
+                coachName = "Repair Coach",
+                teamName = "Repair Club",
+                teamId = 10_711L
+            )
+            val saveRepository = Phase107TestSupport.entryPoint().gameSaveRepository()
+            val repository = saveRepository.getRepositoryForSlot(slotId)
+            assertEquals(0L, Phase107TestSupport.sqliteRowCount(slotId, "players"))
+
+            val report = runBlocking { DatabaseIntegrityUseCase(repository).repairDatabase() }
+
+            assertTrue("A valid career with an empty roster must still be repaired", report.teamsRepaired >= 1)
+            assertTrue("Roster repair must add players for the controlled club", report.playersAddedCount >= 16)
+            assertTrue(Phase107TestSupport.sqliteRowCount(slotId, "players") >= 16L)
+
+            Phase107TestSupport.closeDatabases()
+            val inspection = runBlocking { saveRepository.inspectSlot(slotId) }
+            assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
+        } finally {
+            Phase107TestSupport.resetSlot(slotId)
+        }
+    }
+
+    @Test
     fun validDatabaseWithoutMetadataIsRecoveredAndNeverExposedAsEmpty() {
         val slotId = "4"
         try {
