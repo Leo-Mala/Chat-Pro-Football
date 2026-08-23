@@ -9,6 +9,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.example.data.repository.SlotDatabaseState
 import kotlinx.coroutines.runBlocking
@@ -107,6 +108,27 @@ class Phase107ComposeNavigationInstrumentedTest {
         assertEquals(gameSaveRowsBeforeRecreate, Phase107TestSupport.sqliteRowCount(slotId, "game_save"))
         assertEquals(teamsBeforeRecreate, Phase107TestSupport.sqliteRowCount(slotId, "teams"))
         assertEquals(playersBeforeRecreate, Phase107TestSupport.sqliteRowCount(slotId, "players"))
+
+        val persistedSave = requireNotNull(inspection.save)
+        val hasPendingPlayerFixture = runBlocking {
+            dependencies.gameSaveRepository()
+                .getRepositoryForSlot(slotId)
+                .getFixturesForSeason(persistedSave.currentSeason)
+                .any { fixture ->
+                    !fixture.isPlayed &&
+                        (fixture.homeTeamId == persistedSave.playerTeamId || fixture.awayTeamId == persistedSave.playerTeamId)
+                }
+        }
+        if (hasPendingPlayerFixture) {
+            composeRule.waitUntil(timeoutMillis = 60_000) {
+                composeRule.onAllNodes(hasTestTag("play_match_button")).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithTag("play_match_button").assertHasClickAction().performClick()
+            composeRule.waitUntil(timeoutMillis = 60_000) {
+                composeRule.onAllNodes(hasText("PARTIDA EM ANDAMENTO")).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("PARTIDA EM ANDAMENTO").assertIsDisplayed()
+        }
     }
 
     private fun navigateTab(tag: String) {
