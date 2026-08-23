@@ -17,7 +17,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
-import java.lang.management.ManagementFactory
 import java.util.Locale
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,10 +28,14 @@ import java.util.concurrent.atomic.AtomicLong
  * The first execution on the Phase 10.8 branch intentionally measures the pre-optimization path.
  * The exact-head JSON artifact is retained as the immutable baseline before any production
  * optimization is applied. The same harness is then reused for the candidate implementation.
+ *
+ * The StressTest suffix is intentional. The repository's consolidated fast CI excludes long stress
+ * tests, while this profiler has its own mandatory exact-head workflow. This prevents the expensive
+ * full-scale run from being duplicated by a generic unit-test task that does not provide audit SHA.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class Phase108FullScaleSeasonRolloverPerformanceTest {
+class Phase108FullScaleSeasonRolloverPerformanceStressTest {
 
     @Test
     fun `profile full season rollover on real 60885 player file backed room`() = runBlocking {
@@ -153,7 +156,7 @@ class Phase108FullScaleSeasonRolloverPerformanceTest {
             val initialWalBytes = walFile.takeIf { it.exists() }?.length() ?: 0L
             val initialShmBytes = shmFile.takeIf { it.exists() }?.length() ?: 0L
             val heapBefore = usedHeapBytes()
-            val gcBefore = gcCollectionCount()
+            val gcBefore = gcCollectionCountOrNull()
             maxHeapBytes.set(heapBefore)
             maxWalBytes.set(initialWalBytes)
 
@@ -162,10 +165,11 @@ class Phase108FullScaleSeasonRolloverPerformanceTest {
             sampler = Thread({
                 while (samplerRunning.get()) {
                     maxWalBytes.accumulateAndGet(
-                        walFile.takeIf { it.exists() }?.length() ?: 0L,
-                        ::maxOf
-                    )
-                    maxHeapBytes.accumulateAndGet(usedHeapBytes(), ::maxOf)
+                        walFile.takeIf { it.exists() }?.length() ?: 0L
+                    ) { current, observed -> maxOf(current, observed) }
+                    maxHeapBytes.accumulateAndGet(usedHeapBytes()) { current, observed ->
+                        maxOf(current, observed)
+                    }
                     try {
                         Thread.sleep(5L)
                     } catch (_: InterruptedException) {
@@ -189,13 +193,14 @@ class Phase108FullScaleSeasonRolloverPerformanceTest {
 
             assertEquals(2027, updatedSave.currentSeason)
             assertEquals(1, updatedSave.currentWeek)
-            assertEquals(60_885, repository.getAllPlayers().size)
-            assertEquals(60_885, repository.getAllPlayers().map { it.id }.distinct().size)
+            val persistedPlayersAfterRollover = repository.getAllPlayers()
+            assertEquals(60_885, persistedPlayersAfterRollover.size)
+            assertEquals(60_885, persistedPlayersAfterRollover.map { it.id }.distinct().size)
             assertTrue(repository.getFixturesForSeason(2027).isNotEmpty())
 
             val heapAfter = usedHeapBytes()
-            maxHeapBytes.accumulateAndGet(heapAfter, ::maxOf)
-            val gcAfter = gcCollectionCount()
+            maxHeapBytes.accumulateAndGet(heapAfter) { current, observed -> maxOf(current, observed) }
+            val gcAfter = gcCollectionCountOrNull()
             val finalDbBytes = dbFile.length()
             val finalWalBytes = walFile.takeIf { it.exists() }?.length() ?: 0L
             val finalShmBytes = shmFile.takeIf { it.exists() }?.length() ?: 0L
@@ -229,11 +234,20 @@ class Phase108FullScaleSeasonRolloverPerformanceTest {
                 .values
                 .sum()
 
-            // Existing Phase 10.1 ceilings remain hard upper bounds. Phase 10.8 will derive a
-            // tighter rollover-specific budget only after this legacy baseline has been measured.
-            assertTrue("Rollover exceeded conservative anti-runaway ceiling: ${rolloverMillis}ms", rolloverMillis <= 180_000L)
-            assertTrue("Observed heap exceeded existing 60k anti-regression envelope", maxHeapBytes.get() <= 900_000_000L)
+            assertTrue(
+                "Rollover exceeded conservative anti-runaway ceiling: ${rolloverMillis}ms",
+                rolloverMillis <= 180_000L
+            )
+            assertTrue(
+                "Observed heap exceeded conservative 60k anti-runaway envelope",
+                maxHeapBytes.get() <= 900_000_000L
+            )
 
+            val observedGcCollections = if (gcBefore != null && gcAfter != null) {
+                (gcAfter - gcBefore).coerceAtLeast(0L)
+            } else {
+                null
+            }
             val report = linkedMapOf<String, Any?>(
                 "phase" to "10.8",
                 "measurementKind" to "pre_optimization_baseline",
@@ -287,7 +301,7 @@ class Phase108FullScaleSeasonRolloverPerformanceTest {
                     "heapPeakObservedBytes" to maxHeapBytes.get(),
                     "heapAfterBytes" to heapAfter,
                     "heapDeltaBytes" to (heapAfter - heapBefore),
-                    "gcCollectionsObserved" to (gcAfter - gcBefore).coerceAtLeast(0L)
+                    "gcCollectionsObserved" to observedGcCollections
                 ),
                 "sqlite" to mapOf(
                     "dbInitialBytes" to initialDbBytes,
@@ -436,10 +450,21 @@ class Phase108FullScaleSeasonRolloverPerformanceTest {
             }
     }
 
-    private fun gcCollectionCount(): Long = ManagementFactory.getGarbageCollectorMXBeans()
-        .map { it.collectionCount }
-        .filter { it >= 0L }
-        .sum()
+    /**
+     * Android's compile classpath does not expose java.management, while Robolectric executes on a
+     * host JVM that usually does. Reflection keeps the metric observational: when the host exposes
+     * GC MXBeans we report their count; otherwise JSON records null instead of a fabricated zero.
+     */
+    private fun gcCollectionCountOrNull(): Long? = runCatching {
+        val factory = Class.forName("java.lang.management.ManagementFactory")
+        val beanInterface = Class.forName("java.lang.management.GarbageCollectorMXBean")
+        val collectionCount = beanInterface.getMethod("getCollectionCount")
+        val beans = factory.getMethod("getGarbageCollectorMXBeans").invoke(null) as Iterable<*>
+        beans.sumOf { bean ->
+            val count = (collectionCount.invoke(requireNotNull(bean)) as Number).toLong()
+            count.coerceAtLeast(0L)
+        }
+    }.getOrNull()
 
     private fun usedHeapBytes(): Long = Runtime.getRuntime().let { it.totalMemory() - it.freeMemory() }
 
