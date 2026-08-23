@@ -108,7 +108,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             mkdir -p phase107-artifacts/api-${{ matrix.api-level }}
             trap 'adb logcat -d > phase107-artifacts/api-${{ matrix.api-level }}/logcat.txt || true; adb shell dumpsys activity activities > phase107-artifacts/api-${{ matrix.api-level }}/activities.txt || true' EXIT
             app_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
@@ -211,7 +211,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             mkdir -p phase107-artifacts/debug-api35
             trap 'adb logcat -d > phase107-artifacts/debug-api35/logcat.txt || true; adb shell dumpsys activity activities > phase107-artifacts/debug-api35/activities.txt || true' EXIT
             app_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
@@ -374,7 +374,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             mkdir -p phase107-artifacts/release-api35
             trap 'adb logcat -d > phase107-artifacts/release-api35/logcat.txt || true; adb shell dumpsys activity activities > phase107-artifacts/release-api35/activities.txt || true' EXIT
             app_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
