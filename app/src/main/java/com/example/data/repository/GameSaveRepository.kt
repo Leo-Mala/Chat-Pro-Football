@@ -285,21 +285,74 @@ class GameSaveRepository @Inject constructor(
             .use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
 
     /**
+     * Fecha a segunda metade da inspeção contra mudanças de lifecycle do mesmo slot. Se o Room que
+     * lemos deixou de ser o repositório publicado, ou o arquivo foi removido enquanto as queries
+     * suspensivas rodavam, nunca devolvemos um snapshot jogável baseado em um handle obsoleto.
+     */
+    private fun finalizeInspectionAgainstLifecycle(
+        slotId: String,
+        repository: GameRepository,
+        candidate: SlotDatabaseInspection
+    ): SlotDatabaseInspection = synchronized(slotLifecycleLock(slotId)) {
+        physicalRecoveryInspection(slotId)?.let { return@synchronized it }
+        val file = databaseFileForSlot(slotId)
+        if (!file.exists()) {
+            return@synchronized SlotDatabaseInspection(SlotDatabaseState.MISSING)
+        }
+        if (repositories[slotId] !== repository) {
+            return@synchronized SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "SlotLifecycleChangedDuringInspection"
+            )
+        }
+        candidate
+    }
+
+    /**
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
      * `game_save(id=1)` é a autoridade e só é válida quando é a única linha e `playerTeamId` é
      * exatamente o único clube controlado.
+     *
+     * A decisão `arquivo existente -> abrir Room` ocorre sob o MESMO lock de lifecycle usado pela
+     * exclusão física. Assim uma inspeção que viu o arquivo antes de um delete nunca pode acordar
+     * depois do delete e recriar silenciosamente um banco vazio apenas para concluir a leitura.
      */
     suspend fun inspectSlot(slotId: String): SlotDatabaseInspection {
         val file = databaseFileForSlot(slotId)
-        physicalRecoveryInspection(slotId)?.let { return it }
-        if (!file.exists()) return SlotDatabaseInspection(SlotDatabaseState.MISSING)
+        val repository = try {
+            synchronized(slotLifecycleLock(slotId)) {
+                physicalRecoveryInspection(slotId)?.let { return it }
+                if (!file.exists()) return SlotDatabaseInspection(SlotDatabaseState.MISSING)
+                // O monitor Java é reentrante; getRepositoryForSlot usa o mesmo lock e por isso
+                // mantém atômica a transição entre revalidar a existência e abrir/obter Room.
+                getRepositoryForSlot(slotId)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SlotRecoveryRequiredException) {
+            return e.inspection
+        } catch (e: Exception) {
+            Log.e("GameSaveRepository", "Falha ao abrir banco para inspeção do slot $slotId", e)
+            return synchronized(slotLifecycleLock(slotId)) {
+                physicalRecoveryInspection(slotId)
+                    ?: if (!file.exists()) {
+                        SlotDatabaseInspection(SlotDatabaseState.MISSING)
+                    } else {
+                        SlotDatabaseInspection(
+                            state = SlotDatabaseState.RECOVERY_REQUIRED,
+                            failureReason = e.javaClass.simpleName.ifBlank { "DatabaseOpenFailure" }
+                        )
+                    }
+            }
+        }
 
         return try {
-            val repository = getRepositoryForSlot(slotId)
-            semanticRecoveryInspection(repository.db)?.let { return it }
+            semanticRecoveryInspection(repository.db)?.let { inspection ->
+                return finalizeInspectionAgainstLifecycle(slotId, repository, inspection)
+            }
             val save = repository.getGameSave()
             val gameSaveRowCount = countGameSaveRows(repository)
-            when {
+            val candidate = when {
                 gameSaveRowCount == 0 && save == null -> SlotDatabaseInspection(SlotDatabaseState.EMPTY)
                 gameSaveRowCount == 1 && save != null && save.id == 1 -> {
                     val team = repository.getTeam(save.playerTeamId)
@@ -321,15 +374,20 @@ class GameSaveRepository @Inject constructor(
                     failureReason = "UnexpectedGameSaveRows:count=$gameSaveRowCount,canonical=${save != null}"
                 )
             }
+            finalizeInspectionAgainstLifecycle(slotId, repository, candidate)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SlotRecoveryRequiredException) {
-            e.inspection
+            finalizeInspectionAgainstLifecycle(slotId, repository, e.inspection)
         } catch (e: Exception) {
             Log.e("GameSaveRepository", "Falha ao inspecionar banco do slot $slotId", e)
-            SlotDatabaseInspection(
-                state = SlotDatabaseState.RECOVERY_REQUIRED,
-                failureReason = e.javaClass.simpleName.ifBlank { "DatabaseReadFailure" }
+            finalizeInspectionAgainstLifecycle(
+                slotId,
+                repository,
+                SlotDatabaseInspection(
+                    state = SlotDatabaseState.RECOVERY_REQUIRED,
+                    failureReason = e.javaClass.simpleName.ifBlank { "DatabaseReadFailure" }
+                )
             )
         }
     }
