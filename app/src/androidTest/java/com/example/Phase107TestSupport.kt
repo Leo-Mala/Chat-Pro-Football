@@ -126,4 +126,17 @@ object Phase107TestSupport {
                 cursor.getString(0).lowercase()
             }
     }
+
+    fun sqliteRowCount(slotId: String, tableName: String): Long {
+        require(tableName in setOf("game_save", "teams", "players", "fixtures")) {
+            "Unsupported Phase 10.7 table count: $tableName"
+        }
+        val db = entryPoint().gameSaveRepository().getDatabaseForSlot(slotId)
+        return db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM `$tableName`")
+            .use { cursor ->
+                check(cursor.moveToFirst()) { "COUNT(*) returned no row for $tableName" }
+                cursor.getLong(0)
+            }
+    }
 }
