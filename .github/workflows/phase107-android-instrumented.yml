@@ -49,6 +49,16 @@ jobs:
           distribution: 'temurin'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "KVM device not exposed by this hosted runner; emulator will use its supported software fallback."
+          fi
       - name: Bootstrap deterministic FC26 asset
         shell: bash
         run: |
@@ -107,6 +117,16 @@ jobs:
           distribution: 'temurin'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "KVM device not exposed by this hosted runner; emulator will use its supported software fallback."
+          fi
       - name: Bootstrap and validate deterministic FC26 asset
         shell: bash
         run: |
@@ -165,6 +185,16 @@ jobs:
           distribution: 'temurin'
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "KVM device not exposed by this hosted runner; emulator will use its supported software fallback."
+          fi
       - name: Bootstrap and validate deterministic FC26 asset
         shell: bash
         run: |
