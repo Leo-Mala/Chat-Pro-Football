@@ -21,6 +21,28 @@ import org.junit.runner.RunWith
 class Phase107StartupLifecycleInstrumentedTest {
 
     @Test
+    fun productionApplicationHiltAndRoomGraphResolveOnRealAndroid() {
+        val context = Phase107TestSupport.targetContext()
+        assertEquals(Phase107TestSupport.TARGET_PACKAGE, context.packageName)
+        assertTrue(context.applicationContext is MainApplication)
+
+        val dependencies = Phase107TestSupport.entryPoint()
+        assertNotNull(dependencies.gameSaveRepository())
+        assertNotNull(dependencies.gamePreferencesRepository())
+
+        val slotId = "5"
+        try {
+            Phase107TestSupport.resetSlot(slotId)
+            dependencies.gameSaveRepository().getDatabaseForSlot(slotId)
+            val databaseFile = dependencies.gameSaveRepository().databaseFileForSlot(slotId)
+            assertTrue(databaseFile.isFile)
+            assertTrue(databaseFile.length() > 0L)
+        } finally {
+            Phase107TestSupport.resetSlot(slotId)
+        }
+    }
+
+    @Test
     fun productionApplicationHiltAndMainActivityStartOnRealAndroid() {
         val context = Phase107TestSupport.targetContext()
         assertEquals(Phase107TestSupport.TARGET_PACKAGE, context.packageName)
@@ -100,6 +122,13 @@ class Phase107StartupLifecycleInstrumentedTest {
                 scenario.onActivity { activity ->
                     viewModel = ViewModelProvider(activity)[GameViewModel::class.java]
                 }
+
+                // This test owns session serialization/isolation, not Dashboard rendering. Keep the
+                // real Activity/Hilt ViewModel but background the UI before rapidly publishing real
+                // careers so ART/JIT work from the large Dashboard cannot masquerade as a save race.
+                // Dashboard/Compose rendering is exercised independently by the navigation suite.
+                scenario.moveToState(Lifecycle.State.CREATED)
+                assertEquals(Lifecycle.State.CREATED, scenario.state)
 
                 viewModel.selectSaveSlotSafely(slotA)
                 waitUntil("slot A selection") {
