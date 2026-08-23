@@ -5,18 +5,17 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.data.GamePreferencesRepository
 import com.example.data.GameSave
 import com.example.data.Team
+import com.example.data.dataStore
+import com.example.data.local.SlotDatabaseFactory
 import com.example.data.repository.GameSaveRepository
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.runBlocking
 
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-interface Phase107AppEntryPoint {
-    fun gameSaveRepository(): GameSaveRepository
-    fun gamePreferencesRepository(): GamePreferencesRepository
+data class Phase107RuntimeDependencies(
+    private val saveRepository: GameSaveRepository,
+    private val preferencesRepository: GamePreferencesRepository
+) {
+    fun gameSaveRepository(): GameSaveRepository = saveRepository
+    fun gamePreferencesRepository(): GamePreferencesRepository = preferencesRepository
 }
 
 object Phase107TestSupport {
@@ -25,15 +24,30 @@ object Phase107TestSupport {
 
     fun targetContext(): Context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    fun entryPoint(): Phase107AppEntryPoint = EntryPointAccessors.fromApplication(
-        targetContext().applicationContext,
-        Phase107AppEntryPoint::class.java
-    )
+    private val runtimeDependencies: Phase107RuntimeDependencies by lazy {
+        val context = targetContext().applicationContext
+        val saveRepository = GameSaveRepository(context, SlotDatabaseFactory(context))
+        Phase107RuntimeDependencies(
+            saveRepository = saveRepository,
+            preferencesRepository = GamePreferencesRepository(context.dataStore, context, saveRepository)
+        )
+    }
+
+    /**
+     * Persistence helpers use the same production classes and physical application storage without
+     * replacing MainApplication or Hilt. Hilt itself is certified by launching MainActivity, whose
+     * @AndroidEntryPoint composition must create the real hiltViewModel graph successfully.
+     */
+    fun entryPoint(): Phase107RuntimeDependencies = runtimeDependencies
+
+    private suspend fun resetSlotInternal(slotId: String) {
+        val dependencies = entryPoint()
+        dependencies.gameSaveRepository().deleteSlotDatabase(slotId)
+        dependencies.gamePreferencesRepository().removeSlotMetadata(slotId)
+    }
 
     fun resetSlot(slotId: String) = runBlocking {
-        val entryPoint = entryPoint()
-        entryPoint.gameSaveRepository().deleteSlotDatabase(slotId)
-        entryPoint.gamePreferencesRepository().removeSlotMetadata(slotId)
+        resetSlotInternal(slotId)
     }
 
     fun seedCareer(
@@ -46,9 +60,9 @@ object Phase107TestSupport {
         week: Int = 9,
         balance: Long = 10_700_000L
     ) = runBlocking {
-        resetSlot(slotId)
-        val entryPoint = entryPoint()
-        val saveRepository = entryPoint.gameSaveRepository()
+        resetSlotInternal(slotId)
+        val dependencies = entryPoint()
+        val saveRepository = dependencies.gameSaveRepository()
         val gameRepository = saveRepository.getRepositoryForSlot(slotId)
         gameRepository.saveTeams(
             listOf(
@@ -76,7 +90,7 @@ object Phase107TestSupport {
         saveRepository.checkpointSlot(slotId)
 
         if (writeMetadata) {
-            entryPoint.gamePreferencesRepository().updateSlotMetadata(
+            dependencies.gamePreferencesRepository().updateSlotMetadata(
                 saveId = slotId,
                 coachName = coachName,
                 teamName = teamName,
@@ -85,7 +99,7 @@ object Phase107TestSupport {
                 balance = balance
             )
         } else {
-            entryPoint.gamePreferencesRepository().removeSlotMetadata(slotId)
+            dependencies.gamePreferencesRepository().removeSlotMetadata(slotId)
         }
     }
 
