@@ -78,7 +78,8 @@ class Phase106OpenFailureRecoveryTest {
             state = "MG",
             country = "Brasil",
             division = 1,
-            rating = 82
+            rating = 82,
+            isPlayerControlled = true
         )
         val save = GameSave(
             coachName = "Técnico Antes da Falha",
@@ -103,7 +104,6 @@ class Phase106OpenFailureRecoveryTest {
         assertFalse(listedBeforeFailure.recoveryRequired)
         viewModel.saveSlots.value = preferencesRepository.loadSaveSlots()
 
-        // Falha ocorre depois da listagem e antes da abertura efetiva da carreira.
         saveRepository.closeAndRemoveSlot(slotId)
         val dbFile = saveRepository.databaseFileForSlot(slotId)
         dbFile.writeBytes("phase-10.6-open-failure".toByteArray())
