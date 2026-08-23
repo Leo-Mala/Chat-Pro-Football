@@ -55,14 +55,22 @@ fun GameViewModel.selectSaveSlotSafely(saveId: String) {
 
 /**
  * `selectSaveSlot()` incrementa a geração antes de abrir o novo repositório. Se a abertura falhar,
- * a sessão anterior ainda está publicada, porém sua geração fica obsoleta. Recriá-la aqui restaura
- * a invariância `session.generation == sessionGeneration` sem tocar no banco que falhou.
+ * a sessão anterior ainda pode estar publicada, porém sua geração ficou obsoleta.
+ *
+ * - outro slot anterior: reabre/publica esse slot com geração nova;
+ * - o próprio slot que falhou: limpa a sessão, porque republicar o mesmo repositório que acabou de
+ *   falhar no preflight quebraria a garantia fail-closed;
+ * - nenhuma sessão anterior: nada precisa ser restaurado.
  */
 private fun GameViewModel.restorePreviousSelectionAfterFailedOpen(
     previousSaveId: String?,
     failedSaveId: String
 ) {
-    if (previousSaveId == null || previousSaveId == failedSaveId) return
+    if (previousSaveId == null) return
+    if (previousSaveId == failedSaveId) {
+        exitToSavesMenu()
+        return
+    }
 
     try {
         selectSaveSlot(previousSaveId)
