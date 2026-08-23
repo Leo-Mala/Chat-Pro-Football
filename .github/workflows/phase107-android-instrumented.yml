@@ -1,0 +1,435 @@
+name: Phase 10.7 Android Instrumented Release
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - '.github/workflows/phase107-android-instrumented.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase107-android-instrumented-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TARGET_PACKAGE: com.aistudio.brasfutretro.djuxzt
+  TEST_PACKAGE: com.aistudio.brasfutretro.djuxzt.test
+  TEST_RUNNER: androidx.test.runner.AndroidJUnitRunner
+
+jobs:
+  api-smoke:
+    name: Android API ${{ matrix.api-level }} installed startup smoke
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [24, 30]
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Bootstrap deterministic FC26 asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
+            app/src/main/assets/football/fc26/fc26_manifest.json
+
+      - name: Setup Android validation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": { "package_name": "com.aistudio.brasfutretro.djuxzt" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Build Debug target and instrumentation APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
+
+      - name: Install and run real Android startup smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p phase107-artifacts/api-${{ matrix.api-level }}
+            trap 'adb logcat -d > phase107-artifacts/api-${{ matrix.api-level }}/logcat.txt || true; adb shell dumpsys activity activities > phase107-artifacts/api-${{ matrix.api-level }}/activities.txt || true' EXIT
+            app_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+            test_apk=$(find app/build/outputs/apk/androidTest/debug -type f -name '*-androidTest.apk' -print -quit)
+            test -n "$app_apk"
+            test -n "$test_apk"
+            adb install -r "$app_apk"
+            adb install -r "$test_apk"
+            adb shell pm clear "$TARGET_PACKAGE"
+            output=$(adb shell am instrument -w -r \
+              -e class 'com.example.Phase107StartupLifecycleInstrumentedTest#productionApplicationHiltAndMainActivityStartOnRealAndroid' \
+              "$TEST_PACKAGE/$TEST_RUNNER")
+            printf '%s\n' "$output" | tee phase107-artifacts/api-${{ matrix.api-level }}/instrumentation.txt
+            printf '%s\n' "$output" | grep -q '^OK ('
+
+      - name: Upload API smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase107-api-${{ matrix.api-level }}-evidence
+          path: phase107-artifacts/api-${{ matrix.api-level }}/
+          if-no-files-found: error
+          retention-days: 1
+
+  instrumented-debug-current:
+    name: Android API 35 full instrumented Debug
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Bootstrap and validate deterministic FC26 asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
+            app/src/main/assets/football/fc26/fc26_manifest.json
+
+      - name: Setup validation google-services and Debug signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": { "package_name": "com.aistudio.brasfutretro.djuxzt" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Build Debug target and instrumentation APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
+
+      - name: Execute full installed Android suite and external process restart
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p phase107-artifacts/debug-api35
+            trap 'adb logcat -d > phase107-artifacts/debug-api35/logcat.txt || true; adb shell dumpsys activity activities > phase107-artifacts/debug-api35/activities.txt || true' EXIT
+            app_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+            test_apk=$(find app/build/outputs/apk/androidTest/debug -type f -name '*-androidTest.apk' -print -quit)
+            test -n "$app_apk"
+            test -n "$test_apk"
+            adb install -r "$app_apk"
+            adb install -r "$test_apk"
+
+            run_test() {
+              class_name="$1"
+              label="$2"
+              output=$(adb shell am instrument -w -r -e class "$class_name" "$TEST_PACKAGE/$TEST_RUNNER")
+              printf '\n===== %s =====\n%s\n' "$label" "$output" | tee -a phase107-artifacts/debug-api35/instrumentation.txt
+              printf '%s\n' "$output" | grep -q '^OK ('
+            }
+
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107StartupLifecycleInstrumentedTest' 'startup-lifecycle'
+
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107ComposeNavigationInstrumentedTest#mainMenuSavesAndCriticalActionsExposeRealComposeSemantics' 'compose-semantics-navigation'
+
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107ComposeNavigationInstrumentedTest#createsAndReopensARealCareerThroughTheInstalledUi' 'real-ui-new-save-reopen'
+
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107PersistenceInstrumentedTest' 'file-backed-room-recovery-isolation'
+
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107ProcessRestartSeedInstrumentedTest#seedCanonicalCareerWithoutMetadataForExternalProcessRestart' 'process-restart-seed-without-metadata'
+            adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity" | tee phase107-artifacts/debug-api35/pre-kill-start.txt
+            old_pid=$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')
+            test -n "$old_pid"
+            printf '%s\n' "$old_pid" > phase107-artifacts/debug-api35/pre-kill-pid.txt
+            adb shell am force-stop "$TARGET_PACKAGE"
+            sleep 2
+            after_kill=$(adb shell pidof "$TARGET_PACKAGE" 2>/dev/null | tr -d '\r' || true)
+            test -z "$after_kill"
+            run_test 'com.example.Phase107ProcessRestartUiInstrumentedTest#recoveredCareerSurvivesExternalForceStopAndOpensThroughUi' 'process-restart-recovery-ui'
+            new_pid=$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r' || true)
+            test -n "$new_pid"
+            test "$new_pid" != "$old_pid"
+            printf '%s\n' "$new_pid" > phase107-artifacts/debug-api35/post-restart-pid.txt
+
+      - name: Upload full Debug instrumented evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase107-debug-api35-evidence
+          path: phase107-artifacts/debug-api35/
+          if-no-files-found: error
+          retention-days: 1
+
+  instrumented-release-current:
+    name: Android API 35 installed Release certification
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Bootstrap and validate deterministic FC26 asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py \
+            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
+            app/src/main/assets/football/fc26/fc26_manifest.json
+
+      - name: Setup validation configuration and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": { "package_name": "com.aistudio.brasfutretro.djuxzt" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
+          cp debug.keystore ~/.android/debug.keystore
+
+          release_keystore="$RUNNER_TEMP/phase107-validation-release.jks"
+          store_password="ci-validation-only"
+          key_alias="phase107-validation"
+          key_password="ci-validation-only"
+          keytool -genkeypair -v \
+            -keystore "$release_keystore" \
+            -storepass "$store_password" \
+            -alias "$key_alias" \
+            -keypass "$key_password" \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=Pro Football Phase 10.7 CI, O=CI, C=BR"
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=$store_password"
+            echo "KEY_ALIAS=$key_alias"
+            echo "KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Build signed Release target and Release instrumentation APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew -PinstrumentedBuildType=release \
+            assembleRelease assembleReleaseAndroidTest bundleRelease \
+            --stacktrace
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_test_apk=$(find app/build/outputs/apk/androidTest/release -type f -name '*-androidTest.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$release_apk"
+          test -n "$release_test_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          "$apksigner" verify --verbose --print-certs "$release_test_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+
+      - name: Install Release and certify startup/save/process restart
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p phase107-artifacts/release-api35
+            trap 'adb logcat -d > phase107-artifacts/release-api35/logcat.txt || true; adb shell dumpsys activity activities > phase107-artifacts/release-api35/activities.txt || true' EXIT
+            app_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+            test_apk=$(find app/build/outputs/apk/androidTest/release -type f -name '*-androidTest.apk' -print -quit)
+            adb install -r "$app_apk"
+            adb install -r "$test_apk"
+            adb shell pm clear "$TARGET_PACKAGE"
+
+            direct_start=$(adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity")
+            printf '%s\n' "$direct_start" | tee phase107-artifacts/release-api35/direct-release-start.txt
+            printf '%s\n' "$direct_start" | grep -q 'Status: ok'
+            adb shell am force-stop "$TARGET_PACKAGE"
+
+            run_test() {
+              class_name="$1"
+              label="$2"
+              output=$(adb shell am instrument -w -r -e class "$class_name" "$TEST_PACKAGE/$TEST_RUNNER")
+              printf '\n===== %s =====\n%s\n' "$label" "$output" | tee -a phase107-artifacts/release-api35/instrumentation.txt
+              printf '%s\n' "$output" | grep -q '^OK ('
+            }
+
+            run_test 'com.example.Phase107StartupLifecycleInstrumentedTest#productionApplicationHiltAndMainActivityStartOnRealAndroid' 'release-startup-hilt-room'
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107PersistenceInstrumentedTest#fileBackedRoomPersistsReopensAndUsesCurrentSchema' 'release-room-save-reopen'
+
+            adb shell pm clear "$TARGET_PACKAGE"
+            run_test 'com.example.Phase107ProcessRestartSeedInstrumentedTest#seedCanonicalCareerWithoutMetadataForExternalProcessRestart' 'release-process-seed'
+            adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity" > phase107-artifacts/release-api35/pre-kill-start.txt
+            old_pid=$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')
+            test -n "$old_pid"
+            adb shell am force-stop "$TARGET_PACKAGE"
+            sleep 2
+            test -z "$(adb shell pidof "$TARGET_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+            run_test 'com.example.Phase107ProcessRestartUiInstrumentedTest#recoveredCareerSurvivesExternalForceStopAndOpensThroughUi' 'release-process-restart-recovery'
+            new_pid=$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r' || true)
+            test -n "$new_pid"
+            test "$new_pid" != "$old_pid"
+            printf 'old_pid=%s\nnew_pid=%s\n' "$old_pid" "$new_pid" > phase107-artifacts/release-api35/process-restart.txt
+
+      - name: Upload Release instrumented evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase107-release-api35-evidence
+          path: phase107-artifacts/release-api35/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload signed validation Release APK and AAB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase107-release-builds
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 1
