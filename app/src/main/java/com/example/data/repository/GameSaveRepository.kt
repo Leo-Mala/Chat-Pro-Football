@@ -13,6 +13,8 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /** Estado semântico do banco físico de um slot. */
 enum class SlotDatabaseState {
@@ -315,13 +317,19 @@ class GameSaveRepository @Inject constructor(
         databaseFactory.closeAndRemoveSlot(slotId)
     }
 
-    @Synchronized
-    fun deleteSlotDatabase(slotId: String): Boolean {
+    /**
+     * Exclusão física é uma fronteira destrutiva e, portanto, também respeita cancelamento.
+     * O último check acontece depois de fechar o Room e calcular os artefatos, imediatamente antes
+     * de `Context.deleteDatabase()`. Se o job foi cancelado durante a remoção de metadata ou outra
+     * etapa anterior, o banco permanece intacto e poderá reconstruir a projeção no próximo load.
+     */
+    suspend fun deleteSlotDatabase(slotId: String): Boolean {
         closeAndRemoveSlot(slotId)
         val databaseFile = databaseFileForSlot(slotId)
         val sidecars = databaseSidecarFiles(databaseFile)
         val hadPhysicalArtifact = databaseFile.exists() || sidecars.any { it.exists() }
 
+        currentCoroutineContext().ensureActive()
         context.deleteDatabase(databaseNameForSlot(slotId))
         sidecars.forEach { sidecar -> if (sidecar.exists()) sidecar.delete() }
 
