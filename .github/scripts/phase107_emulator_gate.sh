@@ -17,13 +17,20 @@ collect_evidence() {
 }
 trap collect_evidence EXIT
 
+get_app_pid() {
+  local raw
+  raw="$(adb shell pidof "$TARGET_PACKAGE" 2>/dev/null || true)"
+  raw="${raw//$'\r'/}"
+  printf '%s' "$raw"
+}
+
 run_test() {
   local class_name="$1"
   local label="$2"
   local output
   output="$(adb shell am instrument -w -r -e class "$class_name" "$TEST_PACKAGE/$TEST_RUNNER")"
   printf '\n===== %s =====\n%s\n' "$label" "$output" | tee -a "$artifact_dir/instrumentation.txt"
-  printf '%s\n' "$output" | grep -q '^OK ('
+  grep -q '^OK (' <<< "$output"
 }
 
 install_pair() {
@@ -44,9 +51,9 @@ certify_installed_startup() {
   local start_output pid
   start_output="$(adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity")"
   printf '%s\n' "$start_output" | tee "$artifact_dir/${label}-direct-start.txt"
-  printf '%s\n' "$start_output" | grep -q 'Status: ok'
+  grep -q 'Status: ok' <<< "$start_output"
 
-  pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')"
+  pid="$(get_app_pid)"
   test -n "$pid"
   printf '%s\n' "$pid" > "$artifact_dir/${label}-pid.txt"
 
@@ -57,7 +64,7 @@ certify_installed_startup() {
 stop_installed_app() {
   adb shell am force-stop "$TARGET_PACKAGE"
   sleep 2
-  test -z "$(adb shell pidof "$TARGET_PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+  test -z "$(get_app_pid)"
 }
 
 compile_debug_target_for_instrumentation() {
@@ -76,8 +83,8 @@ verify_new_app_process() {
   local start_output new_pid
   start_output="$(adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity")"
   printf '%s\n' "$start_output" > "$artifact_dir/${label}-direct-start.txt"
-  printf '%s\n' "$start_output" | grep -q 'Status: ok'
-  new_pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')"
+  grep -q 'Status: ok' <<< "$start_output"
+  new_pid="$(get_app_pid)"
   test -n "$new_pid"
   test "$new_pid" != "$old_pid"
   printf 'old_pid=%s\nnew_pid=%s\n' "$old_pid" "$new_pid" > "$artifact_dir/process-restart.txt"
@@ -114,7 +121,7 @@ case "$mode" in
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107ProcessRestartSeedInstrumentedTest#seedCanonicalCareerWithoutMetadataForExternalProcessRestart' 'process-restart-seed-without-metadata'
     adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity" | tee "$artifact_dir/pre-kill-start.txt"
-    old_pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')"
+    old_pid="$(get_app_pid)"
     test -n "$old_pid"
     printf '%s\n' "$old_pid" > "$artifact_dir/pre-kill-pid.txt"
     stop_installed_app
@@ -132,7 +139,7 @@ case "$mode" in
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107ProcessRestartSeedInstrumentedTest#seedCanonicalCareerWithoutMetadataForExternalProcessRestart' 'release-process-seed'
     adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity" > "$artifact_dir/pre-kill-start.txt"
-    old_pid="$(adb shell pidof "$TARGET_PACKAGE" | tr -d '\r')"
+    old_pid="$(get_app_pid)"
     test -n "$old_pid"
     stop_installed_app
     run_test 'com.example.Phase107ProcessRestartUiInstrumentedTest#recoveredCareerSurvivesExternalForceStopAndOpensThroughUi' 'release-process-restart-recovery'
