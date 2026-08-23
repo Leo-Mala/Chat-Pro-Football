@@ -12,7 +12,8 @@ class SeasonTransitionUseCase(
     private val repository: GameRepository,
     private val generateCalendarUseCase: GenerateCalendarUseCase,
     private val databaseIntegrityUseCase: DatabaseIntegrityUseCase,
-    private val globalLeagueSimulationUseCase: GlobalLeagueSimulationUseCase = GlobalLeagueSimulationUseCase()
+    private val globalLeagueSimulationUseCase: GlobalLeagueSimulationUseCase = GlobalLeagueSimulationUseCase(),
+    private val observer: SeasonTransitionObserver = SeasonTransitionObserver.NONE
 ) {
 
     data class SeasonStandingRow(
@@ -29,7 +30,9 @@ class SeasonTransitionUseCase(
     }
 
     suspend fun advanceToNextSeason(save: GameSave): GameSave = repository.withTransaction {
-        val persistedSave = repository.getGameSave() ?: save
+        val persistedSave = measuredStage("load-save") {
+            repository.getGameSave() ?: save
+        }
 
         if (persistedSave.currentSeason != save.currentSeason) {
             return@withTransaction persistedSave
@@ -43,214 +46,238 @@ class SeasonTransitionUseCase(
         val currentSeason = sourceSave.currentSeason
         val nextSeason = currentSeason + 1
 
-        val allTeams = repository.getAllTeams()
-        val allPlayers = repository.getAllPlayers()
-        val seasonFixtures = repository.getFixturesForSeason(currentSeason)
+        val allTeams = measuredStage("load-teams") {
+            repository.getAllTeams()
+        }
+        val seasonFixtures = measuredStage("load-current-season-fixtures") {
+            repository.getFixturesForSeason(currentSeason)
+        }
         val currentUserCountry = allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
             ?: "Brasil"
 
-        val globalStandings = globalLeagueSimulationUseCase.buildSeasonStandings(
-            season = currentSeason,
-            teams = allTeams,
-            detailedFixtures = seasonFixtures,
-            detailedCountry = currentUserCountry
-        )
-        repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
+        val globalStandings = measuredStage("final-classification") {
+            globalLeagueSimulationUseCase.buildSeasonStandings(
+                season = currentSeason,
+                teams = allTeams,
+                detailedFixtures = seasonFixtures,
+                detailedCountry = currentUserCountry
+            )
+        }
+        measuredStage("persist-final-standings-snapshot") {
+            repository.saveGlobalStandingsForSeason(currentSeason, globalStandings)
+        }
 
-        val updatedTeamsMap = allTeams.associateBy { it.id }.toMutableMap()
-        val teamsByCountry = allTeams
-            .filter { CountryFootballRulesRegistry.isDomesticCompetitionEligible(it.country) }
-            .groupBy { it.country }
-        val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
+        val originalTeamsById = allTeams.associateBy { it.id }
+        val updatedTeamsMap = originalTeamsById.toMutableMap()
+        measuredStage("promotion-relegation") {
+            val teamsByCountry = allTeams
+                .filter { CountryFootballRulesRegistry.isDomesticCompetitionEligible(it.country) }
+                .groupBy { it.country }
+            val snapshotRowsByCountryDivision = globalStandings.groupBy { it.country to it.division }
 
-        for ((country, countryTeams) in teamsByCountry) {
-            val isDetailedCountry = country.equals(currentUserCountry, ignoreCase = true)
-            val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry(country)
-            val divisions = hierarchy.divisions.sortedBy { it.divisionLevel }
+            for ((country, countryTeams) in teamsByCountry) {
+                val isDetailedCountry = country.equals(currentUserCountry, ignoreCase = true)
+                val hierarchy = LeagueHierarchyLoader.getHierarchyForCountry(country)
+                val divisions = hierarchy.divisions.sortedBy { it.divisionLevel }
 
-            for ((upperRule, lowerRule) in divisions.zipWithNext()) {
-                val upperTeams = countryTeams.filter { it.division == upperRule.divisionLevel }
-                val lowerTeams = countryTeams.filter { it.division == lowerRule.divisionLevel }
-                val movementSpots = hierarchy.safeMovementSpotsBetween(
-                    upperLevel = upperRule.divisionLevel,
-                    lowerLevel = lowerRule.divisionLevel,
-                    upperTeamCount = upperTeams.size,
-                    lowerTeamCount = lowerTeams.size
-                )
+                for ((upperRule, lowerRule) in divisions.zipWithNext()) {
+                    val upperTeams = countryTeams.filter { it.division == upperRule.divisionLevel }
+                    val lowerTeams = countryTeams.filter { it.division == lowerRule.divisionLevel }
+                    val movementSpots = hierarchy.safeMovementSpotsBetween(
+                        upperLevel = upperRule.divisionLevel,
+                        lowerLevel = lowerRule.divisionLevel,
+                        upperTeamCount = upperTeams.size,
+                        lowerTeamCount = lowerTeams.size
+                    )
 
-                if (movementSpots <= 0) continue
+                    if (movementSpots <= 0) continue
 
-                val relegatedIds: List<Long>
-                val promotedIds: List<Long>
+                    val relegatedIds: List<Long>
+                    val promotedIds: List<Long>
 
-                if (isDetailedCountry) {
-                    val upperRanking = resolveDetailedCountryMovementRanking(
-                        season = currentSeason,
-                        country = country,
-                        division = upperRule.divisionLevel,
-                        teams = upperTeams,
-                        fixtures = seasonFixtures,
-                        snapshotRows = snapshotRowsByCountryDivision[
-                            country to upperRule.divisionLevel
-                        ].orEmpty()
-                    ) ?: continue
-                    val lowerRanking = resolveDetailedCountryMovementRanking(
-                        season = currentSeason,
-                        country = country,
-                        division = lowerRule.divisionLevel,
-                        teams = lowerTeams,
-                        fixtures = seasonFixtures,
-                        snapshotRows = snapshotRowsByCountryDivision[
-                            country to lowerRule.divisionLevel
-                        ].orEmpty()
-                    ) ?: continue
-
-                    relegatedIds = upperRanking.takeLast(movementSpots)
-                    promotedIds = lowerRanking.take(movementSpots)
-                } else {
-                    val upperSnapshot = snapshotRowsByCountryDivision[
-                        country to upperRule.divisionLevel
-                    ].orEmpty()
-                    val lowerSnapshot = snapshotRowsByCountryDivision[
-                        country to lowerRule.divisionLevel
-                    ].orEmpty()
-
-                    if (!hasCompleteSnapshot(
+                    if (isDetailedCountry) {
+                        val upperRanking = resolveDetailedCountryMovementRanking(
                             season = currentSeason,
                             country = country,
                             division = upperRule.divisionLevel,
                             teams = upperTeams,
-                            rows = upperSnapshot
-                        ) ||
-                        !hasCompleteSnapshot(
+                            fixtures = seasonFixtures,
+                            snapshotRows = snapshotRowsByCountryDivision[
+                                country to upperRule.divisionLevel
+                            ].orEmpty()
+                        ) ?: continue
+                        val lowerRanking = resolveDetailedCountryMovementRanking(
                             season = currentSeason,
                             country = country,
                             division = lowerRule.divisionLevel,
                             teams = lowerTeams,
-                            rows = lowerSnapshot
-                        )
-                    ) {
-                        continue
+                            fixtures = seasonFixtures,
+                            snapshotRows = snapshotRowsByCountryDivision[
+                                country to lowerRule.divisionLevel
+                            ].orEmpty()
+                        ) ?: continue
+
+                        relegatedIds = upperRanking.takeLast(movementSpots)
+                        promotedIds = lowerRanking.take(movementSpots)
+                    } else {
+                        val upperSnapshot = snapshotRowsByCountryDivision[
+                            country to upperRule.divisionLevel
+                        ].orEmpty()
+                        val lowerSnapshot = snapshotRowsByCountryDivision[
+                            country to lowerRule.divisionLevel
+                        ].orEmpty()
+
+                        if (!hasCompleteSnapshot(
+                                season = currentSeason,
+                                country = country,
+                                division = upperRule.divisionLevel,
+                                teams = upperTeams,
+                                rows = upperSnapshot
+                            ) ||
+                            !hasCompleteSnapshot(
+                                season = currentSeason,
+                                country = country,
+                                division = lowerRule.divisionLevel,
+                                teams = lowerTeams,
+                                rows = lowerSnapshot
+                            )
+                        ) {
+                            continue
+                        }
+
+                        relegatedIds = upperSnapshot
+                            .sortedBy { it.position }
+                            .takeLast(movementSpots)
+                            .map { it.teamId }
+                        promotedIds = lowerSnapshot
+                            .sortedBy { it.position }
+                            .take(movementSpots)
+                            .map { it.teamId }
                     }
 
-                    relegatedIds = upperSnapshot
-                        .sortedBy { it.position }
-                        .takeLast(movementSpots)
-                        .map { it.teamId }
-                    promotedIds = lowerSnapshot
-                        .sortedBy { it.position }
-                        .take(movementSpots)
-                        .map { it.teamId }
-                }
-
-                for (teamId in relegatedIds) {
-                    val currentTeam = updatedTeamsMap[teamId] ?: continue
-                    updatedTeamsMap[teamId] = currentTeam.copy(
-                        division = lowerRule.divisionLevel
-                    )
-                }
-                for (teamId in promotedIds) {
-                    val currentTeam = updatedTeamsMap[teamId] ?: continue
-                    updatedTeamsMap[teamId] = currentTeam.copy(
-                        division = upperRule.divisionLevel
-                    )
-                }
-            }
-        }
-
-        updatedTeamsMap.values.forEach { repository.updateTeam(it) }
-
-        val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
-        val playersToUpdate = mutableListOf<Player>()
-        val replacementPlayers = mutableListOf<Player>()
-
-        for (player in allPlayers) {
-            val newAge = player.age + 1
-            if (newAge >= 38) {
-                val activeLoan = repository.getActiveLoanForPlayer(player.id)
-                if (activeLoan != null) {
-                    repository.updateLoan(
-                        activeLoan.copy(
-                            remainingWeeks = 0,
-                            status = "COMPLETED"
+                    for (teamId in relegatedIds) {
+                        val currentTeam = updatedTeamsMap[teamId] ?: continue
+                        updatedTeamsMap[teamId] = currentTeam.copy(
+                            division = lowerRule.divisionLevel
                         )
-                    )
+                    }
+                    for (teamId in promotedIds) {
+                        val currentTeam = updatedTeamsMap[teamId] ?: continue
+                        updatedTeamsMap[teamId] = currentTeam.copy(
+                            division = upperRule.divisionLevel
+                        )
+                    }
                 }
-
-                val replacementTeamId = when {
-                    activeLoan != null -> activeLoan.ownerTeamId
-                    player.isOnLoan && player.originalTeamId != null -> player.originalTeamId
-                    else -> player.teamId
-                }
-                val newForce = if (replacementTeamId == sourceSave.playerTeamId) {
-                    95
-                } else {
-                    rand.nextInt(55, 75)
-                }
-
-                repository.deletePlayer(player.id)
-                replacementPlayers += Player(
-                    teamId = replacementTeamId,
-                    name = "Novo Prospecto ${player.name.takeLast(6)}",
-                    age = 18,
-                    nationality = player.nationality,
-                    position = player.position,
-                    force = newForce,
-                    energy = 100,
-                    moral = 80,
-                    salary = 10_000L,
-                    contractDurationWeeks = 52,
-                    isFromAcademy = false,
-                    isStarter = false,
-                    isOnLoan = false,
-                    loanWeeksRemaining = 0,
-                    originalTeamId = null,
-                    potential = maxOf(80, newForce)
-                )
-            } else {
-                playersToUpdate += player.copy(
-                    age = newAge,
-                    energy = 100,
-                    moral = 80.coerceAtLeast(player.moral),
-                    injuryWeeksRemaining = 0,
-                    suspensionWeeksRemaining = 0,
-                    yellowCardsAccumulated = 0
-                )
             }
         }
 
-        if (playersToUpdate.isNotEmpty()) {
-            repository.updatePlayers(playersToUpdate)
+        val changedTeams = updatedTeamsMap.values.filter { updated ->
+            originalTeamsById[updated.id]?.division != updated.division
         }
-        if (replacementPlayers.isNotEmpty()) {
-            repository.savePlayers(replacementPlayers)
+        measuredStage("persist-team-movements") {
+            changedTeams.forEach { repository.updateTeam(it) }
         }
 
-        databaseIntegrityUseCase.repairDatabase()
+        val retiringPlayers = measuredStage("load-retiring-players") {
+            repository.getRolloverRetiringPlayers(RETIREMENT_CURRENT_AGE)
+        }
+        val activeLoans = measuredStage("load-active-loans") {
+            repository.getActiveLoans()
+        }
+        val activeLoansByPlayerId = activeLoans.associateBy { it.playerId }
+        val retiringPlayerIds = retiringPlayers.map { it.id }
+        val rand = Random(currentSeason * 31L + sourceSave.playerTeamId)
+        val replacementPlayers = retiringPlayers.map { player ->
+            val activeLoan = activeLoansByPlayerId[player.id]
+            val replacementTeamId = when {
+                activeLoan != null -> activeLoan.ownerTeamId
+                player.isOnLoan && player.originalTeamId != null -> player.originalTeamId
+                else -> player.teamId
+            }
+            val newForce = if (replacementTeamId == sourceSave.playerTeamId) {
+                95
+            } else {
+                rand.nextInt(55, 75)
+            }
 
-        repository.purgeOldData(nextSeason)
-        repository.deleteFixtures()
+            Player(
+                teamId = replacementTeamId,
+                name = "Novo Prospecto ${player.name.takeLast(6)}",
+                age = 18,
+                nationality = player.nationality,
+                position = player.position,
+                force = newForce,
+                energy = 100,
+                moral = 80,
+                salary = 10_000L,
+                contractDurationWeeks = 52,
+                isFromAcademy = false,
+                isStarter = false,
+                isOnLoan = false,
+                loanWeeksRemaining = 0,
+                originalTeamId = null,
+                potential = maxOf(80, newForce)
+            )
+        }
+
+        measuredStage("retirement-and-loan-finalization") {
+            repository.completeRolloverLoansForPlayers(retiringPlayerIds)
+            repository.deleteRolloverPlayers(retiringPlayerIds)
+        }
+        measuredStage("player-age-and-season-reset") {
+            repository.ageAndResetRolloverPlayers(RETIREMENT_CURRENT_AGE)
+        }
+        measuredStage("persist-retirement-replacements") {
+            if (replacementPlayers.isNotEmpty()) {
+                repository.savePlayers(replacementPlayers)
+            }
+        }
+
+        measuredStage("database-integrity-and-free-agents") {
+            databaseIntegrityUseCase.repairDatabase()
+        }
+
+        measuredStage("previous-season-cleanup") {
+            repository.purgeOldData(nextSeason)
+            repository.deleteFixtures()
+        }
 
         val updatedTeamsList = updatedTeamsMap.values.toList()
         val playerTeam = updatedTeamsMap[sourceSave.playerTeamId]
         val userCountry = playerTeam?.country ?: currentUserCountry
 
-        val newFixtures = generateCalendarUseCase.generateSeasonFixtures(
-            season = nextSeason,
-            teams = updatedTeamsList,
-            userTeamId = sourceSave.playerTeamId,
-            userCountry = userCountry,
-            qualificationStandings = globalStandings
-        )
-        repository.saveFixtures(newFixtures)
+        val newFixtures = measuredStage("generate-new-season-fixtures") {
+            generateCalendarUseCase.generateSeasonFixtures(
+                season = nextSeason,
+                teams = updatedTeamsList,
+                userTeamId = sourceSave.playerTeamId,
+                userCountry = userCountry,
+                qualificationStandings = globalStandings
+            )
+        }
+        measuredStage("persist-new-season-fixtures") {
+            repository.saveFixtures(newFixtures)
+        }
 
         val updatedSave = sourceSave.copy(
             currentSeason = nextSeason,
             currentWeek = 1
         )
-        repository.saveGameSave(updatedSave)
+        measuredStage("persist-canonical-save") {
+            repository.saveGameSave(updatedSave)
+        }
 
         updatedSave
+    }
+
+    private suspend fun <T> measuredStage(stage: String, block: suspend () -> T): T {
+        observer.onStageStarted(stage)
+        val started = System.nanoTime()
+        return try {
+            block()
+        } finally {
+            observer.onStageFinished(stage, System.nanoTime() - started)
+        }
     }
 
     /**
@@ -441,5 +468,9 @@ class SeasonTransitionUseCase(
                 .thenByDescending { it.second.gd }
                 .thenByDescending { it.second.gf }
         )
+    }
+
+    private companion object {
+        const val RETIREMENT_CURRENT_AGE = 37
     }
 }

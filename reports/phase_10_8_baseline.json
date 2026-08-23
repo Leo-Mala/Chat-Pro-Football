@@ -1,0 +1,82 @@
+{
+  "phase": "10.8",
+  "measurementKind": "pre_optimization_baseline",
+  "auditHead": "0704e801d8367aec53e2be59cf090cf87e65aaca",
+  "environment": {
+    "runtime": "Robolectric sdk34 / GitHub Actions JVM",
+    "room": "2.7.0",
+    "roomSchema": 22,
+    "storage": "file-backed SQLite WAL"
+  },
+  "dataset": {
+    "datasetPlayers": 18405,
+    "validatedPlayers": 18405,
+    "processedPlayers": 18405,
+    "importedPlayers": 18405,
+    "notImported": 0,
+    "persistedPlayersIncludingFallback": 60885,
+    "clubs": 2524,
+    "datasetLoanPlayers": 1325,
+    "resolvedLoans": 816,
+    "rejectedLoans": 509,
+    "borrowerNotFound": 448,
+    "ownerNotFound": 60,
+    "ambiguousLoans": 1,
+    "duplicatePlayerIds": 0,
+    "duplicateTeamIds": 0,
+    "overallMutated": 0,
+    "potentialMutated": 0,
+    "attributesMutated": 0
+  },
+  "timingMillis": {
+    "seasonRolloverTotal": 20605,
+    "postRolloverReopenAndFullPlayerReload": 13367
+  },
+  "queries": {
+    "total": 153810,
+    "select": 63420,
+    "insert": 8483,
+    "update": 60449,
+    "delete": 2966,
+    "activeLoanLookupPerPlayer": 2960,
+    "teamUpdateStatements": 2524,
+    "fullEntityPlayerUpdates": 57925
+  },
+  "memory": {
+    "heapBeforeBytes": 174166528,
+    "heapPeakObservedBytes": 273555432,
+    "heapAfterBytes": 249386560,
+    "heapDeltaBytes": 75220032,
+    "gcCollectionsObserved": 94
+  },
+  "sqlite": {
+    "dbInitialBytes": 75603968,
+    "dbFinalBytes": 74665984,
+    "walInitialBytes": 524288,
+    "walPeakObservedBytes": 75651472,
+    "walFinalBytesBeforeCheckpoint": 75651472,
+    "walCheckpointPassive": {
+      "busy": 0,
+      "logFrames": 18362,
+      "checkpointedFrames": 18362
+    },
+    "outerRolloverTransactions": 1,
+    "longestTransactionMillis": 20605,
+    "totalTransactionMillis": 20605
+  },
+  "fixtures": {
+    "completedPriorSeasonFixtures": 2998,
+    "newSeasonFixtures": 2998
+  },
+  "existingBudgetsPreserved": {
+    "phase101InitialPersistenceMillis": 20289,
+    "phase101FullReloadMillis": 47181,
+    "phase101MonthlyEvolutionMillis": 65553,
+    "phase101PeakHeapBytes": 762995562
+  },
+  "sourceArtifact": {
+    "workflowRun": 32667216728,
+    "artifactId": 9500409707,
+    "artifactDigest": "sha256:83eab09a8fe27d5b0faf98b6c89244574c31cbea5409fd18b41b3acd191fc57b"
+  }
+}
