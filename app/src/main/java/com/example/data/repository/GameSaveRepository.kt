@@ -84,7 +84,9 @@ class GameSaveRepository @Inject constructor(
      * pré-carreira. Uma carreira válida exige exatamente `id=1` e um clube persistido para
      * `playerTeamId`. O próprio `GameSave` é autoritativo para identificar o clube do jogador;
      * `Team.isPlayerControlled` é derivado e pode estar ausente/divergente em saves históricos ou
-     * restores parciais de metadata sem que isso autorize classificar a carreira como vazia.
+     * restores parciais sem que isso autorize classificar a carreira como vazia. Quando o marcador
+     * diverge, ele é reconciliado de forma determinística a partir de `playerTeamId` antes de o
+     * repositório ser entregue aos consumidores de gameplay.
      *
      * Linhas não canônicas de `game_save` ou ausência do clube referenciado continuam fail-closed.
      */
@@ -122,7 +124,67 @@ class GameSaveRepository @Inject constructor(
             )
         }
 
-        return null
+        return reconcilePlayerControlledProjection(database, playerTeamId)
+    }
+
+    /**
+     * `isPlayerControlled` é estado derivado do `GameSave`, não uma segunda autoridade de carreira.
+     * Saves históricos podem chegar com marcador ausente, obsoleto ou duplicado; nesses casos a
+     * abertura continua válida e a projeção é normalizada atomicamente para exatamente o clube
+     * referenciado por `playerTeamId`. Se a projeção não puder ser persistida, falhamos fechado para
+     * não entregar uma carreira que seria tratada como CPU por rotinas de partida.
+     */
+    private fun reconcilePlayerControlledProjection(
+        database: AppDatabase,
+        playerTeamId: Long
+    ): SlotDatabaseInspection? {
+        val sqlite = database.openHelper.writableDatabase
+
+        fun controlledTeamIds(): List<Long> = sqlite
+            .query("SELECT id FROM teams WHERE isPlayerControlled = 1 ORDER BY id")
+            .use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        add(cursor.getLong(0))
+                    }
+                }
+            }
+
+        val before = controlledTeamIds()
+        if (before == listOf(playerTeamId)) return null
+
+        try {
+            sqlite.beginTransaction()
+            try {
+                sqlite.execSQL(
+                    "UPDATE teams SET isPlayerControlled = CASE WHEN id = ? THEN 1 ELSE 0 END",
+                    arrayOf<Any?>(playerTeamId)
+                )
+                sqlite.setTransactionSuccessful()
+            } finally {
+                sqlite.endTransaction()
+            }
+        } catch (e: Exception) {
+            Log.e(
+                "GameSaveRepository",
+                "Falha ao reconciliar isPlayerControlled para playerTeamId=$playerTeamId",
+                e
+            )
+            return SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "ControlledTeamProjectionRepairFailed:${e.javaClass.simpleName}"
+            )
+        }
+
+        val after = controlledTeamIds()
+        return if (after == listOf(playerTeamId)) {
+            null
+        } else {
+            SlotDatabaseInspection(
+                state = SlotDatabaseState.RECOVERY_REQUIRED,
+                failureReason = "ControlledTeamProjectionRepairDidNotConverge:ids=${after.joinToString(",")}"
+            )
+        }
     }
 
     private fun requireSemanticUseAllowed(database: AppDatabase) {
@@ -291,8 +353,8 @@ class GameSaveRepository @Inject constructor(
     /**
      * Inspeciona o conteúdo real do slot sem criar banco para um arquivo inexistente.
      * `game_save(id=1)` é a autoridade e só é válida quando é a única linha e `playerTeamId`
-     * referencia um clube persistido. O flag `isPlayerControlled` é derivado e não pode transformar
-     * uma carreira existente em slot vazio/recovery por si só.
+     * referencia um clube persistido. O flag `isPlayerControlled` é derivado: divergências são
+     * reconciliadas a partir de `GameSave` e nunca transformam, por si só, a carreira em slot vazio.
      *
      * A decisão `arquivo existente -> abrir Room` ocorre sob o MESMO lock de lifecycle usado pela
      * exclusão física. Assim uma inspeção que viu o arquivo antes de um delete nunca pode acordar
