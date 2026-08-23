@@ -137,8 +137,14 @@ class Phase107ComposeNavigationInstrumentedTest {
     }
 
     private fun navigateTab(tag: String) {
-        composeRule.onNodeWithTag(tag).assertHasClickAction().performClick()
+        composeRule.onNodeWithTag(tag)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag(tag).assertIsDisplayed()
+        composeRule.onNodeWithTag(tag)
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 }
