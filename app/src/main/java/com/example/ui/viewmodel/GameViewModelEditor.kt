@@ -33,9 +33,13 @@ private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean
 
 fun GameViewModel.ensureSaveActiveForEditor(
     preparationCheckpoint: suspend () -> Unit = {},
+    preparationAttemptCheckpoint: suspend () -> Unit = {},
     onReady: (Boolean) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
+        // Checkpoint inerte em produção. Em teste, comprova que uma segunda coroutine realmente
+        // chegou à fronteira de serialização antes de verificarmos que ela não entrou no bootstrap.
+        preparationAttemptCheckpoint()
         editorPreparationMutex.withLock {
             val targetSaveId = _currentSaveId.value ?: "1"
             var editorSession: SaveSession? = null
