@@ -39,33 +39,47 @@ class Phase106ControlledTeamInvariantTest {
     }
 
     @Test
-    fun referencedTeamMustItselfBeMarkedControlled() = runBlocking {
+    fun referencedTeamMarkerIsDerivedAndCannotHideValidCareer() = runBlocking {
         val slotId = "2"
-        val team = team(id = 92_002L, name = "Referenciado mas CPU", controlled = false)
+        val team = team(id = 92_002L, name = "Referenciado com marcador antigo", controlled = false)
+        val save = GameSave(coachName = "Save Histórico", playerTeamId = team.id)
         val repo = saveRepository.getRepositoryForSlot(slotId)
         repo.saveTeams(listOf(team))
-        repo.saveGameSave(GameSave(coachName = "Restore Parcial", playerTeamId = team.id))
+        repo.saveGameSave(save)
 
-        val inspection = saveRepository.inspectSlot(slotId)
-        assertEquals(SlotDatabaseState.RECOVERY_REQUIRED, inspection.state)
-        assertFalse(inspection.newGameAllowed)
-        assertTrue(inspection.failureReason?.contains("PlayerTeamNotControlled") == true)
-        assertEquals("O preflight não pode reparar silenciosamente o marcador", team, repo.getTeam(team.id))
+        saveRepository.closeAllDatabases()
+        val reopened = GameSaveRepository(context, SlotDatabaseFactory(context))
+        try {
+            val inspection = reopened.inspectSlot(slotId)
+            assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
+            assertFalse(inspection.newGameAllowed)
+            assertEquals(save, inspection.save)
+            assertEquals(team.name, inspection.teamName)
+            assertEquals(
+                "O marcador derivado não deve ser alterado silenciosamente durante inspeção",
+                team,
+                reopened.getRepositoryForSlot(slotId).getTeam(team.id)
+            )
+        } finally {
+            reopened.closeAllDatabases()
+        }
     }
 
     @Test
-    fun referencedControlledTeamMustBeTheOnlyControlledTeam() = runBlocking {
+    fun extraControlledMarkerCannotOverrideAuthoritativeGameSave() = runBlocking {
         val slotId = "3"
         val playerTeam = team(id = 93_003L, name = "Clube do Jogador", controlled = true)
-        val duplicateControlled = team(id = 93_004L, name = "Segundo Controlado", controlled = true)
+        val staleControlled = team(id = 93_004L, name = "Marcador derivado obsoleto", controlled = true)
+        val save = GameSave(coachName = "Controle pelo GameSave", playerTeamId = playerTeam.id)
         val repo = saveRepository.getRepositoryForSlot(slotId)
-        repo.saveTeams(listOf(playerTeam, duplicateControlled))
-        repo.saveGameSave(GameSave(coachName = "Controle Ambíguo", playerTeamId = playerTeam.id))
+        repo.saveTeams(listOf(playerTeam, staleControlled))
+        repo.saveGameSave(save)
 
         val inspection = saveRepository.inspectSlot(slotId)
-        assertEquals(SlotDatabaseState.RECOVERY_REQUIRED, inspection.state)
+        assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
         assertFalse(inspection.newGameAllowed)
-        assertTrue(inspection.failureReason?.contains("ControlledTeamInvariantMismatch") == true)
+        assertEquals(save, inspection.save)
+        assertEquals(playerTeam.name, inspection.teamName)
         assertEquals(2, repo.getAllTeams().count { it.isPlayerControlled })
     }
 
