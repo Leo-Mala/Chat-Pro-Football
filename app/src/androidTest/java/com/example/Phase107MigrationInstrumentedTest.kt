@@ -36,24 +36,26 @@ class Phase107MigrationInstrumentedTest {
                 true,
                 MIGRATION_21_22
             )
-            migrationHelper.closeWhenFinished(migrated)
-
-            val userVersion = migrated.query("PRAGMA user_version").use { cursor ->
-                assertTrue(cursor.moveToFirst())
-                cursor.getInt(0)
-            }
-            assertEquals(APP_DATABASE_SCHEMA_VERSION, userVersion)
-
-            val indexes = mutableSetOf<String>()
-            migrated.query("PRAGMA index_list(`historico_evolucao`)").use { cursor ->
-                while (cursor.moveToNext()) {
-                    indexes += cursor.getString(1)
+            try {
+                val userVersion = migrated.query("PRAGMA user_version").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    cursor.getInt(0)
                 }
+                assertEquals(APP_DATABASE_SCHEMA_VERSION, userVersion)
+
+                val indexes = mutableSetOf<String>()
+                migrated.query("PRAGMA index_list(`historico_evolucao`)").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        indexes += cursor.getString(1)
+                    }
+                }
+                assertTrue(
+                    "Migration 21->22 must create the evolution date index on Android SQLite",
+                    "index_historico_evolucao_data" in indexes
+                )
+            } finally {
+                migrated.close()
             }
-            assertTrue(
-                "Migration 21->22 must create the evolution date index on Android SQLite",
-                "index_historico_evolucao_data" in indexes
-            )
         } finally {
             context.deleteDatabase(databaseName)
         }
