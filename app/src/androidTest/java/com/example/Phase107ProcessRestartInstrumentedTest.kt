@@ -4,7 +4,6 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -33,10 +32,10 @@ class Phase107ProcessRestartSeedInstrumentedTest {
         )
         Phase107TestSupport.closeDatabases()
 
-        val entryPoint = Phase107TestSupport.entryPoint()
-        val inspection = runBlocking { entryPoint.gameSaveRepository().inspectSlot("5") }
+        val dependencies = Phase107TestSupport.entryPoint()
+        val inspection = runBlocking { dependencies.gameSaveRepository().inspectSlot("5") }
         assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
-        assertTrue(entryPoint.gameSaveRepository().databaseFileForSlot("5").isFile)
+        assertTrue(dependencies.gameSaveRepository().databaseFileForSlot("5").isFile)
     }
 }
 
@@ -58,9 +57,9 @@ class Phase107ProcessRestartUiInstrumentedTest {
         composeRule.onNodeWithText("Phase107 Process Coach").assertIsDisplayed()
         composeRule.onNodeWithText("Phase107 Process Club • Temp. 2026 (Sem. 23)").assertIsDisplayed()
 
-        val entryPoint = Phase107TestSupport.entryPoint()
+        val dependencies = Phase107TestSupport.entryPoint()
         val slot = runBlocking {
-            entryPoint.gamePreferencesRepository().loadSaveSlots().single { it.id == "5" }
+            dependencies.gamePreferencesRepository().loadSaveSlots().single { it.id == "5" }
         }
         assertTrue(slot.exists)
         assertFalse(slot.recoveryRequired)
@@ -72,7 +71,7 @@ class Phase107ProcessRestartUiInstrumentedTest {
         }
         composeRule.onNodeWithTag("dashboard_tab").assertIsDisplayed()
 
-        val inspection = runBlocking { entryPoint.gameSaveRepository().inspectSlot("5") }
+        val inspection = runBlocking { dependencies.gameSaveRepository().inspectSlot("5") }
         assertEquals(SlotDatabaseState.VALID_CAREER, inspection.state)
         assertEquals("Phase107 Process Coach", inspection.save?.coachName)
         assertEquals(10_799L, inspection.save?.playerTeamId)
