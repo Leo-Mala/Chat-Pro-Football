@@ -18,7 +18,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,6 +72,7 @@ class Phase106EditorPreparationSerializationTest {
         val releaseFirst = CompletableDeferred<Unit>()
         val firstReady = CompletableDeferred<Boolean>()
 
+        val secondAttempted = CompletableDeferred<Unit>()
         val secondEntered = CompletableDeferred<Unit>()
         val releaseSecond = CompletableDeferred<Unit>()
         val secondReady = CompletableDeferred<Boolean>()
@@ -87,6 +87,9 @@ class Phase106EditorPreparationSerializationTest {
         withTimeout(5_000) { firstEntered.await() }
 
         viewModel.ensureSaveActiveForEditor(
+            preparationAttemptCheckpoint = {
+                secondAttempted.complete(Unit)
+            },
             preparationCheckpoint = {
                 secondEntered.complete(Unit)
                 releaseSecond.await()
@@ -94,10 +97,12 @@ class Phase106EditorPreparationSerializationTest {
             onReady = { secondReady.complete(it) }
         )
 
-        val enteredWhileFirstHeld = withTimeoutOrNull(250) { secondEntered.await() }
+        // Prova que a segunda coroutine realmente chegou ao mutex; a ausência de entrada no
+        // checkpoint interno passa a ser uma propriedade determinística, não uma janela temporal.
+        withTimeout(5_000) { secondAttempted.await() }
         assertFalse(
             "A segunda preparação não pode atravessar o mutex enquanto a primeira ainda está ativa",
-            enteredWhileFirstHeld != null
+            secondEntered.isCompleted
         )
 
         releaseFirst.complete(Unit)
