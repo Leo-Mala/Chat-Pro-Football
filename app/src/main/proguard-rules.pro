@@ -33,3 +33,8 @@
 -keep class androidx.tracing.Trace { *; }
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
+
+# The Release target and Release AndroidTest APKs are minified independently but share Lifecycle
+# types across the instrumentation boundary. Keep Lifecycle's public/runtime ABI stable in the
+# target APK so separately optimized test bytecode cannot reference renamed constructors/methods.
+-keep class androidx.lifecycle.** { *; }
