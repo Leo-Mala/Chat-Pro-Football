@@ -16,8 +16,8 @@ permissions:
   statuses: write
 
 # All status writes happen from trusted default-branch contexts only. Candidate/fork pull_request
-# tokens never publish Guardian state. V11 binds every individual production Room builder expression
-# to the canonical migration chain, resolves Room aliases and strips Java comments/literals.
+# tokens never publish Guardian state. V12 preserves V11 and additionally resolves Kotlin
+# typealiases that ultimately refer to androidx.room.Room.
 
 jobs:
   validate-required-run:
@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify trusted guardian revision and self-test V11
+      - name: Verify trusted guardian revision and self-test V12
         shell: bash
         run: |
           set -euo pipefail
@@ -54,14 +54,15 @@ jobs:
           test -s .github/scripts/phase109_guardian_v9.py
           test -s .github/scripts/phase109_guardian_v10.py
           test -s .github/scripts/phase109_guardian_v11.py
+          test -s .github/scripts/phase109_guardian_v12.py
           test -s .github/scripts/phase109_trusted_contract.py
-          python3 .github/scripts/phase109_guardian_v11.py self-test
+          python3 .github/scripts/phase109_guardian_v12.py self-test
 
       - name: Validate completed certification and publish post-checked success
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v11.py validate-and-publish \
+          python3 .github/scripts/phase109_guardian_v12.py validate-and-publish \
             --root . \
             --repo "$GH_REPO" \
             --token "$GH_TOKEN" \
@@ -74,8 +75,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s .github/scripts/phase109_guardian_v11.py ]; then
-            python3 .github/scripts/phase109_guardian_v11.py publish-failure-if-latest \
+          if [ -s .github/scripts/phase109_guardian_v12.py ]; then
+            python3 .github/scripts/phase109_guardian_v12.py publish-failure-if-latest \
               --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$REQUIRED_RUN_ID" \
               --head "$TARGET_HEAD_SHA" \
               --description 'trusted default-branch certification rejected' \
@@ -99,23 +100,23 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Verify trusted main revision and self-test V11
+      - name: Verify trusted main revision and self-test V12
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$MAIN_SHA"
           test '${{ github.ref }}' = 'refs/heads/main'
-          python3 .github/scripts/phase109_guardian_v11.py self-test
+          python3 .github/scripts/phase109_guardian_v12.py self-test
       - name: Invalidate only certifications stale for this main generation
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v11.py invalidate-current-main \
+          python3 .github/scripts/phase109_guardian_v12.py invalidate-current-main \
             --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
             --target-url "$GUARDIAN_RUN_URL"
 
   invalidate-on-pr-base-edit:
-    name: Invalidate retargeted PR certification
+    name: Invalidate retargeted/reopened PR certification
     if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Phase 10.9 PR Base Signal'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -131,11 +132,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Invalidate base-retarget signal from trusted workflow_run context
+      - name: Invalidate base/reopen signal from trusted workflow_run context
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v11.py self-test
-          python3 .github/scripts/phase109_guardian_v11.py invalidate-retarget-run \
+          python3 .github/scripts/phase109_guardian_v12.py self-test
+          python3 .github/scripts/phase109_guardian_v12.py invalidate-retarget-run \
             --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$SIGNAL_RUN_ID" \
             --target-url "$SIGNAL_RUN_URL"
