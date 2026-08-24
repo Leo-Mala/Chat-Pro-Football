@@ -26,10 +26,10 @@
 -keep class dagger.hilt.** { *; }
 -keep class hilt_aggregated_deps.** { *; }
 
-# Release instrumentation is loaded into the target application process. AndroidJUnitRunner and
-# androidx.test.platform execute before test code and resolve both androidx.tracing.Trace and Kotlin
-# runtime entry points (for example kotlin.LazyKt) through the target process classloader. Preserve
-# those runtime dependencies in the Release target so minification remains enabled without breaking
-# installed Release instrumentation startup.
+# Release instrumentation is loaded into the target application process. AndroidJUnitRunner,
+# androidx.test.platform and the release instrumented support code resolve runtime entry points
+# through that process classloader before/during test execution. Keep the required runtime families
+# available under their original names while retaining R8 for all other production code.
 -keep class androidx.tracing.Trace { *; }
 -keep class kotlin.** { *; }
+-keep class kotlinx.coroutines.** { *; }
