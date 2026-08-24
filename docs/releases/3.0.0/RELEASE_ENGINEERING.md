@@ -20,9 +20,9 @@ rating, attribute, loan, or FC26 factual-data changes.
 previously submitted build, even when a rollback or rebuild is needed. `versionName` is the human-facing
 semantic release identifier.
 
-The release tag is `v<versionName>` and must point to the exact commit that passed the Required
-Certification and Trusted Guardian. A tag is never used to rebuild a different commit, and release assets
-are never reused across SHAs.
+The release tag is `v<versionName>` and must point to the exact **current main commit** that passed the
+Required Certification and Trusted Guardian. A tag is never used to rebuild a different commit, and
+release assets are never reused across SHAs.
 
 For 3.0.0 the repository moves from versionCode 30 to 31. Repeated store builds must increment versionCode
 again; they must not overwrite or republish versionCode 31.
@@ -31,15 +31,15 @@ again; they must not overwrite or republish versionCode 31.
 
 ### PRODUCTION_READY_VALIDATION_SIGNED
 
-The post-merge readiness workflow builds APK/AAB from the exact certified main SHA using an ephemeral CI
-certificate. This proves packaging, R8, manifest, AAB/APK generation, checksums, provenance, dependency
-resolution, SBOM generation, and signing mechanics. It is **not** an official store binary.
+The post-merge readiness workflow builds APK/AAB from the exact certified current-main SHA using an
+ephemeral CI certificate. This proves packaging, R8, manifest, AAB/APK generation, checksums, provenance,
+dependency resolution, SBOM generation, and signing mechanics. It is **not** an official store binary.
 
 ### PRODUCTION_SIGNED
 
-This classification is allowed only when the production workflow receives the controlled external signing
-material, verifies the expected certificate SHA-256 fingerprint, rebuilds from the exact certified tag SHA,
-and publishes the GitHub Release from those newly generated assets.
+This classification is allowed only when the trusted production workflow receives the controlled external
+signing material, verifies the expected certificate SHA-256 fingerprint, rebuilds from the exact current
+main/tag SHA, and publishes the GitHub Release from those newly generated assets.
 
 No ephemeral, debug, or validation certificate is ever classified as production.
 
@@ -54,15 +54,31 @@ Actions secrets before creating the production tag:
 - `PRODUCTION_KEY_PASSWORD` — private-key password.
 - `PRODUCTION_SIGNING_CERT_SHA256` — expected SHA-256 fingerprint of the signing certificate.
 
-The workflow materializes the keystore only under the runner temporary directory, with mode 0600, and
-removes it at the end. Passwords and keystore bytes are never committed or intentionally printed.
+The production workflow materializes the keystore only under the runner temporary directory, with mode
+0600, and removes it at the end. Passwords and keystore bytes are never committed or intentionally printed.
 
 The expected certificate fingerprint is mandatory. A credential set that signs successfully with a
 different certificate fails closed.
 
+## Trust separation for production secrets
+
+Production secrets are deliberately **not** exposed to the workflow instance loaded by a tag push.
+
+The tag-facing job in `.github/workflows/phase111-release-engineering.yml` has no production secrets. It can
+only:
+
+1. resolve the tag commit;
+2. require that commit to equal the current `origin/main` commit;
+3. require `v<versionName>`;
+4. verify Required Certification and Trusted Guardian on the same SHA;
+5. dispatch `.github/workflows/phase111-production-release.yml` explicitly on `ref=main`.
+
+The signing workflow is therefore loaded from trusted `main`, not from the tag's workflow content. It then
+re-validates the supplied tag and SHA before receiving/using production signing material.
+
 ## Workflow
 
-`.github/workflows/phase111-release-engineering.yml` has two independent paths.
+Phase 11.1 uses two permanent workflows.
 
 ### Post-merge readiness
 
@@ -71,7 +87,7 @@ different certificate fails closed.
 The readiness job:
 
 1. checks out the exact Guardian `head_sha`;
-2. proves that SHA remains on `main`;
+2. requires `origin/main` to equal that SHA, not merely contain it as an ancestor;
 3. queries GitHub Actions and requires successful Required Certification **and** Trusted Guardian on the
    same exact SHA;
 4. builds Debug, Release APK, and Release AAB;
@@ -80,22 +96,36 @@ The readiness job:
 7. creates a resolved dependency report and CycloneDX SBOM;
 8. verifies the validation signature;
 9. creates SHA-256 checksums and provenance;
-10. uploads `phase-11-1-delivery-<SHA>` as a GitHub Actions artifact.
+10. re-checks that main has not moved during the build;
+11. uploads `phase-11-1-delivery-<SHA>` as a GitHub Actions artifact.
 
 This artifact is explicitly validation-signed and not for store distribution.
 
-### Production tag
+### Immutable tag request
 
-A push of `v3.0.0` runs the production path. It refuses publication unless:
+A push of `v3.0.0` enters a short no-secret tag-request job. The tag must resolve to the current main SHA and
+that SHA must already have successful Required Certification and Trusted Guardian evidence. The job then
+dispatches the production workflow from `main` with the exact SHA and tag as immutable inputs.
 
-- the tag resolves to a commit on main;
+### Trusted production signing
+
+`.github/workflows/phase111-production-release.yml` is `workflow_dispatch` only. The tag-request workflow
+invokes it on `ref=main`, ensuring the YAML that receives signing secrets is the version stored on the
+certified main branch.
+
+It refuses publication unless:
+
+- the supplied SHA is exactly the checked-out SHA;
+- current `origin/main` equals that SHA;
+- the existing tag resolves to that same SHA;
 - the tag name exactly matches `versionName`;
-- the exact commit has a successful main-push Required Certification;
-- the exact commit has a successful Trusted Guardian;
+- the exact SHA has a successful main-push Required Certification;
+- the exact SHA has a successful Trusted Guardian;
 - all five production signing secrets are available;
 - Gradle's `requireProductionSigning` gate is satisfied;
 - APK and AAB signatures verify;
 - the APK certificate SHA-256 equals `PRODUCTION_SIGNING_CERT_SHA256`;
+- main and tag still point to the same SHA immediately before publication;
 - the GitHub Release for that tag does not already exist.
 
 Only then does the workflow create the GitHub Release with `--verify-tag`.
@@ -118,8 +148,8 @@ Both readiness and production builds materialize, as applicable:
 - rollback guide;
 - release notes.
 
-The production GitHub Release is built again from the tagged commit. No artifact from the PR or an older
-commit is reused.
+The production GitHub Release is built again from the exact tagged/current-main commit. No artifact from the
+PR or an older commit is reused.
 
 ## Build and platform identity
 
@@ -142,12 +172,18 @@ artifact.
 ## Reproducibility model
 
 The release is source-reproducible and traceable: immutable Git input, pinned Gradle wrapper checksum,
-pinned CI actions, explicit toolchain versions, exact-head certification, artifact hashing, and complete
-provenance are recorded.
+pinned actions in the Phase 11.1 release path, explicit toolchain versions, exact-head certification,
+artifact hashing, and complete provenance are recorded.
 
 Android archives are not claimed to be bit-for-bit reproducible across arbitrary runner environments.
 The authoritative binary is the binary whose SHA-256 is in the release provenance and checksums generated
 by the exact release workflow run.
+
+## Tag immutability operational rule
+
+The workflow treats an existing release as immutable and refuses to overwrite it. Repository administrators
+must also treat published release tags as write-once refs and must not force-move `v3.0.0` after publication.
+If a new binary is required, create a new version/tag and a higher versionCode.
 
 ## Google Play
 
@@ -163,7 +199,9 @@ App Signing configuration.
 - Never commit keystores, signing passwords, tokens, or real API credentials.
 - Never replace production signing with debug or ephemeral signing.
 - Never print signing passwords or keystore bytes.
+- Never expose production signing secrets to the tag-facing request workflow.
 - Never publish a release for a SHA without exact Required Certification and Guardian success.
+- Never publish if current main has moved away from the certified/tagged SHA.
 - Never overwrite a GitHub Release or reuse assets from another SHA.
 - Never lower versionCode for a store rollback.
 - Never use `fallbackToDestructiveMigration`.
