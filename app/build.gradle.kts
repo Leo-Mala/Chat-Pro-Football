@@ -63,7 +63,9 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      // Release is intentionally minified so every normal release certification executes R8 and
+      // validates the checked-in shrinker rules instead of merely selecting them by path.
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "src/main/proguard-rules.pro")
       if (hasReleaseSigning) {
         signingConfig = signingConfigs.getByName("release")
