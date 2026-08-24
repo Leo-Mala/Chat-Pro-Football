@@ -26,8 +26,10 @@
 -keep class dagger.hilt.** { *; }
 -keep class hilt_aggregated_deps.** { *; }
 
-# Release instrumentation is loaded into the target application process. AndroidJUnitRunner calls
-# androidx.tracing.Trace before test code executes, so the target APK must retain this class even
-# though production application code has no direct call site. Keep only the required tracing API;
-# the Release AndroidTest APK has its own rules for its Kotlin runtime.
+# Release instrumentation is loaded into the target application process. AndroidJUnitRunner and
+# androidx.test.platform execute before test code and resolve both androidx.tracing.Trace and Kotlin
+# runtime entry points (for example kotlin.LazyKt) through the target process classloader. Preserve
+# those runtime dependencies in the Release target so minification remains enabled without breaking
+# installed Release instrumentation startup.
 -keep class androidx.tracing.Trace { *; }
+-keep class kotlin.** { *; }
