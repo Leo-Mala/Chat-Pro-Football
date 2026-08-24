@@ -76,74 +76,20 @@ BASE_RUN_RULES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 }
 
 CANDIDATE_RUN_RULES = (
+    RunRule("jvm-build", "Run European bulk importer tests", ("-m unittest discover -s tools/europe_importer/tests -t .",), ("python3",)),
+    RunRule("jvm-build", "Release Variant Startup Smoke", ("testReleaseUnitTest", "--tests com.example.StartupSmokeTest", "--stacktrace"), ("./gradlew",)),
+    RunRule("jvm-build", "Core Regression", ("testDebugUnitTest", "-PexcludeStressTests=true", "--stacktrace"), ("./gradlew",)),
     RunRule(
-        "jvm-build",
-        "Run European bulk importer tests",
-        ("-m unittest discover -s tools/europe_importer/tests -t .",),
-        ("python3",),
-    ),
-    RunRule(
-        "jvm-build",
-        "Release Variant Startup Smoke",
-        ("testReleaseUnitTest", "--tests com.example.StartupSmokeTest", "--stacktrace"),
+        "jvm-build", "Explicit Migration and Save Recovery certification",
+        ("com.example.migrations.MigrationSafetyTest", "com.example.migrations.MigrationCompatibilityTest", "com.example.SaveSlotIsolationTest", "com.example.GamePreferencesRestoreSafetyTest", "com.example.BackupRestoreRoundTripTest", "com.example.Phase106*", "-PexcludeStressTests=true"),
         ("./gradlew",),
     ),
-    RunRule(
-        "jvm-build",
-        "Core Regression",
-        ("testDebugUnitTest", "-PexcludeStressTests=true", "--stacktrace"),
-        ("./gradlew",),
-    ),
-    RunRule(
-        "jvm-build",
-        "Explicit Migration and Save Recovery certification",
-        (
-            "com.example.migrations.MigrationSafetyTest",
-            "com.example.migrations.MigrationCompatibilityTest",
-            "com.example.SaveSlotIsolationTest",
-            "com.example.GamePreferencesRestoreSafetyTest",
-            "com.example.BackupRestoreRoundTripTest",
-            "com.example.Phase106*",
-            "-PexcludeStressTests=true",
-        ),
-        ("./gradlew",),
-    ),
-    RunRule(
-        "jvm-build",
-        "Materialize exact-head FC26 and 60k reports without cache",
-        ("com.example.data.Fc26FullSeedIntegrationTest", "com.example.data.GlobalMainAuditPerformanceStressTest", "--no-build-cache", "--rerun-tasks"),
-        ("./gradlew",),
-    ),
-    RunRule(
-        "jvm-build",
-        "Validate FC26 exact invariants, provenance and Room migration policy",
-        ("git diff --exit-code -- app/schemas", "phase109_policy.py validate-fc26", "phase109_policy.py validate-room"),
-        ("git", "python3"),
-    ),
-    RunRule(
-        "stress",
-        "Execute stress gates",
-        ("com.example.TwentySeasonStressTest", "com.example.OneHundredSeasonMatchByMatchStressTest"),
-        ("./gradlew",),
-    ),
-    RunRule(
-        "ui-golden",
-        "Render and compare critical UI",
-        ("com.example.MainMenuScreenshotTest", "com.example.SavesScreenshotTest", "com.example.Phase105CriticalUiGoldenTest", "com.example.Phase105AccessibilityAndResilienceTest", "-Proborazzi.test.record=true", "--no-build-cache", "--rerun-tasks"),
-        ("./gradlew",),
-    ),
-    RunRule(
-        "performance",
-        "Measure full-scale exact-head rollover",
-        ("com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest", "--no-build-cache", "--rerun-tasks", "phase109_policy.py validate-performance"),
-        ("./gradlew", "taskset", "python3"),
-    ),
-    RunRule(
-        "instrumented",
-        "Build target and instrumentation APKs",
-        ("assembleDebug assembleDebugAndroidTest", "assembleRelease assembleReleaseAndroidTest bundleRelease"),
-        ("./gradlew",),
-    ),
+    RunRule("jvm-build", "Materialize exact-head FC26 and 60k reports without cache", ("com.example.data.Fc26FullSeedIntegrationTest", "com.example.data.GlobalMainAuditPerformanceStressTest", "--no-build-cache", "--rerun-tasks"), ("./gradlew",)),
+    RunRule("jvm-build", "Validate FC26 exact invariants, provenance and Room migration policy", ("git diff --exit-code -- app/schemas", "phase109_policy.py validate-fc26", "phase109_policy.py validate-room"), ("git", "python3")),
+    RunRule("stress", "Execute stress gates", ("com.example.TwentySeasonStressTest", "com.example.OneHundredSeasonMatchByMatchStressTest"), ("./gradlew",)),
+    RunRule("ui-golden", "Render and compare critical UI", ("com.example.MainMenuScreenshotTest", "com.example.SavesScreenshotTest", "com.example.Phase105CriticalUiGoldenTest", "com.example.Phase105AccessibilityAndResilienceTest", "-Proborazzi.test.record=true", "--no-build-cache", "--rerun-tasks"), ("./gradlew",)),
+    RunRule("performance", "Measure full-scale exact-head rollover", ("com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest", "--no-build-cache", "--rerun-tasks", "phase109_policy.py validate-performance"), ("./gradlew", "taskset", "python3")),
+    RunRule("instrumented", "Build target and instrumentation APKs", ("assembleDebug assembleDebugAndroidTest", "assembleRelease assembleReleaseAndroidTest bundleRelease"), ("./gradlew",)),
 )
 
 CANDIDATE_USES_RULES = (
@@ -166,9 +112,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def git_text(root: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
-    )
+    result = subprocess.run(["git", *args], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     require(result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
 
@@ -193,68 +137,38 @@ def parse_steps(text: str) -> list[Step]:
         stripped = line.strip()
         indent = len(line) - len(line.lstrip(" "))
         if indent == 0 and stripped == "jobs:":
-            in_jobs = True
-            current_job = None
-            in_steps = False
-            current = None
-            i += 1
-            continue
+            in_jobs = True; current_job = None; in_steps = False; current = None; i += 1; continue
         if in_jobs and indent == 2 and re.fullmatch(r"[A-Za-z0-9_-]+:", stripped):
-            current_job = stripped[:-1]
-            in_steps = False
-            current = None
-            i += 1
-            continue
+            current_job = stripped[:-1]; in_steps = False; current = None; i += 1; continue
         if current_job and indent == 4 and stripped == "steps:":
-            in_steps = True
-            current = None
-            i += 1
-            continue
+            in_steps = True; current = None; i += 1; continue
         if in_steps and indent == 6 and stripped.startswith("- "):
-            current = Step(job=current_job or "")
-            steps.append(current)
+            current = Step(job=current_job or ""); steps.append(current)
             inline = stripped[2:]
             if ":" in inline:
                 key, value = inline.split(":", 1)
-                if key == "name":
-                    current.name = scalar(value)
-                elif key == "uses":
-                    current.uses = scalar(value)
-            i += 1
-            continue
+                if key == "name": current.name = scalar(value)
+                elif key == "uses": current.uses = scalar(value)
+            i += 1; continue
         if current and indent == 8 and ":" in stripped:
             key, value = stripped.split(":", 1)
-            if key == "name":
-                current.name = scalar(value)
-            elif key == "uses":
-                current.uses = scalar(value)
-            elif key == "if":
-                current.if_expr = scalar(value)
+            if key == "name": current.name = scalar(value)
+            elif key == "uses": current.uses = scalar(value)
+            elif key == "if": current.if_expr = scalar(value)
             elif key == "run" and value.strip() in {"|", ">", "|-", ">-"}:
-                block: list[str] = []
-                i += 1
+                block: list[str] = []; i += 1
                 while i < len(lines):
-                    child = lines[i]
-                    child_indent = len(child) - len(child.lstrip(" "))
-                    if child.strip() and child_indent <= 8:
-                        break
-                    if not child.strip():
-                        block.append("")
-                    else:
-                        block.append(child[10:] if child.startswith(" " * 10) else child.lstrip())
-                    i += 1
-                current.run = "\n".join(block)
-                continue
+                    child = lines[i]; child_indent = len(child) - len(child.lstrip(" "))
+                    if child.strip() and child_indent <= 8: break
+                    block.append("" if not child.strip() else (child[10:] if child.startswith(" " * 10) else child.lstrip())); i += 1
+                current.run = "\n".join(block); continue
             elif key == "with" and value.strip() == "":
                 i += 1
                 while i < len(lines):
-                    child = lines[i]
-                    child_indent = len(child) - len(child.lstrip(" "))
-                    if child.strip() and child_indent <= 8:
-                        break
+                    child = lines[i]; child_indent = len(child) - len(child.lstrip(" "))
+                    if child.strip() and child_indent <= 8: break
                     if child.strip() and child_indent == 10 and ":" in child.strip():
-                        ckey, cvalue = child.strip().split(":", 1)
-                        current.with_values[ckey] = scalar(cvalue)
+                        ckey, cvalue = child.strip().split(":", 1); current.with_values[ckey] = scalar(cvalue)
                     i += 1
                 continue
         i += 1
@@ -268,56 +182,71 @@ def logical_commands(run: str) -> list[str]:
     for raw in run.splitlines():
         stripped = raw.strip()
         if heredoc_end is not None:
-            if stripped == heredoc_end:
-                heredoc_end = None
+            if stripped == heredoc_end: heredoc_end = None
             continue
-        if not stripped or stripped.startswith("#"):
-            continue
-        heredoc = re.search(r"<<-?\s*['\"]?([A-Za-z0-9_]+)['\"]?", stripped)
-        if heredoc and re.match(r"^(?:cat|tee)\b", stripped):
-            heredoc_end = heredoc.group(1)
-            continue
+        if not stripped or stripped.startswith("#"): continue
         pending = f"{pending} {stripped}".strip() if pending else stripped
         if pending.endswith("\\"):
-            pending = pending[:-1].rstrip()
-            continue
+            pending = pending[:-1].rstrip(); continue
+        heredoc = re.search(r"<<-?\s*['\"]?([A-Za-z0-9_]+)['\"]?", pending)
         commands.append(pending)
         pending = ""
-    if pending:
-        commands.append(pending)
+        if heredoc is not None:
+            heredoc_end = heredoc.group(1)
+    if pending: commands.append(pending)
     return commands
+
+
+def control_commands(step: Step) -> list[str]:
+    pattern = re.compile(r"^(?:if\b|elif\b|else\b|fi\b|while\b|until\b|for\b|case\b|esac\b|select\b)")
+    return [cmd.strip() for cmd in logical_commands(step.run) if pattern.search(cmd.strip())]
+
+
+def validate_control_flow(step: Step, rule: RunRule) -> None:
+    controls = control_commands(step)
+    if not controls:
+        return
+    allowed: dict[tuple[str, str], list[str]] = {
+        ("performance", "Measure full-scale exact-head rollover"): [
+            'if [ "$PHASE108_PROFILE" = constrained ]; then', "else", "fi"
+        ],
+        ("instrumented", "Build target and instrumentation APKs"): [
+            "if [ '${{ matrix.mode }}' = release ]; then", "else", "fi"
+        ],
+    }
+    expected = allowed.get((rule.job, rule.step))
+    require(expected is not None, f"Unexpected shell control flow in required step {rule.job}/{rule.step}: {controls}")
+    require(controls == expected, f"Required step control flow changed in {rule.job}/{rule.step}: {controls}")
+
+
+def validate_shell_mutation(step: Step, rule: RunRule) -> None:
+    for command in logical_commands(step.run):
+        stripped = command.strip()
+        require(not re.search(r"^(?:alias|unalias|function|eval|source|trap|shopt)\b", stripped),
+                f"Shell mutation forbidden in required step {rule.job}/{rule.step}: {stripped}")
+        require(not re.search(r"^(?:PATH|BASH_ENV|SHELLOPTS)\s*=", stripped),
+                f"Shell execution environment mutation forbidden in {rule.job}/{rule.step}: {stripped}")
+        require(not re.search(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{", stripped),
+                f"Shell function definition forbidden in {rule.job}/{rule.step}: {stripped}")
 
 
 def command_is_fail_closed(command: str) -> bool:
     stripped = command.strip()
-    if not stripped:
-        return False
-    # Required certification commands must execute unconditionally and propagate failure. Reject
-    # control-flow/short-circuit constructs that could make a textual marker non-executable or turn
-    # its failure into success. Also reject shell substitutions in required-marker commands because
-    # they can synthesize or rewrite executable text dynamically.
-    if "||" in stripped or "&&" in stripped or "$(" in stripped or "`" in stripped:
-        return False
-    if re.search(r"(?:^|[;|&]\s*)(?:if|then|elif|else|fi|while|until|for|case|esac|select|true|false|!)\b", stripped):
-        return False
-    if re.search(r"(?:^|[;]\s*)set\s+\+e\b", stripped):
-        return False
+    if not stripped: return False
+    if "||" in stripped or "&&" in stripped or "$(" in stripped or "`" in stripped: return False
+    if re.search(r"(?:^|[;|&]\s*)(?:true|false|!)\b", stripped): return False
+    if re.search(r"(?:^|[;]\s*)set\s+\+e\b", stripped): return False
     return True
 
 
 def command_is_executable(command: str, token: str) -> bool:
     stripped = command.strip()
     forbidden = ("echo ", "printf ", "cat ", "true ", "false ", ": ", "export ", "readonly ")
-    if stripped.startswith(forbidden) or not command_is_fail_closed(stripped):
-        return False
-    if token == "./gradlew":
-        return "./gradlew " in f" {stripped} "
-    if token == "taskset":
-        return re.search(r"(?:^|[;|&]\s*)taskset\b", stripped) is not None
-    if token == "python3":
-        return re.search(r"(?:^|[;|&]\s*)python3\b", stripped) is not None
-    if token == "git":
-        return re.search(r"(?:^|[;|&]\s*)git\b", stripped) is not None
+    if stripped.startswith(forbidden) or not command_is_fail_closed(stripped): return False
+    if token == "./gradlew": return "./gradlew " in f" {stripped} "
+    if token == "taskset": return re.search(r"(?:^|[;|&]\s*)taskset\b", stripped) is not None
+    if token == "python3": return re.search(r"(?:^|[;|&]\s*)python3\b", stripped) is not None
+    if token == "git": return re.search(r"(?:^|[;|&]\s*)git\b", stripped) is not None
     return token in stripped
 
 
@@ -331,6 +260,8 @@ def step_for(steps: Iterable[Step], job: str, name: str) -> Step:
 
 def validate_run_rule(step: Step, rule: RunRule) -> int:
     require(bool(step.run.strip()), f"Required run step has no executable body: {rule.job}/{rule.step}")
+    validate_control_flow(step, rule)
+    validate_shell_mutation(step, rule)
     commands = logical_commands(step.run)
     for marker in rule.markers:
         matching = [cmd for cmd in commands if marker in cmd and any(command_is_executable(cmd, token) for token in rule.executable_tokens)]
@@ -346,10 +277,7 @@ def validate_base_workflows(root: Path, base_sha: str) -> int:
         commands = [cmd for step in steps for cmd in logical_commands(step.run)]
         for executable, markers in rules:
             for marker in markers:
-                require(
-                    any(marker in cmd and command_is_executable(cmd, executable) for cmd in commands),
-                    f"Trusted base no longer proves executable command in {path}: {marker}",
-                )
+                require(any(marker in cmd and command_is_executable(cmd, executable) for cmd in commands), f"Trusted base no longer proves executable command in {path}: {marker}")
                 count += 1
     return count
 
@@ -375,14 +303,11 @@ def verify(root: Path, base_sha: str, workflow: Path) -> dict[str, object]:
     candidate_sha = git_text(root, "rev-parse", "HEAD^{commit}").strip()
     resolved_base = git_text(root, "rev-parse", "--verify", f"{base_sha}^{{commit}}").strip()
     require(resolved_base != candidate_sha, "Trusted base must be outside candidate HEAD")
+    require(subprocess.run(["git", "merge-base", "--is-ancestor", resolved_base, candidate_sha], cwd=root, check=False).returncode == 0,
+            "Audited base must be an ancestor of the exact candidate HEAD")
     base_count = validate_base_workflows(root, resolved_base)
     candidate = validate_candidate_workflow(root, workflow)
-    return {
-        "trustedBaseSha": resolved_base,
-        "candidateSha": candidate_sha,
-        "trustedBaseExecutableMarkers": base_count,
-        **candidate,
-    }
+    return {"trustedBaseSha": resolved_base, "candidateSha": candidate_sha, "trustedBaseExecutableMarkers": base_count, **candidate}
 
 
 def self_test() -> None:
@@ -401,11 +326,18 @@ def self_test() -> None:
     for replacement in replacements:
         bad = fixture.replace("./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace", replacement)
         try:
-            bad_steps = parse_steps(bad)
-            validate_run_rule(step_for(bad_steps, rule.job, rule.step), rule)
+            validate_run_rule(step_for(parse_steps(bad), rule.job, rule.step), rule)
         except ContractError:
             continue
         raise ContractError(f"Structural negative self-test accepted disabled/non-fail-closed command: {replacement}")
+
+    multiline_false = """jobs:\n  jvm-build:\n    steps:\n      - name: Core Regression\n        run: |\n          set -euo pipefail\n          if false; then\n            ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace\n          fi\n"""
+    try:
+        validate_run_rule(step_for(parse_steps(multiline_false), rule.job, rule.step), rule)
+    except ContractError:
+        pass
+    else:
+        raise ContractError("Structural negative self-test accepted required command inside false multiline branch")
 
 
 def main() -> int:
@@ -420,15 +352,13 @@ def main() -> int:
     try:
         if args.command == "self-test":
             self_test()
-            print(json.dumps({"status": "PASS", "negativeCases": 6, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER}, sort_keys=True))
+            print(json.dumps({"status": "PASS", "negativeCases": 7, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER}, sort_keys=True))
         else:
-            root = Path(args.root).resolve()
-            result = verify(root, args.base_sha, root / args.workflow)
+            root = Path(args.root).resolve(); result = verify(root, args.base_sha, root / args.workflow)
             print(json.dumps({"status": "PASS", **result}, indent=2, sort_keys=True))
         return 0
     except (ContractError, OSError, subprocess.SubprocessError) as exc:
-        print(f"PHASE10.9 TRUSTED CONTRACT FAILED: {exc}", file=sys.stderr)
-        return 1
+        print(f"PHASE10.9 TRUSTED CONTRACT FAILED: {exc}", file=sys.stderr); return 1
 
 
 if __name__ == "__main__":
