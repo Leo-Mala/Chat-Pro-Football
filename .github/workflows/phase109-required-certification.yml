@@ -82,13 +82,7 @@ jobs:
           stress = any_match(infra + [r'^app/src/', r'^tools/fc26/', r'^app/schemas/'])
           release = any_match(infra + [r'^app/src/'])
           ui = any_match(infra + [r'^app/src/main/', r'^app/src/test/screenshots/', r'^app/src/test/java/com/example/(MainMenuScreenshot|SavesScreenshot|Phase105)'])
-          performance = any_match([
-              r'^\.github/(workflows|scripts)/', r'^app/build\.gradle\.kts$', r'^gradle/', r'^gradle\.properties$',
-              r'^app/src/main/java/com/example/usecase/(SeasonTransitionUseCase|GenerateCalendarUseCase)',
-              r'^app/src/main/java/com/example/data/(SeasonRolloverRepository|repository|daos|database|entities|DefaultData|GlobalFootballSystem|GameCalendar)',
-              r'^app/src/test/java/com/example/data/Phase108',
-              r'^app/src/main/java/com/example/data/migrations/', r'^tools/fc26/', r'^reports/phase_10_8_'
-          ])
+          performance = any_match(infra + app)
           instrumented = any_match(infra + [r'^app/src/', r'^app/schemas/', r'^tools/fc26/'])
           values = dict(jvm=jvm, stress=stress, release=release, ui=ui, performance=performance, instrumented=instrumented)
           with open(sys.argv[2], 'a') as out:
