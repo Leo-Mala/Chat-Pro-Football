@@ -13,9 +13,11 @@ permissions:
   pull-requests: read
   statuses: write
 
+# All validation and main-advance invalidation runs share one serialized queue. A main push can
+# therefore never race a stale workflow_run success to leave the trusted context green.
 concurrency:
-  group: phase-10-9-trusted-guardian-${{ github.event.workflow_run.head_sha || github.sha }}
-  cancel-in-progress: true
+  group: phase-10-9-trusted-guardian-main
+  cancel-in-progress: false
 
 jobs:
   validate-required-run:
