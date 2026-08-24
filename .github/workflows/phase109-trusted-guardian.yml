@@ -1,0 +1,135 @@
+name: Phase 10.9 Trusted Guardian
+
+on:
+  workflow_run:
+    workflows: ["Phase 10.9 Required Certification"]
+    types: [completed]
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: phase-10-9-trusted-guardian-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  validate-required-run:
+    name: Trusted Guardian Gate
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      REQUIRED_RUN_ID: ${{ github.event.workflow_run.id }}
+      REQUIRED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Mark candidate guardian status pending before validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TARGET_HEAD_SHA"
+          python3 - <<'PY'
+          import json, os, urllib.request
+          repo=os.environ['GH_REPO']; sha=os.environ['TARGET_HEAD_SHA']; token=os.environ['GH_TOKEN']
+          payload=json.dumps({
+              'state':'pending',
+              'context':'Phase 10.9 Trusted Guardian',
+              'description':'trusted default-branch validation in progress',
+              'target_url':os.environ['REQUIRED_RUN_URL'],
+          }).encode()
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/statuses/{sha}', data=payload, method='POST',
+              headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {token}',
+                       'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json',
+                       'User-Agent':'phase109-trusted-guardian'})
+          with urllib.request.urlopen(req, timeout=30) as response:
+              assert 200 <= response.status < 300
+          PY
+
+      - name: Checkout trusted default-branch guardian revision only
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify trusted guardian revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          test -s .github/scripts/phase109_guardian.py
+          test -s .github/scripts/phase109_trusted_contract.py
+
+      - name: Validate completed certification without executing candidate code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian.py validate-run \
+            --root . \
+            --repo "$GH_REPO" \
+            --token "$GH_TOKEN" \
+            --run-id "$REQUIRED_RUN_ID" \
+            --head "$TARGET_HEAD_SHA"
+
+      - name: Publish trusted guardian success
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian.py publish-status \
+            --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
+            --state success \
+            --description 'trusted default-branch certification accepted' \
+            --target-url "$REQUIRED_RUN_URL"
+
+      - name: Publish trusted guardian failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -s .github/scripts/phase109_guardian.py ]; then
+            python3 .github/scripts/phase109_guardian.py publish-status \
+              --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
+              --state failure \
+              --description 'trusted default-branch certification rejected' \
+              --target-url "$REQUIRED_RUN_URL"
+          fi
+
+  invalidate-on-main-advance:
+    name: Invalidate stale PR certifications
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MAIN_SHA: ${{ github.sha }}
+      GUARDIAN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout trusted default branch only
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify trusted main revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAIN_SHA"
+          test '${{ github.ref }}' = 'refs/heads/main'
+      - name: Invalidate successful guardian statuses tied to an older main
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian.py invalidate-open-prs \
+            --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
+            --target-url "$GUARDIAN_RUN_URL"
