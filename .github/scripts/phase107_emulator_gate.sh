@@ -117,7 +117,9 @@ case "$mode" in
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107PersistenceInstrumentedTest' 'file-backed-room-recovery-isolation'
     adb shell pm clear "$TARGET_PACKAGE"
-    run_test 'com.example.Phase107MigrationInstrumentedTest' 'room-migration-21-22'
+    run_test 'com.example.Phase107MigrationInstrumentedTest' 'room-migration-structural-paths'
+    adb shell pm clear "$TARGET_PACKAGE"
+    run_test 'com.example.Phase107MigrationDataPreservationInstrumentedTest' 'room-migration-data-preservation'
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107ProcessRestartSeedInstrumentedTest#seedCanonicalCareerWithoutMetadataForExternalProcessRestart' 'process-restart-seed-without-metadata'
     adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity" | tee "$artifact_dir/pre-kill-start.txt"
