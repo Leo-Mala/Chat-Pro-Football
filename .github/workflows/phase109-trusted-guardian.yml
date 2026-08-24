@@ -6,6 +6,8 @@ on:
     types: [completed]
   push:
     branches: [main]
+  pull_request:
+    types: [edited]
 
 permissions:
   actions: read
@@ -13,9 +15,9 @@ permissions:
   pull-requests: read
   statuses: write
 
-# Deliberately no concurrency group: GitHub concurrency keeps at most one pending run and could
-# evict a queued main-push invalidator. Every workflow_run validation performs its own all-PR
-# invalidation sweep before the single validated HEAD is allowed to return to success.
+# No shared concurrency group is used. GitHub may evict pending runs that share one group.
+# Instead, each main-push invalidator waits for every earlier workflow_run validator to finish
+# before publishing its all-PR invalidation, which guarantees the newer main generation wins last.
 
 jobs:
   validate-required-run:
@@ -60,21 +62,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify trusted guardian revision and self-test V3
+      - name: Verify trusted guardian revision and self-test V4
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.sha }}'
           test -s .github/scripts/phase109_guardian.py
           test -s .github/scripts/phase109_guardian_v3.py
+          test -s .github/scripts/phase109_guardian_v4.py
           test -s .github/scripts/phase109_trusted_contract.py
-          python3 .github/scripts/phase109_guardian_v3.py self-test
+          python3 .github/scripts/phase109_guardian_v4.py self-test
 
       - name: Validate completed certification without executing candidate code
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v3.py validate-run \
+          python3 .github/scripts/phase109_guardian_v4.py validate-run \
             --root . \
             --repo "$GH_REPO" \
             --token "$GH_TOKEN" \
@@ -86,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v3.py publish-status \
+          python3 .github/scripts/phase109_guardian_v4.py publish-status \
             --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
             --state success \
             --description 'trusted default-branch certification accepted' \
@@ -97,8 +100,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s .github/scripts/phase109_guardian_v3.py ]; then
-            python3 .github/scripts/phase109_guardian_v3.py publish-status \
+          if [ -s .github/scripts/phase109_guardian_v4.py ]; then
+            python3 .github/scripts/phase109_guardian_v4.py publish-status \
               --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
               --state failure \
               --description 'trusted default-branch certification rejected' \
@@ -109,11 +112,12 @@ jobs:
     name: Invalidate stale PR certifications
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MAIN_SHA: ${{ github.sha }}
+      CURRENT_GUARDIAN_RUN_ID: ${{ github.run_id }}
       GUARDIAN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Checkout trusted default branch only
@@ -122,16 +126,53 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Verify trusted main revision
+      - name: Verify trusted main revision and self-test V4
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$MAIN_SHA"
           test '${{ github.ref }}' = 'refs/heads/main'
+          python3 .github/scripts/phase109_guardian_v4.py self-test
+      - name: Wait for all earlier validators before invalidating
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian_v4.py wait-prior-validators \
+            --repo "$GH_REPO" --token "$GH_TOKEN" \
+            --current-run-id "$CURRENT_GUARDIAN_RUN_ID" --timeout-seconds 780
       - name: Invalidate all open PR certifications after main advances
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v3.py invalidate-open-prs \
+          python3 .github/scripts/phase109_guardian_v4.py invalidate-open-prs \
             --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
+            --target-url "$GUARDIAN_RUN_URL"
+
+  invalidate-on-pr-base-edit:
+    name: Invalidate retargeted PR certification
+    if: github.event_name == 'pull_request' && github.event.action == 'edited' && github.event.changes.base != null && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TARGET_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GUARDIAN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout trusted default branch only
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Invalidate stale exact-base certification after retarget to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TARGET_HEAD_SHA"
+          python3 .github/scripts/phase109_guardian_v4.py self-test
+          python3 .github/scripts/phase109_guardian_v4.py publish-status \
+            --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
+            --state failure \
+            --description 'PR base changed; exact-base re-certification required' \
             --target-url "$GUARDIAN_RUN_URL"
