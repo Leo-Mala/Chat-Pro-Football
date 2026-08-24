@@ -67,6 +67,9 @@ android {
       // validates the checked-in shrinker rules instead of merely selecting them by path.
       isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "src/main/proguard-rules.pro")
+      // The release AndroidTest APK is minified as well. Its own narrow rules cover compile-time
+      // annotation metadata that is not part of the Android runtime while keeping R8 fail-closed.
+      testProguardFiles("src/androidTest/proguard-rules.pro")
       if (hasReleaseSigning) {
         signingConfig = signingConfigs.getByName("release")
       }
