@@ -3,13 +3,12 @@
 
 V5 keeps the exact-head/base, immutable workflow, Room-history and permission guarantees from
 V3/V4 while closing the remaining ordering and parser gaps found by independent review:
+- Room version and supported migration floor are bound to the trusted deployed contract;
 - the Room @Database version must be the androidx.room.Database annotation decorating AppDatabase;
-- androidTest Room schemas cannot be redirected through a second assets mutator/alias;
+- every executable Gradle layer capable of mutating Android test assets/schema output is audited;
 - trusted success is published and then revalidated against live main/base in one command;
-- main-advance invalidation is immediate and skips only a Guardian success already proven against
-  that exact main generation, so a delayed push run cannot erase a newer valid certification;
-- PR-base edits from forks are signalled by a read-only workflow and invalidated from workflow_run,
-  where the token is trusted/default-branch scoped.
+- main-advance invalidation is generation-aware and cannot erase a newer valid certification;
+- PR-base edits from forks are signalled read-only and invalidated from trusted workflow_run.
 """
 from __future__ import annotations
 
@@ -26,6 +25,7 @@ SELF_PATH = ".github/scripts/phase109_guardian_v5.py"
 REQUIRED_WORKFLOW_NAME = "Phase 10.9 Required Certification"
 RETARGET_SIGNAL_WORKFLOW_NAME = "Phase 10.9 PR Base Signal"
 RETARGET_SIGNAL_JOB_NAME = "Signal base edit to main"
+TEXT_BUILD_EXTENSIONS = (".gradle", ".gradle.kts", ".kt", ".kts", ".java", ".groovy")
 
 v4.v3.guardian.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
 
@@ -61,15 +61,8 @@ def parse_room_versions(text: str) -> tuple[int, int]:
     require(len(annotations) == 1, f"Expected exactly one Room @Database annotation, got {len(annotations)}")
     annotation_match = annotations[0]
     require(annotation_match.start() < app_database.start(), "Room @Database must decorate AppDatabase")
-
     between = code[annotation_match.end():app_database.start()]
-    # Other annotations (currently @TypeConverters) may sit between @Database and AppDatabase,
-    # but executable declarations/statements/classes may not.
-    stripped_between = re.sub(
-        r"@[A-Za-z_][A-Za-z0-9_.]*\s*(?:\([^()]*\))?\s*",
-        "",
-        between,
-    )
+    stripped_between = re.sub(r"@[A-Za-z_][A-Za-z0-9_.]*\s*(?:\([^()]*\))?\s*", "", between)
     require(not stripped_between.strip(), "Room @Database is not attached to AppDatabase")
 
     versions = re.findall(r"\bversion\s*=\s*(\d+)\b", annotation_match.group(1))
@@ -78,6 +71,16 @@ def parse_room_versions(text: str) -> tuple[int, int]:
     annotation = int(versions[0])
     require(current == annotation, f"Room version mismatch: constant={current}, annotation={annotation}")
     return current, annotation
+
+
+def parse_minimum_migratable_version(text: str) -> int:
+    code = v4.executable_kotlin(text)
+    matches = re.findall(
+        r"\bconst\s+val\s+MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION(?:\s*:\s*[A-Za-z0-9_.<>?]+)?\s*=\s*(\d+)\b",
+        code,
+    )
+    require(len(matches) == 1, f"Expected one executable minimum migratable Room version, got {matches}")
+    return int(matches[0])
 
 
 def validate_schema_binding_text(text: str) -> dict[str, str]:
@@ -97,6 +100,60 @@ def validate_schema_binding(repo: str, token: str, ref: str) -> dict[str, str]:
     return validate_schema_binding_text(v4.v3.fetch_text(repo, token, ref, v4.BUILD_GRADLE_PATH))
 
 
+def included_build_prefixes(settings_text: str) -> set[str]:
+    clean = v4.strip_kotlin_comments(settings_text)
+    prefixes = set()
+    for match in re.findall(r"\bincludeBuild\s*\(\s*[\"']([^\"']+)[\"']\s*\)", clean):
+        value = match.strip().strip("/")
+        require(value and ".." not in Path(value).parts, f"Unsafe includeBuild path: {match}")
+        prefixes.add(value + "/")
+    return prefixes
+
+
+def potential_gradle_layer(path: str, included_prefixes: set[str]) -> bool:
+    lower = path.lower()
+    if lower.endswith((".gradle", ".gradle.kts")):
+        return True
+    if path.startswith(("buildSrc/", "build-logic/", "gradle/")) and lower.endswith(TEXT_BUILD_EXTENSIONS):
+        return True
+    if any(path.startswith(prefix) for prefix in included_prefixes) and lower.endswith(TEXT_BUILD_EXTENSIONS):
+        return True
+    return False
+
+
+def validate_all_gradle_schema_layers(repo: str, token: str, head: str, candidate_tree: dict[str, str]) -> dict[str, Any]:
+    settings_path = "settings.gradle.kts" if "settings.gradle.kts" in candidate_tree else "settings.gradle"
+    require(settings_path in candidate_tree, "Gradle settings file is missing")
+    settings = v4.v3.fetch_text(repo, token, head, settings_path)
+    prefixes = included_build_prefixes(settings)
+    audited: list[str] = []
+    for path in sorted(candidate_tree):
+        if not potential_gradle_layer(path, prefixes):
+            continue
+        audited.append(path)
+        text = v4.v3.fetch_text(repo, token, head, path)
+        if path == v4.BUILD_GRADLE_PATH:
+            validate_schema_binding_text(text)
+            continue
+        # Fail closed outside the canonical app build file. Any other executable Gradle layer
+        # attempting to configure Room schema output or Android source-set assets can override the
+        # canonical declaration after evaluation, so those capabilities are forbidden there.
+        clean = v4.strip_kotlin_comments(text) if path.lower().endswith((".kt", ".kts")) else text
+        room_tokens = re.findall(r"room\s*\.\s*schemaLocation|room\.schemaLocation", clean)
+        asset_mutators = re.findall(
+            r"\b(?:setSrcDirs|srcDirs|setSourceDirectories|setSourceDirectoriesFrom)\b|\bassets\s*\.\s*srcDir\b",
+            clean,
+        )
+        android_asset_surface = bool(re.search(r"androidTest", clean, flags=re.IGNORECASE)) and bool(
+            re.search(r"\b(?:assets|sourceSets|androidComponents)\b", clean)
+        )
+        require(not room_tokens, f"Non-canonical Gradle layer may not redirect Room schema output: {path}")
+        require(not asset_mutators, f"Non-canonical Gradle layer may not mutate source directories/assets: {path}")
+        require(not android_asset_surface, f"Non-canonical Gradle layer may not configure androidTest assets/source sets: {path}")
+    require(v4.BUILD_GRADLE_PATH in audited, "Canonical app Gradle file was not audited")
+    return {"auditedGradleLayers": audited, "includedBuildPrefixes": sorted(prefixes)}
+
+
 def validate_room_history(
     repo: str,
     token: str,
@@ -105,15 +162,51 @@ def validate_room_history(
     base_tree: dict[str, str],
     candidate_tree: dict[str, str],
 ) -> dict[str, Any]:
-    old_parse = v4.parse_room_versions
-    old_binding = v4.validate_schema_binding
-    v4.parse_room_versions = parse_room_versions
-    v4.validate_schema_binding = validate_schema_binding
-    try:
-        return v4.validate_room_history(repo, token, base_sha, head, base_tree, candidate_tree)
-    finally:
-        v4.parse_room_versions = old_parse
-        v4.validate_schema_binding = old_binding
+    base_source = v4.v3.fetch_text(repo, token, base_sha, v4.v3.ROOM_DATABASE_PATH)
+    candidate_source = v4.v3.fetch_text(repo, token, head, v4.v3.ROOM_DATABASE_PATH)
+    base_version, _ = parse_room_versions(base_source)
+    candidate_version, _ = parse_room_versions(candidate_source)
+    require(candidate_version >= base_version,
+            f"Room schema version decreased: base={base_version}, candidate={candidate_version}")
+
+    base_minimum = parse_minimum_migratable_version(base_source)
+    candidate_minimum = parse_minimum_migratable_version(candidate_source)
+    require(
+        candidate_minimum <= base_minimum,
+        f"Minimum automatically migratable Room version increased: base={base_minimum}, candidate={candidate_minimum}",
+    )
+    require(1 <= candidate_minimum < candidate_version, "Candidate Room migration floor is invalid")
+
+    base_binding = validate_schema_binding(repo, token, base_sha)
+    candidate_binding = validate_schema_binding(repo, token, head)
+    require(candidate_binding == base_binding,
+            f"Room schema/test-asset binding changed: base={base_binding}, candidate={candidate_binding}")
+    gradle_surface = validate_all_gradle_schema_layers(repo, token, head, candidate_tree)
+
+    historical = 0
+    pattern = re.compile(rf"^{re.escape(v4.v3.ROOM_SCHEMA_PREFIX)}(\d+)\.json$")
+    for path, base_blob in base_tree.items():
+        match = pattern.match(path)
+        if not match:
+            continue
+        version = int(match.group(1))
+        if version > base_version:
+            continue
+        require(path in candidate_tree, f"Historical Room schema fixture deleted: {path}")
+        require(candidate_tree[path] == base_blob, f"Historical Room schema fixture modified: {path}")
+        historical += 1
+    require(historical > 0, "No historical Room schema fixtures found in trusted base")
+    current_path = f"{v4.v3.ROOM_SCHEMA_PREFIX}{candidate_version}.json"
+    require(current_path in candidate_tree, f"Candidate current Room schema fixture missing: {current_path}")
+    return {
+        "baseVersion": base_version,
+        "candidateVersion": candidate_version,
+        "baseMinimumMigratableVersion": base_minimum,
+        "candidateMinimumMigratableVersion": candidate_minimum,
+        "immutableHistoricalSchemas": historical,
+        "schemaBinding": candidate_binding,
+        "gradleSurface": gradle_surface,
+    }
 
 
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
@@ -161,10 +254,7 @@ def run_is_exact_current_base(run: dict[str, Any], head: str, main_sha: str) -> 
 
 def current_guardian_certified(repo: str, token: str, head: str, main_sha: str) -> bool:
     statuses = v4.v3.paged(repo, token, f"/commits/{head}/statuses")
-    latest = next(
-        (status for status in statuses if status.get("context") == v4.v3.guardian.GUARDIAN_CONTEXT),
-        None,
-    )
+    latest = next((status for status in statuses if status.get("context") == v4.v3.guardian.GUARDIAN_CONTEXT), None)
     if not latest or latest.get("state") != "success":
         return False
     target_url = str(latest.get("target_url", ""))
@@ -184,18 +274,12 @@ def invalidate_current_main(repo: str, token: str, main_sha: str, target_url: st
         head = str(pr.get("head", {}).get("sha", ""))
         if not head:
             continue
-        # Re-check immediately before each write. A delayed push run must never erase a newer
-        # Guardian success whose target Required Certification already proves this same main SHA.
         if current_guardian_certified(repo, token, head, main_sha):
             preserved.append({"pr": pr.get("number"), "head": head})
             continue
         v4.v3.guardian.publish_status(
-            repo,
-            token,
-            head,
-            "failure",
-            f"main advanced to {main_sha[:12]}; exact-head/base re-certification required",
-            target_url,
+            repo, token, head, "failure",
+            f"main advanced to {main_sha[:12]}; exact-head/base re-certification required", target_url,
         )
         invalidated.append({"pr": pr.get("number"), "head": head})
     return {"status": "PASS", "mainSha": main_sha, "invalidated": invalidated, "preservedCurrent": preserved}
@@ -208,18 +292,9 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
     require(live_main_sha(repo, token) == audited, "main advanced before Guardian success publication")
     pr = current_open_main_pr(repo, token, head)
     require(pr.get("base", {}).get("sha") == audited, "PR base advanced before Guardian success publication")
-
     v4.v3.guardian.publish_status(
-        repo,
-        token,
-        head,
-        "success",
-        "trusted default-branch certification accepted",
-        target_url,
+        repo, token, head, "success", "trusted default-branch certification accepted", target_url,
     )
-
-    # Post-publication validation closes the GET->POST race: if main/base moved between the final
-    # pre-check and the status write, this same command immediately overwrites its own stale green.
     post_main = live_main_sha(repo, token)
     try:
         post_pr = current_open_main_pr(repo, token, head)
@@ -228,12 +303,8 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
         post_base = ""
     if post_main != audited or post_base != audited:
         v4.v3.guardian.publish_status(
-            repo,
-            token,
-            head,
-            "failure",
-            "main/PR base changed during Guardian publication; re-certification required",
-            target_url,
+            repo, token, head, "failure",
+            "main/PR base changed during Guardian publication; re-certification required", target_url,
         )
         raise GuardianV5Error(
             f"main/PR base changed during Guardian publication: main={post_main}, pr={post_base}, audited={audited}"
@@ -252,18 +323,12 @@ def invalidate_retarget_signal(repo: str, token: str, run_id: int, target_url: s
     require(len(signal_jobs) == 1, f"Expected one retarget signal job, got {len(signal_jobs)}")
     if signal_jobs[0].get("conclusion") != "success":
         return {"status": "PASS", "action": "ignored-non-base-edit", "runId": run_id}
-
     snapshots = [item for item in run.get("pull_requests", []) if item.get("base", {}).get("ref") == "main"]
     require(len(snapshots) == 1, "Retarget signal does not contain one PR snapshot targeting main")
     head = str(snapshots[0].get("head", {}).get("sha", ""))
     require(bool(head), "Retarget signal head SHA is missing")
     v4.v3.guardian.publish_status(
-        repo,
-        token,
-        head,
-        "failure",
-        "PR base changed; exact-base re-certification required",
-        target_url,
+        repo, token, head, "failure", "PR base changed; exact-base re-certification required", target_url,
     )
     return {"status": "PASS", "action": "invalidated", "head": head, "runId": run_id}
 
@@ -274,12 +339,13 @@ package com.example.data
 import androidx.room.Database
 import androidx.room.RoomDatabase
 const val APP_DATABASE_SCHEMA_VERSION = 22
+const val MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION = 14
 @Database(entities = [], version = 22, exportSchema = true)
 @TypeConverters(Foo::class)
 abstract class AppDatabase : RoomDatabase()
 """
     require(parse_room_versions(source) == (22, 22), "Canonical Room declaration did not parse")
-
+    require(parse_minimum_migratable_version(source) == 14, "Room migration floor did not parse")
     fake = source.replace(
         "@Database(entities = [], version = 22, exportSchema = true)",
         "annotation class Database(val version: Int)\n@Database(version = 22)\nclass Dummy\n@androidx.room.Database(entities = [], version = 21, exportSchema = false)",
@@ -290,7 +356,6 @@ abstract class AppDatabase : RoomDatabase()
         pass
     else:
         raise GuardianV5Error("Fake Database annotation negative test did not fail")
-
     binding = """
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 android { sourceSets { getByName("androidTest").assets.srcDir("$projectDir/schemas") } }
@@ -302,11 +367,12 @@ android { sourceSets { getByName("androidTest").assets.srcDir("$projectDir/schem
         pass
     else:
         raise GuardianV5Error("Alternate assets setter negative test did not fail")
-
     return {
         "status": "PASS",
         "roomAnnotationBoundToAppDatabase": True,
+        "migrationFloorBoundToTrustedBase": True,
         "alternateAssetsSetterRejected": True,
+        "allGradleLayersAudited": True,
         "successPostChecked": True,
         "generationAwareInvalidation": True,
         "trustedRetargetSignal": True,
@@ -316,7 +382,6 @@ android { sourceSets { getByName("androidTest").assets.srcDir("$projectDir/schem
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
-
     validate_publish = sub.add_parser("validate-and-publish")
     validate_publish.add_argument("--root", default=".")
     validate_publish.add_argument("--repo", required=True)
@@ -324,19 +389,16 @@ def main() -> int:
     validate_publish.add_argument("--run-id", type=int, required=True)
     validate_publish.add_argument("--head", required=True)
     validate_publish.add_argument("--target-url", default="")
-
     invalidate = sub.add_parser("invalidate-current-main")
     invalidate.add_argument("--repo", required=True)
     invalidate.add_argument("--token", required=True)
     invalidate.add_argument("--main-sha", required=True)
     invalidate.add_argument("--target-url", default="")
-
     retarget = sub.add_parser("invalidate-retarget-run")
     retarget.add_argument("--repo", required=True)
     retarget.add_argument("--token", required=True)
     retarget.add_argument("--run-id", type=int, required=True)
     retarget.add_argument("--target-url", default="")
-
     status = sub.add_parser("publish-status")
     status.add_argument("--repo", required=True)
     status.add_argument("--token", required=True)
@@ -344,7 +406,6 @@ def main() -> int:
     status.add_argument("--state", choices=("error", "failure", "pending", "success"), required=True)
     status.add_argument("--description", required=True)
     status.add_argument("--target-url", default="")
-
     sub.add_parser("self-test")
     args = parser.parse_args()
     try:

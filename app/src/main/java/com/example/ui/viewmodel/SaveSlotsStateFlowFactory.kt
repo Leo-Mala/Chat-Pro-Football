@@ -10,24 +10,16 @@ import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
  * Ela só participa de chamadas `MutableStateFlow<List<SaveSlotMetadata>>(...)`; os demais
  * MutableStateFlow continuam usando a factory padrão do kotlinx.coroutines.
  *
- * A fronteira de publicação consulta o relógio global imediatamente no setter. Isso fecha a janela
- * que não pode ser fechada apenas dentro de `loadSaveSlots()`: uma reconciliação antiga pode ter
- * retornado ao caller e perder a CPU antes de escrever no StateFlow. Se uma reconciliação ou
- * mutação mais nova já reservou/invalida a geração, o snapshot antigo é descartado aqui.
- *
- * A UI nunca expõe uma lista estruturalmente vazia: os cinco slots canônicos existem desde o
- * primeiro frame. Assim, se um snapshot explícito perder uma corrida para a reconciliação inicial
- * e for corretamente descartado pelo relógio, consumidores ainda observam os slots 1..5 vazios em
- * vez de uma janela transitória sem slots.
+ * Nenhum slot desconhecido é anunciado como vazio no startup: o delegate começa exatamente com o
+ * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). O primeiro
+ * snapshot concretamente reconciliado pode ser publicado mesmo se outra reconciliação tiver
+ * reservado a geração logo depois, porque ainda não existe estado concreto anterior para a UI.
+ * Depois da primeira publicação concreta, somente a geração atualmente reservada pode substituir o
+ * estado, mantendo o fail-closed contra snapshots antigos após mutações/reconciliações posteriores.
  */
-@Suppress("FunctionName", "UNCHECKED_CAST")
+@Suppress("FunctionName")
 internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): KotlinMutableStateFlow<T> {
-    val canonicalInitial = if (initialValue.isEmpty()) {
-        (1..5).map { SaveSlotMetadata(id = it.toString(), exists = false) } as T
-    } else {
-        initialValue
-    }
-    val delegate = KotlinMutableStateFlow(canonicalInitial)
+    val delegate = KotlinMutableStateFlow(initialValue)
     return SaveSlotsPublicationStateFlow(delegate)
 }
 
@@ -37,21 +29,22 @@ private class SaveSlotsPublicationStateFlow<T : List<SaveSlotMetadata>>(
 
     private fun isCurrent(candidate: T): Boolean {
         val snapshot = candidate as? SaveSlotsSnapshot ?: return true
+        val currentValue = delegate.value
+        // Estado vazio inicial significa "ainda não carregado", não "slots vazios". Aceitar o
+        // primeiro resultado reconciliado evita que duas leituras concorrentes deixem a UI sem
+        // qualquer slot concreto; as publicações seguintes continuam estritamente geracionais.
+        if (currentValue.isEmpty() && currentValue !is SaveSlotsSnapshot) return true
         return snapshot.publicationGeneration == SaveSlotsPublicationClock.current()
     }
 
     override var value: T
         get() = delegate.value
         set(value) {
-            if (isCurrent(value)) {
-                delegate.value = value
-            }
+            if (isCurrent(value)) delegate.value = value
         }
 
     override suspend fun emit(value: T) {
-        if (isCurrent(value)) {
-            delegate.emit(value)
-        }
+        if (isCurrent(value)) delegate.emit(value)
     }
 
     override fun tryEmit(value: T): Boolean {
