@@ -12,6 +12,9 @@ import phase109_guardian_v5 as v5
 
 SELF_PATH = ".github/scripts/phase109_guardian_v6.py"
 GAME_SAVE_REPOSITORY_PATH = "app/src/main/java/com/example/data/repository/GameSaveRepository.kt"
+BASE_V5_ROOM_HISTORY = v5.validate_room_history
+BASE_V5_VALIDATE_RUN = v5.validate_run
+BASE_V5_VALIDATE_AND_PUBLISH = v5.validate_and_publish
 v5.v4.v3.guardian.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
 
 
@@ -60,7 +63,7 @@ def validate_floor_enforcement(repo: str, token: str, head: str) -> dict[str, An
 
 def validate_room_history(repo: str, token: str, base_sha: str, head: str,
                           base_tree: dict[str, str], candidate_tree: dict[str, str]) -> dict[str, Any]:
-    result = v5.validate_room_history(repo, token, base_sha, head, base_tree, candidate_tree)
+    result = BASE_V5_ROOM_HISTORY(repo, token, base_sha, head, base_tree, candidate_tree)
     result["productionFloorEnforcement"] = validate_floor_enforcement(repo, token, head)
     return result
 
@@ -71,7 +74,7 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
     v5.included_build_prefixes = strict_included_build_prefixes
     v5.validate_room_history = validate_room_history
     try:
-        return v5.validate_run(root, repo, token, run_id, head)
+        return BASE_V5_VALIDATE_RUN(root, repo, token, run_id, head)
     finally:
         v5.included_build_prefixes = old_prefixes
         v5.validate_room_history = old_history
@@ -81,7 +84,7 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
     old_validate = v5.validate_run
     v5.validate_run = validate_run
     try:
-        return v5.validate_and_publish(root, repo, token, run_id, head, target_url)
+        return BASE_V5_VALIDATE_AND_PUBLISH(root, repo, token, run_id, head, target_url)
     finally:
         v5.validate_run = old_validate
 
