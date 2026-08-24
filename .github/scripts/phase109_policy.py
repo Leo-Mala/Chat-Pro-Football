@@ -75,13 +75,19 @@ def validate_room_repository(root: Path) -> dict[str, Any]:
     require(1 <= minimum < current, f"Invalid minimum migratable Room version: {minimum}")
     require("ALL_MIGRATIONS" in source, "AppDatabase.ALL_MIGRATIONS is missing")
 
-    schema_paths: list[str] = []
-    migration_symbols: list[str] = []
-    for version in range(minimum, current + 1):
-        schema = root / f"app/schemas/com.example.data.AppDatabase/{version}.json"
-        require(schema.is_file(), f"Missing supported Room schema: {schema}")
-        schema_paths.append(str(schema.relative_to(root)))
+    schema_dir = root / "app/schemas/com.example.data.AppDatabase"
+    exported_versions = sorted(
+        int(path.stem) for path in schema_dir.glob("*.json") if path.stem.isdigit()
+    )
+    require(exported_versions, "No exported Room schemas found")
+    require(current in exported_versions, f"Missing current exported Room schema V{current}")
+    require(current - 1 in exported_versions, f"Missing previous exported Room schema V{current - 1}")
+    first_exported = exported_versions[0]
+    require(first_exported >= minimum, "Exported Room schema history predates declared migration minimum unexpectedly")
+    for version in range(first_exported, current + 1):
+        require(version in exported_versions, f"Gap in exported Room schema history at V{version}")
 
+    migration_symbols: list[str] = []
     for previous in range(minimum, current):
         target = previous + 1
         migration_file = root / f"app/src/main/java/com/example/data/migrations/Migration_{previous}_{target}.kt"
@@ -102,9 +108,10 @@ def validate_room_repository(root: Path) -> dict[str, Any]:
     return {
         "currentSchemaVersion": current,
         "minimumMigratableSchemaVersion": minimum,
+        "firstExportedSchemaVersion": first_exported,
         "previousSchemaVersion": current - 1,
         "migrationChain": migration_symbols,
-        "supportedSchemas": schema_paths,
+        "exportedSchemas": exported_versions,
     }
 
 
