@@ -89,7 +89,7 @@ CANDIDATE_RUN_RULES = (
         "Audit permanent CI policy, trusted executable contract and Room migration policy",
         (
             'git diff --exit-code "$base"...HEAD -- app/src/main/assets/football/fc26',
-            f"git diff --exit-code {MANDATORY_TEST_SOURCE_ANCHOR}..HEAD -- app/src/test app/src/androidTest",
+            f"git diff --no-renames --diff-filter=DM --exit-code {MANDATORY_TEST_SOURCE_ANCHOR}..HEAD -- app/src/test app/src/androidTest",
         ),
         ("git",),
     ),
