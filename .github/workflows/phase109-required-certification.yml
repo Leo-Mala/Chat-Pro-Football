@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [ main ]
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -51,7 +53,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base='${{ github.event.pull_request.base.sha }}'
           else
-            base="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+            base="$(git rev-parse HEAD^1)"
           fi
           test -n "$base"
           git fetch --no-tags origin "$base"
@@ -91,7 +93,7 @@ jobs:
             git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
             force_all=false
           else
-            base="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+            base="$(git rev-parse HEAD^1)"
             test -n "$base"
             git fetch --no-tags origin "$base"
             git cat-file -e "$base^{commit}"
@@ -596,6 +598,11 @@ jobs:
             current_base=$(git ls-remote origin "refs/heads/${{ github.event.pull_request.base.ref }}" | awk '{print $1}')
             test -n "$current_base"
             test "$current_base" = "$BASE_SHA"
+          else
+            current_main=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+            test -n "$current_main"
+            test "$current_main" = "$AUDIT_HEAD_SHA"
+            test "$BASE_SHA" = "$(git rev-parse HEAD^1)"
           fi
           python3 .github/scripts/phase109_policy.py gate --provenance "$RUNNER_TEMP/phase109-required-certification.json"
       - name: Upload immutable final certification provenance
