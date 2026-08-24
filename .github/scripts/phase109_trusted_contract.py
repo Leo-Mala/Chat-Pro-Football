@@ -21,6 +21,13 @@ REQUIRED_WORKFLOW = ".github/workflows/phase109-required-certification.yml"
 CONTRACT_PATH = ".github/scripts/phase109_trusted_contract.py"
 PINNED_EMULATOR_RUNNER = "reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
 MANDATORY_TEST_SOURCE_ANCHOR = "236e40691ddd4dd4e3221fec4ef6e24f491bc26e"
+PINNED_ACTIONS = {
+    "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
+    "actions/setup-java": "b6effb05e454b25005698d916606bdc6ffcbf961",
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "gradle/actions/setup-gradle": "9c971963bec38e04b3d30dcc455b5382be2fdbfb",
+    "reactivecircus/android-emulator-runner": "a421e43855164a8197daf9d8d40fe71c6996bb0d",
+}
 
 
 @dataclass
@@ -299,6 +306,21 @@ def validate_base_workflows(root: Path, base_sha: str) -> int:
     return count
 
 
+def validate_action_pins(steps: Iterable[Step]) -> int:
+    pinned = 0
+    for step in steps:
+        if not step.uses:
+            continue
+        require("@" in step.uses, f"Action reference has no immutable ref: {step.job}/{step.name or '<unnamed>'}: {step.uses}")
+        action, ref = step.uses.rsplit("@", 1)
+        expected = PINNED_ACTIONS.get(action)
+        require(expected is not None, f"Unapproved external action in required certification: {step.uses}")
+        require(ref == expected, f"Action must be pinned to trusted full SHA: {action}@{expected}; got {step.uses}")
+        pinned += 1
+    require(pinned > 0, "Required workflow contains no pinned external actions")
+    return pinned
+
+
 def validate_candidate_workflow(root: Path, workflow_path: Path) -> dict[str, int]:
     text = workflow_path.read_text(encoding="utf-8")
     steps = parse_steps(text)
@@ -313,7 +335,8 @@ def validate_candidate_workflow(root: Path, workflow_path: Path) -> dict[str, in
             actual = step.with_values.get(key, "")
             require(marker in actual, f"Required action input missing in {rule.job}/{rule.step}: {key}={marker}")
             uses_markers += 1
-    return {"runMarkers": run_markers, "usesMarkers": uses_markers, "steps": len(steps)}
+    action_pins = validate_action_pins(steps)
+    return {"runMarkers": run_markers, "usesMarkers": uses_markers, "actionPins": action_pins, "steps": len(steps)}
 
 
 def verify(root: Path, base_sha: str, workflow: Path) -> dict[str, object]:
@@ -356,6 +379,18 @@ def self_test() -> None:
     else:
         raise ContractError("Structural negative self-test accepted required command inside false multiline branch")
 
+    good_actions = [
+        Step(job="x", uses=f"actions/checkout@{PINNED_ACTIONS['actions/checkout']}"),
+        Step(job="x", uses=f"gradle/actions/setup-gradle@{PINNED_ACTIONS['gradle/actions/setup-gradle']}"),
+    ]
+    require(validate_action_pins(good_actions) == 2, "Pinned action self-test failed")
+    try:
+        validate_action_pins([Step(job="x", uses="actions/checkout@v6")])
+    except ContractError:
+        pass
+    else:
+        raise ContractError("Mutable action tag negative self-test did not fail")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -369,7 +404,7 @@ def main() -> int:
     try:
         if args.command == "self-test":
             self_test()
-            print(json.dumps({"status": "PASS", "negativeCases": 7, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR}, sort_keys=True))
+            print(json.dumps({"status": "PASS", "negativeCases": 8, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR, "pinnedActions": PINNED_ACTIONS}, sort_keys=True))
         else:
             root = Path(args.root).resolve(); result = verify(root, args.base_sha, root / args.workflow)
             print(json.dumps({"status": "PASS", **result}, indent=2, sort_keys=True))
