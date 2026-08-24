@@ -17,3 +17,7 @@
 -keep class androidx.lifecycle.** { *; }
 -keep class androidx.compose.ui.** { *; }
 -keep class androidx.compose.runtime.** { *; }
+
+# Espresso synchronisation used by Compose tests references this standalone future interface across
+# the target/test APK boundary. Keep the exact ABI without retaining the full Guava namespace.
+-keep class com.google.common.util.concurrent.ListenableFuture { *; }
