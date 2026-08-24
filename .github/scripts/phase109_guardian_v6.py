@@ -29,11 +29,16 @@ def require(condition: bool, message: str) -> None:
 
 def strict_included_build_prefixes(settings_text: str) -> set[str]:
     clean = v5.v4.strip_kotlin_comments(settings_text)
-    # Applied settings scripts can hide additional includeBuild declarations from this parser.
-    # Reject settings indirection rather than certifying an incomplete executable build graph.
+    # Any settings-script indirection can hide includeBuild declarations from static auditing.
+    # Fail closed on all supported apply/from forms rather than certifying an incomplete graph.
+    applied_settings_patterns = (
+        r"\bapply\s*\(\s*from\s*=",
+        r"\bapply\s+from\s*:",
+        r"\bapply\s*\{[\s\S]*?\bfrom\s*\(",
+        r"\bapply\s*\{[\s\S]*?\bfrom\s*=",
+    )
     require(
-        re.search(r"\bapply\s*\(\s*from\s*=", clean) is None
-        and re.search(r"\bapply\s+from\s*:", clean) is None,
+        not any(re.search(pattern, clean) for pattern in applied_settings_patterns),
         "Applied settings scripts are forbidden; includeBuild declarations must be visible in the root settings file",
     )
     calls = list(re.finditer(r"\bincludeBuild\s*\(([^)]*)\)", clean))
@@ -68,6 +73,43 @@ def validate_floor_enforcement(repo: str, token: str, head: str) -> dict[str, An
     return {"databaseGuardBound": True, "repositoryGuardBound": True}
 
 
+def validate_test_sources(repo: str, token: str, head: str, candidate_tree: dict[str, str]) -> dict[str, Any]:
+    """Fail closed if repository tests can be silently converted into successful skips.
+
+    Required workflows already select concrete JVM/instrumented suites. This guard makes the candidate
+    unable to turn those assertions into green no-op tasks with JUnit ignore/disable annotations or
+    assumption shortcuts, and proves that both source sets still contain executable @Test methods.
+    """
+    test_paths = [
+        path for path in sorted(candidate_tree)
+        if path.startswith(("app/src/test/", "app/src/androidTest/"))
+        and path.lower().endswith((".kt", ".java"))
+    ]
+    require(test_paths, "No JVM/Android test sources found")
+    ignored: list[str] = []
+    executable_tests = {"jvm": 0, "android": 0}
+    forbidden_patterns = (
+        r"@(?:org\.junit\.)?Ignore\b",
+        r"@(?:org\.junit\.jupiter\.api\.)?Disabled\b",
+        r"\bAssume\.assume(?:True|False|NotNull|NoException|That)\s*\(",
+        r"\bassume(?:True|False)\s*\(",
+    )
+    for path in test_paths:
+        text = v5.v4.v3.fetch_text(repo, token, head, path)
+        clean = v5.v4.strip_kotlin_comments(text) if path.endswith(".kt") else text
+        if any(re.search(pattern, clean) for pattern in forbidden_patterns):
+            ignored.append(path)
+        count = len(re.findall(r"@(?:org\.junit\.)?Test\b", clean))
+        if path.startswith("app/src/androidTest/"):
+            executable_tests["android"] += count
+        else:
+            executable_tests["jvm"] += count
+    require(not ignored, f"Ignored/assumption-skipped tests are forbidden in certified source sets: {ignored}")
+    require(executable_tests["jvm"] > 0, "JVM test source set has no executable @Test methods")
+    require(executable_tests["android"] > 0, "Android test source set has no executable @Test methods")
+    return {"auditedSources": len(test_paths), "testMethods": executable_tests, "skipsRejected": True}
+
+
 def validate_room_history(repo: str, token: str, base_sha: str, head: str,
                           base_tree: dict[str, str], candidate_tree: dict[str, str]) -> dict[str, Any]:
     result = BASE_V5_ROOM_HISTORY(repo, token, base_sha, head, base_tree, candidate_tree)
@@ -75,12 +117,11 @@ def validate_room_history(repo: str, token: str, base_sha: str, head: str,
     return result
 
 
-def preserve_current_generation(repo: str, token: str, main_sha: str, target_url: str) -> dict[str, Any]:
-    # V3 historically swept every open PR during any successful validation. Replace that sweep with
-    # the V5 generation-aware invalidator: PRs already certified against this exact main remain green,
-    # while stale/uncertified heads fail closed. The triggering head is restored to success only after
-    # full validation and the V5 pre/post main/base checks complete.
-    return v5.invalidate_current_main(repo, token, main_sha, target_url)
+def no_validator_sweep(repo: str, token: str, main_sha: str, target_url: str) -> dict[str, Any]:
+    # A validator must never rewrite the status of any *other* PR. Main-generation invalidation is
+    # owned exclusively by the trusted push job. This removes the non-atomic read/write race between
+    # concurrent same-generation validators while validate_and_publish still pre/post-checks main/base.
+    return {"status": "PASS", "mainSha": main_sha, "validatorSweep": "disabled-no-cross-pr-writes"}
 
 
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
@@ -89,9 +130,13 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
     old_sweep = v5.v4.v3.invalidate_all
     v5.included_build_prefixes = strict_included_build_prefixes
     v5.validate_room_history = validate_room_history
-    v5.v4.v3.invalidate_all = preserve_current_generation
+    v5.v4.v3.invalidate_all = no_validator_sweep
     try:
-        return BASE_V5_VALIDATE_RUN(root, repo, token, run_id, head)
+        candidate_tree = v5.v4.v3.recursive_tree(repo, token, head)
+        test_audit = validate_test_sources(repo, token, head, candidate_tree)
+        result = BASE_V5_VALIDATE_RUN(root, repo, token, run_id, head)
+        result["testSourceExecutionContract"] = test_audit
+        return result
     finally:
         v5.included_build_prefixes = old_prefixes
         v5.validate_room_history = old_history
@@ -115,6 +160,8 @@ def self_test() -> dict[str, Any]:
         'includeBuild(pathVar)',
         'apply(from = "extra.settings.gradle.kts")\nincludeBuild("plugins")',
         'apply from: "extra.settings.gradle"\nincludeBuild("plugins")',
+        'apply { from("extra.settings.gradle.kts") }\nincludeBuild("plugins")',
+        'apply { from = "extra.settings.gradle.kts" }\nincludeBuild("plugins")',
     ):
         try:
             strict_included_build_prefixes(sample)
@@ -122,13 +169,15 @@ def self_test() -> dict[str, Any]:
             pass
         else:
             raise GuardianV6Error(f"Unsafe settings/includeBuild form was not rejected: {sample}")
-    require(preserve_current_generation is not v5.v4.v3.invalidate_all, "Generation-aware sweep override is not distinct")
+    require(no_validator_sweep("repo", "token", "a" * 40, "")["validatorSweep"] == "disabled-no-cross-pr-writes",
+            "Validator sweep must be side-effect free")
     return {
         "status": "PASS",
         "dynamicIncludeBuildRejected": True,
-        "appliedSettingsIndirectionRejected": True,
+        "allAppliedSettingsIndirectionRejected": True,
         "productionMigrationFloorBound": True,
-        "sameGenerationCertificationsPreserved": True,
+        "sameGenerationValidatorWritesSerializedByOwnership": True,
+        "ignoredTestsRejected": True,
     }
 
 
