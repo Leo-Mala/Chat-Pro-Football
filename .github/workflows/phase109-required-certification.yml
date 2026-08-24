@@ -112,8 +112,8 @@ jobs:
           # Every Gradle module/source tree can influence compilation, resources, manifests or
           # convention plugins. Over-certify generic src/ changes rather than risk skipping a
           # release-only/flavor/included-build input.
-          infra = [r'^\.github/(workflows|scripts)/', r'(^|/)(?:build|settings)\.gradle(?:\.kts)?$',
-                   r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$', r'^app/build\.gradle\.kts$',
+          infra = [r'^\.github/(workflows|scripts)/', r'\.gradle(?:\.kts)?$',
+                   r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$',
                    r'^(?:buildSrc|build-logic)/', r'(^|/)src/']
           app = [r'^app/src/', r'^app/schemas/', r'^tools/', r'^metadata\.json$',
                  r'^reports/fc26_', r'^reports/phase_10_8_']
