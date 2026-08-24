@@ -30,7 +30,9 @@ run_test() {
   local output
   output="$(adb shell am instrument -w -r -e class "$class_name" "$TEST_PACKAGE/$TEST_RUNNER")"
   printf '\n===== %s =====\n%s\n' "$label" "$output" | tee -a "$artifact_dir/instrumentation.txt"
-  grep -q '^OK (' <<< "$output"
+  # A selected mandatory suite must execute at least one test. AndroidJUnitRunner can otherwise
+  # return OK (0 tests) for filtering/custom-runner bypasses, which is not certification evidence.
+  grep -Eq '^OK \([1-9][0-9]* tests?\)$' <<< "$output"
 }
 
 install_pair() {
