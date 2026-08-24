@@ -21,6 +21,17 @@ REQUIRED_WORKFLOW = ".github/workflows/phase109-required-certification.yml"
 CONTRACT_PATH = ".github/scripts/phase109_trusted_contract.py"
 PINNED_EMULATOR_RUNNER = "reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
 MANDATORY_TEST_SOURCE_ANCHOR = "236e40691ddd4dd4e3221fec4ef6e24f491bc26e"
+AUDIT_HEAD_REF = "${{ env.AUDIT_HEAD_SHA }}"
+EXACT_HEAD_ASSERTION = 'test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"'
+CERTIFICATION_CHECKOUT_JOBS = {
+    "policy-scope",
+    "jvm-build",
+    "stress",
+    "ui-golden",
+    "performance",
+    "instrumented",
+    "required-certification",
+}
 PINNED_ACTIONS = {
     "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
     "actions/setup-java": "b6effb05e454b25005698d916606bdc6ffcbf961",
@@ -278,7 +289,7 @@ def step_for(steps: Iterable[Step], job: str, name: str) -> Step:
     matches = [step for step in steps if step.job == job and step.name == name]
     require(len(matches) == 1, f"Expected exactly one step {job}/{name}; got {len(matches)}")
     step = matches[0]
-    require(step.if_expr.strip().lower() not in {"false", "${{ false }}", "0"}, f"Required step is disabled: {job}/{name}")
+    require(not step.if_expr.strip(), f"Required step must be unconditional: {job}/{name}; got if={step.if_expr}")
     return step
 
 
@@ -321,6 +332,27 @@ def validate_action_pins(steps: Iterable[Step]) -> int:
     return pinned
 
 
+def validate_exact_head_checkouts(steps: list[Step]) -> int:
+    checkout_action = f"actions/checkout@{PINNED_ACTIONS['actions/checkout']}"
+    bound = 0
+    for job in sorted(CERTIFICATION_CHECKOUT_JOBS):
+        job_steps = [step for step in steps if step.job == job]
+        checkouts = [(index, step) for index, step in enumerate(job_steps) if step.uses == checkout_action]
+        require(len(checkouts) == 1, f"Expected exactly one pinned candidate checkout in {job}; got {len(checkouts)}")
+        checkout_index, checkout = checkouts[0]
+        require(not checkout.if_expr.strip(), f"Candidate checkout must be unconditional in {job}")
+        require(checkout.with_values.get("ref", "") == AUDIT_HEAD_REF,
+                f"Candidate checkout ref must equal {AUDIT_HEAD_REF} in {job}; got {checkout.with_values.get('ref', '')}")
+        require(checkout_index + 1 < len(job_steps), f"Candidate checkout has no immediate HEAD assertion in {job}")
+        assertion_step = job_steps[checkout_index + 1]
+        require(not assertion_step.if_expr.strip(), f"Exact HEAD assertion must be unconditional in {job}")
+        require(bool(assertion_step.run.strip()), f"Exact HEAD assertion must be a run step immediately after checkout in {job}")
+        require(any(EXACT_HEAD_ASSERTION in command for command in logical_commands(assertion_step.run)),
+                f"Immediate exact HEAD assertion missing after checkout in {job}")
+        bound += 1
+    return bound
+
+
 def validate_candidate_workflow(root: Path, workflow_path: Path) -> dict[str, int]:
     text = workflow_path.read_text(encoding="utf-8")
     steps = parse_steps(text)
@@ -336,7 +368,14 @@ def validate_candidate_workflow(root: Path, workflow_path: Path) -> dict[str, in
             require(marker in actual, f"Required action input missing in {rule.job}/{rule.step}: {key}={marker}")
             uses_markers += 1
     action_pins = validate_action_pins(steps)
-    return {"runMarkers": run_markers, "usesMarkers": uses_markers, "actionPins": action_pins, "steps": len(steps)}
+    exact_head_bindings = validate_exact_head_checkouts(steps)
+    return {
+        "runMarkers": run_markers,
+        "usesMarkers": uses_markers,
+        "actionPins": action_pins,
+        "exactHeadCheckoutBindings": exact_head_bindings,
+        "steps": len(steps),
+    }
 
 
 def verify(root: Path, base_sha: str, workflow: Path) -> dict[str, object]:
@@ -351,7 +390,14 @@ def verify(root: Path, base_sha: str, workflow: Path) -> dict[str, object]:
 
 
 def self_test() -> None:
-    fixture = """jobs:\n  jvm-build:\n    steps:\n      - name: Core Regression\n        run: |\n          set -euo pipefail\n          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace\n"""
+    fixture = """jobs:
+  jvm-build:
+    steps:
+      - name: Core Regression
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+"""
     steps = parse_steps(fixture)
     rule = RunRule("jvm-build", "Core Regression", ("testDebugUnitTest",), ("./gradlew",))
     validate_run_rule(step_for(steps, rule.job, rule.step), rule)
@@ -371,13 +417,33 @@ def self_test() -> None:
             continue
         raise ContractError(f"Structural negative self-test accepted disabled/non-fail-closed command: {replacement}")
 
-    multiline_false = """jobs:\n  jvm-build:\n    steps:\n      - name: Core Regression\n        run: |\n          set -euo pipefail\n          if false; then\n            ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace\n          fi\n"""
+    multiline_false = """jobs:
+  jvm-build:
+    steps:
+      - name: Core Regression
+        run: |
+          set -euo pipefail
+          if false; then
+            ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+          fi
+"""
     try:
         validate_run_rule(step_for(parse_steps(multiline_false), rule.job, rule.step), rule)
     except ContractError:
         pass
     else:
         raise ContractError("Structural negative self-test accepted required command inside false multiline branch")
+
+    conditional = fixture.replace(
+        "      - name: Core Regression\n",
+        "      - name: Core Regression\n        if: ${{ github.event_name == 'workflow_dispatch' }}\n",
+    )
+    try:
+        validate_run_rule(step_for(parse_steps(conditional), rule.job, rule.step), rule)
+    except ContractError:
+        pass
+    else:
+        raise ContractError("Structural negative self-test accepted conditionally skipped mandatory step")
 
     good_actions = [
         Step(job="x", uses=f"actions/checkout@{PINNED_ACTIONS['actions/checkout']}"),
@@ -390,6 +456,28 @@ def self_test() -> None:
         pass
     else:
         raise ContractError("Mutable action tag negative self-test did not fail")
+
+    checkout_steps: list[Step] = []
+    for job in CERTIFICATION_CHECKOUT_JOBS:
+        checkout_steps += [
+            Step(
+                job=job,
+                uses=f"actions/checkout@{PINNED_ACTIONS['actions/checkout']}",
+                with_values={"ref": AUDIT_HEAD_REF},
+            ),
+            Step(job=job, name="Verify exact candidate HEAD", run=f"set -euo pipefail\n{EXACT_HEAD_ASSERTION}"),
+        ]
+    require(validate_exact_head_checkouts(checkout_steps) == len(CERTIFICATION_CHECKOUT_JOBS),
+            "Exact-head checkout positive self-test failed")
+    bad_ref = [Step(**{**step.__dict__, "with_values": dict(step.with_values)}) for step in checkout_steps]
+    first_checkout = next(step for step in bad_ref if step.uses.startswith("actions/checkout@"))
+    first_checkout.with_values["ref"] = "${{ needs.policy-scope.outputs.base_sha }}"
+    try:
+        validate_exact_head_checkouts(bad_ref)
+    except ContractError:
+        pass
+    else:
+        raise ContractError("Exact-head checkout negative self-test accepted base ref")
 
 
 def main() -> int:
@@ -404,7 +492,7 @@ def main() -> int:
     try:
         if args.command == "self-test":
             self_test()
-            print(json.dumps({"status": "PASS", "negativeCases": 8, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR, "pinnedActions": PINNED_ACTIONS}, sort_keys=True))
+            print(json.dumps({"status": "PASS", "negativeCases": 10, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR, "pinnedActions": PINNED_ACTIONS, "exactHeadCheckoutJobs": sorted(CERTIFICATION_CHECKOUT_JOBS)}, sort_keys=True))
         else:
             root = Path(args.root).resolve(); result = verify(root, args.base_sha, root / args.workflow)
             print(json.dumps({"status": "PASS", **result}, indent=2, sort_keys=True))
