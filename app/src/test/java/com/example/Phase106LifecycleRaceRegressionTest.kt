@@ -71,8 +71,10 @@ class Phase106LifecycleRaceRegressionTest {
     fun orphanedSidecarAppearingAfterListingCannotBeOpenedOrSeeded() = runBlocking {
         val viewModel = createViewModel()
         val slotId = "1"
-        viewModel.saveSlots.value = preferencesRepository.loadSaveSlots()
-        assertFalse(viewModel.saveSlots.value.single { it.id == slotId }.exists)
+        val initialSlots = withTimeout(5_000) {
+            viewModel.saveSlots.first { slots -> slots.size == 5 }
+        }
+        assertFalse(initialSlots.single { it.id == slotId }.exists)
 
         val databaseFile = saveRepository.databaseFileForSlot(slotId)
         databaseFile.parentFile?.mkdirs()
