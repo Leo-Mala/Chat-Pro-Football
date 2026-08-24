@@ -12,9 +12,12 @@ import com.example.data.repository.GameSaveRepository
 import com.example.data.repository.SlotDatabaseInspection
 import com.example.data.repository.SlotDatabaseState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,6 +36,9 @@ class GamePreferencesRepository @Inject constructor(
         private val WATCHLIST_KEY = stringSetPreferencesKey("watchlist_players")
         private const val TAG = "GamePreferencesRepo"
         private const val MAX_RECONCILIATION_RETRIES = 3
+        private const val MAX_RECONCILIATION_FAILURE_ATTEMPTS = 4
+        private const val INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS = 50L
+        private const val MAX_RECONCILIATION_FAILURE_BACKOFF_MS = 1000L
     }
 
     private data class StoredSlotMetadata(
@@ -47,6 +53,13 @@ class GamePreferencesRepository @Inject constructor(
     private val legacyPrefs by lazy {
         context.getSharedPreferences("brasfut_retro_saves", Context.MODE_PRIVATE)
     }
+
+    /**
+     * Apenas uma reconciliação pode reservar/publicar gerações por vez. Mutadores externos ainda
+     * invalidam a geração global normalmente, mas uma leitura antiga que está falhando não pode
+     * mais reservar N+1 e tornar obsoleto o snapshot N produzido por outra leitura bem-sucedida.
+     */
+    private val saveSlotsReconciliationMutex = Mutex()
 
     val autoSaveEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[AUTOSAVE_KEY] ?: legacyPrefs.getBoolean("autosave_enabled", true)
@@ -108,21 +121,65 @@ class GamePreferencesRepository @Inject constructor(
      * Reconcilia metadata derivada com o conteúdo autoritativo de cada banco Room.
      *
      * A geração é reservada ANTES da primeira leitura. Ela acompanha o resultado até a fronteira
-     * do StateFlow; se outra reconciliação ou mutação externa começar antes da publicação, a
-     * factory especializada do ViewModel rejeita este snapshot antigo.
+     * do StateFlow; se uma mutação externa começar antes da publicação, a factory especializada do
+     * ViewModel rejeita este snapshot antigo.
+     *
+     * As reconciliações são serializadas para que retries fracassados não possam superseder uma
+     * publicação válida concorrente. Falhas permanentes têm orçamento finito e, ao esgotá-lo, viram
+     * um snapshot explicitamente bloqueado/recoveryRequired. Isso preserva dados, impede Novo Jogo
+     * destrutivo e evita lançar exceção não tratada a partir do startup fire-and-forget. Cancelamento
+     * continua sendo propagado imediatamente.
      */
-    suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
-        val publicationGeneration = SaveSlotsPublicationClock.reserve()
-        val reconciled = reconcileAllSlots()
-        return SaveSlotsSnapshot(publicationGeneration, reconciled)
+    suspend fun loadSaveSlots(): List<SaveSlotMetadata> = saveSlotsReconciliationMutex.withLock {
+        var backoffMs = INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS
+        var failureAttempts = 0
+        while (true) {
+            val publicationGeneration = SaveSlotsPublicationClock.reserve()
+            try {
+                val reconciled = reconcileAllSlots()
+                return@withLock SaveSlotsSnapshot(publicationGeneration, reconciled)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failureAttempts += 1
+                Log.e(
+                    TAG,
+                    "Falha ao reconciliar slots na geração $publicationGeneration; tentativa $failureAttempts/$MAX_RECONCILIATION_FAILURE_ATTEMPTS",
+                    e
+                )
+                if (failureAttempts >= MAX_RECONCILIATION_FAILURE_ATTEMPTS) {
+                    val message =
+                        "Falha persistente ao reconciliar os slots após $failureAttempts tentativas. Os dados foram preservados e novos jogos permanecem bloqueados até uma leitura válida."
+                    Log.e(TAG, message, e)
+                    return@withLock SaveSlotsSnapshot(
+                        publicationGeneration,
+                        persistentFailureMetadata(message)
+                    )
+                }
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2L).coerceAtMost(MAX_RECONCILIATION_FAILURE_BACKOFF_MS)
+            }
+        }
+        @Suppress("UNREACHABLE_CODE")
+        emptyList()
     }
+
+    private fun persistentFailureMetadata(message: String): List<SaveSlotMetadata> =
+        (1..5).map { slot ->
+            SaveSlotMetadata(
+                id = slot.toString(),
+                exists = true,
+                coachName = "Carreira preservada",
+                teamName = "Recuperação necessária",
+                recoveryRequired = true,
+                recoveryMessage = message
+            )
+        }
 
     private suspend fun reconcileAllSlots(attempt: Int = 0): List<SaveSlotMetadata> {
         val saveIds = (1..5).map(Int::toString)
         val projected = saveIds.map { saveId -> reconcileSlot(saveId) }
 
-        // Última barreira global antes de devolver a lista ao StateFlow da UI. Nenhum efeito de
-        // metadata ocorre depois desta varredura quando todos os snapshots continuam coerentes.
         val finalInspections = saveIds.map { saveId -> saveRepository.inspectSlot(saveId) }
         val stable = projected.indices.all { index ->
             projectionMatchesInspection(projected[index], finalInspections[index])
@@ -188,8 +245,6 @@ class GamePreferencesRepository @Inject constructor(
         SlotDatabaseState.EMPTY -> {
             if (stored.exists) {
                 try {
-                    // Reconstrução/saneamento interno pertence à mesma geração desta leitura e não
-                    // deve invalidar o próprio snapshot que está sendo reconciliado.
                     removeSlotMetadataProjection(saveId)
                 } catch (e: CancellationException) {
                     throw e
@@ -312,11 +367,6 @@ class GamePreferencesRepository @Inject constructor(
             week == authoritative.week &&
             balance == authoritative.balance
 
-    /**
-     * Mutação solicitada por um caller externo invalida snapshots que já retornaram mas ainda não
-     * chegaram ao setter do StateFlow. A persistência interna usada pela própria reconciliação não
-     * passa por esta fronteira para não invalidar o snapshot que ela está reconstruindo.
-     */
     suspend fun updateSlotMetadata(
         saveId: String,
         coachName: String,

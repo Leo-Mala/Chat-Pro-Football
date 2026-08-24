@@ -10,10 +10,11 @@ import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
  * Ela só participa de chamadas `MutableStateFlow<List<SaveSlotMetadata>>(...)`; os demais
  * MutableStateFlow continuam usando a factory padrão do kotlinx.coroutines.
  *
- * A fronteira de publicação consulta o relógio global imediatamente no setter. Isso fecha a janela
- * que não pode ser fechada apenas dentro de `loadSaveSlots()`: uma reconciliação antiga pode ter
- * retornado ao caller e perder a CPU antes de escrever no StateFlow. Se uma reconciliação ou
- * mutação mais nova já reservou/invalida a geração, o snapshot antigo é descartado aqui.
+ * Nenhum slot desconhecido é anunciado como vazio no startup: o delegate começa exatamente com o
+ * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). Toda publicação
+ * concretamente reconciliada, inclusive a primeira, precisa corresponder à geração atualmente
+ * reservada. Assim uma mutação de metadata ocorrida enquanto o primeiro load estava em voo nunca
+ * permite que um snapshot já invalidado se torne visível.
  */
 @Suppress("FunctionName")
 internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): KotlinMutableStateFlow<T> {
@@ -33,15 +34,11 @@ private class SaveSlotsPublicationStateFlow<T : List<SaveSlotMetadata>>(
     override var value: T
         get() = delegate.value
         set(value) {
-            if (isCurrent(value)) {
-                delegate.value = value
-            }
+            if (isCurrent(value)) delegate.value = value
         }
 
     override suspend fun emit(value: T) {
-        if (isCurrent(value)) {
-            delegate.emit(value)
-        }
+        if (isCurrent(value)) delegate.emit(value)
     }
 
     override fun tryEmit(value: T): Boolean {

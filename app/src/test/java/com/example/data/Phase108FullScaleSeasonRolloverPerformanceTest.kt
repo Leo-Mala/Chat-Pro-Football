@@ -47,7 +47,7 @@ class Phase108FullScaleSeasonRolloverPerformanceStressTest {
                 auditHead.matches(Regex("[0-9a-f]{40}"))
             )
         }
-        assertEquals(22, APP_DATABASE_SCHEMA_VERSION)
+        assertTrue("Room schema must be initialized", APP_DATABASE_SCHEMA_VERSION >= 2)
 
         val dataset = requireNotNull(Fc26NormalizedDatasetLoader.loadValidatedOrNull(context.assets))
         assertEquals(18_405, dataset.players.size)
@@ -407,7 +407,7 @@ class Phase108FullScaleSeasonRolloverPerformanceStressTest {
                     "peakWalBytes" to BUDGET_PEAK_WAL_BYTES,
                     "walAfterTruncateBytes" to BUDGET_POST_TRUNCATE_WAL_BYTES,
                     "reopenMillis" to BUDGET_REOPEN_MS,
-                    "roomSchema" to 22
+                    "roomSchema" to APP_DATABASE_SCHEMA_VERSION
                 ),
                 "baselineComparison" to mapOf(
                     "baselineHead" to BASELINE_HEAD,

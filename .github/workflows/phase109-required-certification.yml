@@ -1,0 +1,603 @@
+name: Phase 10.9 Required Certification
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-10-9-required-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  policy-scope:
+    name: Policy, exact HEAD and scope
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      jvm: ${{ steps.scope.outputs.jvm }}
+      stress: ${{ steps.scope.outputs.stress }}
+      release: ${{ steps.scope.outputs.release }}
+      ui: ${{ steps.scope.outputs.ui }}
+      performance: ${{ steps.scope.outputs.performance }}
+      instrumented: ${{ steps.scope.outputs.instrumented }}
+      base_sha: ${{ steps.scope.outputs.base_sha }}
+    steps:
+      - name: Checkout exact candidate HEAD
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Verify exact candidate HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+          test "$AUDIT_HEAD_SHA" != ""
+
+      - name: Audit permanent CI policy, trusted executable contract and Room migration policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+          else
+            base="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          fi
+          test -n "$base"
+          git fetch --no-tags origin "$base"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+
+          contract_path='.github/scripts/phase109_trusted_contract.py'
+          if git cat-file -e "$base:$contract_path" 2>/dev/null; then
+            contract_source="$base"
+          else
+            test "$base" = 'f9980ead5ffdb7c6504b714cde56e4e5f16d5fff'
+            contract_source='86a4cdef809761e8cc8a289121d60cbd69beda70'
+            git cat-file -e "$contract_source^{commit}"
+          fi
+          git show "$contract_source:$contract_path" > "$RUNNER_TEMP/phase109_trusted_contract.py"
+          test -s "$RUNNER_TEMP/phase109_trusted_contract.py"
+          python3 "$RUNNER_TEMP/phase109_trusted_contract.py" self-test
+          python3 "$RUNNER_TEMP/phase109_trusted_contract.py" verify \
+            --root . --base-sha "$base" \
+            --workflow .github/workflows/phase109-required-certification.yml
+
+          git diff --exit-code "$base"...HEAD -- app/src/main/assets/football/fc26
+          git diff --no-renames --diff-filter=DM --exit-code 236e40691ddd4dd4e3221fec4ef6e24f491bc26e..HEAD -- app/src/test app/src/androidTest
+          python3 .github/scripts/phase109_policy.py audit --root .
+          python3 .github/scripts/phase109_policy.py validate-room --root .
+          python3 .github/scripts/phase109_policy.py self-test
+
+      - name: Resolve mandatory certification scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
+            force_all=false
+          else
+            base="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+            test -n "$base"
+            git fetch --no-tags origin "$base"
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
+            force_all=true
+          fi
+          cat "$RUNNER_TEMP/phase109-changed.txt"
+          echo "base_sha=$base" >> "$GITHUB_OUTPUT"
+
+          python3 - "$RUNNER_TEMP/phase109-changed.txt" "$GITHUB_OUTPUT" "$force_all" <<'PY'
+          import re, sys
+          from pathlib import Path
+          changed = [line.strip() for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+          force_all = sys.argv[3].lower() == 'true'
+          def any_match(patterns):
+              return any(any(re.search(p, path) for p in patterns) for path in changed)
+          # Every Gradle module/source tree can influence compilation, resources, manifests or
+          # convention plugins. Over-certify generic src/ changes rather than risk skipping a
+          # release-only/flavor/included-build input.
+          infra = [r'^\.github/(workflows|scripts)/', r'\.gradle(?:\.kts)?$',
+                   r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$',
+                   r'^(?:buildSrc|build-logic)/', r'(^|/)src/']
+          app = [r'^app/src/', r'^app/schemas/', r'^tools/', r'^metadata\.json$',
+                 r'^reports/fc26_', r'^reports/phase_10_8_']
+          if force_all:
+              values = dict(jvm=True, stress=True, release=True, ui=True, performance=True, instrumented=True)
+          else:
+              values = dict(
+                  jvm=any_match(infra + app),
+                  stress=any_match(infra + [r'^app/src/', r'^tools/fc26/', r'^app/schemas/']),
+                  release=any_match(infra + [r'^app/src/']),
+                  ui=any_match(infra + [r'^app/src/', r'^app/src/test/screenshots/', r'^app/src/test/java/com/example/(MainMenuScreenshot|SavesScreenshot|Phase105)']),
+                  performance=any_match(infra + app),
+                  instrumented=any_match(infra + [r'^app/src/', r'^app/schemas/', r'^tools/fc26/']),
+              )
+          with open(sys.argv[2], 'a') as out:
+              for key, value in values.items():
+                  out.write(f"{key}={'true' if value else 'false'}\n")
+          print(values)
+          PY
+
+      - name: Upload exact-head policy evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-policy-${{ env.AUDIT_HEAD_SHA }}
+          path: ${{ runner.temp }}/phase109-changed.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  jvm-build:
+    name: Build, Core, Migration, Save Recovery and FC26
+    needs: policy-scope
+    if: needs.policy-scope.outputs.jvm == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate HEAD
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 1
+      - name: Verify exact candidate HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Run European bulk importer tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/europe_importer/tests -t .
+      - name: Bootstrap and validate deterministic FC26 asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin app/src/main/assets/football/fc26/fc26_manifest.json
+      - name: Setup CI-only Android configuration and Debug signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'JSON'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          JSON
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=CI,C=BR' >/dev/null 2>&1
+      - name: Setup ephemeral validation Release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          ks="$RUNNER_TEMP/phase109-validation-release.jks"
+          keytool -genkeypair -keystore "$ks" -storepass ci-validation-only -alias ci-validation -keypass ci-validation-only -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=Pro Football Phase 10.9 CI,O=CI,C=BR' >/dev/null 2>&1
+          {
+            echo "KEYSTORE_PATH=$ks"
+            echo "STORE_PASSWORD=ci-validation-only"
+            echo "KEY_ALIAS=ci-validation"
+            echo "KEY_PASSWORD=ci-validation-only"
+          } >> "$GITHUB_ENV"
+          printf '{"productionSigning":false,"source":"ephemeral-phase109-validation","auditHead":"%s"}\n' "$AUDIT_HEAD_SHA" > "$RUNNER_TEMP/phase109-signing.json"
+      - name: Build Debug APK and signed validation Release APK/AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
+          debug_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$debug_apk" && test -n "$release_apk" && test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+      - name: Release Variant Startup Smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
+      - name: Core Regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+      - name: Explicit Migration and Save Recovery certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            --tests com.example.migrations.MigrationSafetyTest \
+            --tests com.example.migrations.MigrationCompatibilityTest \
+            --tests com.example.SaveSlotIsolationTest \
+            --tests com.example.GamePreferencesRestoreSafetyTest \
+            --tests com.example.BackupRestoreRoundTripTest \
+            --tests 'com.example.Phase106*' \
+            -PexcludeStressTests=true --stacktrace
+      - name: Materialize exact-head FC26 and 60k reports without cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            --tests com.example.data.Fc26FullSeedIntegrationTest \
+            --tests com.example.data.Phase912WeeklyLifecyclePerformanceTest \
+            --tests com.example.data.Fc26FallbackArchitectureReportTest \
+            -PexcludeStressTests=true --no-build-cache --rerun-tasks --stacktrace
+          ./gradlew testDebugUnitTest --tests com.example.data.GlobalMainAuditPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
+      - name: Validate FC26 exact invariants, provenance and Room migration policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- app/schemas
+          python3 .github/scripts/phase109_policy.py validate-fc26 reports/fc26_club_mapping_report.json --head "$AUDIT_HEAD_SHA"
+          python3 .github/scripts/phase109_policy.py validate-room --root .
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads(Path('reports/global_main_audit_performance.json').read_text())
+          assert data['auditHead'] == os.environ['AUDIT_HEAD_SHA']
+          assert data['persistedPlayers'] == 60885
+          for k,v in {
+            'initialPersistenceMillis': data['initialPersistenceMillis'],
+            'fullReloadMillis': data['reopenAndFullPlayerReloadMillis'],
+            'monthlyEvolutionMillis': data['monthlyEvolutionMillis'],
+            'peakHeapBytes': data['observedCheckpointPeakHeapBytes'],
+          }.items():
+            assert v <= data['regressionBudget'][k], (k,v,data['regressionBudget'][k])
+          PY
+          current=$(python3 - <<'PY'
+          import re
+          s=open('app/src/main/java/com/example/data/database.kt').read()
+          print(re.search(r'APP_DATABASE_SCHEMA_VERSION\s*=\s*(\d+)',s).group(1))
+          PY
+          )
+          echo "ROOM_SCHEMA_FILE=app/schemas/com.example.data.AppDatabase/${current}.json" >> "$GITHUB_ENV"
+      - name: Upload exact-head build/core/Room/FC26 certification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-jvm-build-fc26-${{ env.AUDIT_HEAD_SHA }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+            reports/fc26_club_mapping_report.json
+            reports/global_main_audit_performance.json
+            reports/phase_9_13_weekly_lifecycle_performance.json
+            reports/phase_9_14_fallback_architecture.json
+            ${{ env.ROOM_SCHEMA_FILE }}
+            ${{ runner.temp }}/phase109-signing.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-jvm-failure-${{ env.AUDIT_HEAD_SHA }}
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  stress:
+    name: 20 and 100 Season Stress
+    needs: policy-scope
+    if: needs.policy-scope.outputs.stress == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 1
+      - name: Verify exact candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Setup CI Android configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'JSON'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          JSON
+          python3 tools/fc26/bootstrap_fc26_asset.py
+      - name: Execute stress gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --tests com.example.TwentySeasonStressTest --tests com.example.OneHundredSeasonMatchByMatchStressTest --stacktrace
+
+  ui-golden:
+    name: UI Golden Regression and Accessibility
+    needs: policy-scope
+    if: needs.policy-scope.outputs.ui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 1
+      - name: Verify exact candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: true
+      - name: Setup CI Android configuration
+        shell: bash
+        run: |
+          cat > app/google-services.json <<'JSON'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          JSON
+      - name: Prefetch verified Robolectric SDK 34 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='14-robolectric-10818077-i7'; base="https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented/$version"; dir="$RUNNER_TEMP/robolectric-runtime"; jar="android-all-instrumented-$version.jar"
+          mkdir -p "$dir"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors "$base/$jar" -o "$dir/$jar"
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors "$base/$jar.sha256" -o "$dir/$jar.sha256"
+          test "$(sha256sum "$dir/$jar" | awk '{print $1}')" = "$(awk '{print $1}' "$dir/$jar.sha256")"
+          echo "ROBOLECTRIC_RUNTIME_DIR=$dir" >> "$GITHUB_ENV"
+      - name: Render and compare critical UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew -Drobolectric.offline=true -Drobolectric.dependency.dir="$ROBOLECTRIC_RUNTIME_DIR" testDebugUnitTest \
+            --tests com.example.MainMenuScreenshotTest --tests com.example.SavesScreenshotTest \
+            --tests com.example.Phase105CriticalUiGoldenTest --tests com.example.Phase105AccessibilityAndResilienceTest \
+            -Proborazzi.test.record=true -PexcludeStressTests=true --no-build-cache --rerun-tasks --stacktrace
+          manifest=app/src/test/screenshots/phase_10_5_ui.sha256
+          test -s "$manifest"
+          test "$(grep -c '^[0-9a-f]\{64\}  .*\.png$' "$manifest")" -eq 11
+          for name in main_menu.png saves_empty.png saves_existing.png; do
+            expected=$(awk -v n="$name" '$2 == n { print $1 }' "$manifest"); test -n "$expected"
+            test "$(sha256sum "app/src/test/screenshots/$name" | awk '{print $1}')" = "$expected"
+          done
+      - name: Upload exact-head UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-ui-golden-${{ env.AUDIT_HEAD_SHA }}
+          path: |
+            app/build/phase105-golden-actual/*.png
+            app/src/test/screenshots/main_menu.png
+            app/src/test/screenshots/saves_empty.png
+            app/src/test/screenshots/saves_existing.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  performance:
+    name: Full-scale Rollover (${{ matrix.profile }})
+    needs: policy-scope
+    if: needs.policy-scope.outputs.performance == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [normal, constrained]
+    env:
+      PHASE108_PROFILE: ${{ matrix.profile }}
+      PHASE108_RUNNER_LABEL: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 1
+      - name: Verify exact candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Setup deterministic data and CI config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          python3 tools/fc26/validate_fc26.py app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin app/src/main/assets/football/fc26/fc26_manifest.json
+          cat > app/google-services.json <<'JSON'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          JSON
+      - name: Measure full-scale exact-head rollover
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          if [ "$PHASE108_PROFILE" = constrained ]; then
+            allowed=$(taskset -pc $$ | sed 's/.*: //'); cpu=${allowed%%,*}; cpu=${cpu%%-*}
+            export PHASE108_CPU_CONSTRAINT="taskset-single-logical-cpu:$cpu"
+            report=reports/phase_10_8_full_scale_rollover_constrained.json
+            taskset -c "$cpu" ./gradlew testDebugUnitTest --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
+          else
+            export PHASE108_CPU_CONSTRAINT=none
+            report=reports/phase_10_8_full_scale_rollover.json
+            ./gradlew testDebugUnitTest --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
+          fi
+          python3 .github/scripts/phase109_policy.py validate-performance "$report" --head "$AUDIT_HEAD_SHA"
+          echo "REPORT_PATH=$report" >> "$GITHUB_ENV"
+      - name: Upload exact-head performance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-rollover-${{ matrix.profile }}-${{ env.AUDIT_HEAD_SHA }}
+          path: ${{ env.REPORT_PATH }}
+          if-no-files-found: error
+          retention-days: 7
+
+  instrumented:
+    name: Android ${{ matrix.label }}
+    needs: policy-scope
+    if: needs.policy-scope.outputs.instrumented == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: api24-startup
+            api: 24
+            profile: pixel_2
+            mode: smoke
+            timeout: 35
+          - label: api30-startup
+            api: 30
+            profile: pixel_2
+            mode: smoke
+            timeout: 35
+          - label: api35-debug
+            api: 35
+            profile: pixel_6
+            mode: debug-full
+            timeout: 60
+          - label: api35-release
+            api: 35
+            profile: pixel_6
+            mode: release
+            timeout: 55
+    env:
+      TARGET_PACKAGE: com.aistudio.brasfutretro.djuxzt
+      TEST_PACKAGE: com.aistudio.brasfutretro.djuxzt.test
+      TEST_RUNNER: androidx.test.runner.AndroidJUnitRunner
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 1
+      - name: Verify exact candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Setup deterministic FC26, CI config and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/fc26/bootstrap_fc26_asset.py
+          cat > app/google-services.json <<'JSON'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          JSON
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=CI,C=BR' >/dev/null 2>&1
+          if [ '${{ matrix.mode }}' = release ]; then
+            ks="$RUNNER_TEMP/phase109-instrumented-release.jks"
+            keytool -genkeypair -keystore "$ks" -storepass ci-validation-only -alias ci-validation -keypass ci-validation-only -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=Phase109 Instrumented Release,O=CI,C=BR' >/dev/null 2>&1
+            echo "KEYSTORE_PATH=$ks" >> "$GITHUB_ENV"; echo 'STORE_PASSWORD=ci-validation-only' >> "$GITHUB_ENV"; echo 'KEY_ALIAS=ci-validation' >> "$GITHUB_ENV"; echo 'KEY_PASSWORD=ci-validation-only' >> "$GITHUB_ENV"
+          fi
+      - name: Build target and instrumentation APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          if [ '${{ matrix.mode }}' = release ]; then
+            ./gradlew -PinstrumentedBuildType=release assembleRelease assembleReleaseAndroidTest bundleRelease --stacktrace
+            apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit); testapk=$(find app/build/outputs/apk/androidTest/release -type f -name '*-androidTest.apk' -print -quit); aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+            test -n "$apk" && test -n "$testapk" && test -n "$aab"
+            apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1); "$apksigner" verify --verbose --print-certs "$apk"; "$apksigner" verify --verbose --print-certs "$testapk"; jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$aab"
+          else
+            ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
+          fi
+      - name: Execute installed Android certification
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: ${{ matrix.profile }}
+          disable-animations: true
+          script: bash .github/scripts/phase107_emulator_gate.sh ${{ matrix.mode }} ${{ matrix.label }}
+      - name: Upload exact-head installed Android evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-android-${{ matrix.label }}-${{ env.AUDIT_HEAD_SHA }}
+          path: |
+            phase107-artifacts/${{ matrix.label }}/
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+          if-no-files-found: ignore
+          retention-days: 7
+
+  required-certification:
+    name: Required Certification Gate
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    needs: [policy-scope, jvm-build, stress, ui-golden, performance, instrumented]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_SHA: ${{ needs.policy-scope.outputs.base_sha }}
+      SCOPE_JVM: ${{ needs.policy-scope.outputs.jvm }}
+      SCOPE_STRESS: ${{ needs.policy-scope.outputs.stress }}
+      SCOPE_RELEASE: ${{ needs.policy-scope.outputs.release }}
+      SCOPE_UI: ${{ needs.policy-scope.outputs.ui }}
+      SCOPE_PERFORMANCE: ${{ needs.policy-scope.outputs.performance }}
+      SCOPE_INSTRUMENTED: ${{ needs.policy-scope.outputs.instrumented }}
+      RESULT_JVM: ${{ needs.jvm-build.result }}
+      RESULT_STRESS: ${{ needs.stress.result }}
+      RESULT_RELEASE: ${{ needs.jvm-build.result }}
+      RESULT_UI: ${{ needs.ui-golden.result }}
+      RESULT_PERFORMANCE: ${{ needs.performance.result }}
+      RESULT_INSTRUMENTED: ${{ needs.instrumented.result }}
+    steps:
+      - name: Checkout exact candidate HEAD
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 1
+      - name: Fail closed unless every required component certified this HEAD and audited base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+          test '${{ needs.policy-scope.result }}' = success
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            current_base=$(git ls-remote origin "refs/heads/${{ github.event.pull_request.base.ref }}" | awk '{print $1}')
+            test -n "$current_base"
+            test "$current_base" = "$BASE_SHA"
+          fi
+          python3 .github/scripts/phase109_policy.py gate --provenance "$RUNNER_TEMP/phase109-required-certification.json"
+      - name: Upload immutable final certification provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-required-certification-${{ env.AUDIT_HEAD_SHA }}
+          path: ${{ runner.temp }}/phase109-required-certification.json
+          if-no-files-found: error
+          retention-days: 14

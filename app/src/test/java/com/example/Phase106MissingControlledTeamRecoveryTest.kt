@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.APP_DATABASE_SCHEMA_VERSION
 import com.example.data.AppDatabase
 import com.example.data.GameRepository
 import com.example.data.GameSave
@@ -49,7 +50,7 @@ class Phase106MissingControlledTeamRecoveryTest {
         val name = SlotDatabaseFactory.databaseNameForSlot(slotId)
         val missingTeamId = 987_654_321L
 
-        // Constrói intencionalmente um Room V22 parcial por fora do repositório protegido.
+        // Constrói intencionalmente um Room no schema atual, parcial, por fora do repositório protegido.
         val partialDatabase = AppDatabase.buildDatabaseWithName(context, name)
         try {
             partialDatabase.openHelper.writableDatabase
@@ -68,7 +69,7 @@ class Phase106MissingControlledTeamRecoveryTest {
 
         val file = saveRepository.databaseFileForSlot(slotId)
         assertTrue(file.exists())
-        assertEquals(22, readUserVersion(file))
+        assertEquals(APP_DATABASE_SCHEMA_VERSION, readUserVersion(file))
         assertEquals(1, countRows(file, "game_save"))
         assertEquals(0, countRows(file, "teams"))
 

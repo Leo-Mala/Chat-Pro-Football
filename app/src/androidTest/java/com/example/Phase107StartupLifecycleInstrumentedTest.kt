@@ -7,7 +7,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.example.ui.viewmodel.GameViewModel
 import com.example.ui.viewmodel.selectSaveSlotSafely
 import org.junit.Assert.assertEquals
@@ -87,7 +86,7 @@ class Phase107StartupLifecycleInstrumentedTest {
             scenario.onActivity { activity ->
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             }
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            waitForOrientation(scenario, Configuration.ORIENTATION_LANDSCAPE)
             scenario.onActivity { activity ->
                 assertEquals(Configuration.ORIENTATION_LANDSCAPE, activity.resources.configuration.orientation)
             }
@@ -95,7 +94,7 @@ class Phase107StartupLifecycleInstrumentedTest {
             scenario.onActivity { activity ->
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            waitForOrientation(scenario, Configuration.ORIENTATION_PORTRAIT)
             scenario.onActivity { activity ->
                 assertEquals(Configuration.ORIENTATION_PORTRAIT, activity.resources.configuration.orientation)
             }
@@ -165,6 +164,16 @@ class Phase107StartupLifecycleInstrumentedTest {
         } finally {
             Phase107TestSupport.resetSlot(slotA)
             Phase107TestSupport.resetSlot(slotB)
+        }
+    }
+
+    private fun waitForOrientation(scenario: ActivityScenario<MainActivity>, expected: Int) {
+        waitUntil("orientation=$expected") {
+            var observed: Int? = null
+            scenario.onActivity { activity ->
+                observed = activity.resources.configuration.orientation
+            }
+            observed == expected
         }
     }
 

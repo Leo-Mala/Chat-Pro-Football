@@ -30,7 +30,9 @@ run_test() {
   local output
   output="$(adb shell am instrument -w -r -e class "$class_name" "$TEST_PACKAGE/$TEST_RUNNER")"
   printf '\n===== %s =====\n%s\n' "$label" "$output" | tee -a "$artifact_dir/instrumentation.txt"
-  grep -q '^OK (' <<< "$output"
+  # A selected mandatory suite must execute at least one test. AndroidJUnitRunner can otherwise
+  # return OK (0 tests) for filtering/custom-runner bypasses, which is not certification evidence.
+  grep -Eq '^OK \([1-9][0-9]* tests?\)$' <<< "$output"
 }
 
 install_pair() {
@@ -115,7 +117,11 @@ case "$mode" in
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107PersistenceInstrumentedTest' 'file-backed-room-recovery-isolation'
     adb shell pm clear "$TARGET_PACKAGE"
-    run_test 'com.example.Phase107MigrationInstrumentedTest' 'room-migration-21-22'
+    run_test 'com.example.Phase107MigrationInstrumentedTest' 'room-migration-structural-paths'
+    adb shell pm clear "$TARGET_PACKAGE"
+    run_test 'com.example.Phase107MigrationDataPreservationInstrumentedTest' 'room-migration-data-preservation'
+    adb shell pm clear "$TARGET_PACKAGE"
+    run_test 'com.example.Phase107MigrationRebuiltTablesPreservationInstrumentedTest' 'room-migration-rebuilt-table-preservation'
     adb shell pm clear "$TARGET_PACKAGE"
     run_test 'com.example.Phase107ProcessRestartSeedInstrumentedTest#seedCanonicalCareerWithoutMetadataForExternalProcessRestart' 'process-restart-seed-without-metadata'
     adb shell am start -W -n "$TARGET_PACKAGE/com.example.MainActivity" | tee "$artifact_dir/pre-kill-start.txt"

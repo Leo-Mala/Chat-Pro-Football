@@ -49,7 +49,6 @@ class Phase106LifecycleRaceRegressionTest {
     private lateinit var factory: SlotDatabaseFactory
     private lateinit var saveRepository: GameSaveRepository
     private lateinit var preferencesRepository: GamePreferencesRepository
-    private lateinit var viewModel: GameViewModel
 
     @Before
     fun setUp() = runBlocking {
@@ -57,13 +56,6 @@ class Phase106LifecycleRaceRegressionTest {
         clearMetadata()
         clearAllSlots()
         reopenRepositories()
-        viewModel = GameViewModel(
-            application = application,
-            saveRepository = saveRepository,
-            preferencesRepo = preferencesRepository,
-            youthAcademyUseCase = YouthAcademyUseCase(),
-            tacticsUseCase = TacticsUseCase()
-        )
     }
 
     @After
@@ -77,9 +69,12 @@ class Phase106LifecycleRaceRegressionTest {
 
     @Test
     fun orphanedSidecarAppearingAfterListingCannotBeOpenedOrSeeded() = runBlocking {
+        val viewModel = createViewModel()
         val slotId = "1"
-        viewModel.saveSlots.value = preferencesRepository.loadSaveSlots()
-        assertFalse(viewModel.saveSlots.value.single { it.id == slotId }.exists)
+        val initialSlots = withTimeout(5_000) {
+            viewModel.saveSlots.first { slots -> slots.size == 5 }
+        }
+        assertFalse(initialSlots.single { it.id == slotId }.exists)
 
         val databaseFile = saveRepository.databaseFileForSlot(slotId)
         databaseFile.parentFile?.mkdirs()
@@ -276,6 +271,7 @@ class Phase106LifecycleRaceRegressionTest {
 
     @Test
     fun failedQueuedSelectionRestoresPreviousSessionGenerationAndCareer() = runBlocking {
+        val viewModel = createViewModel()
         val previousSlot = "1"
         val failingSlot = "2"
         val originalSave = createCareer(previousSlot, "Carreira A preservada", 91_111L)
@@ -317,6 +313,14 @@ class Phase106LifecycleRaceRegressionTest {
         assertTrue("Slot B recuperável precisa permanecer intacto", failingFile.exists())
         assertTrue(failingFile.length() == 0L)
     }
+
+    private fun createViewModel(): GameViewModel = GameViewModel(
+        application = application,
+        saveRepository = saveRepository,
+        preferencesRepo = preferencesRepository,
+        youthAcademyUseCase = YouthAcademyUseCase(),
+        tacticsUseCase = TacticsUseCase()
+    )
 
     private suspend fun createCareer(slotId: String, coachName: String, teamId: Long): GameSave {
         val repository = saveRepository.getRepositoryForSlot(slotId)

@@ -1,0 +1,142 @@
+name: Phase 10.9 Trusted Guardian
+
+on:
+  workflow_run:
+    workflows:
+      - "Phase 10.9 Required Certification"
+      - "Phase 10.9 PR Base Signal"
+    types: [completed]
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  statuses: write
+
+# All status writes happen from trusted default-branch contexts only. Candidate/fork pull_request
+# tokens never publish Guardian state. V12 preserves V11 and additionally resolves Kotlin
+# typealiases that ultimately refer to androidx.room.Room.
+
+jobs:
+  validate-required-run:
+    name: Trusted Guardian Gate
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Phase 10.9 Required Certification' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      REQUIRED_RUN_ID: ${{ github.event.workflow_run.id }}
+      REQUIRED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout trusted default-branch guardian revision only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify trusted guardian revision and self-test V12
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          test -s .github/scripts/phase109_guardian.py
+          test -s .github/scripts/phase109_guardian_v3.py
+          test -s .github/scripts/phase109_guardian_v4.py
+          test -s .github/scripts/phase109_guardian_v5.py
+          test -s .github/scripts/phase109_guardian_v6.py
+          test -s .github/scripts/phase109_guardian_v7.py
+          test -s .github/scripts/phase109_guardian_v8.py
+          test -s .github/scripts/phase109_guardian_v9.py
+          test -s .github/scripts/phase109_guardian_v10.py
+          test -s .github/scripts/phase109_guardian_v11.py
+          test -s .github/scripts/phase109_guardian_v12.py
+          test -s .github/scripts/phase109_trusted_contract.py
+          python3 .github/scripts/phase109_guardian_v12.py self-test
+
+      - name: Validate completed certification and publish post-checked success
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian_v12.py validate-and-publish \
+            --root . \
+            --repo "$GH_REPO" \
+            --token "$GH_TOKEN" \
+            --run-id "$REQUIRED_RUN_ID" \
+            --head "$TARGET_HEAD_SHA" \
+            --target-url "$REQUIRED_RUN_URL"
+
+      - name: Publish trusted guardian failure only if this is still the latest same-head certification
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -s .github/scripts/phase109_guardian_v12.py ]; then
+            python3 .github/scripts/phase109_guardian_v12.py publish-failure-if-latest \
+              --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$REQUIRED_RUN_ID" \
+              --head "$TARGET_HEAD_SHA" \
+              --description 'trusted default-branch certification rejected' \
+              --target-url "$REQUIRED_RUN_URL"
+          fi
+
+  invalidate-on-main-advance:
+    name: Invalidate stale PR certifications
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MAIN_SHA: ${{ github.sha }}
+      GUARDIAN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout trusted default branch only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify trusted main revision and self-test V12
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAIN_SHA"
+          test '${{ github.ref }}' = 'refs/heads/main'
+          python3 .github/scripts/phase109_guardian_v12.py self-test
+      - name: Invalidate only certifications stale for this main generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian_v12.py invalidate-current-main \
+            --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
+            --target-url "$GUARDIAN_RUN_URL"
+
+  invalidate-on-pr-base-edit:
+    name: Invalidate retargeted/reopened PR certification
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Phase 10.9 PR Base Signal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SIGNAL_RUN_ID: ${{ github.event.workflow_run.id }}
+      SIGNAL_RUN_URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - name: Checkout trusted default branch only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Invalidate base/reopen signal from trusted workflow_run context
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase109_guardian_v12.py self-test
+          python3 .github/scripts/phase109_guardian_v12.py invalidate-retarget-run \
+            --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$SIGNAL_RUN_ID" \
+            --target-url "$SIGNAL_RUN_URL"

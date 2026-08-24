@@ -16,7 +16,13 @@ data class AcademyProspect(
 
 class YouthAcademyUseCase {
     private val gson = Gson()
-    private val prospectListType = object : TypeToken<List<AcademyProspect>>() {}.type
+    // Do not rely on an anonymous TypeToken subclass carrying a generic Signature attribute.
+    // Release R8 is allowed to optimize that subclass aggressively; constructing the parameterized
+    // type explicitly keeps JSON compatibility deterministic in minified APKs.
+    private val prospectListType = TypeToken.getParameterized(
+        List::class.java,
+        AcademyProspect::class.java
+    ).type
 
     fun generateInitialProspects(country: String): String {
         val prospects = try {
