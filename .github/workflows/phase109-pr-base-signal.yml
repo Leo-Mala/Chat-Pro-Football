@@ -3,7 +3,7 @@ name: Phase 10.9 PR Base Signal
 on:
   pull_request:
     branches: [main]
-    types: [edited]
+    types: [edited, reopened]
 
 permissions:
   contents: read
@@ -11,7 +11,7 @@ permissions:
 jobs:
   signal-base-edit:
     name: Signal base edit to main
-    if: github.event.changes.base != null
+    if: github.event.action == 'reopened' || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -21,4 +21,4 @@ jobs:
           set -euo pipefail
           test '${{ github.event.pull_request.base.ref }}' = 'main'
           test -n '${{ github.event.pull_request.head.sha }}'
-          echo 'Base edit signal emitted; no candidate code is checked out or executed.'
+          echo 'Base/reopen signal emitted; no candidate code is checked out or executed.'
