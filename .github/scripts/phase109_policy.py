@@ -38,10 +38,6 @@ PERF_LIMITS = {
     "walAfterTruncate": 1_048_576,
 }
 
-# These markers are not invented by the Phase 10.9 candidate. Each one must exist in the
-# named workflow at the trusted base commit *and* in the candidate permanent workflow. This
-# prevents a PR from silently deleting a required test invocation while keeping a green job
-# name. The trusted definitions are read with `git show <base-sha>:<path>` outside HEAD.
 TRUSTED_WORKFLOW_MARKERS: dict[str, tuple[str, ...]] = {
     ".github/workflows/core-regression.yml": (
         "./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace",
@@ -121,8 +117,6 @@ def resolve_trusted_base_sha(root: Path) -> str:
 
     base_ref = os.environ.get("GITHUB_BASE_REF", "").strip()
     if base_ref:
-        # checkout@v6 with fetch-depth: 0 materializes the pull-request base. Prefer the
-        # remote-tracking ref so the source is outside the candidate HEAD.
         for candidate in (f"refs/remotes/origin/{base_ref}", f"origin/{base_ref}", base_ref):
             completed = subprocess.run(
                 ["git", "rev-parse", "--verify", f"{candidate}^{{commit}}"],
@@ -136,8 +130,6 @@ def resolve_trusted_base_sha(root: Path) -> str:
                 return completed.stdout.strip()
         fail(f"Could not resolve trusted pull-request base ref: {base_ref}")
 
-    # workflow_dispatch has no GITHUB_BASE_REF. The parent is the conservative trusted
-    # reference for a manually dispatched candidate commit.
     return git_text(root, "rev-parse", "--verify", "HEAD^{commit}^")
 
 
@@ -196,6 +188,30 @@ def validate_room_values(current: int, annotation: int) -> None:
     require(current >= 2, f"Room schema version is unexpectedly low: {current}")
 
 
+def is_android_test_source_set(source_set: str) -> bool:
+    if source_set in {"test", "androidTest", "testFixtures"}:
+        return True
+    for prefix in ("test", "androidTest", "testFixtures"):
+        if source_set.startswith(prefix) and len(source_set) > len(prefix):
+            return source_set[len(prefix)].isupper()
+    return False
+
+
+def production_android_sources(root: Path):
+    app_src = root / "app/src"
+    if not app_src.is_dir():
+        return
+    for path in app_src.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {".kt", ".java"}:
+            continue
+        relative = path.relative_to(app_src)
+        if not relative.parts:
+            continue
+        if is_android_test_source_set(relative.parts[0]):
+            continue
+        yield path
+
+
 def validate_room_repository(root: Path) -> dict[str, Any]:
     database_path = root / "app/src/main/java/com/example/data/database.kt"
     source = database_path.read_text(encoding="utf-8")
@@ -227,12 +243,10 @@ def validate_room_repository(root: Path) -> dict[str, Any]:
         migration_symbols.append(migration_symbol)
 
     destructive: list[str] = []
-    production_root = root / "app/src/main"
-    for suffix in ("*.kt", "*.java"):
-        for path in production_root.rglob(suffix):
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if "fallbackToDestructiveMigration" in text:
-                destructive.append(str(path.relative_to(root)))
+    for path in production_android_sources(root):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "fallbackToDestructiveMigration" in text:
+            destructive.append(str(path.relative_to(root)))
     require(not destructive, f"Destructive Room fallback is forbidden: {sorted(set(destructive))}")
 
     return {
@@ -242,6 +256,7 @@ def validate_room_repository(root: Path) -> dict[str, Any]:
         "previousSchemaVersion": current - 1,
         "migrationChain": migration_symbols,
         "exportedSchemas": exported_versions,
+        "allProductionAndroidSourceSetsScannedForDestructiveFallback": True,
     }
 
 
@@ -349,6 +364,12 @@ def self_test() -> None:
     validate_fc26_report(good_fc26, "a" * 40)
     reject_case("FC26 divergence", lambda: validate_fc26_report({**good_fc26, "datasetPlayers": 18404}, "a" * 40))
     reject_case("Room schema mismatch", lambda: validate_room_values(22, 21))
+
+    require(not is_android_test_source_set("main"), "main must be production")
+    require(not is_android_test_source_set("release"), "release must be production")
+    require(is_android_test_source_set("test"), "test must be excluded")
+    require(is_android_test_source_set("testRelease"), "testRelease must be excluded")
+    require(is_android_test_source_set("androidTestRelease"), "androidTestRelease must be excluded")
 
     good_perf = {
         "auditHead": "a" * 40,
