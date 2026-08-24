@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Trusted Phase 10.9 guardian v12.
 
-V12 preserves V11 and additionally resolves Kotlin typealiases that ultimately refer to
-androidx.room.Room, including chained aliases. This closes the remaining lexical builder gap
-without weakening any V11 checks.
+V12 preserves V11 and additionally:
+- resolves Kotlin Room typealiases across the complete candidate source tree, including chained aliases;
+- audits Room builders in every tracked module source set, not only the app module;
+- keeps variant/unit/instrumentation test source sets excluded from production checks.
 """
 from __future__ import annotations
 
@@ -12,12 +13,14 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import phase109_guardian_v11 as v11
 
 SELF_PATH = ".github/scripts/phase109_guardian_v12.py"
 BASE_V11_VALIDATE_RUN = v11.validate_run
+BASE_V11_KOTLIN_ROOM_SYMBOLS = v11.kotlin_room_symbols
+BASE_V11_IS_PRODUCTION_ANDROID_SOURCE = v11.is_production_android_source
 v11.v10.v9.v8.v7.v6.v5.v4.v3.guardian.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
 
 
@@ -30,55 +33,103 @@ def require(condition: bool, message: str) -> None:
         raise GuardianV12Error(message)
 
 
-def kotlin_room_symbols(clean_source: str) -> set[str]:
-    symbols = set(v11.kotlin_room_symbols(clean_source))
-    aliases = [
+def typealias_pairs(clean_source: str) -> list[tuple[str, str]]:
+    return [
         (match.group(1), match.group(2))
         for match in re.finditer(
             r"(?m)^\s*typealias\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_.]*)\s*;?\s*$",
             clean_source,
         )
     ]
+
+
+def resolve_global_room_typealiases(clean_sources: Iterable[str]) -> set[str]:
+    pairs: list[tuple[str, str]] = []
+    resolved: set[str] = set()
+    for clean in clean_sources:
+        local_symbols = set(BASE_V11_KOTLIN_ROOM_SYMBOLS(clean))
+        for alias, target in typealias_pairs(clean):
+            pairs.append((alias, target))
+            if target == "androidx.room.Room" or target in local_symbols:
+                resolved.add(alias)
     changed = True
     while changed:
         changed = False
-        for alias, target in aliases:
-            if target == "androidx.room.Room" or target in symbols:
-                if alias not in symbols:
-                    symbols.add(alias)
-                    changed = True
-    return symbols
+        for alias, target in pairs:
+            if target in resolved and alias not in resolved:
+                resolved.add(alias)
+                changed = True
+    return resolved
+
+
+def kotlin_room_symbols_with_aliases(clean_source: str, global_aliases: set[str]) -> set[str]:
+    return set(BASE_V11_KOTLIN_ROOM_SYMBOLS(clean_source)) | global_aliases
+
+
+def is_production_android_source(path: str) -> bool:
+    parts = Path(path).parts
+    if not path.endswith((".kt", ".java")):
+        return False
+    src_positions = [index for index, part in enumerate(parts[:-2]) if part == "src"]
+    if not src_positions:
+        return False
+    src_index = src_positions[-1]
+    require(src_index + 1 < len(parts), f"Malformed source-set path: {path}")
+    source_set = parts[src_index + 1]
+    if v11.is_variant_test_source_set(source_set):
+        return False
+    return True
+
+
+def candidate_kotlin_sources(repo: str, token: str, head: str,
+                             candidate_tree: dict[str, str]) -> list[str]:
+    sources: list[str] = []
+    executable_kotlin = v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin
+    fetch_text = v11.v10.v9.v8.v7.v6.v5.v4.v3.fetch_text
+    for path in sorted(candidate_tree):
+        if is_production_android_source(path) and path.endswith(".kt"):
+            sources.append(executable_kotlin(fetch_text(repo, token, head, path)))
+    return sources
 
 
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
+    candidate_tree = v11.v10.v9.v8.v7.v6.v5.v4.v3.recursive_tree(repo, token, head)
+    global_aliases = resolve_global_room_typealiases(
+        candidate_kotlin_sources(repo, token, head, candidate_tree)
+    )
     old_symbols = v11.kotlin_room_symbols
-    v11.kotlin_room_symbols = kotlin_room_symbols
+    old_source_predicate = v11.is_production_android_source
+    v11.kotlin_room_symbols = lambda clean: kotlin_room_symbols_with_aliases(clean, global_aliases)
+    v11.is_production_android_source = is_production_android_source
     try:
         result = BASE_V11_VALIDATE_RUN(root, repo, token, run_id, head)
         result["productionRoomBuilderContractV12"] = {
-            "kotlinRoomTypealiasesResolved": True,
+            "kotlinRoomTypealiasesResolvedAcrossTree": True,
+            "resolvedRoomTypealiases": sorted(global_aliases),
+            "allTrackedModuleSourceSetsAudited": True,
         }
         return result
     finally:
         v11.kotlin_room_symbols = old_symbols
+        v11.is_production_android_source = old_source_predicate
 
 
 def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: str,
                          target_url: str) -> dict[str, Any]:
     old_validate = v11.validate_run
-    old_symbols = v11.kotlin_room_symbols
     v11.validate_run = validate_run
-    v11.kotlin_room_symbols = kotlin_room_symbols
     try:
         return v11.validate_and_publish(root, repo, token, run_id, head, target_url)
     finally:
         v11.validate_run = old_validate
-        v11.kotlin_room_symbols = old_symbols
 
 
 def parser_self_test() -> None:
-    source = """
-        typealias DirectRoom = androidx.room.Room
+    first = """
+        import androidx.room.Room
+        typealias DirectRoom = Room
+    """
+    second = """
         typealias ChainedRoom = DirectRoom
         val first = DirectRoom.databaseBuilder(ctx, Db::class.java, "a")
             .addMigrations(*AppDatabase.ALL_MIGRATIONS)
@@ -86,30 +137,37 @@ def parser_self_test() -> None:
         val second = ChainedRoom.databaseBuilder(ctx, Db::class.java, "b")
             .build()
     """
-    clean = v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin(source)
-    symbols = kotlin_room_symbols(clean)
-    require("DirectRoom" in symbols and "ChainedRoom" in symbols,
-            f"Room typealias resolution failed: {symbols}")
-    chains = v11.find_builder_chains(clean, symbols)
+    executable_kotlin = v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin
+    clean_first = executable_kotlin(first)
+    clean_second = executable_kotlin(second)
+    aliases = resolve_global_room_typealiases((clean_first, clean_second))
+    require(aliases == {"DirectRoom", "ChainedRoom"}, f"Global Room typealias resolution failed: {aliases}")
+    symbols = kotlin_room_symbols_with_aliases(clean_second, aliases)
+    chains = v11.find_builder_chains(clean_second, symbols)
     require(len(chains) == 2, f"Room typealias builders were not both detected: {len(chains)}")
     require(v11.normalized_migration_calls(chains[0]) == ["*AppDatabase.ALL_MIGRATIONS"],
             "Canonical migration on typealias builder was not parsed")
     require(v11.normalized_migration_calls(chains[1]) == [],
             "Unregistered typealias builder was not exposed")
+    require(is_production_android_source("feature/src/main/java/x/Db.kt"),
+            "Feature module main source must be audited")
+    require(is_production_android_source("features/foo/src/release/java/x/Db.java"),
+            "Nested release module source must be audited")
+    require(not is_production_android_source("feature/src/testRelease/java/x/Db.kt"),
+            "Variant unit-test source must not be production")
+    require(not is_production_android_source("feature/src/androidTestDemo/java/x/Db.kt"),
+            "Variant instrumentation source must not be production")
 
 
 def self_test() -> dict[str, Any]:
-    old_symbols = v11.kotlin_room_symbols
-    v11.kotlin_room_symbols = kotlin_room_symbols
-    try:
-        v11.self_test()
-        parser_self_test()
-    finally:
-        v11.kotlin_room_symbols = old_symbols
+    # V11 must remain independently healthy; do not monkey-patch its symbol resolver during this call.
+    v11.self_test()
+    parser_self_test()
     return {
         "status": "PASS",
         "guardianV11": "PASS",
-        "kotlinRoomTypealiasesResolved": True,
+        "kotlinRoomTypealiasesResolvedAcrossTree": True,
+        "allTrackedModuleSourceSetsAudited": True,
     }
 
 
