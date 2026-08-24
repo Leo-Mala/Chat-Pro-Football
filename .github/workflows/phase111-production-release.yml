@@ -119,6 +119,18 @@ jobs:
           printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"
           chmod 600 "$release_keystore"
           test -s "$release_keystore"
+
+          keystore_cert_sha256=$(keytool -list -v \
+            -keystore "$release_keystore" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/ {print $2; exit}')
+          test -n "$keystore_cert_sha256"
+          actual=$(printf '%s' "$keystore_cert_sha256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          expected=$(printf '%s' "$PRODUCTION_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          test "${#actual}" -eq 64
+          test "${#expected}" -eq 64
+          test "$actual" = "$expected"
+
           echo "KEYSTORE_PATH=$release_keystore" >> "$GITHUB_ENV"
 
       - name: Build production-signed exact-head APK and AAB
@@ -160,21 +172,34 @@ jobs:
 
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.0-vc31.apk > "$RUNNER_TEMP/apk-signing.txt"
+          jarsigner -verify -strict release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-jarsigner.txt"
+          keytool -printcert -jarfile release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-cert.txt"
+
+          apk_cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}' "$RUNNER_TEMP/apk-signing.txt")
+          aab_cert_sha256=$(awk -F': ' '/SHA256:/ {print $2; exit}' "$RUNNER_TEMP/aab-cert.txt")
+          test -n "$apk_cert_sha256"
+          test -n "$aab_cert_sha256"
+
+          apk_actual=$(printf '%s' "$apk_cert_sha256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          aab_actual=$(printf '%s' "$aab_cert_sha256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          expected=$(printf '%s' "$PRODUCTION_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          test "${#apk_actual}" -eq 64
+          test "${#aab_actual}" -eq 64
+          test "${#expected}" -eq 64
+          test "$apk_actual" = "$expected"
+          test "$aab_actual" = "$expected"
+          test "$apk_actual" = "$aab_actual"
+
           {
             echo "classification=PRODUCTION_SIGNED"
-            "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.0-vc31.apk
+            echo "apkCertificateSha256=$apk_actual"
+            echo "aabCertificateSha256=$aab_actual"
+            cat "$RUNNER_TEMP/apk-signing.txt"
             echo "AAB jarsigner verification:"
-            jarsigner -verify -strict release-out/Pro-Football-3.0.0-vc31.aab
+            cat "$RUNNER_TEMP/aab-jarsigner.txt"
           } > release-out/signing-report.txt
-
-          cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}' release-out/signing-report.txt)
-          test -n "$cert_sha256"
-          actual=$(printf '%s' "$cert_sha256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
-          expected=$(printf '%s' "$PRODUCTION_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
-          test "${#actual}" -eq 64
-          test "${#expected}" -eq 64
-          test "$actual" = "$expected"
-          echo "PRODUCTION_CERT_SHA256=$actual" >> "$GITHUB_ENV"
+          echo "PRODUCTION_CERT_SHA256=$apk_actual" >> "$GITHUB_ENV"
 
           python3 .github/scripts/phase111_release.py sbom \
             --dependencies release-out/release-dependencies.txt \
