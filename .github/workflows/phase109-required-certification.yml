@@ -63,7 +63,7 @@ jobs:
             contract_source="$base"
           else
             test "$base" = 'f9980ead5ffdb7c6504b714cde56e4e5f16d5fff'
-            contract_source='4c6d7b6d03aa970c904ac9d80ae5d961f538f345'
+            contract_source='7178e49893e244e23dff7b16e30c8ed42facc752'
             git cat-file -e "$contract_source^{commit}"
           fi
           git show "$contract_source:$contract_path" > "$RUNNER_TEMP/phase109_trusted_contract.py"
@@ -73,6 +73,8 @@ jobs:
             --root . --base-sha "$base" \
             --workflow .github/workflows/phase109-required-certification.yml
 
+          git diff --exit-code "$base"...HEAD -- app/src/main/assets/football/fc26
+          git diff --exit-code 236e40691ddd4dd4e3221fec4ef6e24f491bc26e..HEAD -- app/src/test app/src/androidTest
           python3 .github/scripts/phase109_policy.py audit --root .
           python3 .github/scripts/phase109_policy.py validate-room --root .
           python3 .github/scripts/phase109_policy.py self-test
