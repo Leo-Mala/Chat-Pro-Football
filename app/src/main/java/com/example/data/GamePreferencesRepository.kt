@@ -12,6 +12,7 @@ import com.example.data.repository.GameSaveRepository
 import com.example.data.repository.SlotDatabaseInspection
 import com.example.data.repository.SlotDatabaseState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -33,6 +34,8 @@ class GamePreferencesRepository @Inject constructor(
         private val WATCHLIST_KEY = stringSetPreferencesKey("watchlist_players")
         private const val TAG = "GamePreferencesRepo"
         private const val MAX_RECONCILIATION_RETRIES = 3
+        private const val INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS = 50L
+        private const val MAX_RECONCILIATION_FAILURE_BACKOFF_MS = 1000L
     }
 
     private data class StoredSlotMetadata(
@@ -110,11 +113,26 @@ class GamePreferencesRepository @Inject constructor(
      * A geração é reservada ANTES da primeira leitura. Ela acompanha o resultado até a fronteira
      * do StateFlow; se outra reconciliação ou mutação externa começar antes da publicação, a
      * factory especializada do ViewModel rejeita este snapshot antigo.
+     *
+     * Se a operação que possui a geração mais nova falhar antes de publicar, ela não abandona a
+     * UI em estado de loading: uma nova geração é reservada e a reconciliação é repetida com
+     * backoff limitado. Cancelamento continua sendo propagado imediatamente.
      */
     suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
-        val publicationGeneration = SaveSlotsPublicationClock.reserve()
-        val reconciled = reconcileAllSlots()
-        return SaveSlotsSnapshot(publicationGeneration, reconciled)
+        var backoffMs = INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS
+        while (true) {
+            val publicationGeneration = SaveSlotsPublicationClock.reserve()
+            try {
+                val reconciled = reconcileAllSlots()
+                return SaveSlotsSnapshot(publicationGeneration, reconciled)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Falha ao reconciliar slots na geração $publicationGeneration; repetindo com segurança", e)
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2L).coerceAtMost(MAX_RECONCILIATION_FAILURE_BACKOFF_MS)
+            }
+        }
     }
 
     private suspend fun reconcileAllSlots(attempt: Int = 0): List<SaveSlotMetadata> {
