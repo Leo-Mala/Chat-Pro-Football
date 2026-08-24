@@ -14,10 +14,20 @@ import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
  * que não pode ser fechada apenas dentro de `loadSaveSlots()`: uma reconciliação antiga pode ter
  * retornado ao caller e perder a CPU antes de escrever no StateFlow. Se uma reconciliação ou
  * mutação mais nova já reservou/invalida a geração, o snapshot antigo é descartado aqui.
+ *
+ * A UI nunca expõe uma lista estruturalmente vazia: os cinco slots canônicos existem desde o
+ * primeiro frame. Assim, se um snapshot explícito perder uma corrida para a reconciliação inicial
+ * e for corretamente descartado pelo relógio, consumidores ainda observam os slots 1..5 vazios em
+ * vez de uma janela transitória sem slots.
  */
-@Suppress("FunctionName")
+@Suppress("FunctionName", "UNCHECKED_CAST")
 internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): KotlinMutableStateFlow<T> {
-    val delegate = KotlinMutableStateFlow(initialValue)
+    val canonicalInitial = if (initialValue.isEmpty()) {
+        (1..5).map { SaveSlotMetadata(id = it.toString(), exists = false) } as T
+    } else {
+        initialValue
+    }
+    val delegate = KotlinMutableStateFlow(canonicalInitial)
     return SaveSlotsPublicationStateFlow(delegate)
 }
 
