@@ -19,6 +19,7 @@ from typing import Iterable
 BOOTSTRAP_BASE_SHA = "f9980ead5ffdb7c6504b714cde56e4e5f16d5fff"
 REQUIRED_WORKFLOW = ".github/workflows/phase109-required-certification.yml"
 CONTRACT_PATH = ".github/scripts/phase109_trusted_contract.py"
+PINNED_EMULATOR_RUNNER = "reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
 
 
 @dataclass
@@ -149,7 +150,7 @@ CANDIDATE_USES_RULES = (
     UsesRule(
         "instrumented",
         "Execute installed Android certification",
-        "reactivecircus/android-emulator-runner@v2",
+        PINNED_EMULATOR_RUNNER,
         (("script", "bash .github/scripts/phase107_emulator_gate.sh"),),
     ),
 )
@@ -287,19 +288,36 @@ def logical_commands(run: str) -> list[str]:
     return commands
 
 
+def command_is_fail_closed(command: str) -> bool:
+    stripped = command.strip()
+    if not stripped:
+        return False
+    # Required certification commands must execute unconditionally and propagate failure. Reject
+    # control-flow/short-circuit constructs that could make a textual marker non-executable or turn
+    # its failure into success. Also reject shell substitutions in required-marker commands because
+    # they can synthesize or rewrite executable text dynamically.
+    if "||" in stripped or "&&" in stripped or "$(" in stripped or "`" in stripped:
+        return False
+    if re.search(r"(?:^|[;|&]\s*)(?:if|then|elif|else|fi|while|until|for|case|esac|select|true|false|!)\b", stripped):
+        return False
+    if re.search(r"(?:^|[;]\s*)set\s+\+e\b", stripped):
+        return False
+    return True
+
+
 def command_is_executable(command: str, token: str) -> bool:
     stripped = command.strip()
     forbidden = ("echo ", "printf ", "cat ", "true ", "false ", ": ", "export ", "readonly ")
-    if stripped.startswith(forbidden):
+    if stripped.startswith(forbidden) or not command_is_fail_closed(stripped):
         return False
     if token == "./gradlew":
         return "./gradlew " in f" {stripped} "
     if token == "taskset":
-        return re.search(r"(?:^|[;&|]\s*|\bthen\s+)taskset\b", stripped) is not None
+        return re.search(r"(?:^|[;|&]\s*)taskset\b", stripped) is not None
     if token == "python3":
-        return re.search(r"(?:^|[;&|]\s*|\bthen\s+)python3\b", stripped) is not None
+        return re.search(r"(?:^|[;|&]\s*)python3\b", stripped) is not None
     if token == "git":
-        return re.search(r"(?:^|[;&|]\s*|\bthen\s+)git\b", stripped) is not None
+        return re.search(r"(?:^|[;|&]\s*)git\b", stripped) is not None
     return token in stripped
 
 
@@ -372,18 +390,22 @@ def self_test() -> None:
     steps = parse_steps(fixture)
     rule = RunRule("jvm-build", "Core Regression", ("testDebugUnitTest",), ("./gradlew",))
     validate_run_rule(step_for(steps, rule.job, rule.step), rule)
-    for replacement in (
+    replacements = (
         "echo './gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace'",
         "# ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace",
         "false && ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace",
-    ):
+        "./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace || true",
+        "if false; then ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace; fi",
+        "$(printf './gradlew') testDebugUnitTest -PexcludeStressTests=true --stacktrace",
+    )
+    for replacement in replacements:
         bad = fixture.replace("./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace", replacement)
         try:
             bad_steps = parse_steps(bad)
             validate_run_rule(step_for(bad_steps, rule.job, rule.step), rule)
         except ContractError:
             continue
-        raise ContractError(f"Structural negative self-test accepted disabled/non-executable command: {replacement}")
+        raise ContractError(f"Structural negative self-test accepted disabled/non-fail-closed command: {replacement}")
 
 
 def main() -> int:
@@ -398,7 +420,7 @@ def main() -> int:
     try:
         if args.command == "self-test":
             self_test()
-            print(json.dumps({"status": "PASS", "negativeCases": 3}, sort_keys=True))
+            print(json.dumps({"status": "PASS", "negativeCases": 6, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER}, sort_keys=True))
         else:
             root = Path(args.root).resolve()
             result = verify(root, args.base_sha, root / args.workflow)
