@@ -40,3 +40,8 @@
 -keep class androidx.lifecycle.** { *; }
 -keep class androidx.compose.ui.** { *; }
 -keep class androidx.compose.runtime.** { *; }
+
+# Compose UI test synchronisation delegates to Espresso, whose runtime references the standalone
+# ListenableFuture ABI from the target process. Preserve only that required Guava-compatible type
+# instead of retaining the whole com.google.common tree.
+-keep class com.google.common.util.concurrent.ListenableFuture { *; }
