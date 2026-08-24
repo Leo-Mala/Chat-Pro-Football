@@ -16,9 +16,8 @@ permissions:
   statuses: write
 
 # All status writes happen from trusted default-branch contexts only. Candidate/fork pull_request
-# tokens never publish Guardian state. No shared concurrency group is used because GitHub may evict
-# pending runs; V6 retains V5 generation-aware post-checks and also audits the complete statically
-# declared Gradle include graph plus the production Room migration-floor enforcement.
+# tokens never publish Guardian state. V7 keeps generation-aware main invalidation, and stale
+# same-head workflow_run failures are prevented from overwriting a newer certification decision.
 
 jobs:
   validate-required-run:
@@ -33,29 +32,6 @@ jobs:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Mark candidate guardian status pending before validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$TARGET_HEAD_SHA"
-          python3 - <<'PY'
-          import json, os, urllib.request
-          repo=os.environ['GH_REPO']; sha=os.environ['TARGET_HEAD_SHA']; token=os.environ['GH_TOKEN']
-          payload=json.dumps({
-              'state':'pending',
-              'context':'Phase 10.9 Trusted Guardian',
-              'description':'trusted default-branch validation in progress',
-              'target_url':os.environ['REQUIRED_RUN_URL'],
-          }).encode()
-          req=urllib.request.Request(
-              f'https://api.github.com/repos/{repo}/statuses/{sha}', data=payload, method='POST',
-              headers={'Accept':'application/vnd.github+json','Authorization':f'Bearer {token}',
-                       'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json',
-                       'User-Agent':'phase109-trusted-guardian'})
-          with urllib.request.urlopen(req, timeout=30) as response:
-              assert 200 <= response.status < 300
-          PY
-
       - name: Checkout trusted default-branch guardian revision only
         uses: actions/checkout@v6
         with:
@@ -63,7 +39,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify trusted guardian revision and self-test V6
+      - name: Verify trusted guardian revision and self-test V7
         shell: bash
         run: |
           set -euo pipefail
@@ -73,14 +49,15 @@ jobs:
           test -s .github/scripts/phase109_guardian_v4.py
           test -s .github/scripts/phase109_guardian_v5.py
           test -s .github/scripts/phase109_guardian_v6.py
+          test -s .github/scripts/phase109_guardian_v7.py
           test -s .github/scripts/phase109_trusted_contract.py
-          python3 .github/scripts/phase109_guardian_v6.py self-test
+          python3 .github/scripts/phase109_guardian_v7.py self-test
 
       - name: Validate completed certification and publish post-checked success
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v6.py validate-and-publish \
+          python3 .github/scripts/phase109_guardian_v7.py validate-and-publish \
             --root . \
             --repo "$GH_REPO" \
             --token "$GH_TOKEN" \
@@ -88,15 +65,15 @@ jobs:
             --head "$TARGET_HEAD_SHA" \
             --target-url "$REQUIRED_RUN_URL"
 
-      - name: Publish trusted guardian failure
+      - name: Publish trusted guardian failure only if this is still the latest same-head certification
         if: failure()
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s .github/scripts/phase109_guardian_v6.py ]; then
-            python3 .github/scripts/phase109_guardian_v6.py publish-status \
-              --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
-              --state failure \
+          if [ -s .github/scripts/phase109_guardian_v7.py ]; then
+            python3 .github/scripts/phase109_guardian_v7.py publish-failure-if-latest \
+              --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$REQUIRED_RUN_ID" \
+              --head "$TARGET_HEAD_SHA" \
               --description 'trusted default-branch certification rejected' \
               --target-url "$REQUIRED_RUN_URL"
           fi
@@ -118,18 +95,18 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Verify trusted main revision and self-test V6
+      - name: Verify trusted main revision and self-test V7
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$MAIN_SHA"
           test '${{ github.ref }}' = 'refs/heads/main'
-          python3 .github/scripts/phase109_guardian_v6.py self-test
+          python3 .github/scripts/phase109_guardian_v7.py self-test
       - name: Invalidate only certifications stale for this main generation
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v6.py invalidate-current-main \
+          python3 .github/scripts/phase109_guardian_v7.py invalidate-current-main \
             --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
             --target-url "$GUARDIAN_RUN_URL"
 
@@ -154,7 +131,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v6.py self-test
-          python3 .github/scripts/phase109_guardian_v6.py invalidate-retarget-run \
+          python3 .github/scripts/phase109_guardian_v7.py self-test
+          python3 .github/scripts/phase109_guardian_v7.py invalidate-retarget-run \
             --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$SIGNAL_RUN_ID" \
             --target-url "$SIGNAL_RUN_URL"
