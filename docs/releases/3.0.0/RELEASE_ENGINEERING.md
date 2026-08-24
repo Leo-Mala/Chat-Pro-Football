@@ -38,8 +38,9 @@ dependency resolution, SBOM generation, and signing mechanics. It is **not** an 
 ### PRODUCTION_SIGNED
 
 This classification is allowed only when the trusted production workflow receives the controlled external
-signing material, verifies the expected certificate SHA-256 fingerprint, rebuilds from the exact current
-main/tag SHA, and publishes the GitHub Release from those newly generated assets.
+signing material, verifies the expected certificate SHA-256 fingerprint against the keystore and both final
+Android artifacts, rebuilds from the exact current main/tag SHA, and publishes the GitHub Release from those
+newly generated assets.
 
 No ephemeral, debug, or validation certificate is ever classified as production.
 
@@ -56,9 +57,12 @@ Actions secrets before creating the production tag:
 
 The production workflow materializes the keystore only under the runner temporary directory, with mode
 0600, and removes it at the end. Passwords and keystore bytes are never committed or intentionally printed.
+Production signing secrets are step-scoped: they are not present while `checkout`, `setup-java`, or
+`setup-gradle` external actions execute.
 
-The expected certificate fingerprint is mandatory. A credential set that signs successfully with a
-different certificate fails closed.
+The expected certificate fingerprint is mandatory. Before the build, the decoded keystore/alias certificate
+must equal it. After the build, both the APK and AAB certificates must equal it and must equal each other.
+A credential set that signs successfully with a different certificate therefore fails closed.
 
 ## Trust separation for production secrets
 
@@ -122,9 +126,10 @@ It refuses publication unless:
 - the exact SHA has a successful main-push Required Certification;
 - the exact SHA has a successful Trusted Guardian;
 - all five production signing secrets are available;
+- the decoded keystore/alias certificate SHA-256 equals `PRODUCTION_SIGNING_CERT_SHA256`;
 - Gradle's `requireProductionSigning` gate is satisfied;
 - APK and AAB signatures verify;
-- the APK certificate SHA-256 equals `PRODUCTION_SIGNING_CERT_SHA256`;
+- the APK certificate SHA-256 and AAB certificate SHA-256 both equal `PRODUCTION_SIGNING_CERT_SHA256` and each other;
 - main and tag still point to the same SHA immediately before publication;
 - the GitHub Release for that tag does not already exist.
 
@@ -199,7 +204,7 @@ App Signing configuration.
 - Never commit keystores, signing passwords, tokens, or real API credentials.
 - Never replace production signing with debug or ephemeral signing.
 - Never print signing passwords or keystore bytes.
-- Never expose production signing secrets to the tag-facing request workflow.
+- Never expose production signing secrets to the tag-facing request workflow or unrelated external setup actions.
 - Never publish a release for a SHA without exact Required Certification and Guardian success.
 - Never publish if current main has moved away from the certified/tagged SHA.
 - Never overwrite a GitHub Release or reuse assets from another SHA.
