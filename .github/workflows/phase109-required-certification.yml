@@ -104,8 +104,12 @@ jobs:
           force_all = sys.argv[3].lower() == 'true'
           def any_match(patterns):
               return any(any(re.search(p, path) for p in patterns) for path in changed)
-          infra = [r'^\.github/(workflows|scripts)/', r'^build\.gradle\.kts$', r'^settings\.gradle\.kts$',
-                   r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$', r'^app/build\.gradle\.kts$']
+          # Gradle can execute buildSrc, convention-plugin sources and included-build source trees
+          # before the app project is configured. Treat those files as mandatory build inputs rather
+          # than allowing a generic build-logic change to skip every certification component.
+          infra = [r'^\.github/(workflows|scripts)/', r'(^|/)(?:build|settings)\.gradle(?:\.kts)?$',
+                   r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$', r'^app/build\.gradle\.kts$',
+                   r'^(?:buildSrc|build-logic)/', r'(^|/)src/main/(?:kotlin|java)/']
           app = [r'^app/src/', r'^app/schemas/', r'^tools/', r'^metadata\.json$',
                  r'^reports/fc26_', r'^reports/phase_10_8_']
           if force_all:
