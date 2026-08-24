@@ -3,17 +3,22 @@
 
 The original guardian implementation remains as the shared trusted library. This entry point
 hardens collection pagination, preserves both sides of PR renames, audits candidate workflows so
-no untrusted workflow can forge the Guardian status, accepts only pull_request certification for
-a merge-trust status, and invalidates every open main PR whenever main advances.
+no untrusted workflow can forge the Guardian status, binds approval to the exact base recorded by
+the completed certification run and provenance artifact, accepts only pull_request certification
+for a merge-trust status, and invalidates every open main PR whenever main advances.
 """
 from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import re
 import sys
+import urllib.error
 import urllib.parse
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -94,66 +99,258 @@ def fetch_candidate_text(repo: str, token: str, head: str, path: str) -> str:
 def without_yaml_comments(text: str) -> str:
     cleaned: list[str] = []
     for line in text.splitlines():
-        # Permission declarations and secret expressions are YAML, never expected after a shell '#'
-        # in a permission key. Removing trailing comments avoids accepting commented-out safeguards.
-        cleaned.append(line.split("#", 1)[0])
+        quote: str | None = None
+        escaped = False
+        kept: list[str] = []
+        for char in line:
+            if escaped:
+                kept.append(char)
+                escaped = False
+                continue
+            if char == "\\" and quote == '"':
+                kept.append(char)
+                escaped = True
+                continue
+            if char in {"'", '"'}:
+                if quote is None:
+                    quote = char
+                elif quote == char:
+                    quote = None
+                kept.append(char)
+                continue
+            if char == "#" and quote is None:
+                break
+            kept.append(char)
+        cleaned.append("".join(kept))
     return "\n".join(cleaned)
 
 
-def audit_candidate_workflow_privileges(
-    repo: str,
-    token: str,
-    head: str,
-    changed_paths: set[str],
-) -> dict[str, Any]:
+def scalar(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return value.strip()
+
+
+def parse_flow_permission_map(value: str) -> dict[str, str]:
+    body = value.strip()
+    require(body.startswith("{") and body.endswith("}"), f"Malformed flow-style permissions map: {value}")
+    body = body[1:-1].strip()
+    if not body:
+        return {}
+    result: dict[str, str] = {}
+    for part in body.split(","):
+        require(":" in part, f"Malformed flow-style permission entry: {part}")
+        key, item_value = part.split(":", 1)
+        key = scalar(key).lower()
+        item_value = scalar(item_value).lower()
+        require(bool(key) and bool(item_value), f"Malformed flow-style permission entry: {part}")
+        require(key not in result, f"Duplicate permission key: {key}")
+        result[key] = item_value
+    return result
+
+
+def parse_permission_declarations(text: str) -> list[tuple[int, str | dict[str, str]]]:
+    clean = without_yaml_comments(text)
+    lines = clean.splitlines()
+    declarations: list[tuple[int, str | dict[str, str]]] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = re.match(r"^(\s*)permissions\s*:\s*(.*?)\s*$", line)
+        if not match:
+            i += 1
+            continue
+        indent = len(match.group(1))
+        rest = match.group(2).strip()
+        if rest:
+            if rest.startswith("{"):
+                declarations.append((indent, parse_flow_permission_map(rest)))
+            else:
+                declarations.append((indent, scalar(rest).lower()))
+            i += 1
+            continue
+
+        mapping: dict[str, str] = {}
+        i += 1
+        while i < len(lines):
+            child = lines[i]
+            if not child.strip():
+                i += 1
+                continue
+            child_indent = len(child) - len(child.lstrip(" "))
+            if child_indent <= indent:
+                break
+            entry = child.strip()
+            require(":" in entry, f"Malformed block-style permissions entry: {entry}")
+            key, item_value = entry.split(":", 1)
+            key = scalar(key).lower()
+            item_value = scalar(item_value).lower()
+            require(bool(key) and bool(item_value), f"Malformed block-style permissions entry: {entry}")
+            require(key not in mapping, f"Duplicate permission key: {key}")
+            mapping[key] = item_value
+            i += 1
+        declarations.append((indent, mapping))
+    return declarations
+
+
+def permission_writes(declaration: str | dict[str, str]) -> list[str]:
+    if isinstance(declaration, str):
+        return ["write-all"] if declaration == "write-all" else []
+    return sorted(key for key, value in declaration.items() if value == "write")
+
+
+def validate_read_only_declaration(declaration: str | dict[str, str], path: str) -> None:
+    if isinstance(declaration, str):
+        require(declaration in {"read-all"}, f"Changed workflow has unsafe permissions scalar in {path}: {declaration}")
+        return
+    unsafe = {key: value for key, value in declaration.items() if value not in {"read", "none"}}
+    require(not unsafe, f"Changed workflow requests non-read-only permissions in {path}: {unsafe}")
+
+
+def references_non_github_secret(text: str) -> bool:
+    for expression in re.findall(r"\$\{\{(.*?)\}\}", text, flags=re.DOTALL):
+        if not re.search(r"\bsecrets\b", expression):
+            continue
+        compact = re.sub(r"\s+", "", expression)
+        allowed = {
+            "secrets.GITHUB_TOKEN",
+            "secrets['GITHUB_TOKEN']",
+            'secrets["GITHUB_TOKEN"]',
+        }
+        refs = re.findall(r"secrets(?:\.[A-Za-z_][A-Za-z0-9_]*|\[['\"][^'\"]+['\"]\])", compact)
+        if not refs or any(ref not in allowed for ref in refs):
+            return True
+    return False
+
+
+def validate_candidate_legacy_workflows(repo: str, token: str, head: str, workflows: list[str]) -> int:
+    """Validate candidate copies of every legacy workflow the trusted contract depends on."""
+    marker_count = 0
+    for path, rules in guardian.contract.BASE_RUN_RULES.items():
+        require(path in workflows, f"Candidate deleted contract dependency workflow: {path}")
+        source = fetch_candidate_text(repo, token, head, path)
+        steps = guardian.contract.parse_steps(source)
+        commands = [cmd for step in steps for cmd in guardian.contract.logical_commands(step.run)]
+        for executable, markers in rules:
+            for marker in markers:
+                require(
+                    any(marker in cmd and guardian.contract.command_is_executable(cmd, executable) for cmd in commands),
+                    f"Candidate legacy workflow no longer proves executable command in {path}: {marker}",
+                )
+                marker_count += 1
+    return marker_count
+
+
+def audit_candidate_workflow_privileges(repo: str, token: str, head: str, changed_paths: set[str]) -> dict[str, Any]:
     workflows = candidate_workflow_paths(repo, token, head)
     audited = 0
     changed_audited = 0
     for path in workflows:
         text = fetch_candidate_text(repo, token, head, path)
-        clean = without_yaml_comments(text)
-        normalized = clean.replace("'", "").replace('"', "")
+        declarations = parse_permission_declarations(text)
+
         if path != TRUSTED_GUARDIAN_WORKFLOW:
-            require(
-                re.search(r"(?mi)^\s*permissions\s*:\s*write-all\s*$", normalized) is None,
-                f"Untrusted workflow requests write-all: {path}",
-            )
-            require(
-                re.search(r"(?mi)^\s*statuses\s*:\s*write\s*$", normalized) is None,
-                f"Untrusted workflow can forge commit statuses: {path}",
-            )
-            require(
-                re.search(r"(?mi)^\s*checks\s*:\s*write\s*$", normalized) is None,
-                f"Untrusted workflow can forge check runs: {path}",
-            )
+            writes = [item for _, declaration in declarations for item in permission_writes(declaration)]
+            require("write-all" not in writes, f"Untrusted workflow requests write-all: {path}")
+            require("statuses" not in writes, f"Untrusted workflow can forge commit statuses: {path}")
+            require("checks" not in writes, f"Untrusted workflow can forge check runs: {path}")
         audited += 1
 
         if path in changed_paths and path != TRUSTED_GUARDIAN_WORKFLOW:
-            # Any workflow a PR changes must stop inheriting repository-wide token defaults.
-            require(
-                re.search(r"(?m)^permissions\s*:", clean) is not None,
-                f"Changed workflow must declare top-level permissions explicitly: {path}",
-            )
-            # PR-authored workflow changes are read-only. A future privileged workflow change must
-            # go through the separately governed trusted-kernel/admin path, never self-certify.
-            write_scope = re.search(r"(?mi)^\s*[A-Za-z0-9_-]+\s*:\s*write\s*$", normalized)
-            require(write_scope is None, f"Changed workflow requests a write permission: {path}: {write_scope.group(0).strip() if write_scope else ''}")
-            require(
-                re.search(r"\$\{\{\s*secrets\.(?!GITHUB_TOKEN\b)", clean) is None,
-                f"Changed workflow references a repository/environment secret: {path}",
-            )
+            top_level = [declaration for indent, declaration in declarations if indent == 0]
+            require(len(top_level) == 1, f"Changed workflow must declare exactly one top-level permissions block: {path}")
+            for _, declaration in declarations:
+                validate_read_only_declaration(declaration, path)
+            require(not references_non_github_secret(text), f"Changed workflow references a repository/environment secret: {path}")
             changed_audited += 1
 
     require(TRUSTED_GUARDIAN_WORKFLOW in workflows, "Trusted Guardian workflow is missing from candidate tree")
-    return {"workflowCount": len(workflows), "audited": audited, "changedAudited": changed_audited}
+    legacy_markers = validate_candidate_legacy_workflows(repo, token, head, workflows)
+    return {
+        "workflowCount": len(workflows),
+        "audited": audited,
+        "changedAudited": changed_audited,
+        "candidateLegacyExecutableMarkers": legacy_markers,
+    }
+
+
+def run_audited_base(run: dict[str, Any], head: str) -> str:
+    matches = [
+        item for item in run.get("pull_requests", [])
+        if item.get("head", {}).get("sha") == head and item.get("base", {}).get("ref") == "main"
+    ]
+    require(len(matches) == 1, f"Expected exactly one run-bound PR snapshot for {head}; got {len(matches)}")
+    base_sha = str(matches[0].get("base", {}).get("sha", ""))
+    require(bool(base_sha), "Completed certification run has no audited base SHA")
+    return base_sha
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+def download_artifact_zip(repo: str, token: str, artifact_id: int) -> bytes:
+    api_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+    request = urllib.request.Request(
+        api_url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "phase109-trusted-guardian",
+        },
+    )
+    opener = urllib.request.build_opener(NoRedirect)
+    location: str | None = None
+    try:
+        with opener.open(request, timeout=30) as response:
+            if 200 <= response.status < 300:
+                return response.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code in {301, 302, 303, 307, 308}:
+            location = exc.headers.get("Location")
+        else:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise GuardianV2Error(f"Artifact download failed: HTTP {exc.code}: {body[:500]}") from exc
+    require(bool(location), "Artifact download did not provide a signed redirect")
+    signed = urllib.request.Request(str(location), headers={"User-Agent": "phase109-trusted-guardian"})
+    with urllib.request.urlopen(signed, timeout=60) as response:
+        require(200 <= response.status < 300, f"Signed artifact download failed: HTTP {response.status}")
+        return response.read()
+
+
+def read_provenance_artifact(repo: str, token: str, run_id: int, head: str, audited_base_sha: str) -> dict[str, Any]:
+    artifacts = paged(repo, token, f"/actions/runs/{run_id}/artifacts", "artifacts")
+    final_name = f"phase-10-9-required-certification-{head}"
+    matches = [
+        artifact for artifact in artifacts
+        if artifact.get("name") == final_name
+        and not artifact.get("expired", False)
+        and int(artifact.get("size_in_bytes", 0)) > 0
+    ]
+    require(len(matches) == 1, f"Expected one live provenance artifact: {final_name}")
+    artifact_id = int(matches[0].get("id", 0))
+    require(artifact_id > 0, "Provenance artifact id is missing")
+    archive = download_artifact_zip(repo, token, artifact_id)
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        names = [name for name in bundle.namelist() if Path(name).name == "phase109-required-certification.json"]
+        require(len(names) == 1, f"Expected one provenance JSON in artifact; got {names}")
+        provenance = json.loads(bundle.read(names[0]).decode("utf-8"))
+    require(provenance.get("status") == "CERTIFIED", "Provenance artifact is not CERTIFIED")
+    require(provenance.get("auditHead") == head, "Provenance artifact auditHead does not match run HEAD")
+    require(
+        provenance.get("baseSha") == audited_base_sha,
+        f"Provenance artifact baseSha mismatch: artifact={provenance.get('baseSha')} run={audited_base_sha}",
+    )
+    return provenance
 
 
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
     run = guardian.api_request(repo, token, "GET", f"/actions/runs/{run_id}")
-    require(
-        run.get("event") == "pull_request",
-        f"Trusted guardian accepts only pull_request certification, got: {run.get('event')}",
-    )
+    require(run.get("event") == "pull_request", f"Trusted guardian accepts only pull_request certification, got: {run.get('event')}")
+    audited_base_sha = run_audited_base(run, head)
 
     original_paged = guardian.paged
     original_changed_paths = guardian.changed_paths
@@ -170,11 +367,23 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
         paths = changed_paths_with_previous(repo, token, int(pr["number"]))
         privilege_audit = audit_candidate_workflow_privileges(repo, token, head, paths)
         result = guardian.validate_triggered_run(root, repo, token, run_id, head)
-        result["candidateWorkflowPrivilegeAudit"] = privilege_audit
-        return result
     finally:
         guardian.paged = original_paged
         guardian.changed_paths = original_changed_paths
+
+    require(
+        result.get("baseSha") == audited_base_sha,
+        f"Live PR base differs from completed run base: live={result.get('baseSha')} run={audited_base_sha}",
+    )
+    require(
+        result.get("liveMainSha") == audited_base_sha,
+        f"main advanced after certification: live={result.get('liveMainSha')} run={audited_base_sha}",
+    )
+    provenance = read_provenance_artifact(repo, token, run_id, head, audited_base_sha)
+    result["runAuditedBaseSha"] = audited_base_sha
+    result["provenanceBaseSha"] = provenance.get("baseSha")
+    result["candidateWorkflowPrivilegeAudit"] = privilege_audit
+    return result
 
 
 def invalidate_all(repo: str, token: str, main_sha: str, target_url: str) -> dict[str, Any]:
