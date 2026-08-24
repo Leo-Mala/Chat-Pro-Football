@@ -23,7 +23,7 @@ permissions:
 jobs:
   validate-required-run:
     name: Trusted Guardian Gate
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Phase 10.9 Required Certification'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Phase 10.9 Required Certification' && github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
