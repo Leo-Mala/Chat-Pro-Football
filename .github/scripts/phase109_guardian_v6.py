@@ -29,6 +29,13 @@ def require(condition: bool, message: str) -> None:
 
 def strict_included_build_prefixes(settings_text: str) -> set[str]:
     clean = v5.v4.strip_kotlin_comments(settings_text)
+    # Applied settings scripts can hide additional includeBuild declarations from this parser.
+    # Reject settings indirection rather than certifying an incomplete executable build graph.
+    require(
+        re.search(r"\bapply\s*\(\s*from\s*=", clean) is None
+        and re.search(r"\bapply\s+from\s*:", clean) is None,
+        "Applied settings scripts are forbidden; includeBuild declarations must be visible in the root settings file",
+    )
     calls = list(re.finditer(r"\bincludeBuild\s*\(([^)]*)\)", clean))
     prefixes: set[str] = set()
     for call in calls:
@@ -68,16 +75,27 @@ def validate_room_history(repo: str, token: str, base_sha: str, head: str,
     return result
 
 
+def preserve_current_generation(repo: str, token: str, main_sha: str, target_url: str) -> dict[str, Any]:
+    # V3 historically swept every open PR during any successful validation. Replace that sweep with
+    # the V5 generation-aware invalidator: PRs already certified against this exact main remain green,
+    # while stale/uncertified heads fail closed. The triggering head is restored to success only after
+    # full validation and the V5 pre/post main/base checks complete.
+    return v5.invalidate_current_main(repo, token, main_sha, target_url)
+
+
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
     old_prefixes = v5.included_build_prefixes
     old_history = v5.validate_room_history
+    old_sweep = v5.v4.v3.invalidate_all
     v5.included_build_prefixes = strict_included_build_prefixes
     v5.validate_room_history = validate_room_history
+    v5.v4.v3.invalidate_all = preserve_current_generation
     try:
         return BASE_V5_VALIDATE_RUN(root, repo, token, run_id, head)
     finally:
         v5.included_build_prefixes = old_prefixes
         v5.validate_room_history = old_history
+        v5.v4.v3.invalidate_all = old_sweep
 
 
 def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: str, target_url: str) -> dict[str, Any]:
@@ -91,14 +109,27 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
 
 def self_test() -> dict[str, Any]:
     require(strict_included_build_prefixes('includeBuild("plugins")') == {"plugins/"}, "Static includeBuild parse failed")
-    for sample in ('includeBuild("plug" + "ins")', 'includeBuild(provider.get())', 'includeBuild(pathVar)'):
+    for sample in (
+        'includeBuild("plug" + "ins")',
+        'includeBuild(provider.get())',
+        'includeBuild(pathVar)',
+        'apply(from = "extra.settings.gradle.kts")\nincludeBuild("plugins")',
+        'apply from: "extra.settings.gradle"\nincludeBuild("plugins")',
+    ):
         try:
             strict_included_build_prefixes(sample)
         except GuardianV6Error:
             pass
         else:
-            raise GuardianV6Error(f"Dynamic includeBuild was not rejected: {sample}")
-    return {"status": "PASS", "dynamicIncludeBuildRejected": True, "productionMigrationFloorBound": True}
+            raise GuardianV6Error(f"Unsafe settings/includeBuild form was not rejected: {sample}")
+    require(preserve_current_generation is not v5.v4.v3.invalidate_all, "Generation-aware sweep override is not distinct")
+    return {
+        "status": "PASS",
+        "dynamicIncludeBuildRejected": True,
+        "appliedSettingsIndirectionRejected": True,
+        "productionMigrationFloorBound": True,
+        "sameGenerationCertificationsPreserved": True,
+    }
 
 
 def main() -> int:
