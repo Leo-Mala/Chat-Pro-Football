@@ -2,8 +2,8 @@
 """Corrected entry point for the trusted Phase 10.9 guardian.
 
 The original guardian implementation remains as the shared trusted library. This entry point
-hardens collection pagination, accepts only pull_request certification for a merge-trust status,
-and invalidates every open main PR whenever main advances.
+hardens collection pagination, preserves both sides of PR renames, accepts only pull_request
+certification for a merge-trust status, and invalidates every open main PR whenever main advances.
 """
 from __future__ import annotations
 
@@ -38,6 +38,20 @@ def paged(repo: str, token: str, path: str, collection_key: str | None = None) -
         page += 1
 
 
+def changed_paths_with_previous(repo: str, token: str, pr_number: int) -> set[str]:
+    """Return every current and previous path so rename-away cannot evade trust-kernel checks."""
+    files = paged(repo, token, f"/pulls/{pr_number}/files")
+    paths: set[str] = set()
+    for item in files:
+        filename = str(item.get("filename", ""))
+        previous = str(item.get("previous_filename", ""))
+        if filename:
+            paths.add(filename)
+        if previous:
+            paths.add(previous)
+    return paths
+
+
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
     run = guardian.api_request(repo, token, "GET", f"/actions/runs/{run_id}")
     guardian.require(
@@ -46,6 +60,7 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
     )
 
     original_paged = guardian.paged
+    original_changed_paths = guardian.changed_paths
     guardian.paged = lambda repo_arg, token_arg, path_arg: (
         paged(repo_arg, token_arg, path_arg, "jobs")
         if path_arg.endswith("/jobs") else
@@ -53,10 +68,12 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
         if path_arg.endswith("/artifacts") else
         paged(repo_arg, token_arg, path_arg)
     )
+    guardian.changed_paths = changed_paths_with_previous
     try:
         return guardian.validate_triggered_run(root, repo, token, run_id, head)
     finally:
         guardian.paged = original_paged
+        guardian.changed_paths = original_changed_paths
 
 
 def invalidate_all(repo: str, token: str, main_sha: str, target_url: str) -> dict[str, Any]:
