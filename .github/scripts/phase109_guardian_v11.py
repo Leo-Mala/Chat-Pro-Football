@@ -2,10 +2,11 @@
 """Trusted Phase 10.9 guardian v11.
 
 V11 closes the remaining Room-builder audit gaps found by independent review:
-- resolves Kotlin aliases of androidx.room.Room;
+- resolves Kotlin aliases, wildcard imports and imported Room.databaseBuilder members;
+- resolves Java wildcard/static imports and rejects Unicode-escape lexical ambiguity;
 - strips Java comments/string/char literals before lexical auditing;
-- associates canonical addMigrations registration with each individual databaseBuilder chain,
-  rather than merely with its containing file;
+- binds canonical addMigrations registration to the direct receiver chain of every individual
+  databaseBuilder expression rather than to arbitrary text before a later build();
 - continues to reject every non-canonical production addMigrations call.
 """
 from __future__ import annotations
@@ -22,6 +23,7 @@ import phase109_guardian_v10 as v10
 SELF_PATH = ".github/scripts/phase109_guardian_v11.py"
 BASE_V10_VALIDATE_RUN = v10.validate_run
 v10.v9.v8.v7.v6.v5.v4.v3.guardian.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
+UNQUALIFIED_BUILDER = "__room_databaseBuilder_member__"
 
 
 class GuardianV11Error(ValueError):
@@ -31,6 +33,13 @@ class GuardianV11Error(ValueError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise GuardianV11Error(message)
+
+
+def reject_java_unicode_escapes(source: str, path: str = "") -> None:
+    # javac expands Unicode escapes before comment tokenization. A raw lexical audit cannot safely
+    # reason about comment boundaries when those escapes are present, so fail closed.
+    require(re.search(r"\\u+[0-9A-Fa-f]{4}", source) is None,
+            f"Java Unicode escapes are forbidden in audited Room source: {path or '<source>'}")
 
 
 def strip_java_comments_and_literals(source: str) -> str:
@@ -104,13 +113,21 @@ def strip_java_comments_and_literals(source: str) -> str:
 
 
 def kotlin_room_symbols(clean_source: str) -> set[str]:
-    symbols: set[str] = set()
-    if re.search(r"(?m)^\s*import\s+androidx\.room\.Room\s*$", clean_source):
+    symbols: set[str] = {"androidx.room.Room"}
+    if re.search(r"(?m)^\s*import\s+androidx\.room\.Room\s*;?\s*$", clean_source):
         symbols.add("Room")
-    for match in re.finditer(r"(?m)^\s*import\s+androidx\.room\.Room\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", clean_source):
+    if re.search(r"(?m)^\s*import\s+androidx\.room\.\*\s*;?\s*$", clean_source):
+        symbols.add("Room")
+    for match in re.finditer(
+        r"(?m)^\s*import\s+androidx\.room\.Room\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*;?\s*$",
+        clean_source,
+    ):
         symbols.add(match.group(1))
-    # Fully-qualified use does not require an import.
-    symbols.add("androidx.room.Room")
+    for match in re.finditer(
+        r"(?m)^\s*import\s+androidx\.room\.Room\.databaseBuilder(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;?\s*$",
+        clean_source,
+    ):
+        symbols.add(match.group(1) or UNQUALIFIED_BUILDER)
     return symbols
 
 
@@ -118,32 +135,85 @@ def java_room_symbols(clean_source: str) -> set[str]:
     symbols = {"androidx.room.Room"}
     if re.search(r"(?m)^\s*import\s+androidx\.room\.Room\s*;", clean_source):
         symbols.add("Room")
+    if re.search(r"(?m)^\s*import\s+androidx\.room\.\*\s*;", clean_source):
+        symbols.add("Room")
+    if re.search(r"(?m)^\s*import\s+static\s+androidx\.room\.Room\.databaseBuilder\s*;", clean_source):
+        symbols.add(UNQUALIFIED_BUILDER)
     return symbols
 
 
 def builder_start_pattern(symbols: set[str]) -> re.Pattern[str]:
-    alternatives = "|".join(sorted((re.escape(symbol) for symbol in symbols), key=len, reverse=True))
-    require(bool(alternatives), "No Room symbols available for builder audit")
-    return re.compile(rf"(?<![A-Za-z0-9_.])(?:{alternatives})\s*\.\s*databaseBuilder\s*\(")
+    qualified = [symbol for symbol in symbols if symbol != UNQUALIFIED_BUILDER]
+    parts: list[str] = []
+    if qualified:
+        alternatives = "|".join(sorted((re.escape(symbol) for symbol in qualified), key=len, reverse=True))
+        parts.append(rf"(?<![A-Za-z0-9_.])(?:{alternatives})\s*\.\s*databaseBuilder\s*\(")
+    if UNQUALIFIED_BUILDER in symbols:
+        parts.append(r"(?<![A-Za-z0-9_.])databaseBuilder\s*\(")
+    require(bool(parts), "No Room symbols available for builder audit")
+    return re.compile("(?:" + "|".join(parts) + ")")
+
+
+def matching_paren(source: str, open_index: int) -> int:
+    require(0 <= open_index < len(source) and source[open_index] == "(",
+            f"Expected opening parenthesis at {open_index}")
+    depth = 0
+    for index in range(open_index, len(source)):
+        ch = source[index]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise GuardianV11Error(f"Unbalanced Room builder call near offset {open_index}")
+
+
+def direct_chain_end(clean_source: str, start_match: re.Match[str]) -> int:
+    # The match terminates immediately after databaseBuilder's opening parenthesis.
+    cursor = matching_paren(clean_source, start_match.end() - 1) + 1
+    while True:
+        while cursor < len(clean_source) and clean_source[cursor].isspace():
+            cursor += 1
+        require(cursor < len(clean_source) and clean_source[cursor] == ".",
+                f"Room.databaseBuilder must keep migrations/build on its direct receiver chain near offset {start_match.start()}")
+        cursor += 1
+        while cursor < len(clean_source) and clean_source[cursor].isspace():
+            cursor += 1
+        name_match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", clean_source[cursor:])
+        require(name_match is not None, f"Malformed Room builder chain near offset {cursor}")
+        name = name_match.group(0)
+        cursor += len(name)
+        while cursor < len(clean_source) and clean_source[cursor].isspace():
+            cursor += 1
+        require(cursor < len(clean_source) and clean_source[cursor] == "(",
+                f"Room builder chain member {name} is not a call")
+        close = matching_paren(clean_source, cursor)
+        cursor = close + 1
+        if name == "build":
+            return cursor
 
 
 def find_builder_chains(clean_source: str, symbols: set[str]) -> list[str]:
     pattern = builder_start_pattern(symbols)
-    matches = list(pattern.finditer(clean_source))
     chains: list[str] = []
-    build_pattern = re.compile(r"\.\s*build\s*\(\s*\)")
-    for index, match in enumerate(matches):
-        boundary = matches[index + 1].start() if index + 1 < len(matches) else len(clean_source)
-        region = clean_source[match.start():boundary]
-        build = build_pattern.search(region)
-        require(build is not None, f"Room.databaseBuilder expression has no visible build() terminal near offset {match.start()}")
-        chains.append(region[:build.end()])
+    for match in pattern.finditer(clean_source):
+        end = direct_chain_end(clean_source, match)
+        chains.append(clean_source[match.start():end])
     return chains
 
 
 def normalized_migration_calls(text: str) -> list[str]:
     add_pattern = re.compile(r"(?<![A-Za-z0-9_])addMigrations\s*\(([^)]*)\)")
     return [re.sub(r"\s+", "", arg) for arg in add_pattern.findall(text)]
+
+
+def canonical_migration_argument(path: str, database_path: str) -> str:
+    if path == database_path:
+        return "*ALL_MIGRATIONS"
+    if path.endswith(".java"):
+        return "AppDatabase.ALL_MIGRATIONS"
+    return "*AppDatabase.ALL_MIGRATIONS"
 
 
 def validate_every_production_room_builder(repo: str, token: str, head: str,
@@ -161,11 +231,12 @@ def validate_every_production_room_builder(repo: str, token: str, head: str,
             clean = v10.v9.v8.v7.v6.v5.v4.executable_kotlin(source)
             symbols = kotlin_room_symbols(clean)
         else:
+            reject_java_unicode_escapes(source, path)
             clean = strip_java_comments_and_literals(source)
             symbols = java_room_symbols(clean)
 
         all_calls = normalized_migration_calls(clean)
-        expected = v10.canonical_migration_argument(path, database_path)
+        expected = canonical_migration_argument(path, database_path)
         for call in all_calls:
             registrations.append({"path": path, "argument": call, "expected": expected})
             if call != expected:
@@ -175,7 +246,7 @@ def validate_every_production_room_builder(repo: str, token: str, head: str,
         for chain_index, chain in enumerate(chains, start=1):
             chain_calls = normalized_migration_calls(chain)
             require(len(chain_calls) == 1,
-                    f"Production Room builder #{chain_index} in {path} must have exactly one migration registration; got {chain_calls}")
+                    f"Production Room builder #{chain_index} in {path} must have exactly one direct-chain migration registration; got {chain_calls}")
             require(chain_calls[0] == expected,
                     f"Production Room builder #{chain_index} in {path} has non-canonical migration registration: {chain_calls[0]}")
             builders.append({
@@ -197,8 +268,11 @@ def validate_every_production_room_builder(repo: str, token: str, head: str,
         "registrations": registrations,
         "allAndroidProductionSourceSetsAudited": True,
         "everyBuilderExpressionBoundToCanonicalMigrations": True,
-        "kotlinRoomAliasesResolved": True,
+        "directReceiverChainRequired": True,
+        "kotlinRoomAliasesWildcardsAndMembersResolved": True,
+        "javaRoomWildcardsAndStaticImportsResolved": True,
         "javaCommentsAndLiteralsStripped": True,
+        "javaUnicodeEscapesRejected": True,
     }
 
 
@@ -255,11 +329,11 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
 
 def parser_self_test() -> None:
     kotlin = """
-        import androidx.room.Room as SaveRoom
-        val a = SaveRoom.databaseBuilder(ctx, Db::class.java, \"a\")
+        import androidx.room.Room as SaveRoom;
+        val a = SaveRoom.databaseBuilder(ctx, Db::class.java, "a")
             .addMigrations(*AppDatabase.ALL_MIGRATIONS)
             .build()
-        val b = SaveRoom.databaseBuilder(ctx, Db::class.java, \"b\")
+        val b = SaveRoom.databaseBuilder(ctx, Db::class.java, "b")
             .build()
     """
     clean = v10.v9.v8.v7.v6.v5.v4.executable_kotlin(kotlin)
@@ -268,15 +342,61 @@ def parser_self_test() -> None:
     require(normalized_migration_calls(chains[0]) == ["*AppDatabase.ALL_MIGRATIONS"], "First builder migration parse failed")
     require(normalized_migration_calls(chains[1]) == [], "Second builder should be detected as unregistered")
 
+    kotlin_member = """
+        import androidx.room.Room.databaseBuilder
+        val db = databaseBuilder(ctx, Db::class.java, "x")
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+            .build()
+    """
+    member_clean = v10.v9.v8.v7.v6.v5.v4.executable_kotlin(kotlin_member)
+    require(len(find_builder_chains(member_clean, kotlin_room_symbols(member_clean))) == 1,
+            "Kotlin imported databaseBuilder member was not detected")
+
+    kotlin_wild = """
+        import androidx.room.*
+        val db = Room.databaseBuilder(ctx, Db::class.java, "x")
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+            .build()
+    """
+    wild_clean = v10.v9.v8.v7.v6.v5.v4.executable_kotlin(kotlin_wild)
+    require(len(find_builder_chains(wild_clean, kotlin_room_symbols(wild_clean))) == 1,
+            "Kotlin wildcard Room import was not detected")
+
     java = '''
-      import androidx.room.Room;
-      // addMigrations(*AppDatabase.ALL_MIGRATIONS)
-      String x = "addMigrations(*AppDatabase.ALL_MIGRATIONS)";
-      Room.databaseBuilder(ctx, Db.class, "x").build();
+      import static androidx.room.Room.databaseBuilder;
+      // addMigrations(AppDatabase.ALL_MIGRATIONS)
+      String x = "addMigrations(AppDatabase.ALL_MIGRATIONS)";
+      Object db = databaseBuilder(ctx, Db.class, "x")
+          .addMigrations(AppDatabase.ALL_MIGRATIONS)
+          .build();
     '''
+    reject_java_unicode_escapes(java)
     clean_java = strip_java_comments_and_literals(java)
-    require(normalized_migration_calls(clean_java) == [], "Java comment/literal stripping failed")
-    require(len(find_builder_chains(clean_java, java_room_symbols(clean_java))) == 1, "Java builder detection failed")
+    require(normalized_migration_calls(clean_java) == ["AppDatabase.ALL_MIGRATIONS"],
+            "Java comment/literal stripping or Java migration syntax failed")
+    require(len(find_builder_chains(clean_java, java_room_symbols(clean_java))) == 1,
+            "Java static-import builder detection failed")
+
+    unrelated = """
+        import androidx.room.Room
+        val builder = Room.databaseBuilder(ctx, Db::class.java, "x")
+        existingBuilder.addMigrations(*AppDatabase.ALL_MIGRATIONS)
+        builder.build()
+    """
+    unrelated_clean = v10.v9.v8.v7.v6.v5.v4.executable_kotlin(unrelated)
+    try:
+        find_builder_chains(unrelated_clean, kotlin_room_symbols(unrelated_clean))
+    except GuardianV11Error:
+        pass
+    else:
+        raise GuardianV11Error("Unrelated builder receiver was incorrectly accepted")
+
+    try:
+        reject_java_unicode_escapes(r"class X { // \u002f\u002f fake }", "X.java")
+    except GuardianV11Error:
+        pass
+    else:
+        raise GuardianV11Error("Java Unicode escape ambiguity was not rejected")
 
 
 def self_test() -> dict[str, Any]:
@@ -286,8 +406,11 @@ def self_test() -> dict[str, Any]:
         "status": "PASS",
         "guardianV10": "PASS",
         "builderExpressionBinding": True,
-        "kotlinRoomAliasesResolved": True,
+        "directReceiverChainRequired": True,
+        "kotlinRoomAliasesWildcardsAndMembersResolved": True,
+        "javaRoomWildcardsAndStaticImportsResolved": True,
         "javaCommentsAndLiteralsStripped": True,
+        "javaUnicodeEscapesRejected": True,
     }
 
 
