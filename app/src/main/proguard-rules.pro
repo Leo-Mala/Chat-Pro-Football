@@ -34,8 +34,9 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 
-# The Release target and Release AndroidTest APKs are minified independently but share Lifecycle
-# and Compose UI runtime types across the instrumentation boundary. Keep those ABIs stable in the
-# target APK so separately optimized test bytecode cannot reference removed/renamed symbols.
+# The Release target and Release AndroidTest APKs are minified independently but share Lifecycle,
+# Compose UI and Compose runtime types across the instrumentation boundary. Keep those ABIs stable
+# in the target APK so separately optimized test bytecode cannot reference removed/renamed symbols.
 -keep class androidx.lifecycle.** { *; }
 -keep class androidx.compose.ui.** { *; }
+-keep class androidx.compose.runtime.** { *; }
