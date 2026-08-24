@@ -80,6 +80,7 @@ jobs:
           python3 .github/scripts/phase109_policy.py audit --root .
           python3 .github/scripts/phase109_policy.py validate-room --root .
           python3 .github/scripts/phase109_policy.py self-test
+          python3 .github/scripts/phase109_guardian_v12.py self-test
 
       - name: Resolve mandatory certification scope
         id: scope
@@ -111,9 +112,6 @@ jobs:
           force_all = sys.argv[3].lower() == 'true'
           def any_match(patterns):
               return any(any(re.search(p, path) for p in patterns) for path in changed)
-          # Every Gradle module/source tree can influence compilation, resources, manifests or
-          # convention plugins. Over-certify generic src/ changes rather than risk skipping a
-          # release-only/flavor/included-build input.
           infra = [r'^\.github/(workflows|scripts)/', r'\.gradle(?:\.kts)?$',
                    r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$',
                    r'^(?:buildSrc|build-logic)/', r'(^|/)src/']
