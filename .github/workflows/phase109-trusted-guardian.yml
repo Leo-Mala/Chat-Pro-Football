@@ -16,8 +16,8 @@ permissions:
   statuses: write
 
 # All status writes happen from trusted default-branch contexts only. Candidate/fork pull_request
-# tokens never publish Guardian state. V7 keeps generation-aware main invalidation, and stale
-# same-head workflow_run failures are prevented from overwriting a newer certification decision.
+# tokens never publish Guardian state. V8 preserves V7 ordering guarantees and validates the exact
+# canonical Room migration registration form used by AppDatabase and external production builders.
 
 jobs:
   validate-required-run:
@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify trusted guardian revision and self-test V7
+      - name: Verify trusted guardian revision and self-test V8
         shell: bash
         run: |
           set -euo pipefail
@@ -50,14 +50,15 @@ jobs:
           test -s .github/scripts/phase109_guardian_v5.py
           test -s .github/scripts/phase109_guardian_v6.py
           test -s .github/scripts/phase109_guardian_v7.py
+          test -s .github/scripts/phase109_guardian_v8.py
           test -s .github/scripts/phase109_trusted_contract.py
-          python3 .github/scripts/phase109_guardian_v7.py self-test
+          python3 .github/scripts/phase109_guardian_v8.py self-test
 
       - name: Validate completed certification and publish post-checked success
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v7.py validate-and-publish \
+          python3 .github/scripts/phase109_guardian_v8.py validate-and-publish \
             --root . \
             --repo "$GH_REPO" \
             --token "$GH_TOKEN" \
@@ -70,8 +71,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s .github/scripts/phase109_guardian_v7.py ]; then
-            python3 .github/scripts/phase109_guardian_v7.py publish-failure-if-latest \
+          if [ -s .github/scripts/phase109_guardian_v8.py ]; then
+            python3 .github/scripts/phase109_guardian_v8.py publish-failure-if-latest \
               --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$REQUIRED_RUN_ID" \
               --head "$TARGET_HEAD_SHA" \
               --description 'trusted default-branch certification rejected' \
@@ -95,18 +96,18 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Verify trusted main revision and self-test V7
+      - name: Verify trusted main revision and self-test V8
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$MAIN_SHA"
           test '${{ github.ref }}' = 'refs/heads/main'
-          python3 .github/scripts/phase109_guardian_v7.py self-test
+          python3 .github/scripts/phase109_guardian_v8.py self-test
       - name: Invalidate only certifications stale for this main generation
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v7.py invalidate-current-main \
+          python3 .github/scripts/phase109_guardian_v8.py invalidate-current-main \
             --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
             --target-url "$GUARDIAN_RUN_URL"
 
@@ -131,7 +132,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v7.py self-test
-          python3 .github/scripts/phase109_guardian_v7.py invalidate-retarget-run \
+          python3 .github/scripts/phase109_guardian_v8.py self-test
+          python3 .github/scripts/phase109_guardian_v8.py invalidate-retarget-run \
             --repo "$GH_REPO" --token "$GH_TOKEN" --run-id "$SIGNAL_RUN_ID" \
             --target-url "$SIGNAL_RUN_URL"
