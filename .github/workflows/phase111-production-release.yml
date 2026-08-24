@@ -30,13 +30,13 @@ jobs:
     env:
       RELEASE_SHA: ${{ inputs.release_sha }}
       RELEASE_TAG: ${{ inputs.release_tag }}
-      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout exact certified release SHA from trusted main workflow
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve and verify exact release source and tag
         shell: bash
@@ -68,6 +68,8 @@ jobs:
 
       - name: Verify Required Certification and Trusted Guardian on exact SHA
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p release-out
