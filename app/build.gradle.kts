@@ -13,11 +13,33 @@ ksp {
 
 val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
 val releaseStorePassword = System.getenv("STORE_PASSWORD")
-val releaseKeyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+val releaseKeyAlias = System.getenv("KEY_ALIAS")
 val releaseKeyPassword = System.getenv("KEY_PASSWORD")
-val hasReleaseSigning = !releaseStorePassword.isNullOrBlank() &&
-  !releaseKeyPassword.isNullOrBlank() &&
+val requireProductionSigning = providers.gradleProperty("requireProductionSigning")
+  .orNull
+  ?.equals("true", ignoreCase = true) == true
+
+val missingReleaseSigningInputs = buildList {
+  if (releaseKeystorePath.isNullOrBlank()) add("KEYSTORE_PATH")
+  if (releaseStorePassword.isNullOrBlank()) add("STORE_PASSWORD")
+  if (releaseKeyAlias.isNullOrBlank()) add("KEY_ALIAS")
+  if (releaseKeyPassword.isNullOrBlank()) add("KEY_PASSWORD")
+}
+
+val hasReleaseSigning = missingReleaseSigningInputs.isEmpty() &&
   releaseKeystorePath?.let { file(it).isFile } == true
+
+if (requireProductionSigning && !hasReleaseSigning) {
+  val missing = if (missingReleaseSigningInputs.isEmpty()) {
+    "KEYSTORE_PATH (file does not exist)"
+  } else {
+    missingReleaseSigningInputs.joinToString(", ")
+  }
+  throw GradleException(
+    "Production signing was explicitly required but the controlled signing configuration is incomplete: $missing"
+  )
+}
+
 val instrumentedBuildType = providers.gradleProperty("instrumentedBuildType").orElse("debug").get()
 
 android {
@@ -30,7 +52,7 @@ android {
     applicationId = "com.aistudio.brasfutretro.djuxzt"
     minSdk = 24
     targetSdk = 35
-    versionCode = 30
+    versionCode = 31
     versionName = "3.0.0"
     multiDexEnabled = true
 
@@ -63,6 +85,9 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
+      // Keep resource shrinking explicitly disabled for 3.0.0. R8 remains enabled; introducing
+      // resource removal after the final functional certification would create a new release variable.
+      isShrinkResources = false
       // Release is intentionally minified so every normal release certification executes R8 and
       // validates the checked-in shrinker rules instead of merely selecting them by path.
       isMinifyEnabled = true
