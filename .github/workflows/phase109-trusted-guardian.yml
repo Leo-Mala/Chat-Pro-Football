@@ -66,13 +66,14 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.sha }}'
           test -s .github/scripts/phase109_guardian.py
+          test -s .github/scripts/phase109_guardian_v2.py
           test -s .github/scripts/phase109_trusted_contract.py
 
       - name: Validate completed certification without executing candidate code
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian.py validate-run \
+          python3 .github/scripts/phase109_guardian_v2.py validate-run \
             --root . \
             --repo "$GH_REPO" \
             --token "$GH_TOKEN" \
@@ -84,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian.py publish-status \
+          python3 .github/scripts/phase109_guardian_v2.py publish-status \
             --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
             --state success \
             --description 'trusted default-branch certification accepted' \
@@ -95,8 +96,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s .github/scripts/phase109_guardian.py ]; then
-            python3 .github/scripts/phase109_guardian.py publish-status \
+          if [ -s .github/scripts/phase109_guardian_v2.py ]; then
+            python3 .github/scripts/phase109_guardian_v2.py publish-status \
               --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
               --state failure \
               --description 'trusted default-branch certification rejected' \
@@ -126,10 +127,10 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$MAIN_SHA"
           test '${{ github.ref }}' = 'refs/heads/main'
-      - name: Invalidate successful guardian statuses tied to an older main
+      - name: Invalidate all open PR certifications after main advances
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian.py invalidate-open-prs \
+          python3 .github/scripts/phase109_guardian_v2.py invalidate-open-prs \
             --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
             --target-url "$GUARDIAN_RUN_URL"
