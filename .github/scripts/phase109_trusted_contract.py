@@ -20,6 +20,7 @@ BOOTSTRAP_BASE_SHA = "f9980ead5ffdb7c6504b714cde56e4e5f16d5fff"
 REQUIRED_WORKFLOW = ".github/workflows/phase109-required-certification.yml"
 CONTRACT_PATH = ".github/scripts/phase109_trusted_contract.py"
 PINNED_EMULATOR_RUNNER = "reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
+MANDATORY_TEST_SOURCE_ANCHOR = "236e40691ddd4dd4e3221fec4ef6e24f491bc26e"
 
 
 @dataclass
@@ -76,6 +77,15 @@ BASE_RUN_RULES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 }
 
 CANDIDATE_RUN_RULES = (
+    RunRule(
+        "policy-scope",
+        "Audit permanent CI policy, trusted executable contract and Room migration policy",
+        (
+            'git diff --exit-code "$base"...HEAD -- app/src/main/assets/football/fc26',
+            f"git diff --exit-code {MANDATORY_TEST_SOURCE_ANCHOR}..HEAD -- app/src/test app/src/androidTest",
+        ),
+        ("git",),
+    ),
     RunRule("jvm-build", "Run European bulk importer tests", ("-m unittest discover -s tools/europe_importer/tests -t .",), ("python3",)),
     RunRule("jvm-build", "Release Variant Startup Smoke", ("testReleaseUnitTest", "--tests com.example.StartupSmokeTest", "--stacktrace"), ("./gradlew",)),
     RunRule("jvm-build", "Core Regression", ("testDebugUnitTest", "-PexcludeStressTests=true", "--stacktrace"), ("./gradlew",)),
@@ -207,6 +217,13 @@ def validate_control_flow(step: Step, rule: RunRule) -> None:
     if not controls:
         return
     allowed: dict[tuple[str, str], list[str]] = {
+        ("policy-scope", "Audit permanent CI policy, trusted executable contract and Room migration policy"): [
+            'if [ "${{ github.event_name }}" = "pull_request" ]; then', "else", "fi",
+            'if git cat-file -e "$base:$contract_path" 2>/dev/null; then', "else", "fi",
+        ],
+        ("ui-golden", "Render and compare critical UI"): [
+            "for name in main_menu.png saves_empty.png saves_existing.png; do",
+        ],
         ("performance", "Measure full-scale exact-head rollover"): [
             'if [ "$PHASE108_PROFILE" = constrained ]; then', "else", "fi"
         ],
@@ -352,7 +369,7 @@ def main() -> int:
     try:
         if args.command == "self-test":
             self_test()
-            print(json.dumps({"status": "PASS", "negativeCases": 7, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER}, sort_keys=True))
+            print(json.dumps({"status": "PASS", "negativeCases": 7, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR}, sort_keys=True))
         else:
             root = Path(args.root).resolve(); result = verify(root, args.base_sha, root / args.workflow)
             print(json.dumps({"status": "PASS", **result}, indent=2, sort_keys=True))
