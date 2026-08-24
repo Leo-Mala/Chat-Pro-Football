@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,59 @@ PERF_LIMITS = {
     "walAfterTruncate": 1_048_576,
 }
 
+# These markers are not invented by the Phase 10.9 candidate. Each one must exist in the
+# named workflow at the trusted base commit *and* in the candidate permanent workflow. This
+# prevents a PR from silently deleting a required test invocation while keeping a green job
+# name. The trusted definitions are read with `git show <base-sha>:<path>` outside HEAD.
+TRUSTED_WORKFLOW_MARKERS: dict[str, tuple[str, ...]] = {
+    ".github/workflows/core-regression.yml": (
+        "./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace",
+    ),
+    ".github/workflows/migration-safety.yml": (
+        "com.example.SaveSlotIsolationTest",
+        "com.example.migrations.MigrationSafetyTest",
+        "com.example.migrations.MigrationCompatibilityTest",
+    ),
+    ".github/workflows/release-variant-smoke.yml": (
+        "com.example.StartupSmokeTest",
+    ),
+    ".github/workflows/long-horizon-stress.yml": (
+        "com.example.TwentySeasonStressTest",
+        "com.example.OneHundredSeasonMatchByMatchStressTest",
+    ),
+    ".github/workflows/phase105-ui-golden-regression.yml": (
+        "com.example.MainMenuScreenshotTest",
+        "com.example.SavesScreenshotTest",
+        "com.example.Phase105CriticalUiGoldenTest",
+        "com.example.Phase105AccessibilityAndResilienceTest",
+    ),
+    ".github/workflows/phase107-android-instrumented.yml": (
+        ".github/scripts/phase107_emulator_gate.sh",
+        "assembleDebug assembleDebugAndroidTest",
+        "assembleRelease assembleReleaseAndroidTest bundleRelease",
+    ),
+    ".github/workflows/phase108-full-scale-rollover-performance.yml": (
+        "com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest",
+        "--no-build-cache",
+        "--rerun-tasks",
+    ),
+    ".github/workflows/android.yml": (
+        "tools/fc26/validate_fc26.py",
+        "com.example.data.Fc26FullSeedIntegrationTest",
+        "com.example.data.GlobalMainAuditPerformanceStressTest",
+    ),
+}
+
+CANDIDATE_ONLY_REQUIRED_MARKERS = (
+    "com.example.GamePreferencesRestoreSafetyTest",
+    "com.example.BackupRestoreRoundTripTest",
+    "com.example.Phase106*",
+    "git diff --exit-code -- app/schemas",
+    "phase109_policy.py validate-fc26",
+    "phase109_policy.py validate-room",
+    "phase109_policy.py validate-performance",
+)
+
 
 def fail(message: str) -> None:
     raise ValueError(message)
@@ -45,6 +99,82 @@ def fail(message: str) -> None:
 def require(condition: bool, message: str) -> None:
     if not condition:
         fail(message)
+
+
+def git_text(root: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    require(completed.returncode == 0, f"git {' '.join(args)} failed: {completed.stderr.strip()}")
+    return completed.stdout.strip()
+
+
+def resolve_trusted_base_sha(root: Path) -> str:
+    explicit = os.environ.get("PHASE109_TRUSTED_BASE_SHA", "").strip()
+    if explicit:
+        return git_text(root, "rev-parse", "--verify", f"{explicit}^{{commit}}")
+
+    base_ref = os.environ.get("GITHUB_BASE_REF", "").strip()
+    if base_ref:
+        # checkout@v6 with fetch-depth: 0 materializes the pull-request base. Prefer the
+        # remote-tracking ref so the source is outside the candidate HEAD.
+        for candidate in (f"refs/remotes/origin/{base_ref}", f"origin/{base_ref}", base_ref):
+            completed = subprocess.run(
+                ["git", "rev-parse", "--verify", f"{candidate}^{{commit}}"],
+                cwd=root,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if completed.returncode == 0:
+                return completed.stdout.strip()
+        fail(f"Could not resolve trusted pull-request base ref: {base_ref}")
+
+    # workflow_dispatch has no GITHUB_BASE_REF. The parent is the conservative trusted
+    # reference for a manually dispatched candidate commit.
+    return git_text(root, "rev-parse", "--verify", "HEAD^{commit}^")
+
+
+def trusted_file_text(root: Path, trusted_sha: str, path: str) -> str:
+    return git_text(root, "show", f"{trusted_sha}:{path}")
+
+
+def validate_required_marker_contract(required: str, trusted_sources: dict[str, str]) -> int:
+    marker_count = 0
+    for path, markers in TRUSTED_WORKFLOW_MARKERS.items():
+        trusted = trusted_sources.get(path)
+        require(trusted is not None, f"Trusted workflow source missing: {path}")
+        for marker in markers:
+            require(marker in trusted, f"Trusted base no longer proves required marker in {path}: {marker}")
+            require(marker in required, f"Candidate required workflow removed trusted invocation: {marker}")
+            marker_count += 1
+    for marker in CANDIDATE_ONLY_REQUIRED_MARKERS:
+        require(marker in required, f"Candidate required workflow removed Phase 10.9 safeguard: {marker}")
+        marker_count += 1
+    return marker_count
+
+
+def validate_required_workflow_against_trusted_base(root: Path, required: str) -> dict[str, Any]:
+    trusted_sha = resolve_trusted_base_sha(root)
+    candidate_sha = git_text(root, "rev-parse", "HEAD^{commit}")
+    require(trusted_sha != candidate_sha, "Trusted CI definition must be outside the candidate HEAD")
+    trusted_sources = {
+        path: trusted_file_text(root, trusted_sha, path)
+        for path in TRUSTED_WORKFLOW_MARKERS
+    }
+    marker_count = validate_required_marker_contract(required, trusted_sources)
+    return {
+        "trustedBaseSha": trusted_sha,
+        "candidateSha": candidate_sha,
+        "trustedWorkflowCount": len(trusted_sources),
+        "requiredMarkerCount": marker_count,
+    }
 
 
 def parse_database_versions(source: str) -> tuple[int, int]:
@@ -233,7 +363,23 @@ def self_test() -> None:
     reject_case("save recovery failure", lambda: evaluate_required_results(all_scopes, {**all_success, "jvm": "failure"}))
     reject_case("Release build failure", lambda: evaluate_required_results(all_scopes, {**all_success, "release": "failure"}))
     reject_case("Android instrumented failure", lambda: evaluate_required_results(all_scopes, {**all_success, "instrumented": "failure"}))
-    print("Phase 10.9 negative fail-closed scenarios: PASS (9/9 rejected as expected)")
+
+    trusted = {
+        path: "\n".join(markers)
+        for path, markers in TRUSTED_WORKFLOW_MARKERS.items()
+    }
+    candidate = "\n".join(
+        marker
+        for markers in TRUSTED_WORKFLOW_MARKERS.values()
+        for marker in markers
+    ) + "\n" + "\n".join(CANDIDATE_ONLY_REQUIRED_MARKERS)
+    validate_required_marker_contract(candidate, trusted)
+    core_marker = TRUSTED_WORKFLOW_MARKERS[".github/workflows/core-regression.yml"][0]
+    reject_case(
+        "required workflow command removal",
+        lambda: validate_required_marker_contract(candidate.replace(core_marker, "", 1), trusted),
+    )
+    print("Phase 10.9 negative fail-closed scenarios: PASS (10/10 rejected as expected)")
 
 
 def audit_repository(root: Path) -> dict[str, Any]:
@@ -266,11 +412,13 @@ def audit_repository(root: Path) -> dict[str, Any]:
     require("git ls-remote origin" in required,
             "Final certification must re-check the audited base branch before success")
 
+    trusted_contract = validate_required_workflow_against_trusted_base(root, required)
     room = validate_room_repository(root)
     return {
         "workflowCount": len(workflows),
         "pullRequestTarget": False,
         "requiredWorkflow": str(required_path.relative_to(root)),
+        "trustedWorkflowContract": trusted_contract,
         "room": room,
     }
 
