@@ -10,3 +10,7 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 -keep class androidx.tracing.** { *; }
+
+# Lifecycle classes cross the target/test APK boundary. Preserve the same ABI in this separately
+# minified instrumentation APK to avoid cross-APK constructor/method renaming mismatches.
+-keep class androidx.lifecycle.** { *; }
