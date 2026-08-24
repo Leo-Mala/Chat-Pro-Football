@@ -11,6 +11,8 @@
 -keep class kotlinx.coroutines.** { *; }
 -keep class androidx.tracing.** { *; }
 
-# Lifecycle classes cross the target/test APK boundary. Preserve the same ABI in this separately
-# minified instrumentation APK to avoid cross-APK constructor/method renaming mismatches.
+# Lifecycle and Compose UI classes cross the target/test APK boundary. Preserve the same ABI in
+# this separately minified instrumentation APK to avoid removed/renamed constructors, methods or
+# runtime policy classes referenced by Compose test rules.
 -keep class androidx.lifecycle.** { *; }
+-keep class androidx.compose.ui.** { *; }
