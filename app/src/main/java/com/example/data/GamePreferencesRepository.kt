@@ -34,6 +34,7 @@ class GamePreferencesRepository @Inject constructor(
         private val WATCHLIST_KEY = stringSetPreferencesKey("watchlist_players")
         private const val TAG = "GamePreferencesRepo"
         private const val MAX_RECONCILIATION_RETRIES = 3
+        private const val MAX_RECONCILIATION_FAILURE_ATTEMPTS = 4
         private const val INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS = 50L
         private const val MAX_RECONCILIATION_FAILURE_BACKOFF_MS = 1000L
     }
@@ -114,12 +115,14 @@ class GamePreferencesRepository @Inject constructor(
      * do StateFlow; se outra reconciliação ou mutação externa começar antes da publicação, a
      * factory especializada do ViewModel rejeita este snapshot antigo.
      *
-     * Se a operação que possui a geração mais nova falhar antes de publicar, ela não abandona a
-     * UI em estado de loading: uma nova geração é reservada e a reconciliação é repetida com
-     * backoff limitado. Cancelamento continua sendo propagado imediatamente.
+     * Se a operação que possui a geração mais nova falhar antes de publicar, uma nova geração é
+     * reservada e a reconciliação é repetida com backoff limitado. Falhas permanentes têm orçamento
+     * finito e são propagadas para que callers saiam do estado busy/loading em vez de repetir para
+     * sempre. Cancelamento continua sendo propagado imediatamente.
      */
     suspend fun loadSaveSlots(): List<SaveSlotMetadata> {
         var backoffMs = INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS
+        var failureAttempts = 0
         while (true) {
             val publicationGeneration = SaveSlotsPublicationClock.reserve()
             try {
@@ -128,7 +131,18 @@ class GamePreferencesRepository @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Falha ao reconciliar slots na geração $publicationGeneration; repetindo com segurança", e)
+                failureAttempts += 1
+                Log.e(
+                    TAG,
+                    "Falha ao reconciliar slots na geração $publicationGeneration; tentativa $failureAttempts/$MAX_RECONCILIATION_FAILURE_ATTEMPTS",
+                    e
+                )
+                if (failureAttempts >= MAX_RECONCILIATION_FAILURE_ATTEMPTS) {
+                    throw IllegalStateException(
+                        "Falha persistente ao reconciliar os slots após $failureAttempts tentativas; estado permanece bloqueado até nova leitura",
+                        e
+                    )
+                }
                 delay(backoffMs)
                 backoffMs = (backoffMs * 2L).coerceAtMost(MAX_RECONCILIATION_FAILURE_BACKOFF_MS)
             }
@@ -139,8 +153,6 @@ class GamePreferencesRepository @Inject constructor(
         val saveIds = (1..5).map(Int::toString)
         val projected = saveIds.map { saveId -> reconcileSlot(saveId) }
 
-        // Última barreira global antes de devolver a lista ao StateFlow da UI. Nenhum efeito de
-        // metadata ocorre depois desta varredura quando todos os snapshots continuam coerentes.
         val finalInspections = saveIds.map { saveId -> saveRepository.inspectSlot(saveId) }
         val stable = projected.indices.all { index ->
             projectionMatchesInspection(projected[index], finalInspections[index])
@@ -206,8 +218,6 @@ class GamePreferencesRepository @Inject constructor(
         SlotDatabaseState.EMPTY -> {
             if (stored.exists) {
                 try {
-                    // Reconstrução/saneamento interno pertence à mesma geração desta leitura e não
-                    // deve invalidar o próprio snapshot que está sendo reconciliado.
                     removeSlotMetadataProjection(saveId)
                 } catch (e: CancellationException) {
                     throw e
@@ -330,11 +340,6 @@ class GamePreferencesRepository @Inject constructor(
             week == authoritative.week &&
             balance == authoritative.balance
 
-    /**
-     * Mutação solicitada por um caller externo invalida snapshots que já retornaram mas ainda não
-     * chegaram ao setter do StateFlow. A persistência interna usada pela própria reconciliação não
-     * passa por esta fronteira para não invalidar o snapshot que ela está reconstruindo.
-     */
     suspend fun updateSlotMetadata(
         saveId: String,
         coachName: String,
