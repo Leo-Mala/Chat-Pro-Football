@@ -13,11 +13,9 @@ permissions:
   pull-requests: read
   statuses: write
 
-# All validation and main-advance invalidation runs share one serialized queue. A main push can
-# therefore never race a stale workflow_run success to leave the trusted context green.
-concurrency:
-  group: phase-10-9-trusted-guardian-main
-  cancel-in-progress: false
+# Deliberately no concurrency group: GitHub concurrency keeps at most one pending run and could
+# evict a queued main-push invalidator. Every workflow_run validation performs its own all-PR
+# invalidation sweep before the single validated HEAD is allowed to return to success.
 
 jobs:
   validate-required-run:
@@ -62,20 +60,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify trusted guardian revision
+      - name: Verify trusted guardian revision and self-test V3
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.sha }}'
           test -s .github/scripts/phase109_guardian.py
-          test -s .github/scripts/phase109_guardian_v2.py
+          test -s .github/scripts/phase109_guardian_v3.py
           test -s .github/scripts/phase109_trusted_contract.py
+          python3 .github/scripts/phase109_guardian_v3.py self-test
 
       - name: Validate completed certification without executing candidate code
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v2.py validate-run \
+          python3 .github/scripts/phase109_guardian_v3.py validate-run \
             --root . \
             --repo "$GH_REPO" \
             --token "$GH_TOKEN" \
@@ -87,7 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v2.py publish-status \
+          python3 .github/scripts/phase109_guardian_v3.py publish-status \
             --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
             --state success \
             --description 'trusted default-branch certification accepted' \
@@ -98,8 +97,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -s .github/scripts/phase109_guardian_v2.py ]; then
-            python3 .github/scripts/phase109_guardian_v2.py publish-status \
+          if [ -s .github/scripts/phase109_guardian_v3.py ]; then
+            python3 .github/scripts/phase109_guardian_v3.py publish-status \
               --repo "$GH_REPO" --token "$GH_TOKEN" --sha "$TARGET_HEAD_SHA" \
               --state failure \
               --description 'trusted default-branch certification rejected' \
@@ -133,6 +132,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase109_guardian_v2.py invalidate-open-prs \
+          python3 .github/scripts/phase109_guardian_v3.py invalidate-open-prs \
             --repo "$GH_REPO" --token "$GH_TOKEN" --main-sha "$MAIN_SHA" \
             --target-url "$GUARDIAN_RUN_URL"
