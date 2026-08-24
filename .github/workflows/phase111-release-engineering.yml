@@ -1,0 +1,424 @@
+name: Phase 11.1 Release Engineering
+
+on:
+  workflow_run:
+    workflows: ["Phase 10.9 Trusted Guardian"]
+    types: [completed]
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-11-1-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-readiness:
+    name: Production-ready delivery bundle
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact certified main SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+
+      - name: Verify exact certified source and release policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          python3 .github/scripts/phase111_release.py self-test
+          python3 .github/scripts/phase111_release.py verify-project
+
+      - name: Verify Required Certification and Trusted Guardian on exact SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-out
+          python3 .github/scripts/phase111_release.py certification-evidence \
+            --sha "$RELEASE_SHA" \
+            --output release-out/test-report.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup isolated Debug and validation-only Release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          keytool -genkeypair \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname 'CN=Android Debug,O=CI,C=BR' >/dev/null 2>&1
+
+          release_keystore="$RUNNER_TEMP/phase111-validation-release.jks"
+          keytool -genkeypair \
+            -keystore "$release_keystore" \
+            -storepass ci-validation-only \
+            -alias ci-validation \
+            -keypass ci-validation-only \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 30 \
+            -dname 'CN=Pro Football Phase 11.1 Validation,O=CI,C=BR' >/dev/null 2>&1
+
+          {
+            echo "KEYSTORE_PATH=$release_keystore"
+            echo "STORE_PASSWORD=ci-validation-only"
+            echo "KEY_ALIAS=ci-validation"
+            echo "KEY_PASSWORD=ci-validation-only"
+          } >> "$GITHUB_ENV"
+
+      - name: Build exact-head Debug, Release APK and Release AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --version
+          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath > release-out/release-dependencies.txt
+
+      - name: Materialize release-engineering artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          mapping=app/build/outputs/mapping/release/mapping.txt
+          schema=app/schemas/com.example.data.AppDatabase/22.json
+          test -n "$release_apk"
+          test -n "$release_aab"
+          test -s "$mapping"
+          test -s "$schema"
+
+          cp "$release_apk" release-out/Pro-Football-3.0.0-vc31-validation.apk
+          cp "$release_aab" release-out/Pro-Football-3.0.0-vc31-validation.aab
+          cp "$mapping" release-out/mapping.txt
+          cp "$schema" release-out/room-schema-v22.json
+          cp docs/releases/3.0.0/RELEASE_NOTES.md release-out/RELEASE_NOTES.md
+          cp docs/releases/3.0.0/TECHNICAL_CHANGELOG.md release-out/TECHNICAL_CHANGELOG.md
+          cp docs/releases/3.0.0/ROLLBACK.md release-out/ROLLBACK.md
+
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          {
+            echo "classification=VALIDATION_ONLY_NOT_FOR_STORE"
+            "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.0-vc31-validation.apk
+            echo "AAB jarsigner verification:"
+            jarsigner -verify -strict release-out/Pro-Football-3.0.0-vc31-validation.aab
+          } > release-out/signing-report.txt
+
+          cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}' release-out/signing-report.txt)
+          test -n "$cert_sha256"
+          echo "VALIDATION_CERT_SHA256=$cert_sha256" >> "$GITHUB_ENV"
+
+          python3 .github/scripts/phase111_release.py sbom \
+            --dependencies release-out/release-dependencies.txt \
+            --output release-out/sbom.cyclonedx.json
+
+      - name: Generate exact-head provenance and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          jdk_version=$(java -version 2>&1 | head -n 1)
+          python3 .github/scripts/phase111_release.py manifest \
+            --mode validation \
+            --output release-out/provenance.json \
+            --artifact apk=release-out/Pro-Football-3.0.0-vc31-validation.apk \
+            --artifact aab=release-out/Pro-Football-3.0.0-vc31-validation.aab \
+            --artifact mapping=release-out/mapping.txt \
+            --artifact roomSchema=release-out/room-schema-v22.json \
+            --artifact dependencies=release-out/release-dependencies.txt \
+            --artifact sbom=release-out/sbom.cyclonedx.json \
+            --artifact signingReport=release-out/signing-report.txt \
+            --artifact testReport=release-out/test-report.json \
+            --artifact releaseNotes=release-out/RELEASE_NOTES.md \
+            --artifact technicalChangelog=release-out/TECHNICAL_CHANGELOG.md \
+            --artifact rollback=release-out/ROLLBACK.md \
+            --signing-cert-sha256 "$VALIDATION_CERT_SHA256" \
+            --evidence release-out/test-report.json \
+            --release-ref "refs/heads/main" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-run-attempt "${{ github.run_attempt }}" \
+            --jdk-version "$jdk_version"
+
+          (
+            cd release-out
+            find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' |
+              LC_ALL=C sort |
+              while IFS= read -r file; do sha256sum "$file"; done > SHA256SUMS.txt
+          )
+          test -s release-out/SHA256SUMS.txt
+
+      - name: Upload exact-head delivery bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-11-1-delivery-${{ env.RELEASE_SHA }}
+          path: release-out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove validation signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "${KEYSTORE_PATH:-}"
+
+  production-release:
+    name: Production-signed immutable GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      PRODUCTION_KEYSTORE_BASE64: ${{ secrets.PRODUCTION_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.PRODUCTION_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.PRODUCTION_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.PRODUCTION_KEY_PASSWORD }}
+      PRODUCTION_SIGNING_CERT_SHA256: ${{ secrets.PRODUCTION_SIGNING_CERT_SHA256 }}
+    steps:
+      - name: Checkout exact immutable release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve and verify exact release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha=$(git rev-parse HEAD^{commit})
+          release_tree=$(git rev-parse HEAD^{tree})
+          test -n "$release_sha"
+          test -n "$release_tree"
+          echo "RELEASE_SHA=$release_sha" >> "$GITHUB_ENV"
+          echo "RELEASE_TREE=$release_tree" >> "$GITHUB_ENV"
+
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$release_sha" origin/main
+
+          version_name=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("app/build.gradle.kts").read_text()
+          match = re.search(r'\bversionName\s*=\s*"([^"]+)"', text)
+          if not match:
+              raise SystemExit("versionName not found")
+          print(match.group(1))
+          PY
+          )
+          actual_tag="${GITHUB_REF#refs/tags/}"
+          test "$actual_tag" = "v$version_name"
+
+          python3 .github/scripts/phase111_release.py self-test
+          python3 .github/scripts/phase111_release.py verify-project
+
+      - name: Verify Required Certification and Trusted Guardian on exact SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-out
+          python3 .github/scripts/phase111_release.py certification-evidence \
+            --sha "$RELEASE_SHA" \
+            --output release-out/test-report.json
+
+      - name: Require controlled production signing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_KEYSTORE_BASE64"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          test -n "$PRODUCTION_SIGNING_CERT_SHA256"
+
+          release_keystore="$RUNNER_TEMP/pro-football-production-upload.jks"
+          printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"
+          chmod 600 "$release_keystore"
+          test -s "$release_keystore"
+          echo "KEYSTORE_PATH=$release_keystore" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup isolated Debug signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          keytool -genkeypair \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname 'CN=Android Debug,O=CI,C=BR' >/dev/null 2>&1
+
+      - name: Build production-signed exact-head APK and AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --version
+          ./gradlew assembleDebug assembleRelease bundleRelease -PrequireProductionSigning=true --stacktrace
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest -PrequireProductionSigning=true --stacktrace
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath > release-out/release-dependencies.txt
+
+      - name: Verify signing identity and materialize release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          mapping=app/build/outputs/mapping/release/mapping.txt
+          schema=app/schemas/com.example.data.AppDatabase/22.json
+          test -n "$release_apk"
+          test -n "$release_aab"
+          test -s "$mapping"
+          test -s "$schema"
+
+          cp "$release_apk" release-out/Pro-Football-3.0.0-vc31.apk
+          cp "$release_aab" release-out/Pro-Football-3.0.0-vc31.aab
+          cp "$mapping" release-out/mapping.txt
+          cp "$schema" release-out/room-schema-v22.json
+          cp docs/releases/3.0.0/RELEASE_NOTES.md release-out/RELEASE_NOTES.md
+          cp docs/releases/3.0.0/TECHNICAL_CHANGELOG.md release-out/TECHNICAL_CHANGELOG.md
+          cp docs/releases/3.0.0/ROLLBACK.md release-out/ROLLBACK.md
+
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          {
+            echo "classification=PRODUCTION_SIGNED"
+            "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.0-vc31.apk
+            echo "AAB jarsigner verification:"
+            jarsigner -verify -strict release-out/Pro-Football-3.0.0-vc31.aab
+          } > release-out/signing-report.txt
+
+          cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}' release-out/signing-report.txt)
+          test -n "$cert_sha256"
+          actual=$(printf '%s' "$cert_sha256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          expected=$(printf '%s' "$PRODUCTION_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:lower:]' '[:upper:]')
+          test "${#actual}" -eq 64
+          test "$actual" = "$expected"
+          echo "PRODUCTION_CERT_SHA256=$actual" >> "$GITHUB_ENV"
+
+          python3 .github/scripts/phase111_release.py sbom \
+            --dependencies release-out/release-dependencies.txt \
+            --output release-out/sbom.cyclonedx.json
+
+      - name: Generate production provenance and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          jdk_version=$(java -version 2>&1 | head -n 1)
+          python3 .github/scripts/phase111_release.py manifest \
+            --mode production \
+            --output release-out/provenance.json \
+            --artifact apk=release-out/Pro-Football-3.0.0-vc31.apk \
+            --artifact aab=release-out/Pro-Football-3.0.0-vc31.aab \
+            --artifact mapping=release-out/mapping.txt \
+            --artifact roomSchema=release-out/room-schema-v22.json \
+            --artifact dependencies=release-out/release-dependencies.txt \
+            --artifact sbom=release-out/sbom.cyclonedx.json \
+            --artifact signingReport=release-out/signing-report.txt \
+            --artifact testReport=release-out/test-report.json \
+            --artifact releaseNotes=release-out/RELEASE_NOTES.md \
+            --artifact technicalChangelog=release-out/TECHNICAL_CHANGELOG.md \
+            --artifact rollback=release-out/ROLLBACK.md \
+            --signing-cert-sha256 "$PRODUCTION_CERT_SHA256" \
+            --evidence release-out/test-report.json \
+            --release-ref "$GITHUB_REF" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-run-attempt "${{ github.run_attempt }}" \
+            --jdk-version "$jdk_version"
+
+          (
+            cd release-out
+            find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' |
+              LC_ALL=C sort |
+              while IFS= read -r file; do sha256sum "$file"; done > SHA256SUMS.txt
+          )
+          test -s release-out/SHA256SUMS.txt
+
+      - name: Publish immutable GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release already exists for $tag; refusing overwrite."
+            exit 1
+          fi
+          gh release create "$tag" \
+            release-out/Pro-Football-3.0.0-vc31.apk \
+            release-out/Pro-Football-3.0.0-vc31.aab \
+            release-out/mapping.txt \
+            release-out/room-schema-v22.json \
+            release-out/release-dependencies.txt \
+            release-out/sbom.cyclonedx.json \
+            release-out/signing-report.txt \
+            release-out/test-report.json \
+            release-out/provenance.json \
+            release-out/SHA256SUMS.txt \
+            release-out/TECHNICAL_CHANGELOG.md \
+            release-out/ROLLBACK.md \
+            --verify-tag \
+            --title "Pro Football 3.0.0" \
+            --notes-file release-out/RELEASE_NOTES.md
+
+      - name: Upload production release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-11-1-production-${{ env.RELEASE_SHA }}
+          path: release-out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove production signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "${KEYSTORE_PATH:-}"

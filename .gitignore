@@ -19,6 +19,9 @@ local.properties
 /tmp/
 assets/.aistudio/
 debug.keystore
+*.jks
+*.keystore
+app/google-services.json
 tools/europe_importer/.cache/
 # Local source snapshots / detailed eFootball identity derivatives.
 PlayersDB_*.csv
