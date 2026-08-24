@@ -21,37 +21,40 @@ class Phase107MigrationInstrumentedTest {
     )
 
     @Test
-    fun previousSchemaMigratesToCurrentSchemaOnRealAndroidSQLite() {
+    fun everySupportedSchemaMigratesToCurrentSchemaOnRealAndroidSQLite() {
         val currentVersion = APP_DATABASE_SCHEMA_VERSION
-        val previousVersion = currentVersion - 1
-        val databaseName = "current_android_migration_${previousVersion}_${currentVersion}.db"
+        val minimumVersion = AppDatabase.MINIMUM_AUTOMATICALLY_MIGRATABLE_VERSION
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        context.deleteDatabase(databaseName)
+        assertTrue(minimumVersion < currentVersion)
 
-        try {
-            migrationHelper.createDatabase(databaseName, previousVersion).close()
-
-            val migrated = migrationHelper.runMigrationsAndValidate(
-                databaseName,
-                currentVersion,
-                true,
-                *AppDatabase.ALL_MIGRATIONS
-            )
+        for (startVersion in minimumVersion until currentVersion) {
+            val databaseName = "supported_android_migration_${startVersion}_${currentVersion}.db"
+            context.deleteDatabase(databaseName)
             try {
-                val userVersion = migrated.query("PRAGMA user_version").use { cursor ->
-                    assertTrue(cursor.moveToFirst())
-                    cursor.getInt(0)
-                }
-                assertEquals(currentVersion, userVersion)
-                migrated.query("PRAGMA integrity_check").use { cursor ->
-                    assertTrue(cursor.moveToFirst())
-                    assertEquals("ok", cursor.getString(0))
+                migrationHelper.createDatabase(databaseName, startVersion).close()
+
+                val migrated = migrationHelper.runMigrationsAndValidate(
+                    databaseName,
+                    currentVersion,
+                    true,
+                    *AppDatabase.ALL_MIGRATIONS
+                )
+                try {
+                    val userVersion = migrated.query("PRAGMA user_version").use { cursor ->
+                        assertTrue(cursor.moveToFirst())
+                        cursor.getInt(0)
+                    }
+                    assertEquals(currentVersion, userVersion)
+                    migrated.query("PRAGMA integrity_check").use { cursor ->
+                        assertTrue(cursor.moveToFirst())
+                        assertEquals("ok", cursor.getString(0))
+                    }
+                } finally {
+                    migrated.close()
                 }
             } finally {
-                migrated.close()
+                context.deleteDatabase(databaseName)
             }
-        } finally {
-            context.deleteDatabase(databaseName)
         }
     }
 }
