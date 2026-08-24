@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GamePreferencesRepository
@@ -23,6 +24,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -81,6 +83,7 @@ class Phase106SameSlotReopenFailureTest {
 
         withTimeout(5_000) {
             while (viewModel.currentSaveId.value != null || viewModel.activeSaveSession.value != null) {
+                shadowOf(Looper.getMainLooper()).idle()
                 delay(10)
             }
         }
@@ -91,6 +94,7 @@ class Phase106SameSlotReopenFailureTest {
 
         withTimeout(5_000) {
             while (viewModel.saveSlots.value.firstOrNull { it.id == "1" }?.recoveryRequired != true) {
+                shadowOf(Looper.getMainLooper()).idle()
                 delay(10)
             }
         }
