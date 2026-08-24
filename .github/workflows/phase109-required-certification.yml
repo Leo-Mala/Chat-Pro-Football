@@ -56,13 +56,14 @@ jobs:
           test -n "$base"
           git fetch --no-tags origin "$base"
           git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
 
           contract_path='.github/scripts/phase109_trusted_contract.py'
           if git cat-file -e "$base:$contract_path" 2>/dev/null; then
             contract_source="$base"
           else
             test "$base" = 'f9980ead5ffdb7c6504b714cde56e4e5f16d5fff'
-            contract_source='7497be678d69fdc2b3b69e9982ad4ce13dc4cdc6'
+            contract_source='4c6d7b6d03aa970c904ac9d80ae5d961f538f345'
             git cat-file -e "$contract_source^{commit}"
           fi
           git show "$contract_source:$contract_path" > "$RUNNER_TEMP/phase109_trusted_contract.py"
@@ -84,6 +85,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base='${{ github.event.pull_request.base.sha }}'
             git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
             git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
             force_all=false
           else
@@ -91,6 +93,7 @@ jobs:
             test -n "$base"
             git fetch --no-tags origin "$base"
             git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
             git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
             force_all=true
           fi
@@ -104,12 +107,12 @@ jobs:
           force_all = sys.argv[3].lower() == 'true'
           def any_match(patterns):
               return any(any(re.search(p, path) for p in patterns) for path in changed)
-          # Gradle can execute buildSrc, convention-plugin sources and included-build source trees
-          # before the app project is configured. Treat those files as mandatory build inputs rather
-          # than allowing a generic build-logic change to skip every certification component.
+          # Every Gradle module/source tree can influence compilation, resources, manifests or
+          # convention plugins. Over-certify generic src/ changes rather than risk skipping a
+          # release-only/flavor/included-build input.
           infra = [r'^\.github/(workflows|scripts)/', r'(^|/)(?:build|settings)\.gradle(?:\.kts)?$',
                    r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$', r'^app/build\.gradle\.kts$',
-                   r'^(?:buildSrc|build-logic)/', r'(^|/)src/main/(?:kotlin|java)/']
+                   r'^(?:buildSrc|build-logic)/', r'(^|/)src/']
           app = [r'^app/src/', r'^app/schemas/', r'^tools/', r'^metadata\.json$',
                  r'^reports/fc26_', r'^reports/phase_10_8_']
           if force_all:
@@ -119,7 +122,7 @@ jobs:
                   jvm=any_match(infra + app),
                   stress=any_match(infra + [r'^app/src/', r'^tools/fc26/', r'^app/schemas/']),
                   release=any_match(infra + [r'^app/src/']),
-                  ui=any_match(infra + [r'^app/src/main/', r'^app/src/test/screenshots/', r'^app/src/test/java/com/example/(MainMenuScreenshot|SavesScreenshot|Phase105)']),
+                  ui=any_match(infra + [r'^app/src/', r'^app/src/test/screenshots/', r'^app/src/test/java/com/example/(MainMenuScreenshot|SavesScreenshot|Phase105)']),
                   performance=any_match(infra + app),
                   instrumented=any_match(infra + [r'^app/src/', r'^app/schemas/', r'^tools/fc26/']),
               )
@@ -531,7 +534,7 @@ jobs:
             ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
           fi
       - name: Execute installed Android certification
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.api }}
           target: google_apis
