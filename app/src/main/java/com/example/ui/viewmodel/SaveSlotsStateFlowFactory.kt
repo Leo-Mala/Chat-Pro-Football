@@ -11,11 +11,10 @@ import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
  * MutableStateFlow continuam usando a factory padrão do kotlinx.coroutines.
  *
  * Nenhum slot desconhecido é anunciado como vazio no startup: o delegate começa exatamente com o
- * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). O primeiro
- * snapshot concretamente reconciliado pode ser publicado mesmo se outra reconciliação tiver
- * reservado a geração logo depois, porque ainda não existe estado concreto anterior para a UI.
- * Depois da primeira publicação concreta, somente a geração atualmente reservada pode substituir o
- * estado, mantendo o fail-closed contra snapshots antigos após mutações/reconciliações posteriores.
+ * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). Toda publicação
+ * concretamente reconciliada, inclusive a primeira, precisa corresponder à geração atualmente
+ * reservada. Assim uma mutação de metadata ocorrida enquanto o primeiro load estava em voo nunca
+ * permite que um snapshot já invalidado se torne visível.
  */
 @Suppress("FunctionName")
 internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): KotlinMutableStateFlow<T> {
@@ -29,11 +28,6 @@ private class SaveSlotsPublicationStateFlow<T : List<SaveSlotMetadata>>(
 
     private fun isCurrent(candidate: T): Boolean {
         val snapshot = candidate as? SaveSlotsSnapshot ?: return true
-        val currentValue = delegate.value
-        // Estado vazio inicial significa "ainda não carregado", não "slots vazios". Aceitar o
-        // primeiro resultado reconciliado evita que duas leituras concorrentes deixem a UI sem
-        // qualquer slot concreto; as publicações seguintes continuam estritamente geracionais.
-        if (currentValue.isEmpty() && currentValue !is SaveSlotsSnapshot) return true
         return snapshot.publicationGeneration == SaveSlotsPublicationClock.current()
     }
 
