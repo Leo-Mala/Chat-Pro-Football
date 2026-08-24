@@ -5,7 +5,9 @@ V12 preserves V11 and additionally:
 - resolves Kotlin Room typealiases across the complete candidate source tree, including chained aliases;
 - resolves local/import-aliased names that refer to those cross-file Room typealiases;
 - audits Room builders in every tracked module source set, not only the app module;
-- keeps variant/unit/instrumentation test source sets excluded from production checks.
+- keeps variant/unit/instrumentation test source sets excluded from production checks;
+- validates the full Required Certification run emitted by a push to main and publishes trusted
+  status only when that exact main SHA, its first parent, all mandatory jobs and provenance agree.
 """
 from __future__ import annotations
 
@@ -22,7 +24,23 @@ SELF_PATH = ".github/scripts/phase109_guardian_v12.py"
 BASE_V11_VALIDATE_RUN = v11.validate_run
 BASE_V11_KOTLIN_ROOM_SYMBOLS = v11.kotlin_room_symbols
 BASE_V11_IS_PRODUCTION_ANDROID_SOURCE = v11.is_production_android_source
-v11.v10.v9.v8.v7.v6.v5.v4.v3.guardian.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
+V3 = v11.v10.v9.v8.v7.v6.v5.v4.v3
+V5 = v11.v10.v9.v8.v7.v6.v5
+CORE = V3.guardian
+MAIN_REQUIRED_JOBS = {
+    "Policy, exact HEAD and scope",
+    "Build, Core, Migration, Save Recovery and FC26",
+    "20 and 100 Season Stress",
+    "UI Golden Regression and Accessibility",
+    "Full-scale Rollover (normal)",
+    "Full-scale Rollover (constrained)",
+    "Android api24-startup",
+    "Android api30-startup",
+    "Android api35-debug",
+    "Android api35-release",
+    "Required Certification Gate",
+}
+CORE.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
 
 
 class GuardianV12Error(ValueError):
@@ -108,7 +126,7 @@ def candidate_kotlin_sources(repo: str, token: str, head: str,
                              candidate_tree: dict[str, str]) -> list[str]:
     sources: list[str] = []
     executable_kotlin = v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin
-    fetch_text = v11.v10.v9.v8.v7.v6.v5.v4.v3.fetch_text
+    fetch_text = V3.fetch_text
     for path in sorted(candidate_tree):
         if is_production_android_source(path) and path.endswith(".kt"):
             sources.append(executable_kotlin(fetch_text(repo, token, head, path)))
@@ -116,7 +134,7 @@ def candidate_kotlin_sources(repo: str, token: str, head: str,
 
 
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
-    candidate_tree = v11.v10.v9.v8.v7.v6.v5.v4.v3.recursive_tree(repo, token, head)
+    candidate_tree = V3.recursive_tree(repo, token, head)
     global_aliases = resolve_global_room_typealiases(
         candidate_kotlin_sources(repo, token, head, candidate_tree)
     )
@@ -146,6 +164,80 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
         return v11.validate_and_publish(root, repo, token, run_id, head, target_url)
     finally:
         v11.validate_run = old_validate
+
+
+def validate_main_required_run(repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
+    """Validate exact-main evidence without executing candidate code with the Guardian token."""
+    run = CORE.api_request(repo, token, "GET", f"/actions/runs/{run_id}")
+    require(isinstance(run, dict), "Required main workflow run payload is missing")
+    require(run.get("name") == "Phase 10.9 Required Certification",
+            f"Unexpected main certification workflow: {run.get('name')}")
+    require(run.get("path") == CORE.REQUIRED_WORKFLOW_PATH,
+            f"Unexpected main certification workflow path: {run.get('path')}")
+    require(run.get("event") == "push", f"Main certification must be push-triggered: {run.get('event')}")
+    require(run.get("head_sha") == head, "Main certification run HEAD does not match requested SHA")
+    require(run.get("conclusion") == "success", f"Main certification run is not successful: {run.get('conclusion')}")
+    require(V5.live_main_sha(repo, token) == head, "main advanced before trusted main validation")
+
+    commit = CORE.api_request(repo, token, "GET", f"/commits/{head}")
+    require(isinstance(commit, dict), "Main commit metadata is missing")
+    parents = commit.get("parents", [])
+    require(isinstance(parents, list) and len(parents) >= 1, "Certified main commit has no first parent")
+    audited_base = str(parents[0].get("sha", ""))
+    require(bool(audited_base), "Certified main first-parent SHA is missing")
+
+    jobs = V3.paged(repo, token, f"/actions/runs/{run_id}/jobs", "jobs")
+    job_map = {str(job.get("name", "")): str(job.get("conclusion", "")) for job in jobs}
+    missing = sorted(name for name in MAIN_REQUIRED_JOBS if name not in job_map)
+    require(not missing, f"Main certification is missing mandatory jobs: {missing}")
+    failed = sorted(name for name in MAIN_REQUIRED_JOBS if job_map.get(name) != "success")
+    require(not failed, f"Main certification mandatory jobs are not successful: {failed}")
+
+    provenance = V3.read_provenance_artifact(repo, token, run_id, head, audited_base)
+    scopes = provenance.get("scopes")
+    results = provenance.get("results")
+    require(isinstance(scopes, dict), "Main provenance scopes are missing")
+    require(isinstance(results, dict), "Main provenance results are missing")
+    for key in ("jvm", "stress", "release", "ui", "performance", "instrumented"):
+        require(scopes.get(key) is True, f"Main provenance did not force mandatory scope: {key}")
+        require(results.get(key) == "success", f"Main provenance result is not successful: {key}={results.get(key)}")
+
+    return {
+        "status": "PASS",
+        "mainHeadSha": head,
+        "auditedBaseSha": audited_base,
+        "requiredRunId": run_id,
+        "mandatoryJobs": sorted(MAIN_REQUIRED_JOBS),
+        "provenanceStatus": provenance.get("status"),
+        "allScopesForced": True,
+    }
+
+
+def validate_main_and_publish(repo: str, token: str, run_id: int, head: str,
+                              target_url: str) -> dict[str, Any]:
+    result = validate_main_required_run(repo, token, run_id, head)
+    require(V5.live_main_sha(repo, token) == head, "main advanced before trusted main success publication")
+    CORE.publish_status(
+        repo,
+        token,
+        head,
+        "success",
+        "trusted exact-main recertification accepted",
+        target_url,
+    )
+    post_main = V5.live_main_sha(repo, token)
+    if post_main != head:
+        CORE.publish_status(
+            repo,
+            token,
+            head,
+            "failure",
+            "main advanced during trusted exact-main publication; recertification required",
+            target_url,
+        )
+        raise GuardianV12Error(f"main advanced during publication: expected={head}, live={post_main}")
+    result["guardianMainSuccessPublished"] = True
+    return result
 
 
 def parser_self_test() -> None:
@@ -194,6 +286,8 @@ def parser_self_test() -> None:
             "Variant unit-test source must not be production")
     require(not is_production_android_source("feature/src/androidTestDemo/java/x/Db.kt"),
             "Variant instrumentation source must not be production")
+    require(len(MAIN_REQUIRED_JOBS) == 11 and "Required Certification Gate" in MAIN_REQUIRED_JOBS,
+            "Exact-main mandatory job contract is incomplete")
 
 
 def self_test() -> dict[str, Any]:
@@ -205,6 +299,7 @@ def self_test() -> dict[str, Any]:
         "kotlinRoomTypealiasesResolvedAcrossTree": True,
         "importAliasedRoomTypealiasesResolved": True,
         "allTrackedModuleSourceSetsAudited": True,
+        "exactMainRequiredJobContract": sorted(MAIN_REQUIRED_JOBS),
     }
 
 
@@ -218,6 +313,12 @@ def main() -> int:
     validate_publish.add_argument("--run-id", type=int, required=True)
     validate_publish.add_argument("--head", required=True)
     validate_publish.add_argument("--target-url", default="")
+    validate_main = sub.add_parser("validate-main-and-publish")
+    validate_main.add_argument("--repo", required=True)
+    validate_main.add_argument("--token", required=True)
+    validate_main.add_argument("--run-id", type=int, required=True)
+    validate_main.add_argument("--head", required=True)
+    validate_main.add_argument("--target-url", default="")
     invalidate = sub.add_parser("invalidate-current-main")
     invalidate.add_argument("--repo", required=True)
     invalidate.add_argument("--token", required=True)
@@ -241,12 +342,16 @@ def main() -> int:
         if args.command == "validate-and-publish":
             result = validate_and_publish(Path(args.root).resolve(), args.repo, args.token,
                                           args.run_id, args.head, args.target_url)
+        elif args.command == "validate-main-and-publish":
+            result = validate_main_and_publish(
+                args.repo, args.token, args.run_id, args.head, args.target_url
+            )
         elif args.command == "invalidate-current-main":
-            result = v11.v10.v9.v8.v7.v6.v5.invalidate_current_main(
+            result = V5.invalidate_current_main(
                 args.repo, args.token, args.main_sha, args.target_url
             )
         elif args.command == "invalidate-retarget-run":
-            result = v11.v10.v9.v8.v7.v6.v5.invalidate_retarget_signal(
+            result = V5.invalidate_retarget_signal(
                 args.repo, args.token, args.run_id, args.target_url
             )
         elif args.command == "publish-failure-if-latest":
