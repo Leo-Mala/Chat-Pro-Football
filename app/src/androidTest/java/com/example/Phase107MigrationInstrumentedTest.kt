@@ -6,7 +6,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.data.APP_DATABASE_SCHEMA_VERSION
 import com.example.data.AppDatabase
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -29,17 +28,23 @@ class Phase107MigrationInstrumentedTest {
         assertTrue(minimumVersion < currentVersion)
         assertTrue(FIRST_RETAINED_EXPORTED_SCHEMA_VERSION in minimumVersion until currentVersion)
 
-        // Even for V14-V16, whose exported JSON predates the retained schema history, the production
-        // chain itself must contain every consecutive edge. Removing any old migration fails here.
-        val migrationsByStart = AppDatabase.ALL_MIGRATIONS.associateBy { it.startVersion }
-        for (startVersion in minimumVersion until currentVersion) {
-            val migration = migrationsByStart[startVersion]
-            assertNotNull("Missing migration edge V$startVersion -> V${startVersion + 1}", migration)
-            assertEquals(startVersion + 1, migration!!.endVersion)
+        // ALL_MIGRATIONS must be exactly the supported consecutive chain. Duplicate starts,
+        // shortcut edges (for example 14 -> current) and unrelated outgoing edges are forbidden.
+        // This verifies the same list Room receives in production rather than an associateBy view
+        // that could silently hide an earlier shortcut migration.
+        val actualEdges = AppDatabase.ALL_MIGRATIONS.map { it.startVersion to it.endVersion }
+        val expectedEdges = (minimumVersion until currentVersion).map { start ->
+            start to (start + 1)
         }
+        assertEquals("Room migration registry must contain exactly one consecutive edge per supported version", expectedEdges, actualEdges)
+        assertEquals(
+            "Room migration registry contains duplicate start versions",
+            actualEdges.size,
+            actualEdges.map { it.first }.distinct().size
+        )
 
-        // For every historical schema JSON actually retained by the repository, exercise the whole
-        // Room upgrade path on real Android SQLite through the current schema.
+        // For every historical schema JSON actually retained by the repository, exercise Room's
+        // real path selection on Android SQLite with the complete production migration registry.
         for (startVersion in FIRST_RETAINED_EXPORTED_SCHEMA_VERSION until currentVersion) {
             val databaseName = "supported_android_migration_${startVersion}_${currentVersion}.db"
             context.deleteDatabase(databaseName)
