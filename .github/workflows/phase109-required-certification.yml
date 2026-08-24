@@ -60,10 +60,10 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base='${{ github.event.pull_request.base.sha }}'
             git cat-file -e "$base^{commit}"
-            git diff --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
+            git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
           else
             base="$(git rev-parse HEAD^)"
-            git diff --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
+            git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
           fi
           cat "$RUNNER_TEMP/phase109-changed.txt"
           echo "base_sha=$base" >> "$GITHUB_OUTPUT"
@@ -76,11 +76,11 @@ jobs:
               return any(any(re.search(p, path) for p in patterns) for path in changed)
           infra = [r'^\.github/(workflows|scripts)/', r'^build\.gradle\.kts$', r'^settings\.gradle\.kts$',
                    r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$', r'^app/build\.gradle\.kts$']
-          app = [r'^app/src/main/', r'^app/src/test/', r'^app/src/androidTest/', r'^app/schemas/', r'^tools/',
-                 r'^metadata\.json$', r'^reports/fc26_', r'^reports/phase_10_8_']
+          app = [r'^app/src/', r'^app/schemas/', r'^tools/', r'^metadata\.json$',
+                 r'^reports/fc26_', r'^reports/phase_10_8_']
           jvm = any_match(infra + app)
-          stress = any_match(infra + [r'^app/src/(main|test)/', r'^tools/fc26/', r'^app/schemas/'])
-          release = any_match(infra + [r'^app/src/main/', r'^app/src/androidTest/', r'^app/src/test/java/com/example/StartupSmokeTest'])
+          stress = any_match(infra + [r'^app/src/', r'^tools/fc26/', r'^app/schemas/'])
+          release = any_match(infra + [r'^app/src/'])
           ui = any_match(infra + [r'^app/src/main/', r'^app/src/test/screenshots/', r'^app/src/test/java/com/example/(MainMenuScreenshot|SavesScreenshot|Phase105)'])
           performance = any_match([
               r'^\.github/(workflows|scripts)/', r'^app/build\.gradle\.kts$', r'^gradle/', r'^gradle\.properties$',
@@ -89,7 +89,7 @@ jobs:
               r'^app/src/test/java/com/example/data/Phase108',
               r'^app/src/main/java/com/example/data/migrations/', r'^tools/fc26/', r'^reports/phase_10_8_'
           ])
-          instrumented = any_match(infra + [r'^app/src/main/', r'^app/src/androidTest/', r'^app/schemas/', r'^tools/fc26/'])
+          instrumented = any_match(infra + [r'^app/src/', r'^app/schemas/', r'^tools/fc26/'])
           values = dict(jvm=jvm, stress=stress, release=release, ui=ui, performance=performance, instrumented=instrumented)
           with open(sys.argv[2], 'a') as out:
               for key, value in values.items():
@@ -209,6 +209,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git diff --exit-code -- app/schemas
           python3 .github/scripts/phase109_policy.py validate-fc26 reports/fc26_club_mapping_report.json --head "$AUDIT_HEAD_SHA"
           python3 .github/scripts/phase109_policy.py validate-room --root .
           python3 - <<'PY'
@@ -539,12 +540,17 @@ jobs:
         with:
           ref: ${{ env.AUDIT_HEAD_SHA }}
           fetch-depth: 1
-      - name: Fail closed unless every required component certified this HEAD
+      - name: Fail closed unless every required component certified this HEAD and audited base
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
           test '${{ needs.policy-scope.result }}' = success
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            current_base=$(git ls-remote origin "refs/heads/${{ github.event.pull_request.base.ref }}" | awk '{print $1}')
+            test -n "$current_base"
+            test "$current_base" = "$BASE_SHA"
+          fi
           python3 .github/scripts/phase109_policy.py gate --provenance "$RUNNER_TEMP/phase109-required-certification.json"
       - name: Upload immutable final certification provenance
         uses: actions/upload-artifact@v4
