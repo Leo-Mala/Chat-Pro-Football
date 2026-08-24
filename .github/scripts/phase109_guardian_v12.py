@@ -3,6 +3,7 @@
 
 V12 preserves V11 and additionally:
 - resolves Kotlin Room typealiases across the complete candidate source tree, including chained aliases;
+- resolves local/import-aliased names that refer to those cross-file Room typealiases;
 - audits Room builders in every tracked module source set, not only the app module;
 - keeps variant/unit/instrumentation test source sets excluded from production checks.
 """
@@ -56,14 +57,36 @@ def resolve_global_room_typealiases(clean_sources: Iterable[str]) -> set[str]:
     while changed:
         changed = False
         for alias, target in pairs:
-            if target in resolved and alias not in resolved:
+            if (target in resolved or target.rsplit(".", 1)[-1] in resolved) and alias not in resolved:
                 resolved.add(alias)
                 changed = True
     return resolved
 
 
+def imported_room_typealias_names(clean_source: str, global_aliases: set[str]) -> set[str]:
+    """Resolve names visible in this file for globally known Room typealiases.
+
+    Kotlin imports may rename a cross-file typealias, e.g. `import pkg.SaveRoom as LocalRoom`.
+    The builder audit must recognize LocalRoom rather than only the declaration name SaveRoom.
+    """
+    visible: set[str] = set()
+    for match in re.finditer(
+        r"(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;?\s*$",
+        clean_source,
+    ):
+        target, local_name = match.group(1), match.group(2)
+        declared_name = target.rsplit(".", 1)[-1]
+        if declared_name in global_aliases:
+            visible.add(local_name or declared_name)
+    return visible
+
+
 def kotlin_room_symbols_with_aliases(clean_source: str, global_aliases: set[str]) -> set[str]:
-    return set(BASE_V11_KOTLIN_ROOM_SYMBOLS(clean_source)) | global_aliases
+    return (
+        set(BASE_V11_KOTLIN_ROOM_SYMBOLS(clean_source))
+        | global_aliases
+        | imported_room_typealias_names(clean_source, global_aliases)
+    )
 
 
 def is_production_android_source(path: str) -> bool:
@@ -105,6 +128,7 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
         result = BASE_V11_VALIDATE_RUN(root, repo, token, run_id, head)
         result["productionRoomBuilderContractV12"] = {
             "kotlinRoomTypealiasesResolvedAcrossTree": True,
+            "importAliasedRoomTypealiasesResolved": True,
             "resolvedRoomTypealiases": sorted(global_aliases),
             "allTrackedModuleSourceSetsAudited": True,
         }
@@ -126,10 +150,12 @@ def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: s
 
 def parser_self_test() -> None:
     first = """
+        package pkg
         import androidx.room.Room
         typealias DirectRoom = Room
     """
     second = """
+        package pkg
         typealias ChainedRoom = DirectRoom
         val first = DirectRoom.databaseBuilder(ctx, Db::class.java, "a")
             .addMigrations(*AppDatabase.ALL_MIGRATIONS)
@@ -137,10 +163,17 @@ def parser_self_test() -> None:
         val second = ChainedRoom.databaseBuilder(ctx, Db::class.java, "b")
             .build()
     """
+    third = """
+        package consumer
+        import pkg.ChainedRoom as LocalRoom
+        val third = LocalRoom.databaseBuilder(ctx, Db::class.java, "c")
+            .build()
+    """
     executable_kotlin = v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin
     clean_first = executable_kotlin(first)
     clean_second = executable_kotlin(second)
-    aliases = resolve_global_room_typealiases((clean_first, clean_second))
+    clean_third = executable_kotlin(third)
+    aliases = resolve_global_room_typealiases((clean_first, clean_second, clean_third))
     require(aliases == {"DirectRoom", "ChainedRoom"}, f"Global Room typealias resolution failed: {aliases}")
     symbols = kotlin_room_symbols_with_aliases(clean_second, aliases)
     chains = v11.find_builder_chains(clean_second, symbols)
@@ -149,6 +182,10 @@ def parser_self_test() -> None:
             "Canonical migration on typealias builder was not parsed")
     require(v11.normalized_migration_calls(chains[1]) == [],
             "Unregistered typealias builder was not exposed")
+    imported_symbols = kotlin_room_symbols_with_aliases(clean_third, aliases)
+    require("LocalRoom" in imported_symbols, "Imported alias of cross-file Room typealias was not resolved")
+    require(len(v11.find_builder_chains(clean_third, imported_symbols)) == 1,
+            "Builder through imported Room typealias alias was not detected")
     require(is_production_android_source("feature/src/main/java/x/Db.kt"),
             "Feature module main source must be audited")
     require(is_production_android_source("features/foo/src/release/java/x/Db.java"),
@@ -160,13 +197,13 @@ def parser_self_test() -> None:
 
 
 def self_test() -> dict[str, Any]:
-    # V11 must remain independently healthy; do not monkey-patch its symbol resolver during this call.
     v11.self_test()
     parser_self_test()
     return {
         "status": "PASS",
         "guardianV11": "PASS",
         "kotlinRoomTypealiasesResolvedAcrossTree": True,
+        "importAliasedRoomTypealiasesResolved": True,
         "allTrackedModuleSourceSetsAudited": True,
     }
 
