@@ -100,7 +100,7 @@ def manifest_visual_only(lines: Iterable[str]) -> bool:
     for line in lines:
         if not line:
             continue
-        if line.startswith("<!--") or line.endswith("-->"):
+        if re.fullmatch(r"<!--(?:.|\\s)*-->", line):
             continue
         seen = True
         if not allowed.fullmatch(line):
@@ -236,6 +236,13 @@ def self_test() -> None:
             "manifest same-line smuggling",
             [MANIFEST_PATH],
             ['android:icon="@mipmap/x" android:allowBackup="false"'],
+            None,
+            "full",
+        ),
+        (
+            "manifest comment-prefix smuggling",
+            [MANIFEST_PATH],
+            ['<!-- audit note --> <uses-permission android:name="android.permission.CAMERA" />', 'android:icon="@mipmap/x"'],
             None,
             "full",
         ),
