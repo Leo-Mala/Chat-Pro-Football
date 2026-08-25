@@ -1,17 +1,9 @@
 name: Phase 10.7 Android Instrumented Release
 
+# Diagnóstico manual. A certificação completa de PR/main executa estes mesmos gates dentro de
+# phase109-required-certification.yml. O workflow independente permanece disponível sob demanda,
+# sem duplicar emuladores Android em alterações leves.
 on:
-  pull_request:
-    branches: [ "main" ]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'app/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
-      - 'gradle/**'
-      - '.github/scripts/phase107_emulator_gate.sh'
-      - '.github/workflows/phase107-android-instrumented.yml'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +21,6 @@ env:
 jobs:
   api-smoke:
     name: Android API ${{ matrix.api-level }} installed startup smoke
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -37,18 +28,18 @@ jobs:
       matrix:
         api-level: [24, 30]
     steps:
-      - name: Checkout exact PR head
-        uses: actions/checkout@v6
+      - name: Checkout exact dispatch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           java-version: '17'
           distribution: 'temurin'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
       - name: Enable KVM acceleration when available
         shell: bash
         run: |
@@ -82,7 +73,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Install and run real Android startup smoke
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.api-level }}
           target: google_apis
@@ -92,7 +83,7 @@ jobs:
           script: bash .github/scripts/phase107_emulator_gate.sh smoke api-${{ matrix.api-level }}
       - name: Upload API smoke evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase107-api-${{ matrix.api-level }}-evidence
           path: phase107-artifacts/api-${{ matrix.api-level }}/
@@ -101,22 +92,21 @@ jobs:
 
   instrumented-debug-current:
     name: Android API 35 full instrumented Debug
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Checkout exact PR head
-        uses: actions/checkout@v6
+      - name: Checkout exact dispatch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           java-version: '17'
           distribution: 'temurin'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
       - name: Enable KVM acceleration when available
         shell: bash
         run: |
@@ -150,7 +140,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Execute full installed Android suite and external process restart
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 35
           target: google_apis
@@ -160,7 +150,7 @@ jobs:
           script: bash .github/scripts/phase107_emulator_gate.sh debug-full debug-api35
       - name: Upload full Debug instrumented evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase107-debug-api35-evidence
           path: phase107-artifacts/debug-api35/
@@ -169,22 +159,21 @@ jobs:
 
   instrumented-release-current:
     name: Android API 35 installed Release certification
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - name: Checkout exact PR head
-        uses: actions/checkout@v6
+      - name: Checkout exact dispatch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           java-version: '17'
           distribution: 'temurin'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
       - name: Enable KVM acceleration when available
         shell: bash
         run: |
@@ -237,7 +226,7 @@ jobs:
           "$apksigner" verify --verbose --print-certs "$release_test_apk"
           jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
       - name: Install Release and certify startup/save/process restart
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 35
           target: google_apis
@@ -247,7 +236,7 @@ jobs:
           script: bash .github/scripts/phase107_emulator_gate.sh release release-api35
       - name: Upload Release instrumented evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase107-release-api35-evidence
           path: phase107-artifacts/release-api35/
@@ -255,7 +244,7 @@ jobs:
           retention-days: 1
       - name: Upload signed validation Release APK and AAB
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase107-release-builds
           path: |

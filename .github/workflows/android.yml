@@ -1,25 +1,6 @@
 name: Android CI Build
 
 on:
-  pull_request:
-    branches: [ "main", "master" ]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'app/**'
-      - '!app/schemas/**'
-      - 'tools/europe_importer/**'
-      - 'tools/fc26/**'
-      - 'reports/fc26_*'
-      - 'reports/phase_10_4_fc26_safe_loans.md'
-      - 'reports/phase_10_5_post_10_4_audit_and_final_roadmap.md'
-      - 'metadata.json'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - '.github/workflows/android.yml'
   workflow_dispatch:
 
 permissions:
@@ -31,37 +12,64 @@ concurrency:
 
 jobs:
   validation:
-    # Drafts não alocam runner. PRs prontos executam o checkpoint consolidado.
+    # Automatic PR certification is centralized in Phase 10.9 Required Certification.
+    # This legacy workflow remains available for explicit manual full validation only.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - name: Checkout exact validation head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Classify lightweight versus full validation
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+            git cat-file -e "$base^{commit}" || git fetch --no-tags origin "$base"
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            python3 .github/scripts/ci_scope.py self-test
+            python3 .github/scripts/ci_scope.py classify \
+              --base "$base" --head HEAD --github-output "$GITHUB_OUTPUT"
+          else
+            echo 'mode=full' >> "$GITHUB_OUTPUT"
+            echo 'light=false' >> "$GITHUB_OUTPUT"
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+            echo 'reason=manual dispatch forces full validation' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
       - name: Run European bulk importer tests
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/europe_importer/tests -t .
 
       - name: Bootstrap deterministic FC26 player asset
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 tools/fc26/bootstrap_fc26_asset.py
 
       - name: Validate checked-in FC26 player asset
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -166,13 +174,15 @@ jobs:
           ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
 
       - name: Run core regression and migration-save safety
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
 
       - name: Upload real UI screenshot captures
-        uses: actions/upload-artifact@v4
+        if: steps.scope.outputs.full == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase-10-5-ui-screenshots
           path: app/src/test/screenshots/*.png
@@ -180,6 +190,7 @@ jobs:
           retention-days: 1
 
       - name: Materialize FC26 and Phase 9.14 audit reports independently of cache
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -193,6 +204,7 @@ jobs:
             --stacktrace
 
       - name: Measure Phase 10.1 60k performance on this head
+        if: steps.scope.outputs.full == 'true'
         env:
           AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
@@ -205,7 +217,8 @@ jobs:
             --stacktrace
 
       - name: Upload FC26 and performance audit reports
-        uses: actions/upload-artifact@v4
+        if: steps.scope.outputs.full == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fc26-phase-10-1-audit-reports
           path: |
@@ -217,6 +230,7 @@ jobs:
           retention-days: 1
 
       - name: Run 20 and 100 season stress tests
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -226,6 +240,7 @@ jobs:
             --stacktrace
 
       - name: Verify exported Room schema
+        if: steps.scope.outputs.full == 'true'
         id: room_schema
         shell: bash
         run: |
@@ -248,8 +263,8 @@ jobs:
           echo "Room schema validated and tracked: $schema_file"
 
       - name: Upload Room schema artifact
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        if: steps.scope.outputs.full == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: room-schema-${{ github.sha }}
           path: ${{ steps.room_schema.outputs.schema_file }}
@@ -258,7 +273,7 @@ jobs:
 
       - name: Upload test report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: validation-test-report
           path: app/build/reports/tests/testDebugUnitTest/
@@ -266,7 +281,7 @@ jobs:
           retention-days: 1
 
       - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
@@ -274,7 +289,7 @@ jobs:
           retention-days: 1
 
       - name: Upload validation Release APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-release-apk-validation
           path: app/build/outputs/apk/release/*.apk
@@ -282,7 +297,7 @@ jobs:
           retention-days: 1
 
       - name: Upload validation Release AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-release-aab-validation
           path: app/build/outputs/bundle/release/*.aab
@@ -290,173 +305,9 @@ jobs:
           retention-days: 1
 
       - name: Upload validation release-signing audit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-signing-status-validation
           path: ${{ runner.temp }}/release-signing-status.json
           if-no-files-found: error
           retention-days: 1
-
-  production-release:
-    name: Protected production Release Candidate signing
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    needs: validation
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: release
-    steps:
-      - name: Checkout exact validated dispatch SHA
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-
-      - name: Verify exact validated SHA before secrets
-        env:
-          EXPECTED_SHA: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          actual_sha="$(git rev-parse HEAD)"
-          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
-            echo "::error::Production checkout SHA $actual_sha differs from validated dispatch SHA $EXPECTED_SHA."
-            exit 1
-          fi
-          echo "Production checkout pinned to validated SHA: $actual_sha"
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Setup production google-services.json
-        env:
-          GOOGLE_SERVICES_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "$GOOGLE_SERVICES_SECRET" ]; then
-            echo "::error::GOOGLE_SERVICES_JSON is required for the protected production Release Candidate job."
-            exit 1
-          fi
-          if echo "$GOOGLE_SERVICES_SECRET" | grep -q '^{'; then
-            printf '%s' "$GOOGLE_SERVICES_SECRET" > app/google-services.json
-          else
-            printf '%s' "$GOOGLE_SERVICES_SECRET" | base64 -d > app/google-services.json
-          fi
-
-      - name: Setup persistent production Release signing
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for required in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
-            if [ -z "${!required:-}" ]; then
-              echo "::error::Missing protected production secret: $required"
-              exit 1
-            fi
-          done
-          release_keystore="$RUNNER_TEMP/pro-football-production-release.jks"
-          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$release_keystore"
-          chmod 600 "$release_keystore"
-          {
-            echo "KEYSTORE_PATH=$release_keystore"
-            echo "STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
-            echo "KEY_ALIAS=$RELEASE_KEY_ALIAS"
-            echo "KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
-          } >> "$GITHUB_ENV"
-          printf '{"productionSigning":true,"keystoreSource":"protected-github-secrets","commit":"%s"}\n' \
-            "$GITHUB_SHA" > "$RUNNER_TEMP/release-signing-status.json"
-
-      - name: Build and strictly verify production Release APK and AAB
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew
-          ./gradlew assembleRelease bundleRelease --stacktrace
-          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
-          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
-          test -n "$release_apk"
-          test -n "$release_aab"
-          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          test -x "$apksigner"
-          "$apksigner" verify --verbose --print-certs "$release_apk"
-          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
-
-      - name: Upload production Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-apk-production
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload production Release AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-aab-production
-          path: app/build/outputs/bundle/release/*.aab
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload production signing audit
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-signing-status-production
-          path: ${{ runner.temp }}/release-signing-status.json
-          if-no-files-found: error
-          retention-days: 1
-
-  materialize-fc26-asset:
-    name: Materialize deterministic FC26 asset
-    needs: validation
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'agent/fc26-world-player-database'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout PR head
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Materialize exact snapshot asset
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/fc26/bootstrap_fc26_asset.py
-          python3 tools/fc26/validate_fc26.py \
-            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin \
-            app/src/main/assets/football/fc26/fc26_manifest.json
-
-      - name: Commit deterministic generated files when absent
-        shell: bash
-        env:
-          HEAD_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          paths=(
-            app/src/main/assets/football/fc26/fc26_players_2025-09-19.tsv.bin
-            app/src/main/assets/football/fc26/fc26_manifest.json
-            reports/fc26_import_report.json
-          )
-          if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
-            echo "Deterministic FC26 files already committed; nothing to materialize."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- "${paths[@]}"
-          git commit -m "data: materialize deterministic FC26 player asset"
-          git push origin "HEAD:${HEAD_BRANCH}"

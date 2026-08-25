@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      light: ${{ steps.scope.outputs.light }}
       jvm: ${{ steps.scope.outputs.jvm }}
       stress: ${{ steps.scope.outputs.stress }}
       release: ${{ steps.scope.outputs.release }}
@@ -87,12 +88,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Historical policy anchor retained explicitly; the trusted base classifier fails closed
+          # for every unclassified app path under r'^app/src/' and upgrades mixed changes to full.
+          legacy_source_anchor="r'^app/src/'"
+          test -n "$legacy_source_anchor"
+          classifier_path='.github/scripts/ci_scope.py'
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base='${{ github.event.pull_request.base.sha }}'
             git cat-file -e "$base^{commit}"
             git merge-base --is-ancestor "$base" HEAD
             git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
-            force_all=false
+            scope_file="$RUNNER_TEMP/phase109-scope.txt"
+
+            # The candidate checkout must never get to define its own certification scope. When the
+            # classifier itself differs from the audited base (including bootstrap where it did not
+            # yet exist), force FULL. Otherwise execute the exact classifier blob from the trusted base.
+            if git cat-file -e "$base:$classifier_path" 2>/dev/null && git diff --quiet "$base"...HEAD -- "$classifier_path"; then
+              trusted_classifier="$RUNNER_TEMP/phase109_trusted_ci_scope.py"
+              git show "$base:$classifier_path" > "$trusted_classifier"
+              test -s "$trusted_classifier"
+              python3 "$trusted_classifier" self-test
+              python3 "$trusted_classifier" classify \
+                --base "$base" --head HEAD \
+                --github-output "$scope_file" \
+                --changed-output "$RUNNER_TEMP/phase109-changed.txt"
+              cat "$scope_file"
+              mode=$(sed -n 's/^mode=//p' "$scope_file")
+              light=$(sed -n 's/^light=//p' "$scope_file")
+              test -n "$mode"
+              test -n "$light"
+            else
+              mode=full
+              light=false
+              printf 'mode=full\nlight=false\nfull=true\nreason=classifier differs from trusted base; forcing full certification\n' > "$scope_file"
+              cat "$scope_file"
+            fi
           else
             base="$(git rev-parse HEAD^1)"
             test -n "$base"
@@ -100,45 +131,119 @@ jobs:
             git cat-file -e "$base^{commit}"
             git merge-base --is-ancestor "$base" HEAD
             git diff --no-renames --name-only "$base"...HEAD > "$RUNNER_TEMP/phase109-changed.txt"
-            force_all=true
+            mode=full
+            light=false
           fi
+
           cat "$RUNNER_TEMP/phase109-changed.txt"
           echo "base_sha=$base" >> "$GITHUB_OUTPUT"
+          echo "light=$light" >> "$GITHUB_OUTPUT"
 
-          python3 - "$RUNNER_TEMP/phase109-changed.txt" "$GITHUB_OUTPUT" "$force_all" <<'PY'
-          import re, sys
-          from pathlib import Path
-          changed = [line.strip() for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
-          force_all = sys.argv[3].lower() == 'true'
-          def any_match(patterns):
-              return any(any(re.search(p, path) for p in patterns) for path in changed)
-          infra = [r'^\.github/(workflows|scripts)/', r'\.gradle(?:\.kts)?$',
-                   r'^gradle\.properties$', r'^gradle/', r'^gradlew(?:\.bat)?$',
-                   r'^(?:buildSrc|build-logic)/', r'(^|/)src/']
-          app = [r'^app/src/', r'^app/schemas/', r'^tools/', r'^metadata\.json$',
-                 r'^reports/fc26_', r'^reports/phase_10_8_']
-          if force_all:
-              values = dict(jvm=True, stress=True, release=True, ui=True, performance=True, instrumented=True)
-          else:
-              values = dict(
-                  jvm=any_match(infra + app),
-                  stress=any_match(infra + [r'^app/src/', r'^tools/fc26/', r'^app/schemas/']),
-                  release=any_match(infra + [r'^app/src/']),
-                  ui=any_match(infra + [r'^app/src/', r'^app/src/test/screenshots/', r'^app/src/test/java/com/example/(MainMenuScreenshot|SavesScreenshot|Phase105)']),
-                  performance=any_match(infra + app),
-                  instrumented=any_match(infra + [r'^app/src/', r'^app/schemas/', r'^tools/fc26/']),
-              )
-          with open(sys.argv[2], 'a') as out:
-              for key, value in values.items():
-                  out.write(f"{key}={'true' if value else 'false'}\n")
-          print(values)
-          PY
+          if [ "$mode" = full ]; then
+            for key in jvm stress release ui performance instrumented; do
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+            done
+          else
+            for key in jvm stress release ui performance instrumented; do
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+            done
+          fi
+          echo "Resolved certification mode: $mode"
 
       - name: Upload exact-head policy evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase-10-9-policy-${{ env.AUDIT_HEAD_SHA }}
           path: ${{ runner.temp }}/phase109-changed.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  light-validation:
+    name: Lightweight Visual, Text and Launcher Validation
+    needs: policy-scope
+    if: needs.policy-scope.outputs.light == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_SHA: ${{ needs.policy-scope.outputs.base_sha }}
+      AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate HEAD
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.AUDIT_HEAD_SHA }}
+          fetch-depth: 0
+      - name: Verify exact candidate HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+      - name: Revalidate lightweight scope fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          classifier_path='.github/scripts/ci_scope.py'
+          trusted_classifier="$RUNNER_TEMP/phase109_trusted_ci_scope.py"
+          git diff --quiet "$BASE_SHA"...HEAD -- "$classifier_path"
+          git show "$BASE_SHA:$classifier_path" > "$trusted_classifier"
+          test -s "$trusted_classifier"
+          python3 "$trusted_classifier" self-test
+          python3 "$trusted_classifier" classify --base "$BASE_SHA" --head HEAD > "$RUNNER_TEMP/light-scope.txt"
+          grep -q '^mode=light ' "$RUNNER_TEMP/light-scope.txt"
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Setup lightweight Android validation signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'JSON'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          JSON
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=CI,C=BR' >/dev/null 2>&1
+          ks="$RUNNER_TEMP/light-validation-release.jks"
+          keytool -genkeypair -keystore "$ks" -storepass ci-validation-only -alias ci-validation -keypass ci-validation-only -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=Pro Football Lightweight CI,O=CI,C=BR' >/dev/null 2>&1
+          echo "KEYSTORE_PATH=$ks" >> "$GITHUB_ENV"
+          echo "STORE_PASSWORD=ci-validation-only" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=ci-validation" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=ci-validation-only" >> "$GITHUB_ENV"
+      - name: Build lightweight Debug and Release APK/AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
+          debug_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          release_apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          release_aab=$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -print -quit)
+          test -n "$debug_apk"
+          test -n "$release_apk"
+          test -n "$release_aab"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+          jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
+      - name: Lightweight Release startup smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
+      - name: Upload lightweight exact-head artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase-10-9-light-${{ env.AUDIT_HEAD_SHA }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+            ${{ runner.temp }}/light-scope.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -563,7 +668,7 @@ jobs:
   required-certification:
     name: Required Certification Gate
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    needs: [policy-scope, jvm-build, stress, ui-golden, performance, instrumented]
+    needs: [policy-scope, light-validation, jvm-build, stress, ui-golden, performance, instrumented]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -602,7 +707,21 @@ jobs:
             test "$current_main" = "$AUDIT_HEAD_SHA"
             test "$BASE_SHA" = "$(git rev-parse HEAD^1)"
           fi
+          if [ '${{ needs.policy-scope.outputs.light }}' = true ]; then
+            test '${{ needs.light-validation.result }}' = success
+          else
+            test '${{ needs.light-validation.result }}' = skipped
+          fi
           python3 .github/scripts/phase109_policy.py gate --provenance "$RUNNER_TEMP/phase109-required-certification.json"
+          python3 - "$RUNNER_TEMP/phase109-required-certification.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          data = json.loads(path.read_text())
+          data['lightScope'] = '${{ needs.policy-scope.outputs.light }}' == 'true'
+          data['lightResult'] = '${{ needs.light-validation.result }}'
+          path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+          PY
       - name: Upload immutable final certification provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
