@@ -19,6 +19,7 @@ on:
       - 'gradle/**'
       - 'gradlew'
       - 'gradlew.bat'
+      - '.github/scripts/ci_scope.py'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -31,14 +32,37 @@ concurrency:
 
 jobs:
   validation:
-    # Drafts não alocam runner. PRs prontos executam o checkpoint consolidado.
+    # Drafts não alocam runner. PRs prontos executam validação proporcional ao risco.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout repository
+      - name: Checkout exact validation head
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Classify lightweight versus full validation
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+            git cat-file -e "$base^{commit}" || git fetch --no-tags origin "$base"
+            git cat-file -e "$base^{commit}"
+            git merge-base --is-ancestor "$base" HEAD
+            python3 .github/scripts/ci_scope.py self-test
+            python3 .github/scripts/ci_scope.py classify \
+              --base "$base" --head HEAD --github-output "$GITHUB_OUTPUT"
+          else
+            echo 'mode=full' >> "$GITHUB_OUTPUT"
+            echo 'light=false' >> "$GITHUB_OUTPUT"
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+            echo 'reason=manual dispatch forces full validation' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -50,18 +74,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Run European bulk importer tests
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/europe_importer/tests -t .
 
       - name: Bootstrap deterministic FC26 player asset
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python3 tools/fc26/bootstrap_fc26_asset.py
 
       - name: Validate checked-in FC26 player asset
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -166,12 +193,14 @@ jobs:
           ./gradlew testReleaseUnitTest --tests com.example.StartupSmokeTest --stacktrace
 
       - name: Run core regression and migration-save safety
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
 
       - name: Upload real UI screenshot captures
+        if: steps.scope.outputs.full == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: phase-10-5-ui-screenshots
@@ -180,6 +209,7 @@ jobs:
           retention-days: 1
 
       - name: Materialize FC26 and Phase 9.14 audit reports independently of cache
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -193,6 +223,7 @@ jobs:
             --stacktrace
 
       - name: Measure Phase 10.1 60k performance on this head
+        if: steps.scope.outputs.full == 'true'
         env:
           AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
@@ -205,6 +236,7 @@ jobs:
             --stacktrace
 
       - name: Upload FC26 and performance audit reports
+        if: steps.scope.outputs.full == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: fc26-phase-10-1-audit-reports
@@ -217,6 +249,7 @@ jobs:
           retention-days: 1
 
       - name: Run 20 and 100 season stress tests
+        if: steps.scope.outputs.full == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -226,6 +259,7 @@ jobs:
             --stacktrace
 
       - name: Verify exported Room schema
+        if: steps.scope.outputs.full == 'true'
         id: room_schema
         shell: bash
         run: |
@@ -248,7 +282,7 @@ jobs:
           echo "Room schema validated and tracked: $schema_file"
 
       - name: Upload Room schema artifact
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        if: steps.scope.outputs.full == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
         with:
           name: room-schema-${{ github.sha }}
