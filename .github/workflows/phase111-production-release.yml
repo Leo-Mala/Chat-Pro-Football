@@ -182,8 +182,8 @@ jobs:
             release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-jarsigner.txt"
           keytool -printcert -jarfile release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-cert.txt"
 
-          apk_cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}' "$RUNNER_TEMP/apk-signing.txt")
-          aab_cert_sha256=$(awk -F': ' '/SHA256:/ {print $2; exit}' "$RUNNER_TEMP/aab-cert.txt")
+          apk_cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' "$RUNNER_TEMP/apk-signing.txt")
+          aab_cert_sha256=$(awk -F': ' '/SHA256:/ {print $NF; exit}' "$RUNNER_TEMP/aab-cert.txt")
           test -n "$apk_cert_sha256"
           test -n "$aab_cert_sha256"
 
