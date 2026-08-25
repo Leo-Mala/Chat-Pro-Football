@@ -28,6 +28,7 @@ GuardianV12Error = _base.GuardianV12Error
 require = _base.require
 _BASE_SELF_TEST = _base.self_test
 _BASE_VALIDATE_RUN = _base.validate_run
+_BASE_VALIDATE_AND_PUBLISH = _base.validate_and_publish
 
 _BLOCK_SCALAR = re.compile(r":\s*[|>][0-9+-]*\s*$")
 _DOUBLE_QUOTED_KEY = re.compile(r'"((?:[^"\\]|\\.)*)"\s*:')
@@ -378,6 +379,22 @@ def validate_run(root, repo: str, token: str, run_id: int, head: str) -> dict[st
     return result
 
 
+def validate_and_publish(root, repo: str, token: str, run_id: int, head: str,
+                         target_url: str) -> dict[str, Any]:
+    """Run the base publication flow while forcing its temporary v11 hook to this validator.
+
+    The preserved base publisher temporarily assigns `_base.validate_run` into `v11.validate_run`.
+    Keeping `_base.validate_run` pointed at this wrapper ensures repeated calls do not silently
+    fall back to the pre-namespace validator when the base publisher restores its hook.
+    """
+    old_base_validate = _base.validate_run
+    _base.validate_run = validate_run
+    try:
+        return _BASE_VALIDATE_AND_PUBLISH(root, repo, token, run_id, head, target_url)
+    finally:
+        _base.validate_run = old_base_validate
+
+
 def _room_alias_namespace_self_test() -> None:
     executable_kotlin = _base.v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin
     trusted = executable_kotlin(
@@ -562,6 +579,7 @@ def self_test() -> dict[str, Any]:
             "roomTypealiasNamespacesBound": True,
             "unrelatedSameBasenameRoomAliasesExcluded": True,
             "exactAliasedAndWildcardRoomImportsResolved": True,
+            "namespaceValidatorReentrantAcrossPublish": True,
         }
     )
     result["trustedCiEvolutionAuthorizationV1"] = evolution
@@ -577,6 +595,7 @@ def _install_hardening() -> None:
     _base.imported_room_typealias_names = imported_room_typealias_names
     _base.kotlin_room_symbols_with_aliases = kotlin_room_symbols_with_aliases
     _base.validate_run = validate_run
+    _base.validate_and_publish = validate_and_publish
     _base.self_test = self_test
 
 
