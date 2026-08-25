@@ -27,7 +27,8 @@ LIGHT_VALUES_RE = re.compile(
 MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
 APP_BUILD_PATH = "app/build.gradle.kts"
 
-# Non-runtime documentation may pass with policy-only validation.
+# Non-runtime documentation may pass with policy-only validation. AGENTS.md is deliberately
+# excluded because it defines CI and automatic-merge policy and therefore requires full certification.
 NEUTRAL_RE = re.compile(
     r"^(?:README(?:\.[^/]*)?|docs/.*|CHANGELOG(?:\.[^/]*)?|LICENSE(?:\.[^/]*)?|.*\.md)$",
     re.IGNORECASE,
@@ -49,6 +50,7 @@ FULL_PREFIXES = (
     "reports/phase_10_8_",
 )
 FULL_EXACT = {
+    "AGENTS.md",
     "build.gradle.kts",
     "settings.gradle.kts",
     "gradle.properties",
@@ -89,28 +91,36 @@ def changed_payload(root: Path, base: str, head: str, path: str) -> list[str]:
 
 def manifest_visual_only(lines: Iterable[str]) -> bool:
     seen = False
-    allowed = re.compile(r'^android:(?:icon|roundIcon|label|theme)\s*=')
+    # Require the complete changed XML payload line to be exactly one approved visual attribute.
+    # Prefix-only matching is intentionally forbidden because a second non-visual attribute could
+    # otherwise be placed on the same line and incorrectly receive lightweight certification.
+    allowed = re.compile(
+        r"^android:(?:icon|roundIcon|label|theme)\s*=\s*(?:\"[^\"\r\n]+\"|'[^'\r\n]+')$"
+    )
     for line in lines:
         if not line:
             continue
         if line.startswith("<!--") or line.endswith("-->"):
             continue
         seen = True
-        if not allowed.match(line):
+        if not allowed.fullmatch(line):
             return False
     return seen
 
 
 def build_version_only(lines: Iterable[str]) -> bool:
     seen = False
-    allowed = re.compile(r'^(?:versionCode\s*=|versionName\s*=)')
+    # Only literal version metadata assignments are lightweight. Kotlin permits semicolon-separated
+    # statements, so prefix matching here would allow build logic to be smuggled onto a version line.
+    version_code = re.compile(r"^versionCode\s*=\s*\d+$")
+    version_name = re.compile(r'^versionName\s*=\s*"[^"\r\n]+"$')
     for line in lines:
         if not line:
             continue
         if line.startswith("//"):
             continue
         seen = True
-        if not allowed.match(line):
+        if not (version_code.fullmatch(line) or version_name.fullmatch(line)):
             return False
     return seen
 
@@ -223,15 +233,30 @@ def self_test() -> None:
             "full",
         ),
         (
+            "manifest same-line smuggling",
+            [MANIFEST_PATH],
+            ['android:icon="@mipmap/x" android:allowBackup="false"'],
+            None,
+            "full",
+        ),
+        (
             "build plugin",
             [APP_BUILD_PATH],
             None,
             ['implementation("x:y:1")'],
             "full",
         ),
+        (
+            "version same-line smuggling",
+            [APP_BUILD_PATH],
+            None,
+            ['versionName = "3.0.2"; minSdk = 35'],
+            "full",
+        ),
         ("game code", ["app/src/main/java/com/example/GameEngine.kt"], None, None, "full"),
         ("room", ["app/schemas/com.example.data.AppDatabase/22.json"], None, None, "full"),
         ("ci policy", [".github/workflows/android.yml"], None, None, "full"),
+        ("agents policy", ["AGENTS.md"], None, None, "full"),
         (
             "mixed visual and code",
             ["app/src/main/res/drawable/logo.xml", "app/src/main/java/com/example/GameEngine.kt"],
