@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout exact validation head
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -65,13 +65,13 @@ jobs:
           fi
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
       - name: Run European bulk importer tests
         if: steps.scope.outputs.full == 'true'
@@ -201,7 +201,7 @@ jobs:
 
       - name: Upload real UI screenshot captures
         if: steps.scope.outputs.full == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phase-10-5-ui-screenshots
           path: app/src/test/screenshots/*.png
@@ -237,7 +237,7 @@ jobs:
 
       - name: Upload FC26 and performance audit reports
         if: steps.scope.outputs.full == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fc26-phase-10-1-audit-reports
           path: |
@@ -283,7 +283,7 @@ jobs:
 
       - name: Upload Room schema artifact
         if: steps.scope.outputs.full == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: room-schema-${{ github.sha }}
           path: ${{ steps.room_schema.outputs.schema_file }}
@@ -292,7 +292,7 @@ jobs:
 
       - name: Upload test report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: validation-test-report
           path: app/build/reports/tests/testDebugUnitTest/
@@ -300,7 +300,7 @@ jobs:
           retention-days: 1
 
       - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
@@ -308,7 +308,7 @@ jobs:
           retention-days: 1
 
       - name: Upload validation Release APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-release-apk-validation
           path: app/build/outputs/apk/release/*.apk
@@ -316,7 +316,7 @@ jobs:
           retention-days: 1
 
       - name: Upload validation Release AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-release-aab-validation
           path: app/build/outputs/bundle/release/*.aab
@@ -324,7 +324,7 @@ jobs:
           retention-days: 1
 
       - name: Upload validation release-signing audit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-signing-status-validation
           path: ${{ runner.temp }}/release-signing-status.json
@@ -340,7 +340,7 @@ jobs:
     environment: release
     steps:
       - name: Checkout exact validated dispatch SHA
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -359,13 +359,13 @@ jobs:
           echo "Production checkout pinned to validated SHA: $actual_sha"
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
       - name: Setup production google-services.json
         env:
@@ -426,7 +426,7 @@ jobs:
           jarsigner -verify -strict -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -certs "$release_aab"
 
       - name: Upload production Release APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-release-apk-production
           path: app/build/outputs/apk/release/*.apk
@@ -434,7 +434,7 @@ jobs:
           retention-days: 1
 
       - name: Upload production Release AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: app-release-aab-production
           path: app/build/outputs/bundle/release/*.aab
@@ -442,7 +442,7 @@ jobs:
           retention-days: 1
 
       - name: Upload production signing audit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-signing-status-production
           path: ${{ runner.temp }}/release-signing-status.json
