@@ -19,7 +19,7 @@ internal object SaveSlotsPublicationClock {
 
     fun invalidate(): Long {
         val invalidatedAt = generation.incrementAndGet()
-        invalidationGeneration.set(invalidatedAt)
+        invalidationGeneration.updateAndGet { current -> maxOf(current, invalidatedAt) }
         return invalidatedAt
     }
 
