@@ -1,33 +1,21 @@
 name: Phase 10.8 Full Scale Rollover Performance
 
+# Diagnóstico manual. A certificação completa de PR/main executa estes mesmos gates dentro de
+# phase109-required-certification.yml. Assim alterações leves não disparam dois rollovers de 60.885
+# jogadores, enquanto mudanças de alto risco continuam cobertas pelo Required Certification.
 on:
-  pull_request:
-    branches: [ main ]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - '.github/workflows/phase108-full-scale-rollover-performance.yml'
-      - 'app/**'
-      - 'tools/fc26/**'
-      - 'reports/phase_10_8_*'
-      - 'gradle/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
-      - 'gradlew'
-      - 'gradlew.bat'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: phase-10-8-rollover-${{ github.event.pull_request.number || github.ref }}
+  group: phase-10-8-rollover-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   full-scale-rollover:
     name: 60,885-player file-backed Room rollover (${{ matrix.profile }})
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -35,15 +23,15 @@ jobs:
       matrix:
         profile: [normal, constrained]
     env:
-      AUDIT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      AUDIT_HEAD_SHA: ${{ github.sha }}
       PHASE108_PROFILE: ${{ matrix.profile }}
       PHASE108_RUNNER_LABEL: ubuntu-latest
 
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact dispatch head
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Verify exact head
