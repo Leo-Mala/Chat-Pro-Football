@@ -55,9 +55,18 @@ class GamePreferencesRepository @Inject constructor(
     }
 
     /**
-     * Apenas uma reconciliação pode reservar/publicar gerações por vez. Mutadores externos ainda
-     * invalidam a geração global normalmente, mas uma leitura antiga que está falhando não pode
-     * mais reservar N+1 e tornar obsoleto o snapshot N produzido por outra leitura bem-sucedida.
+     * Cada repositório possui seu próprio domínio monotônico de publicação. Assim, uma mutação ou
+     * reconciliação ainda em voo de outra instância não pode invalidar snapshots desta instância.
+     * O domínio global de compatibilidade permanece restrito aos gates que exercitam o contrato
+     * diretamente, enquanto o runtime usa este domínio privado.
+     */
+    private val saveSlotsPublicationDomain = SaveSlotsPublicationClock.newDomain()
+
+    /**
+     * Apenas uma reconciliação pode reservar/publicar gerações por vez nesta instância. Mutadores
+     * desta mesma instância ainda invalidam o domínio normalmente, mas uma leitura antiga que está
+     * falhando não pode reservar N+1 e tornar obsoleto o snapshot N produzido por outra leitura
+     * bem-sucedida do mesmo repositório.
      */
     private val saveSlotsReconciliationMutex = Mutex()
 
@@ -121,8 +130,9 @@ class GamePreferencesRepository @Inject constructor(
      * Reconcilia metadata derivada com o conteúdo autoritativo de cada banco Room.
      *
      * A geração é reservada ANTES da primeira leitura. Ela acompanha o resultado até a fronteira
-     * do StateFlow; se uma mutação externa começar antes da publicação, a factory especializada do
-     * ViewModel rejeita este snapshot antigo.
+     * do StateFlow; se uma mutação desta instância começar antes da publicação, a factory
+     * especializada do ViewModel rejeita este snapshot antigo consultando o domínio transportado
+     * pelo próprio snapshot.
      *
      * As reconciliações são serializadas para que retries fracassados não possam superseder uma
      * publicação válida concorrente. Falhas permanentes têm orçamento finito e, ao esgotá-lo, viram
@@ -134,10 +144,14 @@ class GamePreferencesRepository @Inject constructor(
         var backoffMs = INITIAL_RECONCILIATION_FAILURE_BACKOFF_MS
         var failureAttempts = 0
         while (true) {
-            val publicationGeneration = SaveSlotsPublicationClock.reserve()
+            val publicationGeneration = saveSlotsPublicationDomain.reserve()
             try {
                 val reconciled = reconcileAllSlots()
-                return@withLock SaveSlotsSnapshot(publicationGeneration, reconciled)
+                return@withLock SaveSlotsSnapshot(
+                    publicationGeneration,
+                    reconciled,
+                    saveSlotsPublicationDomain
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -153,7 +167,8 @@ class GamePreferencesRepository @Inject constructor(
                     Log.e(TAG, message, e)
                     return@withLock SaveSlotsSnapshot(
                         publicationGeneration,
-                        persistentFailureMetadata(message)
+                        persistentFailureMetadata(message),
+                        saveSlotsPublicationDomain
                     )
                 }
                 delay(backoffMs)
@@ -375,7 +390,7 @@ class GamePreferencesRepository @Inject constructor(
         week: Int,
         balance: Long
     ) {
-        SaveSlotsPublicationClock.invalidate()
+        saveSlotsPublicationDomain.invalidate()
         updateSlotMetadataProjection(saveId, coachName, teamName, season, week, balance)
     }
 
@@ -428,7 +443,7 @@ class GamePreferencesRepository @Inject constructor(
     }
 
     suspend fun removeSlotMetadata(saveId: String) {
-        SaveSlotsPublicationClock.invalidate()
+        saveSlotsPublicationDomain.invalidate()
         removeSlotMetadataProjection(saveId)
     }
 
