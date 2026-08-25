@@ -41,6 +41,10 @@ MAIN_REQUIRED_JOBS = {
     "Required Certification Gate",
 }
 CORE.IMMUTABLE_TRUST_PATHS.add(SELF_PATH)
+TRUSTED_EVOLUTION_MARKER = "TRUSTED-CI-EVOLUTION-V1"
+TRUSTED_EVOLUTION_APPROVER_IDS = {8900267}
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+NONCE_RE = re.compile(r"^[0-9a-f]{32,64}$")
 
 
 class GuardianV12Error(ValueError):
@@ -50,6 +54,89 @@ class GuardianV12Error(ValueError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise GuardianV12Error(message)
+
+
+def trusted_evolution_required(paths: set[str]) -> bool:
+    """Only trusted-kernel/workflow changes enter the independently authorized path."""
+    return any(
+        path.startswith(".github/scripts/phase109_")
+        or path.startswith(".github/workflows/")
+        for path in paths
+    )
+
+
+def parse_trusted_evolution_body(body: str) -> dict[str, Any]:
+    lines = body.splitlines()
+    require(bool(lines) and lines[0] == TRUSTED_EVOLUTION_MARKER,
+            "Trusted evolution marker is missing or not the first line")
+    require(len(lines) >= 2, "Trusted evolution authorization payload is missing")
+    try:
+        payload = json.loads("\n".join(lines[1:]))
+    except json.JSONDecodeError as exc:
+        raise GuardianV12Error(f"Trusted evolution authorization is not valid JSON: {exc}") from exc
+    require(isinstance(payload, dict), "Trusted evolution authorization must be a JSON object")
+    require(set(payload) == {"version", "pr", "base", "head", "nonce", "files"},
+            "Trusted evolution authorization keys are not exact")
+    require(payload.get("version") == 1, "Unsupported trusted evolution authorization version")
+    require(isinstance(payload.get("pr"), int) and int(payload["pr"]) > 0,
+            "Trusted evolution PR number is invalid")
+    require(isinstance(payload.get("base"), str) and SHA_RE.fullmatch(payload["base"]) is not None,
+            "Trusted evolution base SHA is invalid")
+    require(isinstance(payload.get("head"), str) and SHA_RE.fullmatch(payload["head"]) is not None,
+            "Trusted evolution head SHA is invalid")
+    require(isinstance(payload.get("nonce"), str) and NONCE_RE.fullmatch(payload["nonce"]) is not None,
+            "Trusted evolution nonce is invalid")
+    files = payload.get("files")
+    require(isinstance(files, dict) and 0 < len(files) <= 32,
+            "Trusted evolution file map is missing or too large")
+    for path, blob in files.items():
+        require(isinstance(path, str) and path and not path.startswith("/") and ".." not in Path(path).parts,
+                f"Trusted evolution path is invalid: {path}")
+        require(isinstance(blob, str) and SHA_RE.fullmatch(blob) is not None,
+                f"Trusted evolution blob SHA is invalid: {path}")
+    return payload
+
+
+def validate_trusted_evolution_authorization(
+    comments: list[dict[str, Any]], *, pr_number: int, base: str, head: str,
+    paths: set[str], candidate_tree: dict[str, str]
+) -> dict[str, Any]:
+    """Validate an exact, external, trusted-actor authorization from GitHub API data."""
+    trusted_payloads: list[tuple[int, dict[str, Any]]] = []
+    for comment in comments:
+        body = str(comment.get("body", ""))
+        if not body.startswith(TRUSTED_EVOLUTION_MARKER):
+            continue
+        user = comment.get("user") or {}
+        # Candidate-controlled workflow tokens cannot satisfy this identity check. Untrusted
+        # marker comments are ignored so a commenter cannot create a denial of service.
+        if int(user.get("id", 0) or 0) not in TRUSTED_EVOLUTION_APPROVER_IDS:
+            continue
+        trusted_payloads.append((int(comment.get("id", 0) or 0), parse_trusted_evolution_body(body)))
+
+    exact: list[tuple[int, dict[str, Any]]] = []
+    for comment_id, payload in trusted_payloads:
+        if payload["pr"] == pr_number and payload["base"] == base and payload["head"] == head:
+            exact.append((comment_id, payload))
+    require(len(exact) == 1,
+            f"Expected exactly one trusted evolution authorization for PR/base/head; got {len(exact)}")
+    comment_id, payload = exact[0]
+    authorized_files = payload["files"]
+    require(set(authorized_files) == paths,
+            "Trusted evolution changed paths differ from the exact authorized set")
+    for path, expected_blob in authorized_files.items():
+        require(candidate_tree.get(path) == expected_blob,
+                f"Trusted evolution candidate blob differs from authorization: {path}")
+    require(any(path.startswith(".github/scripts/phase109_") for path in paths),
+            "Trusted evolution authorization does not include a Guardian/contract change")
+    return {
+        "authorizationCommentId": comment_id,
+        "authorizationNonce": payload["nonce"],
+        "authorizedBase": base,
+        "authorizedHead": head,
+        "authorizedPr": pr_number,
+        "authorizedFiles": dict(sorted(authorized_files.items())),
+    }
 
 
 def typealias_pairs(clean_source: str) -> list[tuple[str, str]]:
@@ -135,13 +222,45 @@ def candidate_kotlin_sources(repo: str, token: str, head: str,
 
 def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
     candidate_tree = V3.recursive_tree(repo, token, head)
+    run = CORE.api_request(repo, token, "GET", f"/actions/runs/{run_id}")
+    require(isinstance(run, dict), "Trusted evolution run payload is missing")
+    require(run.get("head_sha") == head, "Trusted evolution run HEAD differs from requested HEAD")
+    pr = CORE.find_current_pr(repo, token, run, head)
+    pr_number = int(pr.get("number", 0) or 0)
+    audited_base = V3.run_audited_base(run, head)
+    files = V3.complete_pr_files(repo, token, pr)
+    paths = V3.paths_from_files(files)
+    evolution: dict[str, Any] | None = None
+    if trusted_evolution_required(paths):
+        comments = CORE.paged(repo, token, f"/issues/{pr_number}/comments")
+        evolution = validate_trusted_evolution_authorization(
+            comments,
+            pr_number=pr_number,
+            base=audited_base,
+            head=head,
+            paths=paths,
+            candidate_tree=candidate_tree,
+        )
+
     global_aliases = resolve_global_room_typealiases(
         candidate_kotlin_sources(repo, token, head, candidate_tree)
     )
     old_symbols = v11.kotlin_room_symbols
     old_source_predicate = v11.is_production_android_source
+    old_kernel_validator = V3.validate_trusted_kernel_paths
+    old_workflow_validator = V3.validate_workflow_immutability
+    old_immutable_paths = set(CORE.IMMUTABLE_TRUST_PATHS)
     v11.kotlin_room_symbols = lambda clean: kotlin_room_symbols_with_aliases(clean, global_aliases)
     v11.is_production_android_source = is_production_android_source
+    if evolution is not None:
+        # Authorization has already bound the complete PR path set and every candidate blob to
+        # trusted GitHub API data. Relax only the two blanket bootstrap prohibitions for this
+        # exact validation call; every other Guardian invariant remains active.
+        V3.validate_trusted_kernel_paths = lambda candidate_paths: None
+        V3.validate_workflow_immutability = (
+            lambda base_tree, current_tree: len(V3.workflow_blobs(current_tree))
+        )
+        CORE.IMMUTABLE_TRUST_PATHS.difference_update(paths)
     try:
         result = BASE_V11_VALIDATE_RUN(root, repo, token, run_id, head)
         result["productionRoomBuilderContractV12"] = {
@@ -150,10 +269,16 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
             "resolvedRoomTypealiases": sorted(global_aliases),
             "allTrackedModuleSourceSetsAudited": True,
         }
+        if evolution is not None:
+            result["trustedCiEvolutionAuthorizationV1"] = evolution
         return result
     finally:
         v11.kotlin_room_symbols = old_symbols
         v11.is_production_android_source = old_source_predicate
+        V3.validate_trusted_kernel_paths = old_kernel_validator
+        V3.validate_workflow_immutability = old_workflow_validator
+        CORE.IMMUTABLE_TRUST_PATHS.clear()
+        CORE.IMMUTABLE_TRUST_PATHS.update(old_immutable_paths)
 
 
 def validate_and_publish(root: Path, repo: str, token: str, run_id: int, head: str,
@@ -293,6 +418,55 @@ def parser_self_test() -> None:
 def self_test() -> dict[str, Any]:
     v11.self_test()
     parser_self_test()
+    base = "1" * 40
+    head = "2" * 40
+    blob = "3" * 40
+    nonce = "4" * 32
+    path = ".github/scripts/phase109_trusted_contract.py"
+    payload = {
+        "version": 1, "pr": 67, "base": base, "head": head, "nonce": nonce,
+        "files": {path: blob},
+    }
+    trusted = {
+        "id": 9001,
+        "user": {"id": 8900267},
+        "body": TRUSTED_EVOLUTION_MARKER + "\n" + json.dumps(payload, sort_keys=True),
+    }
+
+    def rejected(comments: list[dict[str, Any]], **overrides: Any) -> None:
+        args: dict[str, Any] = {
+            "pr_number": 67, "base": base, "head": head,
+            "paths": {path}, "candidate_tree": {path: blob},
+        }
+        args.update(overrides)
+        try:
+            validate_trusted_evolution_authorization(comments, **args)
+        except GuardianV12Error:
+            return
+        raise GuardianV12Error(f"Trusted evolution negative self-test unexpectedly passed: {overrides}")
+
+    accepted = validate_trusted_evolution_authorization(
+        [trusted], pr_number=67, base=base, head=head,
+        paths={path}, candidate_tree={path: blob},
+    )
+    require(accepted["authorizationCommentId"] == 9001,
+            "Valid trusted evolution authorization was not accepted")
+    require(not trusted_evolution_required({"app/src/main/java/x/Game.kt"}),
+            "Common PR unexpectedly entered trusted evolution path")
+    require(trusted_evolution_required({path}),
+            "Trusted kernel change did not require independent authorization")
+    require(trusted_evolution_required({".github/workflows/android.yml"}),
+            "Trusted workflow change did not require independent authorization")
+    untrusted = dict(trusted); untrusted["user"] = {"id": 12345}
+    rejected([untrusted])  # candidate/untrusted commenter cannot self-authorize
+    invalid = dict(trusted); invalid["body"] = TRUSTED_EVOLUTION_MARKER + "\n{}"
+    rejected([invalid])
+    rejected([trusted], head="5" * 40)
+    rejected([trusted], base="6" * 40)
+    rejected([trusted], pr_number=68)
+    rejected([trusted], paths={path, "AGENTS.md"},
+             candidate_tree={path: blob, "AGENTS.md": "7" * 40})
+    rejected([trusted], candidate_tree={path: "8" * 40})
     return {
         "status": "PASS",
         "guardianV11": "PASS",
@@ -300,6 +474,17 @@ def self_test() -> dict[str, Any]:
         "importAliasedRoomTypealiasesResolved": True,
         "allTrackedModuleSourceSetsAudited": True,
         "exactMainRequiredJobContract": sorted(MAIN_REQUIRED_JOBS),
+        "trustedCiEvolutionAuthorizationV1": {
+            "commonPrStillProtected": True,
+            "workflowMutationStillProtected": True,
+            "candidateCannotSelfAuthorize": True,
+            "invalidAuthorizationFailsClosed": True,
+            "exactHeadBound": True,
+            "exactBaseBound": True,
+            "exactPrBound": True,
+            "extraFilesRejected": True,
+            "candidateBlobMapBound": True,
+        },
     }
 
 
