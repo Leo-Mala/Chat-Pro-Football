@@ -92,7 +92,7 @@ def _reject_light_shell_bypass(step, label: str) -> None:
     commands = _commands(step)
     hard_require(not _LEGACY.control_commands(step), f"Unexpected shell control flow in {label}")
     forbidden_start = re.compile(
-        r"^(?:alias|unalias|function|eval|source|trap|shopt|export|readonly|declare|typeset|local|unset|read|readarray|mapfile|exit|return|break|continue)\b"
+        r"^(?:alias|unalias|function|eval|source|trap|shopt|export|readonly|declare|typeset|local|unset|read|readarray|mapfile|exec|exit|return|break|continue)\b"
     )
     for command in commands:
         stripped = command.strip()
@@ -136,12 +136,12 @@ def _validate_scope_override_resistance(step) -> int:
         'base="$(git rev-parse HEAD^1)"',
     }
     forbidden_mutator = re.compile(
-        r"^(?:export|readonly|declare|typeset|local|unset|read|readarray|mapfile|eval|source|\.)\b"
+        r"^(?:export|readonly|declare|typeset|local|unset|read|readarray|mapfile|eval|source|exec|exit|return|break|continue|\.)\b"
     )
     assignment = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\+)?=")
     for command in commands:
         stripped = command.strip()
-        hard_require(not forbidden_mutator.search(stripped), f"Forbidden certification-scope mutator: {stripped}")
+        hard_require(not forbidden_mutator.search(stripped), f"Forbidden certification-scope mutator/termination: {stripped}")
         hard_require(not re.search(r"\bprintf\s+(?:[^;]*\s)?-v\b", stripped),
                      f"Indirect certification-scope assignment: {stripped}")
         if assignment.search(stripped):
@@ -302,6 +302,7 @@ def _hardening_self_test() -> None:
         "printf -v mode none",
         "${mode:=none}",
         "x=mo\n          x+=de\n          printf -v \"$x\" none",
+        "exec true",
     ):
         bad = scope_fixture.replace('echo "Resolved certification mode: $mode"', f'{injected}\n          echo "Resolved certification mode: $mode"')
         bad_step = _LEGACY.step_for(_LEGACY.parse_steps(bad), "policy-scope", "Resolve mandatory certification scope")
@@ -340,6 +341,13 @@ def _hardening_self_test() -> None:
     early_exit_build = _LEGACY.step_for(_LEGACY.parse_steps(early_exit), "light-validation", "Build lightweight Debug and Release APK/AAB")
     _expect_rejected(lambda: _validate_light_build(early_exit_build), "early exit before mandatory LIGHT build")
 
+    early_exec = build_fixture.replace(
+        "          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace\n",
+        "          exec true\n          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace\n",
+    )
+    early_exec_build = _LEGACY.step_for(_LEGACY.parse_steps(early_exec), "light-validation", "Build lightweight Debug and Release APK/AAB")
+    _expect_rejected(lambda: _validate_light_build(early_exec_build), "exec termination before mandatory LIGHT build")
+
 
 def self_test() -> None:
     _LEGACY.self_test()
@@ -361,7 +369,7 @@ def main() -> int:
             print(json.dumps({
                 "status": "PASS",
                 "frozenLegacyContract": LEGACY_CONTRACT_COMMIT,
-                "newNegativeCases": 7,
+                "newNegativeCases": 9,
                 "guardianApiCompatibility": hasattr(sys.modules[__name__], "BASE_RUN_RULES"),
                 "lightweightGatesStructurallyBound": True,
                 "indirectScopeOverridesRejected": True,
