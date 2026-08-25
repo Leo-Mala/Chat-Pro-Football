@@ -147,8 +147,8 @@ def validate_trusted_evolution_authorization(
             actual_files[previous] = DELETED_BLOB
     require(actual_files == authorized_files,
             "Trusted evolution candidate blobs/deletions differ from authorization")
-    require(any(path.startswith(".github/scripts/phase109_") for path in paths),
-            "Trusted evolution authorization does not include a Guardian/contract change")
+    require(trusted_evolution_required(paths),
+            "Trusted evolution authorization does not include a trusted kernel/workflow change")
     return {
         "authorizationCommentId": comment_id,
         "authorizationNonce": payload["nonce"],
@@ -162,10 +162,18 @@ def validate_trusted_evolution_authorization(
 def workflow_uses(source: str) -> set[str]:
     clean = V3.without_yaml_comments(source)
     refs: set[str] = set()
+    key = r"(?:uses|'uses'|\"uses\")"
+    scalar_value = r"(?:[^\s#'\"]+|'[^'\r\n]+'|\"[^\"\r\n]+\")"
+    canonical = re.compile(rf"^\s*(?:-\s*)?{key}\s*:\s*({scalar_value})\s*$")
+    any_uses_key = re.compile(rf"(?<![A-Za-z0-9_]){key}\s*:")
     for line in clean.splitlines():
-        match = re.match(r"^\s*(?:-\s*)?uses\s*:\s*([^\s]+)\s*$", line)
+        match = canonical.fullmatch(line)
         if match:
             refs.add(V3.scalar(match.group(1)))
+        elif any_uses_key.search(line):
+            raise GuardianV12Error(
+                f"Mutable workflow contains unsupported uses syntax; block-style scalar required: {line.strip()}"
+            )
     return refs
 
 
@@ -196,14 +204,16 @@ def audit_authorized_workflows(
     repo: str, token: str, base: str, head: str, paths: set[str],
     base_tree: dict[str, str], candidate_tree: dict[str, str]
 ) -> dict[str, Any]:
-    base_refs: set[str] = set()
+    base_pinned_refs: set[str] = set()
+    base_refs_by_path: dict[str, set[str]] = {}
     for path in sorted(V3.workflow_blobs(base_tree)):
-        for ref in workflow_uses(V3.fetch_text(repo, token, base, path)):
+        refs = workflow_uses(V3.fetch_text(repo, token, base, path))
+        base_refs_by_path[path] = refs
+        for ref in refs:
             if ref.startswith("./"):
                 continue
-            require(re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref) is not None,
-                    f"Trusted base workflow action is not pinned by full SHA: {path}:{ref}")
-            base_refs.add(ref)
+            if re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref) is not None:
+                base_pinned_refs.add(ref)
 
     audited = 0
     permission_markers = 0
@@ -215,15 +225,21 @@ def audit_authorized_workflows(
         for ref in workflow_uses(source):
             if ref.startswith("./"):
                 continue
+            # Existing legacy tag references may remain byte-for-byte as references while the
+            # workflow evolves for unrelated reasons. Any newly introduced/moved reference must
+            # be a full SHA already anchored somewhere in the trusted base.
+            if ref in base_refs_by_path.get(path, set()):
+                continue
             require(re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref) is not None,
                     f"Mutable workflow action is not pinned by full SHA: {path}:{ref}")
-            require(ref in base_refs,
+            require(ref in base_pinned_refs,
                     f"Mutable workflow action is not in trusted-base allowlist: {path}:{ref}")
         audited += 1
     return {
         "mutableWorkflowsAudited": audited,
         "explicitPermissionMarkers": permission_markers,
-        "trustedBasePinnedActionAllowlist": sorted(base_refs),
+        "trustedBasePinnedActionAllowlist": sorted(base_pinned_refs),
+        "unchangedLegacyReferencesOnly": True,
     }
 
 
@@ -587,6 +603,24 @@ def self_test() -> dict[str, Any]:
     require(workflow_uses(
         "steps:\n  - uses: actions/checkout@" + "9" * 40 + "\n"
     ) == {"actions/checkout@" + "9" * 40}, "Workflow action reference parser failed")
+    require(workflow_uses(
+        "steps:\n  - 'uses': 'actions/checkout@" + "9" * 40 + "'\n"
+    ) == {"actions/checkout@" + "9" * 40}, "Quoted workflow action reference parser failed")
+    try:
+        workflow_uses("steps:\n  - { uses: evil/action@main }\n")
+    except GuardianV12Error:
+        pass
+    else:
+        raise GuardianV12Error("Unsupported flow-style uses syntax was accepted")
+    workflow_path = ".github/workflows/example.yml"
+    workflow_payload = dict(payload); workflow_payload["files"] = {workflow_path: blob}
+    workflow_comment = dict(trusted)
+    workflow_comment["body"] = TRUSTED_EVOLUTION_MARKER + "\n" + json.dumps(workflow_payload, sort_keys=True)
+    validate_trusted_evolution_authorization(
+        [workflow_comment], pr_number=67, base=base, head=head,
+        files=[{"filename": workflow_path, "status": "modified"}],
+        candidate_tree={workflow_path: blob},
+    )
     return {
         "status": "PASS",
         "guardianV11": "PASS",
@@ -607,6 +641,9 @@ def self_test() -> dict[str, Any]:
             "deletionsAndRenamesExplicit": True,
             "workflowPermissionsExplicitLeastPrivilege": True,
             "mutableWorkflowActionsPinnedAndBaseAllowlisted": True,
+            "unsupportedUsesSyntaxRejected": True,
+            "workflowOnlyEvolutionAuthorized": True,
+            "legacyBaseTagsNotPromotedToAllowlist": True,
         },
     }
 
