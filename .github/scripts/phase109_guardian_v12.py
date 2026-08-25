@@ -45,6 +45,10 @@ TRUSTED_EVOLUTION_MARKER = "TRUSTED-CI-EVOLUTION-V1"
 TRUSTED_EVOLUTION_APPROVER_IDS = {8900267}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 NONCE_RE = re.compile(r"^[0-9a-f]{32,64}$")
+DELETED_BLOB = "DELETED"
+ALLOWED_WORKFLOW_WRITE_SCOPES = {
+    ".github/workflows/phase109-trusted-guardian.yml": {"statuses"},
+}
 
 
 class GuardianV12Error(ValueError):
@@ -92,14 +96,14 @@ def parse_trusted_evolution_body(body: str) -> dict[str, Any]:
     for path, blob in files.items():
         require(isinstance(path, str) and path and not path.startswith("/") and ".." not in Path(path).parts,
                 f"Trusted evolution path is invalid: {path}")
-        require(isinstance(blob, str) and SHA_RE.fullmatch(blob) is not None,
+        require(isinstance(blob, str) and (blob == DELETED_BLOB or SHA_RE.fullmatch(blob) is not None),
                 f"Trusted evolution blob SHA is invalid: {path}")
     return payload
 
 
 def validate_trusted_evolution_authorization(
     comments: list[dict[str, Any]], *, pr_number: int, base: str, head: str,
-    paths: set[str], candidate_tree: dict[str, str]
+    files: list[dict[str, Any]], candidate_tree: dict[str, str]
 ) -> dict[str, Any]:
     """Validate an exact, external, trusted-actor authorization from GitHub API data."""
     trusted_payloads: list[tuple[int, dict[str, Any]]] = []
@@ -122,11 +126,27 @@ def validate_trusted_evolution_authorization(
             f"Expected exactly one trusted evolution authorization for PR/base/head; got {len(exact)}")
     comment_id, payload = exact[0]
     authorized_files = payload["files"]
+    paths = V3.paths_from_files(files)
     require(set(authorized_files) == paths,
             "Trusted evolution changed paths differ from the exact authorized set")
-    for path, expected_blob in authorized_files.items():
-        require(candidate_tree.get(path) == expected_blob,
-                f"Trusted evolution candidate blob differs from authorization: {path}")
+    actual_files: dict[str, str] = {}
+    for item in files:
+        filename = str(item.get("filename", ""))
+        previous = str(item.get("previous_filename", ""))
+        status = str(item.get("status", ""))
+        require(filename and status in {"added", "modified", "removed", "renamed", "changed", "copied"},
+                f"Trusted evolution file status is unsupported: {filename}={status}")
+        if status == "removed":
+            actual_files[filename] = DELETED_BLOB
+        else:
+            blob = candidate_tree.get(filename)
+            require(bool(blob), f"Trusted evolution candidate file is missing: {filename}")
+            actual_files[filename] = str(blob)
+        if status == "renamed":
+            require(bool(previous), f"Trusted evolution rename has no previous path: {filename}")
+            actual_files[previous] = DELETED_BLOB
+    require(actual_files == authorized_files,
+            "Trusted evolution candidate blobs/deletions differ from authorization")
     require(any(path.startswith(".github/scripts/phase109_") for path in paths),
             "Trusted evolution authorization does not include a Guardian/contract change")
     return {
@@ -136,6 +156,74 @@ def validate_trusted_evolution_authorization(
         "authorizedHead": head,
         "authorizedPr": pr_number,
         "authorizedFiles": dict(sorted(authorized_files.items())),
+    }
+
+
+def workflow_uses(source: str) -> set[str]:
+    clean = V3.without_yaml_comments(source)
+    refs: set[str] = set()
+    for line in clean.splitlines():
+        match = re.match(r"^\s*(?:-\s*)?uses\s*:\s*([^\s]+)\s*$", line)
+        if match:
+            refs.add(V3.scalar(match.group(1)))
+    return refs
+
+
+def validate_mutable_workflow_permissions(path: str, source: str) -> int:
+    declarations = V3.parse_permission_declarations(source)
+    top_level = [value for indent, value in declarations if indent == 0]
+    require(len(top_level) == 1,
+            f"Mutable workflow must have exactly one explicit top-level permissions declaration: {path}")
+    allowed_writes = ALLOWED_WORKFLOW_WRITE_SCOPES.get(path, set())
+    markers = 0
+    for _, declaration in declarations:
+        if isinstance(declaration, str):
+            require(declaration in {"none", "read-all"},
+                    f"Mutable workflow has unsafe scalar permissions: {path}={declaration}")
+            markers += 1
+            continue
+        for scope, value in declaration.items():
+            require(value in {"none", "read", "write"},
+                    f"Mutable workflow has invalid permission value: {path}:{scope}={value}")
+            if value == "write":
+                require(scope in allowed_writes,
+                        f"Mutable workflow requests unauthorized write scope: {path}:{scope}")
+            markers += 1
+    return markers
+
+
+def audit_authorized_workflows(
+    repo: str, token: str, base: str, head: str, paths: set[str],
+    base_tree: dict[str, str], candidate_tree: dict[str, str]
+) -> dict[str, Any]:
+    base_refs: set[str] = set()
+    for path in sorted(V3.workflow_blobs(base_tree)):
+        for ref in workflow_uses(V3.fetch_text(repo, token, base, path)):
+            if ref.startswith("./"):
+                continue
+            require(re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref) is not None,
+                    f"Trusted base workflow action is not pinned by full SHA: {path}:{ref}")
+            base_refs.add(ref)
+
+    audited = 0
+    permission_markers = 0
+    for path in sorted(paths):
+        if not path.startswith(".github/workflows/") or path not in candidate_tree:
+            continue
+        source = V3.fetch_text(repo, token, head, path)
+        permission_markers += validate_mutable_workflow_permissions(path, source)
+        for ref in workflow_uses(source):
+            if ref.startswith("./"):
+                continue
+            require(re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", ref) is not None,
+                    f"Mutable workflow action is not pinned by full SHA: {path}:{ref}")
+            require(ref in base_refs,
+                    f"Mutable workflow action is not in trusted-base allowlist: {path}:{ref}")
+        audited += 1
+    return {
+        "mutableWorkflowsAudited": audited,
+        "explicitPermissionMarkers": permission_markers,
+        "trustedBasePinnedActionAllowlist": sorted(base_refs),
     }
 
 
@@ -231,6 +319,7 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
     files = V3.complete_pr_files(repo, token, pr)
     paths = V3.paths_from_files(files)
     evolution: dict[str, Any] | None = None
+    workflow_evolution_audit: dict[str, Any] | None = None
     if trusted_evolution_required(paths):
         comments = CORE.paged(repo, token, f"/issues/{pr_number}/comments")
         evolution = validate_trusted_evolution_authorization(
@@ -238,8 +327,12 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
             pr_number=pr_number,
             base=audited_base,
             head=head,
-            paths=paths,
+            files=files,
             candidate_tree=candidate_tree,
+        )
+        base_tree = V3.recursive_tree(repo, token, audited_base)
+        workflow_evolution_audit = audit_authorized_workflows(
+            repo, token, audited_base, head, paths, base_tree, candidate_tree
         )
 
     global_aliases = resolve_global_room_typealiases(
@@ -271,6 +364,7 @@ def validate_run(root: Path, repo: str, token: str, run_id: int, head: str) -> d
         }
         if evolution is not None:
             result["trustedCiEvolutionAuthorizationV1"] = evolution
+            result["trustedCiEvolutionWorkflowAuditV1"] = workflow_evolution_audit
         return result
     finally:
         v11.kotlin_room_symbols = old_symbols
@@ -436,7 +530,8 @@ def self_test() -> dict[str, Any]:
     def rejected(comments: list[dict[str, Any]], **overrides: Any) -> None:
         args: dict[str, Any] = {
             "pr_number": 67, "base": base, "head": head,
-            "paths": {path}, "candidate_tree": {path: blob},
+            "files": [{"filename": path, "status": "modified"}],
+            "candidate_tree": {path: blob},
         }
         args.update(overrides)
         try:
@@ -447,7 +542,7 @@ def self_test() -> dict[str, Any]:
 
     accepted = validate_trusted_evolution_authorization(
         [trusted], pr_number=67, base=base, head=head,
-        paths={path}, candidate_tree={path: blob},
+        files=[{"filename": path, "status": "modified"}], candidate_tree={path: blob},
     )
     require(accepted["authorizationCommentId"] == 9001,
             "Valid trusted evolution authorization was not accepted")
@@ -464,9 +559,34 @@ def self_test() -> dict[str, Any]:
     rejected([trusted], head="5" * 40)
     rejected([trusted], base="6" * 40)
     rejected([trusted], pr_number=68)
-    rejected([trusted], paths={path, "AGENTS.md"},
+    rejected([trusted],
+             files=[{"filename": path, "status": "modified"},
+                    {"filename": "AGENTS.md", "status": "modified"}],
              candidate_tree={path: blob, "AGENTS.md": "7" * 40})
     rejected([trusted], candidate_tree={path: "8" * 40})
+    delete_payload = dict(payload); delete_payload["files"] = {path: DELETED_BLOB}
+    delete_comment = dict(trusted)
+    delete_comment["body"] = TRUSTED_EVOLUTION_MARKER + "\n" + json.dumps(delete_payload, sort_keys=True)
+    deleted = validate_trusted_evolution_authorization(
+        [delete_comment], pr_number=67, base=base, head=head,
+        files=[{"filename": path, "status": "removed"}], candidate_tree={},
+    )
+    require(deleted["authorizedFiles"][path] == DELETED_BLOB,
+            "Authorized deletion was not represented explicitly")
+    require(validate_mutable_workflow_permissions(
+        ".github/workflows/example.yml", "permissions:\n  contents: read\n"
+    ) == 1, "Explicit least-privilege workflow permissions were rejected")
+    try:
+        validate_mutable_workflow_permissions(
+            ".github/workflows/example.yml", "permissions:\n  contents: write\n"
+        )
+    except GuardianV12Error:
+        pass
+    else:
+        raise GuardianV12Error("Unauthorized workflow write permission was accepted")
+    require(workflow_uses(
+        "steps:\n  - uses: actions/checkout@" + "9" * 40 + "\n"
+    ) == {"actions/checkout@" + "9" * 40}, "Workflow action reference parser failed")
     return {
         "status": "PASS",
         "guardianV11": "PASS",
@@ -484,6 +604,9 @@ def self_test() -> dict[str, Any]:
             "exactPrBound": True,
             "extraFilesRejected": True,
             "candidateBlobMapBound": True,
+            "deletionsAndRenamesExplicit": True,
+            "workflowPermissionsExplicitLeastPrivilege": True,
+            "mutableWorkflowActionsPinnedAndBaseAllowlisted": True,
         },
     }
 
