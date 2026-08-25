@@ -92,11 +92,11 @@ def _reject_light_shell_bypass(step, label: str) -> None:
     commands = _commands(step)
     hard_require(not _LEGACY.control_commands(step), f"Unexpected shell control flow in {label}")
     forbidden_start = re.compile(
-        r"^(?:alias|unalias|function|eval|source|trap|shopt|export|readonly|declare|typeset|local|unset|read|readarray|mapfile)\b"
+        r"^(?:alias|unalias|function|eval|source|trap|shopt|export|readonly|declare|typeset|local|unset|read|readarray|mapfile|exit|return|break|continue)\b"
     )
     for command in commands:
         stripped = command.strip()
-        hard_require(not forbidden_start.search(stripped), f"Forbidden shell mutation in {label}: {stripped}")
+        hard_require(not forbidden_start.search(stripped), f"Forbidden shell mutation/termination in {label}: {stripped}")
         hard_require(not re.search(r"^(?:PATH|BASH_ENV|SHELLOPTS)\s*=", stripped),
                      f"Execution-environment mutation in {label}: {stripped}")
         hard_require(not re.search(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(\)\s*\{", stripped),
@@ -123,18 +123,33 @@ def _validate_scope_override_resistance(step) -> int:
         'echo "Resolved certification mode: $mode"',
         "printf 'mode=full\\nlight=false\\nfull=true\\nreason=classifier differs from trusted base; forcing full certification\\n' > \"$scope_file\"",
     }
+    allowed_assignments = {
+        "classifier_path='.github/scripts/ci_scope.py'",
+        "base='${{ github.event.pull_request.base.sha }}'",
+        'scope_file="$RUNNER_TEMP/phase109-scope.txt"',
+        'trusted_classifier="$RUNNER_TEMP/phase109_trusted_ci_scope.py"',
+        "mode=$(sed -n 's/^mode=//p' \"$scope_file\")",
+        "light=$(sed -n 's/^light=//p' \"$scope_file\")",
+        "mode=full",
+        "light=false",
+        'base="$(git rev-parse HEAD^1)"',
+    }
     forbidden_mutator = re.compile(
         r"^(?:export|readonly|declare|typeset|local|unset|read|readarray|mapfile|eval|source|\.)\b"
     )
+    assignment = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\+)?=")
     for command in commands:
         stripped = command.strip()
         hard_require(not forbidden_mutator.search(stripped), f"Forbidden certification-scope mutator: {stripped}")
-        hard_require(not re.search(r"\bprintf\s+(?:[^;]*\s)?-v\s+(?:mode|light)\b", stripped),
+        hard_require(not re.search(r"\bprintf\s+(?:[^;]*\s)?-v\b", stripped),
                      f"Indirect certification-scope assignment: {stripped}")
+        if assignment.search(stripped):
+            hard_require(stripped in allowed_assignments,
+                         f"Unexpected certification-scope assignment: {stripped}")
         if re.search(r"\b(?:mode|light)\b", stripped):
             hard_require(stripped in allowed_scope_references,
                          f"Unexpected certification-scope reference/mutation: {stripped}")
-    return len(allowed_scope_references)
+    return len(allowed_scope_references) + len(allowed_assignments)
 
 
 def _validate_light_build(step) -> int:
@@ -280,7 +295,13 @@ def _hardening_self_test() -> None:
 """
     scope = _LEGACY.step_for(_LEGACY.parse_steps(scope_fixture), "policy-scope", "Resolve mandatory certification scope")
     _validate_scope_override_resistance(scope)
-    for injected in ("export mode=none", "export light=false", "printf -v mode none", "${mode:=none}"):
+    for injected in (
+        "export mode=none",
+        "export light=false",
+        "printf -v mode none",
+        "${mode:=none}",
+        "x=mo\n          x+=de\n          printf -v \"$x\" none",
+    ):
         bad = scope_fixture.replace('echo "Resolved certification mode: $mode"', f'{injected}\n          echo "Resolved certification mode: $mode"')
         bad_step = _LEGACY.step_for(_LEGACY.parse_steps(bad), "policy-scope", "Resolve mandatory certification scope")
         _expect_rejected(lambda step=bad_step: _validate_scope_override_resistance(step), injected)
@@ -311,6 +332,13 @@ def _hardening_self_test() -> None:
     bad_build = _LEGACY.step_for(_LEGACY.parse_steps(missing_signature), "light-validation", "Build lightweight Debug and Release APK/AAB")
     _expect_rejected(lambda: _validate_light_build(bad_build), "deleted Release AAB signature verification")
 
+    early_exit = build_fixture.replace(
+        "          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace\n",
+        "          exit 0\n          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace\n",
+    )
+    early_exit_build = _LEGACY.step_for(_LEGACY.parse_steps(early_exit), "light-validation", "Build lightweight Debug and Release APK/AAB")
+    _expect_rejected(lambda: _validate_light_build(early_exit_build), "early exit before mandatory LIGHT build")
+
 
 def self_test() -> None:
     _LEGACY.self_test()
@@ -332,10 +360,11 @@ def main() -> int:
             print(json.dumps({
                 "status": "PASS",
                 "frozenLegacyContract": LEGACY_CONTRACT_COMMIT,
-                "newNegativeCases": 5,
+                "newNegativeCases": 7,
                 "guardianApiCompatibility": hasattr(sys.modules[__name__], "BASE_RUN_RULES"),
                 "lightweightGatesStructurallyBound": True,
                 "indirectScopeOverridesRejected": True,
+                "earlyTerminationRejected": True,
             }, sort_keys=True))
         else:
             root = Path(args.root).resolve()
