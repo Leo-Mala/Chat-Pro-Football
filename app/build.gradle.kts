@@ -52,8 +52,8 @@ android {
     applicationId = "com.aistudio.brasfutretro.djuxzt"
     minSdk = 24
     targetSdk = 35
-    versionCode = 31
-    versionName = "3.0.0"
+    versionCode = 32
+    versionName = "3.0.1"
     multiDexEnabled = true
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -85,7 +85,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      // Keep resource shrinking explicitly disabled for 3.0.0. R8 remains enabled; introducing
+      // Keep resource shrinking explicitly disabled for 3.0.1. R8 remains enabled; introducing
       // resource removal after the final functional certification would create a new release variable.
       isShrinkResources = false
       // Release is intentionally minified so every normal release certification executes R8 and
