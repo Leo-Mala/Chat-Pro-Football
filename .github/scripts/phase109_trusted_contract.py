@@ -124,6 +124,7 @@ def _validate_scope_override_resistance(step) -> int:
         "printf 'mode=full\\nlight=false\\nfull=true\\nreason=classifier differs from trusted base; forcing full certification\\n' > \"$scope_file\"",
     }
     allowed_assignments = {
+        "legacy_source_anchor=\"r'^app/src/'\"",
         "classifier_path='.github/scripts/ci_scope.py'",
         "base='${{ github.event.pull_request.base.sha }}'",
         'scope_file="$RUNNER_TEMP/phase109-scope.txt"',
