@@ -1,7 +1,6 @@
 package com.example.ui.viewmodel
 
 import com.example.data.model.SaveSlotMetadata
-import com.example.data.model.SaveSlotsPublicationClock
 import com.example.data.model.SaveSlotsSnapshot
 import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
 
@@ -12,9 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
  *
  * Nenhum slot desconhecido é anunciado como vazio no startup: o delegate começa exatamente com o
  * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). Um snapshot que
- * começou antes de uma mutação real continua inelegível. Entre reconciliações somente de leitura,
- * porém, a ordenação é local ao StateFlow: uma leitura concluída não é descartada apenas porque
- * outra instância reservou uma geração global depois dela.
+ * começou antes de uma mutação real do seu próprio repositório continua inelegível. Reconciliações
+ * de repositórios independentes usam domínios diferentes e não podem invalidar umas às outras.
  */
 @Suppress("FunctionName")
 internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): KotlinMutableStateFlow<T> {
@@ -29,12 +27,14 @@ private class SaveSlotsPublicationStateFlow<T : List<SaveSlotMetadata>>(
 
     private fun isCurrent(candidate: T): Boolean {
         val snapshot = candidate as? SaveSlotsSnapshot ?: return true
-        if (snapshot.publicationGeneration < SaveSlotsPublicationClock.invalidationFloor()) {
+        if (snapshot.publicationGeneration < snapshot.publicationDomain.invalidationFloor()) {
             return false
         }
 
         val published = delegate.value as? SaveSlotsSnapshot
-        return published == null || snapshot.publicationGeneration > published.publicationGeneration
+        return published == null ||
+            published.publicationDomain !== snapshot.publicationDomain ||
+            snapshot.publicationGeneration > published.publicationGeneration
     }
 
     override var value: T
