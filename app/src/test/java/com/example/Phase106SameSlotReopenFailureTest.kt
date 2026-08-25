@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GamePreferencesRepository
@@ -23,6 +24,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -70,6 +72,7 @@ class Phase106SameSlotReopenFailureTest {
         viewModel._currentSaveId.value = "1"
         assertTrue(viewModel.activeSaveSession.value === originalSession)
         assertTrue(viewModel.currentSaveId.value == "1")
+        shadowOf(Looper.getMainLooper()).idle()
 
         // Simula o artefato físico ficando inválido antes de uma nova tentativa de abrir o mesmo slot.
         saveRepository.closeAndRemoveSlot("1")
@@ -79,22 +82,30 @@ class Phase106SameSlotReopenFailureTest {
 
         viewModel.selectSaveSlotSafely("1")
 
-        withTimeout(5_000) {
-            while (viewModel.currentSaveId.value != null || viewModel.activeSaveSession.value != null) {
-                delay(10)
-            }
+        awaitWithMainLooper {
+            viewModel.currentSaveId.value == null && viewModel.activeSaveSession.value == null
         }
 
         assertNull("Reopen fail-closed não pode deixar currentSaveId obsoleto", viewModel.currentSaveId.value)
         assertNull("Reopen fail-closed não pode deixar SaveSession com geração vencida", viewModel.activeSaveSession.value)
         assertTrue("Falha de reabertura não pode apagar o artefato", databaseFile.exists())
 
-        withTimeout(5_000) {
-            while (viewModel.saveSlots.value.firstOrNull { it.id == "1" }?.recoveryRequired != true) {
-                delay(10)
-            }
+        awaitWithMainLooper {
+            viewModel.saveSlots.value.firstOrNull { it.id == "1" }?.recoveryRequired == true
         }
         assertTrue(viewModel.saveSlots.value.single { it.id == "1" }.recoveryRequired)
+    }
+
+    private suspend fun awaitWithMainLooper(condition: () -> Boolean) {
+        withTimeout(5_000) {
+            while (!condition()) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (!condition()) {
+                    delay(10)
+                }
+            }
+        }
+        shadowOf(Looper.getMainLooper()).idle()
     }
 
     private fun clearSlotOne() {
