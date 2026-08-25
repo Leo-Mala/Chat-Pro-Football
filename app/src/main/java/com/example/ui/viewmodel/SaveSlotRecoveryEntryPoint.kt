@@ -3,6 +3,7 @@ package com.example.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.example.data.repository.SlotRecoveryRequiredException
+import java.util.WeakHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -10,11 +11,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Serializa somente o trecho de seleção que valida/abre/publica a sessão. O trabalho posterior já
- * usa `sessionGeneration`; esta fila evita que dois toques rápidos em slots frios invertam a ordem
- * de publicação enquanto as aberturas acontecem em IO.
+ * A fila de seleção pertence à instância do ViewModel. Isso preserva a serialização de dois toques
+ * rápidos na mesma tela sem permitir que uma instância antiga/descartada mantenha outra instância
+ * bloqueada por um mutex global do processo (especialmente durante teardown/recriação).
  */
-private val safeSlotSelectionMutex = Mutex()
+private val safeSlotSelectionMutexes = WeakHashMap<GameViewModel, Mutex>()
+
+private fun GameViewModel.safeSlotSelectionMutex(): Mutex =
+    synchronized(safeSlotSelectionMutexes) {
+        safeSlotSelectionMutexes.getOrPut(this) { Mutex() }
+    }
 
 /**
  * Único entrypoint de UI para seleção de slot.
@@ -26,9 +32,10 @@ private val safeSlotSelectionMutex = Mutex()
  * obsoleto.
  */
 fun GameViewModel.selectSaveSlotSafely(saveId: String) {
+    val selectionMutex = safeSlotSelectionMutex()
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            safeSlotSelectionMutex.withLock {
+            selectionMutex.withLock {
                 // Captura dentro da fila: em dois toques rápidos, a segunda tentativa vê a sessão
                 // que a primeira acabou de publicar, mesmo que ambas tenham sido enfileiradas antes.
                 val previousSaveId = currentSaveId.value
