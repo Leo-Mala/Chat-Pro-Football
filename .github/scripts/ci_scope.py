@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -26,6 +27,24 @@ LIGHT_VALUES_RE = re.compile(
 )
 MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
 APP_BUILD_PATH = "app/build.gradle.kts"
+
+# Lightweight values files are presentation-only only when their actual XML resource declarations
+# remain inside the approved family for that filename. Android's generic <item type="…"> syntax can
+# otherwise smuggle runtime resources (for example type="xml") through colors.xml/strings.xml.
+VALUES_ALLOWED_TOP_LEVEL: dict[str, set[str]] = {
+    "strings.xml": {"string", "string-array", "plurals"},
+    "colors.xml": {"color"},
+    "dimens.xml": {"dimen"},
+    "styles.xml": {"style"},
+    "themes.xml": {"style"},
+}
+VALUES_ALLOWED_ITEM_TYPE: dict[str, str] = {
+    "strings.xml": "string",
+    "colors.xml": "color",
+    "dimens.xml": "dimen",
+    "styles.xml": "style",
+    "themes.xml": "style",
+}
 
 # Non-runtime documentation may pass with policy-only validation. AGENTS.md is deliberately
 # excluded because it defines CI and automatic-merge policy and therefore requires full certification.
@@ -125,6 +144,40 @@ def build_version_only(lines: Iterable[str]) -> bool:
     return seen
 
 
+def values_visual_only(path: str, source: str) -> bool:
+    filename = Path(path).name
+    allowed_top = VALUES_ALLOWED_TOP_LEVEL.get(filename)
+    allowed_item_type = VALUES_ALLOWED_ITEM_TYPE.get(filename)
+    if allowed_top is None or allowed_item_type is None:
+        return False
+    try:
+        root = ET.fromstring(source)
+    except ET.ParseError:
+        return False
+    if root.tag != "resources" or root.attrib:
+        return False
+
+    for child in list(root):
+        if not isinstance(child.tag, str) or "}" in child.tag:
+            return False
+        if child.tag == "item":
+            if child.attrib.get("type") != allowed_item_type:
+                return False
+        elif child.tag not in allowed_top:
+            return False
+
+        # Generic item declarations nested anywhere must never be able to switch resource families.
+        for descendant in child.iter():
+            if descendant is child or not isinstance(descendant.tag, str):
+                continue
+            if "}" in descendant.tag:
+                return False
+            if descendant.tag == "item" and "type" in descendant.attrib:
+                if descendant.attrib.get("type") != allowed_item_type:
+                    return False
+    return True
+
+
 def is_light_resource(path: str) -> bool:
     return bool(LIGHT_RESOURCE_RE.match(path) or LIGHT_VALUES_RE.match(path))
 
@@ -178,6 +231,21 @@ def classify_git(root: Path, base: str, head: str) -> Classification:
     ]
     manifest_lines = changed_payload(root, base, head, MANIFEST_PATH) if MANIFEST_PATH in changed else None
     build_lines = changed_payload(root, base, head, APP_BUILD_PATH) if APP_BUILD_PATH in changed else None
+
+    for path in changed:
+        if not LIGHT_VALUES_RE.match(path):
+            continue
+        try:
+            source = git(root, "show", f"{head}:{path}")
+        except RuntimeError:
+            return Classification(
+                "full", False, True, f"lightweight values resource was deleted or cannot be parsed from HEAD: {path}", tuple(sorted(changed))
+            )
+        if not values_visual_only(path, source):
+            return Classification(
+                "full", False, True, f"values resource declares non-presentation or ambiguous resource types: {path}", tuple(sorted(changed))
+            )
+
     return classify_paths(changed, manifest_lines=manifest_lines, build_lines=build_lines)
 
 
@@ -277,7 +345,26 @@ def self_test() -> None:
         actual = classify_paths(paths, manifest_lines=manifest, build_lines=build).mode
         if actual != expected:
             raise AssertionError(f"{name}: expected {expected}, got {actual}")
-    print(f"risk-based CI scope self-test: PASS ({len(cases)}/{len(cases)})")
+
+    safe_values = {
+        "app/src/main/res/values/strings.xml": "<resources><string name='app_name'>Pro Football</string><plurals name='wins'><item quantity='one'>1 win</item><item quantity='other'>%d wins</item></plurals></resources>",
+        "app/src/main/res/values-v24/colors.xml": "<resources><color name='accent'>#00CFFF</color><item type='color' name='accent_alias'>@color/accent</item></resources>",
+        "app/src/main/res/values/themes.xml": "<resources><style name='Theme.ProFootball'><item name='android:windowLightStatusBar'>true</item></style></resources>",
+    }
+    for path, source in safe_values.items():
+        if not values_visual_only(path, source):
+            raise AssertionError(f"safe values resource unexpectedly rejected: {path}")
+
+    unsafe_values = {
+        "app/src/main/res/values-v24/colors.xml": "<resources><item type='xml' name='backup_rules'>@xml/data_extraction_rules</item></resources>",
+        "app/src/main/res/values/strings.xml": "<resources><item type='bool' name='feature_enabled'>true</item></resources>",
+        "app/src/main/res/values/themes.xml": "<resources><style name='Theme.X'><item type='xml' name='backup_rules'>@xml/data_extraction_rules</item></style></resources>",
+    }
+    for path, source in unsafe_values.items():
+        if values_visual_only(path, source):
+            raise AssertionError(f"non-presentation values resource unexpectedly accepted: {path}")
+
+    print(f"risk-based CI scope self-test: PASS ({len(cases) + len(safe_values) + len(unsafe_values)}/{len(cases) + len(safe_values) + len(unsafe_values)})")
 
 
 def main() -> int:
