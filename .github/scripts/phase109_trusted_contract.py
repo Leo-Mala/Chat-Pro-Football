@@ -19,12 +19,14 @@ from typing import Iterable
 BOOTSTRAP_BASE_SHA = "f9980ead5ffdb7c6504b714cde56e4e5f16d5fff"
 REQUIRED_WORKFLOW = ".github/workflows/phase109-required-certification.yml"
 CONTRACT_PATH = ".github/scripts/phase109_trusted_contract.py"
+CI_SCOPE_PATH = ".github/scripts/ci_scope.py"
 PINNED_EMULATOR_RUNNER = "reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
 MANDATORY_TEST_SOURCE_ANCHOR = "236e40691ddd4dd4e3221fec4ef6e24f491bc26e"
 AUDIT_HEAD_REF = "${{ env.AUDIT_HEAD_SHA }}"
 EXACT_HEAD_ASSERTION = 'test "$(git rev-parse HEAD)" = "$AUDIT_HEAD_SHA"'
 CERTIFICATION_CHECKOUT_JOBS = {
     "policy-scope",
+    "light-validation",
     "jvm-build",
     "stress",
     "ui-golden",
@@ -293,6 +295,88 @@ def step_for(steps: Iterable[Step], job: str, name: str) -> Step:
     return step
 
 
+def validate_trusted_scope_selection(step: Step) -> int:
+    require(bool(step.run.strip()), "Scope-selection step has no executable body")
+    commands = logical_commands(step.run)
+    inner_if = 'if git cat-file -e "$base:$classifier_path" 2>/dev/null && git diff --quiet "$base"...HEAD -- "$classifier_path"; then'
+    required_exact = (
+        f"classifier_path='{CI_SCOPE_PATH}'",
+        'trusted_classifier="$RUNNER_TEMP/phase109_trusted_ci_scope.py"',
+        'git show "$base:$classifier_path" > "$trusted_classifier"',
+        'test -s "$trusted_classifier"',
+        'python3 "$trusted_classifier" self-test',
+        'mode=$(sed -n \'s/^mode=//p\' "$scope_file")',
+        'light=$(sed -n \'s/^light=//p\' "$scope_file")',
+        'echo "base_sha=$base" >> "$GITHUB_OUTPUT"',
+        'echo "light=$light" >> "$GITHUB_OUTPUT"',
+        'echo "$key=true" >> "$GITHUB_OUTPUT"',
+        'echo "$key=false" >> "$GITHUB_OUTPUT"',
+    )
+    for command in required_exact:
+        require(command in commands, f"Trusted scope command missing: {command}")
+    require(any(cmd.startswith('python3 "$trusted_classifier" classify ') for cmd in commands),
+            "Trusted base classifier is not executed for scope classification")
+    require(not any("python3 .github/scripts/ci_scope.py" in cmd for cmd in commands),
+            "Candidate-controlled classifier must never be executed by scope selection")
+
+    controls = control_commands(step)
+    expected_controls = [
+        'if [ "${{ github.event_name }}" = "pull_request" ]; then',
+        inner_if,
+        "else",
+        "fi",
+        "else",
+        "fi",
+        'if [ "$mode" = full ]; then',
+        "for key in jvm stress release ui performance instrumented; do",
+        "else",
+        "for key in jvm stress release ui performance instrumented; do",
+        "fi",
+    ]
+    require(controls == expected_controls, f"Trusted scope control flow changed: {controls}")
+
+    inner_index = commands.index(inner_if)
+    inner_else = next(i for i in range(inner_index + 1, len(commands)) if commands[i] == "else")
+    inner_fi = next(i for i in range(inner_else + 1, len(commands)) if commands[i] == "fi")
+    fallback = commands[inner_else + 1:inner_fi]
+    require("mode=full" in fallback and "light=false" in fallback,
+            "Classifier-change fallback must force full certification")
+    for cmd in fallback:
+        if re.match(r"^(?:mode|light)=", cmd):
+            require(cmd in {"mode=full", "light=false"},
+                    f"Unsafe classifier-change fallback assignment: {cmd}")
+
+    explicit_mode = [cmd for cmd in commands if re.match(r"^mode=", cmd)]
+    explicit_light = [cmd for cmd in commands if re.match(r"^light=", cmd)]
+    allowed_mode = {'mode=$(sed -n \'s/^mode=//p\' "$scope_file")', "mode=full"}
+    allowed_light = {'light=$(sed -n \'s/^light=//p\' "$scope_file")', "light=false"}
+    require(all(cmd in allowed_mode for cmd in explicit_mode), f"Unsafe explicit mode assignment: {explicit_mode}")
+    require(all(cmd in allowed_light for cmd in explicit_light), f"Unsafe explicit light assignment: {explicit_light}")
+    return len(required_exact) + 4
+
+
+def validate_trusted_light_revalidation(step: Step) -> int:
+    require(bool(step.run.strip()), "Lightweight revalidation step has no executable body")
+    commands = logical_commands(step.run)
+    required = (
+        f"classifier_path='{CI_SCOPE_PATH}'",
+        'trusted_classifier="$RUNNER_TEMP/phase109_trusted_ci_scope.py"',
+        'git diff --quiet "$BASE_SHA"...HEAD -- "$classifier_path"',
+        'git show "$BASE_SHA:$classifier_path" > "$trusted_classifier"',
+        'test -s "$trusted_classifier"',
+        'python3 "$trusted_classifier" self-test',
+        'grep -q \'^mode=light \' "$RUNNER_TEMP/light-scope.txt"',
+    )
+    for command in required:
+        require(command in commands, f"Trusted light revalidation command missing: {command}")
+    require(any(cmd.startswith('python3 "$trusted_classifier" classify ') for cmd in commands),
+            "Trusted base classifier is not executed by lightweight revalidation")
+    require(not any("python3 .github/scripts/ci_scope.py" in cmd for cmd in commands),
+            "Candidate-controlled classifier must never be executed by lightweight revalidation")
+    require(not control_commands(step), "Lightweight revalidation must remain unconditional and branch-free")
+    return len(required) + 2
+
+
 def validate_run_rule(step: Step, rule: RunRule) -> int:
     require(bool(step.run.strip()), f"Required run step has no executable body: {rule.job}/{rule.step}")
     validate_control_flow(step, rule)
@@ -359,6 +443,12 @@ def validate_candidate_workflow(root: Path, workflow_path: Path) -> dict[str, in
     run_markers = 0
     for rule in CANDIDATE_RUN_RULES:
         run_markers += validate_run_rule(step_for(steps, rule.job, rule.step), rule)
+    trusted_scope_markers = validate_trusted_scope_selection(
+        step_for(steps, "policy-scope", "Resolve mandatory certification scope")
+    )
+    trusted_scope_markers += validate_trusted_light_revalidation(
+        step_for(steps, "light-validation", "Revalidate lightweight scope fail closed")
+    )
     uses_markers = 0
     for rule in CANDIDATE_USES_RULES:
         step = step_for(steps, rule.job, rule.step)
@@ -371,6 +461,7 @@ def validate_candidate_workflow(root: Path, workflow_path: Path) -> dict[str, in
     exact_head_bindings = validate_exact_head_checkouts(steps)
     return {
         "runMarkers": run_markers,
+        "trustedScopeMarkers": trusted_scope_markers,
         "usesMarkers": uses_markers,
         "actionPins": action_pins,
         "exactHeadCheckoutBindings": exact_head_bindings,
@@ -445,6 +536,57 @@ def self_test() -> None:
     else:
         raise ContractError("Structural negative self-test accepted conditionally skipped mandatory step")
 
+    trusted_scope_fixture = """jobs:
+  policy-scope:
+    steps:
+      - name: Resolve mandatory certification scope
+        run: |
+          set -euo pipefail
+          classifier_path='.github/scripts/ci_scope.py'
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+            scope_file="$RUNNER_TEMP/phase109-scope.txt"
+            if git cat-file -e "$base:$classifier_path" 2>/dev/null && git diff --quiet "$base"...HEAD -- "$classifier_path"; then
+              trusted_classifier="$RUNNER_TEMP/phase109_trusted_ci_scope.py"
+              git show "$base:$classifier_path" > "$trusted_classifier"
+              test -s "$trusted_classifier"
+              python3 "$trusted_classifier" self-test
+              python3 "$trusted_classifier" classify --base "$base" --head HEAD
+              mode=$(sed -n 's/^mode=//p' "$scope_file")
+              light=$(sed -n 's/^light=//p' "$scope_file")
+            else
+              mode=full
+              light=false
+            fi
+          else
+            mode=full
+            light=false
+          fi
+          echo "base_sha=$base" >> "$GITHUB_OUTPUT"
+          echo "light=$light" >> "$GITHUB_OUTPUT"
+          if [ "$mode" = full ]; then
+            for key in jvm stress release ui performance instrumented; do
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+            done
+          else
+            for key in jvm stress release ui performance instrumented; do
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+            done
+          fi
+"""
+    trusted_scope_step = step_for(parse_steps(trusted_scope_fixture), "policy-scope", "Resolve mandatory certification scope")
+    validate_trusted_scope_selection(trusted_scope_step)
+    for unsafe in (
+        trusted_scope_fixture.replace('git show "$base:$classifier_path" > "$trusted_classifier"', 'cp "$classifier_path" "$trusted_classifier"'),
+        trusted_scope_fixture.replace("              mode=full\n              light=false", "              mode=light\n              light=true", 1),
+    ):
+        try:
+            validate_trusted_scope_selection(step_for(parse_steps(unsafe), "policy-scope", "Resolve mandatory certification scope"))
+        except ContractError:
+            pass
+        else:
+            raise ContractError("Trusted scope negative self-test accepted candidate-controlled/light fallback")
+
     good_actions = [
         Step(job="x", uses=f"actions/checkout@{PINNED_ACTIONS['actions/checkout']}"),
         Step(job="x", uses=f"gradle/actions/setup-gradle@{PINNED_ACTIONS['gradle/actions/setup-gradle']}"),
@@ -492,7 +634,7 @@ def main() -> int:
     try:
         if args.command == "self-test":
             self_test()
-            print(json.dumps({"status": "PASS", "negativeCases": 10, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR, "pinnedActions": PINNED_ACTIONS, "exactHeadCheckoutJobs": sorted(CERTIFICATION_CHECKOUT_JOBS)}, sort_keys=True))
+            print(json.dumps({"status": "PASS", "negativeCases": 12, "pinnedEmulatorRunner": PINNED_EMULATOR_RUNNER, "mandatoryTestAnchor": MANDATORY_TEST_SOURCE_ANCHOR, "pinnedActions": PINNED_ACTIONS, "exactHeadCheckoutJobs": sorted(CERTIFICATION_CHECKOUT_JOBS)}, sort_keys=True))
         else:
             root = Path(args.root).resolve(); result = verify(root, args.base_sha, root / args.workflow)
             print(json.dumps({"status": "PASS", **result}, indent=2, sort_keys=True))
