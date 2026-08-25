@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.MutableStateFlow as KotlinMutableStateFlow
  * MutableStateFlow continuam usando a factory padrão do kotlinx.coroutines.
  *
  * Nenhum slot desconhecido é anunciado como vazio no startup: o delegate começa exatamente com o
- * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). Toda publicação
- * concretamente reconciliada, inclusive a primeira, precisa corresponder à geração atualmente
- * reservada. Assim uma mutação de metadata ocorrida enquanto o primeiro load estava em voo nunca
- * permite que um snapshot já invalidado se torne visível.
+ * valor fornecido pelo ViewModel (normalmente lista vazia = ainda não carregado). Um snapshot que
+ * começou antes de uma mutação real continua inelegível. Entre reconciliações somente de leitura,
+ * porém, a ordenação é local ao StateFlow: uma leitura concluída não é descartada apenas porque
+ * outra instância reservou uma geração global depois dela.
  */
 @Suppress("FunctionName")
 internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): KotlinMutableStateFlow<T> {
@@ -25,29 +25,37 @@ internal fun <T : List<SaveSlotMetadata>> MutableStateFlow(initialValue: T): Kot
 private class SaveSlotsPublicationStateFlow<T : List<SaveSlotMetadata>>(
     private val delegate: KotlinMutableStateFlow<T>
 ) : KotlinMutableStateFlow<T> by delegate {
+    private val publicationLock = Any()
 
     private fun isCurrent(candidate: T): Boolean {
         val snapshot = candidate as? SaveSlotsSnapshot ?: return true
-        return snapshot.publicationGeneration == SaveSlotsPublicationClock.current()
+        if (snapshot.publicationGeneration < SaveSlotsPublicationClock.invalidationFloor()) {
+            return false
+        }
+
+        val published = delegate.value as? SaveSlotsSnapshot
+        return published == null || snapshot.publicationGeneration > published.publicationGeneration
     }
 
     override var value: T
         get() = delegate.value
         set(value) {
-            if (isCurrent(value)) delegate.value = value
+            synchronized(publicationLock) {
+                if (isCurrent(value)) delegate.value = value
+            }
         }
 
     override suspend fun emit(value: T) {
-        if (isCurrent(value)) delegate.emit(value)
+        this.value = value
     }
 
-    override fun tryEmit(value: T): Boolean {
-        if (!isCurrent(value)) return false
-        return delegate.tryEmit(value)
+    override fun tryEmit(value: T): Boolean = synchronized(publicationLock) {
+        if (!isCurrent(value)) return@synchronized false
+        delegate.tryEmit(value)
     }
 
-    override fun compareAndSet(expect: T, update: T): Boolean {
-        if (!isCurrent(update)) return false
-        return delegate.compareAndSet(expect, update)
+    override fun compareAndSet(expect: T, update: T): Boolean = synchronized(publicationLock) {
+        if (!isCurrent(update)) return@synchronized false
+        delegate.compareAndSet(expect, update)
     }
 }
