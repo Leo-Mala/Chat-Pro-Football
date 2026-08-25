@@ -1,0 +1,55 @@
+name: Phase 11.1 Patch Helper
+
+on:
+  push:
+    branches:
+      - agent/phase-11-1-production-release-fix
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: agent/phase-11-1-production-release-fix
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply minimal production verification fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git rev-parse origin/main^{commit})" = '5ecdccdd0358ef8c38d1aa92d24ce690a668dfe2'
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/phase111-production-release.yml')
+          text = path.read_text()
+          old_env = '''      - name: Verify signing identity and materialize release artifacts\n        shell: bash\n        env:\n          PRODUCTION_SIGNING_CERT_SHA256: ${{ secrets.PRODUCTION_SIGNING_CERT_SHA256 }}\n'''
+          new_env = '''      - name: Verify signing identity and materialize release artifacts\n        shell: bash\n        env:\n          PRODUCTION_SIGNING_CERT_SHA256: ${{ secrets.PRODUCTION_SIGNING_CERT_SHA256 }}\n          STORE_PASSWORD: ${{ secrets.PRODUCTION_STORE_PASSWORD }}\n'''
+          old_verify = '''          jarsigner -verify -strict release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-jarsigner.txt"\n'''
+          new_verify = '''          jarsigner -verify -strict \\\n            -keystore "$KEYSTORE_PATH" \\\n            -storepass "$STORE_PASSWORD" \\\n            release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-jarsigner.txt"\n'''
+          if text.count(old_env) != 1:
+              raise SystemExit('expected verification env block not found exactly once')
+          if text.count(old_verify) != 1:
+              raise SystemExit('expected jarsigner strict command not found exactly once')
+          text = text.replace(old_env, new_env).replace(old_verify, new_verify)
+          path.write_text(text)
+          PY
+          rm -f .github/workflows/phase111-patch-helper.yml
+          git diff --check
+          changed=$(git status --short | awk '{print $2}')
+          test "$changed" = '.github/workflows/phase111-patch-helper.yml
+.github/workflows/phase111-production-release.yml' || \
+            test "$changed" = '.github/workflows/phase111-production-release.yml
+.github/workflows/phase111-patch-helper.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(release): trust controlled keystore during strict AAB verification'
+          git push origin HEAD:agent/phase-11-1-production-release-fix
