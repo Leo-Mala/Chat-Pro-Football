@@ -46,6 +46,25 @@ When every required condition is satisfied, do not request a second merge confir
 
 This rule authorizes the merge step; it does not authorize bypassing repository protections, CI gates, scope constraints, or explicit freeze instructions.
 
+## Fastest safe execution rule
+
+For every implementation, correction, audit and CI decision, **always choose the fastest safe measure that reaches the requested result without weakening correctness, security, repository protections or required certification**.
+
+Operational rules:
+
+- Prefer the shortest valid path to completion; do not add optional work, speculative refactors, redundant validation or unrelated improvements to the active phase.
+- Before changing an already-valid candidate HEAD, first complete a consolidated audit of all currently knowable blockers so related P0/P1/P2 fixes can be batched instead of causing serial fix → new HEAD → full recertification cycles.
+- When multiple independent fixes are known, implement them together when doing so is safe and keeps the same approved scope.
+- Do not restart, cancel or duplicate successful validation unnecessarily. Reuse an existing result only when repository policy permits it and the exact audited HEAD/base binding is still valid.
+- Prefer the authoritative Required Certification over equivalent standalone heavy workflows. Standalone workflows should be manual diagnostics when the Required Certification already covers the same gate.
+- Use lightweight certification whenever the trusted fail-closed classifier permits it; do not promote a genuinely lightweight change to FULL without a concrete policy or technical reason.
+- If certification is already near completion, defer optional hardening/refactoring to a follow-up change rather than invalidating the current HEAD. A new HEAD is justified only by a real correctness, security, scope, P0/P1/P2, review or gate requirement.
+- Diagnose the root cause before rerunning a failed job. A rerun is appropriate only for a demonstrated transient/infrastructure failure, never as a substitute for fixing a deterministic defect.
+- Preserve concurrency/cancellation rules that eliminate obsolete runs, and avoid running two automatic workflows that perform the same heavy matrix.
+- When two approaches are equally safe and compliant, choose the one with fewer commits, fewer CI runs, fewer external calls and lower wall-clock time.
+
+"Fastest" never authorizes bypassing branch protection, the Required Certification Gate, Trusted Guardian, exact-head/base validation, required reviews, required tests, security controls, data-integrity rules, or explicit user constraints.
+
 ## Risk-based CI certification policy
 
 Pull-request validation is proportional to the technical risk of the exact diff. The classifier is fail-closed: a mixed, unknown, production-code, persistence, data, build-logic, test, tooling or CI-policy change is always promoted to **full certification**.
