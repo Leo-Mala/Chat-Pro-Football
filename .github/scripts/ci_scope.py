@@ -130,9 +130,9 @@ def manifest_visual_only(lines: Iterable[str]) -> bool:
 def build_version_only(lines: Iterable[str]) -> bool:
     seen = False
     # Only literal version metadata assignments are lightweight. Kotlin permits semicolon-separated
-    # statements, so prefix matching here would allow build logic to be smuggled onto a version line.
+    # statements and string interpolation, so either form promotes the edit to FULL certification.
     version_code = re.compile(r"^versionCode\s*=\s*\d+$")
-    version_name = re.compile(r'^versionName\s*=\s*"[^"\r\n]+"$')
+    version_name = re.compile(r'^versionName\s*=\s*"[^"$\r\n]+"$')
     for line in lines:
         if not line:
             continue
@@ -326,6 +326,20 @@ def self_test() -> None:
             [APP_BUILD_PATH],
             None,
             ['versionName = "3.0.2"; minSdk = 35'],
+            "full",
+        ),
+        (
+            "version interpolation variable",
+            [APP_BUILD_PATH],
+            None,
+            ['versionName = "$instrumentedBuildType"'],
+            "full",
+        ),
+        (
+            "version interpolation expression",
+            [APP_BUILD_PATH],
+            None,
+            ['versionName = "${project.version}"'],
             "full",
         ),
         ("game code", ["app/src/main/java/com/example/GameEngine.kt"], None, None, "full"),
