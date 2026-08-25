@@ -1,26 +1,6 @@
 name: Android CI Build
 
 on:
-  pull_request:
-    branches: [ "main", "master" ]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'app/**'
-      - '!app/schemas/**'
-      - 'tools/europe_importer/**'
-      - 'tools/fc26/**'
-      - 'reports/fc26_*'
-      - 'reports/phase_10_4_fc26_safe_loans.md'
-      - 'reports/phase_10_5_post_10_4_audit_and_final_roadmap.md'
-      - 'metadata.json'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - '.github/scripts/ci_scope.py'
-      - '.github/workflows/android.yml'
   workflow_dispatch:
 
 permissions:
@@ -32,7 +12,8 @@ concurrency:
 
 jobs:
   validation:
-    # Drafts não alocam runner. PRs prontos executam validação proporcional ao risco.
+    # Automatic PR certification is centralized in Phase 10.9 Required Certification.
+    # This legacy workflow remains available for explicit manual full validation only.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
