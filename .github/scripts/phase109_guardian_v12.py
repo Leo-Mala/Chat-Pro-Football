@@ -3,19 +3,22 @@
 
 The implementation present before this bootstrap is preserved byte-for-byte in
 phase109_guardian_v12_base.py. This entrypoint installs conservative, fail-closed
-YAML workflow auditing hardening before delegating to that implementation.
+YAML workflow auditing and Kotlin Room-symbol hardening before delegating to that
+implementation.
 
 Security additions:
 - reject escaped/encoded YAML mapping keys and ambiguous anchors/tags in mutable workflows;
 - require permissions keys to use a canonical mapping-key form before permission auditing;
 - parse uses references only from canonical block-style mapping entries;
 - bind every retained legacy mutable-tag action to its exact audited occurrence/location,
-  rather than trusting set membership by reference string.
+  rather than trusting set membership by reference string;
+- bind cross-file Room typealiases to their Kotlin package/import namespace so an unrelated
+  same-basename declaration cannot be mistaken for a Room symbol in another package.
 """
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Iterable
 
 import phase109_guardian_v12_base as _base
 from phase109_guardian_v12_base import *  # noqa: F401,F403
@@ -24,6 +27,7 @@ V3 = _base.V3
 GuardianV12Error = _base.GuardianV12Error
 require = _base.require
 _BASE_SELF_TEST = _base.self_test
+_BASE_VALIDATE_RUN = _base.validate_run
 
 _BLOCK_SCALAR = re.compile(r":\s*[|>][0-9+-]*\s*$")
 _DOUBLE_QUOTED_KEY = re.compile(r'"((?:[^"\\]|\\.)*)"\s*:')
@@ -36,6 +40,15 @@ _CANONICAL_USES = re.compile(
 _ANY_USES_KEY = re.compile(rf"(?<![A-Za-z0-9_]){_USES_KEY}\s*:")
 _CANONICAL_PERMISSION_KEY = re.compile(rf"^\s*{_PERMISSION_KEY}\s*:")
 _ANY_PERMISSION_KEY = re.compile(rf"(?<![A-Za-z0-9_]){_PERMISSION_KEY}\s*:")
+_KOTLIN_PACKAGE = re.compile(
+    r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;?\s*$"
+)
+_KOTLIN_IMPORT = re.compile(
+    r"(?m)^\s*import\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\.\*)?)"
+    r"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;?\s*$"
+)
+_ROOM_ALIAS_FQNS: set[str] = set()
 
 
 def _yaml_security_lines(source: str) -> list[tuple[int, int, str]]:
@@ -235,6 +248,235 @@ def audit_authorized_workflows(
     }
 
 
+def _kotlin_package(clean_source: str) -> str:
+    matches = _KOTLIN_PACKAGE.findall(clean_source)
+    require(len(matches) <= 1, f"Ambiguous Kotlin package declarations: {matches}")
+    return matches[0] if matches else ""
+
+
+def _kotlin_imports(clean_source: str) -> tuple[dict[str, set[str]], set[str]]:
+    exact: dict[str, set[str]] = {}
+    stars: set[str] = set()
+    for target, local_name in _KOTLIN_IMPORT.findall(clean_source):
+        if target.endswith(".*"):
+            require(not local_name, f"Kotlin wildcard import cannot be aliased: {target}")
+            stars.add(target[:-2])
+            continue
+        local = local_name or target.rsplit(".", 1)[-1]
+        exact.setdefault(local, set()).add(target)
+    return exact, stars
+
+
+def _alias_fqn(package_name: str, alias: str) -> str:
+    return f"{package_name}.{alias}" if package_name else alias
+
+
+def _reference_candidates(
+    target: str,
+    package_name: str,
+    exact_imports: dict[str, set[str]],
+    star_imports: set[str],
+) -> set[str]:
+    if "." in target:
+        return {target}
+    candidates = set(exact_imports.get(target, set()))
+    candidates.add(_alias_fqn(package_name, target))
+    candidates.update(f"{package}.{target}" for package in star_imports)
+    return candidates
+
+
+def resolve_global_room_typealiases(clean_sources: Iterable[str]) -> set[str]:
+    """Resolve Room typealiases by fully-qualified declaration identity.
+
+    The legacy V12 API returns simple alias names, so that return shape is preserved for
+    compatibility. Internally, however, visibility is tracked by fully-qualified names; a
+    `SharedRoom` declared in one package is never exposed as `SharedRoom` in an unrelated
+    package unless Kotlin import/package rules make that exact declaration visible there.
+    """
+    definitions: list[
+        tuple[str, str, str, dict[str, set[str]], set[str], set[str]]
+    ] = []
+    for clean in clean_sources:
+        package_name = _kotlin_package(clean)
+        exact_imports, star_imports = _kotlin_imports(clean)
+        local_room_symbols = set(_base.BASE_V11_KOTLIN_ROOM_SYMBOLS(clean))
+        for alias, target in _base.typealias_pairs(clean):
+            definitions.append(
+                (
+                    _alias_fqn(package_name, alias),
+                    target,
+                    package_name,
+                    exact_imports,
+                    star_imports,
+                    local_room_symbols,
+                )
+            )
+
+    resolved: set[str] = set()
+    for alias_fqn, target, _, _, _, local_room_symbols in definitions:
+        if target == "androidx.room.Room" or target in local_room_symbols:
+            resolved.add(alias_fqn)
+
+    changed = True
+    while changed:
+        changed = False
+        for alias_fqn, target, package_name, exact_imports, star_imports, _ in definitions:
+            if alias_fqn in resolved:
+                continue
+            candidates = _reference_candidates(
+                target, package_name, exact_imports, star_imports
+            )
+            if candidates & resolved:
+                resolved.add(alias_fqn)
+                changed = True
+
+    _ROOM_ALIAS_FQNS.clear()
+    _ROOM_ALIAS_FQNS.update(resolved)
+    return {fqn.rsplit(".", 1)[-1] for fqn in resolved}
+
+
+def imported_room_typealias_names(clean_source: str, global_aliases: set[str]) -> set[str]:
+    """Return only Room typealias names actually visible under Kotlin namespace rules."""
+    del global_aliases  # compatibility argument; FQNs are the authoritative internal index.
+    package_name = _kotlin_package(clean_source)
+    exact_imports, star_imports = _kotlin_imports(clean_source)
+    visible: set[str] = set()
+
+    for fqn in _ROOM_ALIAS_FQNS:
+        if "." in fqn:
+            alias_package, alias_name = fqn.rsplit(".", 1)
+        else:
+            alias_package, alias_name = "", fqn
+        if alias_package == package_name:
+            visible.add(alias_name)
+        if alias_package in star_imports:
+            visible.add(alias_name)
+
+    for local_name, targets in exact_imports.items():
+        if targets & _ROOM_ALIAS_FQNS:
+            visible.add(local_name)
+    return visible
+
+
+def kotlin_room_symbols_with_aliases(clean_source: str, global_aliases: set[str]) -> set[str]:
+    # Fully-qualified aliases are always safe to recognize. Simple names are added only when the
+    # declaration is visible in this source file through same-package, exact-import, aliased-import,
+    # or wildcard-import rules. This removes the former repository-global basename exposure.
+    return (
+        set(_base.BASE_V11_KOTLIN_ROOM_SYMBOLS(clean_source))
+        | set(_ROOM_ALIAS_FQNS)
+        | imported_room_typealias_names(clean_source, global_aliases)
+    )
+
+
+def validate_run(root, repo: str, token: str, run_id: int, head: str) -> dict[str, Any]:
+    result = _BASE_VALIDATE_RUN(root, repo, token, run_id, head)
+    contract = result.get("productionRoomBuilderContractV12")
+    if isinstance(contract, dict):
+        contract["roomTypealiasNamespacesBound"] = True
+        contract["unrelatedSameBasenameAliasesExcluded"] = True
+    return result
+
+
+def _room_alias_namespace_self_test() -> None:
+    executable_kotlin = _base.v11.v10.v9.v8.v7.v6.v5.v4.executable_kotlin
+    trusted = executable_kotlin(
+        """
+        package trusted.room
+        import androidx.room.Room
+        typealias SharedRoom = Room
+        """
+    )
+    decoy = executable_kotlin(
+        """
+        package decoy
+        typealias SharedRoom = java.lang.String
+        val decoyBuilder = SharedRoom.databaseBuilder(ctx, Db::class.java, "decoy").build()
+        """
+    )
+    chained = executable_kotlin(
+        """
+        package chained
+        import trusted.room.SharedRoom as ImportedRoom
+        typealias ChainedRoom = ImportedRoom
+        val chainedBuilder = ChainedRoom.databaseBuilder(ctx, Db::class.java, "chain").build()
+        """
+    )
+    exact_consumer = executable_kotlin(
+        """
+        package exactconsumer
+        import trusted.room.SharedRoom
+        val exactBuilder = SharedRoom.databaseBuilder(ctx, Db::class.java, "exact").build()
+        """
+    )
+    wildcard_consumer = executable_kotlin(
+        """
+        package wildcardconsumer
+        import trusted.room.*
+        val wildcardBuilder = SharedRoom.databaseBuilder(ctx, Db::class.java, "wildcard").build()
+        """
+    )
+    wrong_consumer = executable_kotlin(
+        """
+        package wrongconsumer
+        import decoy.SharedRoom
+        val wrongBuilder = SharedRoom.databaseBuilder(ctx, Db::class.java, "wrong").build()
+        """
+    )
+    unrelated_consumer = executable_kotlin(
+        """
+        package unrelated
+        val unrelatedBuilder = SharedRoom.databaseBuilder(ctx, Db::class.java, "none").build()
+        """
+    )
+
+    aliases = resolve_global_room_typealiases((trusted, decoy, chained))
+    require(aliases == {"SharedRoom", "ChainedRoom"},
+            f"Package-aware Room alias resolution changed compatibility result: {aliases}")
+    require("trusted.room.SharedRoom" in _ROOM_ALIAS_FQNS,
+            "Fully-qualified direct Room typealias was not indexed")
+    require("chained.ChainedRoom" in _ROOM_ALIAS_FQNS,
+            "Cross-package imported Room typealias chain was not resolved")
+    require("decoy.SharedRoom" not in _ROOM_ALIAS_FQNS,
+            "Non-Room same-basename typealias was incorrectly resolved")
+
+    decoy_symbols = kotlin_room_symbols_with_aliases(decoy, aliases)
+    require("SharedRoom" not in decoy_symbols,
+            "Unrelated same-basename declaration leaked into Room symbols")
+    require(len(_base.v11.find_builder_chains(decoy, decoy_symbols)) == 0,
+            "Decoy same-basename builder was incorrectly treated as Room")
+
+    wrong_symbols = kotlin_room_symbols_with_aliases(wrong_consumer, aliases)
+    require("SharedRoom" not in wrong_symbols,
+            "Wrong-package exact import was incorrectly treated as Room")
+    require(len(_base.v11.find_builder_chains(wrong_consumer, wrong_symbols)) == 0,
+            "Wrong-package imported builder was incorrectly treated as Room")
+
+    unrelated_symbols = kotlin_room_symbols_with_aliases(unrelated_consumer, aliases)
+    require("SharedRoom" not in unrelated_symbols,
+            "Unimported Room typealias basename leaked across packages")
+    require(len(_base.v11.find_builder_chains(unrelated_consumer, unrelated_symbols)) == 0,
+            "Unimported unrelated builder was incorrectly treated as Room")
+
+    exact_symbols = kotlin_room_symbols_with_aliases(exact_consumer, aliases)
+    require("SharedRoom" in exact_symbols,
+            "Exact imported Room typealias was not visible")
+    require(len(_base.v11.find_builder_chains(exact_consumer, exact_symbols)) == 1,
+            "Exact imported Room typealias builder was not detected")
+
+    wildcard_symbols = kotlin_room_symbols_with_aliases(wildcard_consumer, aliases)
+    require("SharedRoom" in wildcard_symbols,
+            "Wildcard imported Room typealias was not visible")
+    require(len(_base.v11.find_builder_chains(wildcard_consumer, wildcard_symbols)) == 1,
+            "Wildcard imported Room typealias builder was not detected")
+
+    chained_symbols = kotlin_room_symbols_with_aliases(chained, aliases)
+    require("ImportedRoom" in chained_symbols and "ChainedRoom" in chained_symbols,
+            "Aliased import or same-package chained Room alias was not visible")
+    require(len(_base.v11.find_builder_chains(chained, chained_symbols)) == 1,
+            "Cross-package chained Room typealias builder was not detected")
+
+
 def _expect_rejected(callable_obj: Any, message: str) -> None:
     try:
         callable_obj()
@@ -245,6 +487,7 @@ def _expect_rejected(callable_obj: Any, message: str) -> None:
 
 def self_test() -> dict[str, Any]:
     result = _BASE_SELF_TEST()
+    _room_alias_namespace_self_test()
 
     encoded_uses = (
         "permissions:\n  contents: read\njobs:\n  test:\n    steps:\n"
@@ -316,6 +559,9 @@ def self_test() -> dict[str, Any]:
             "yamlAnchorsAliasesAndTagsRejected": True,
             "legacyActionOccurrencesBoundToLocation": True,
             "legacyActionDuplicationRejected": True,
+            "roomTypealiasNamespacesBound": True,
+            "unrelatedSameBasenameRoomAliasesExcluded": True,
+            "exactAliasedAndWildcardRoomImportsResolved": True,
         }
     )
     result["trustedCiEvolutionAuthorizationV1"] = evolution
@@ -327,6 +573,10 @@ def _install_hardening() -> None:
     _base.workflow_uses = workflow_uses
     _base.validate_mutable_workflow_permissions = validate_mutable_workflow_permissions
     _base.audit_authorized_workflows = audit_authorized_workflows
+    _base.resolve_global_room_typealiases = resolve_global_room_typealiases
+    _base.imported_room_typealias_names = imported_room_typealias_names
+    _base.kotlin_room_symbols_with_aliases = kotlin_room_symbols_with_aliases
+    _base.validate_run = validate_run
     _base.self_test = self_test
 
 
