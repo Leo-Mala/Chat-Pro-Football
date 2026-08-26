@@ -29,14 +29,16 @@ import com.example.data.Team
 import com.example.ui.screens.TeamBadge
 import com.example.ui.theme.*
 
+internal fun seasonTopScorers(players: List<Player>): List<Player> =
+    players.filter { it.gols > 0 }.sortedByDescending { it.gols }
+
 @Composable
 fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedPosFilter by remember { mutableStateOf("TODOS") }
 
-    val filteredScorers = remember(allPlayers, searchQuery, selectedPosFilter) {
-        allPlayers
-            .filter { it.careerGoals > 0 }
+    val filteredScorers = remember(allPlayers, allTeams, searchQuery, selectedPosFilter) {
+        seasonTopScorers(allPlayers)
             .filter { player ->
                 if (searchQuery.isBlank()) true
                 else {
@@ -52,11 +54,9 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
                     else -> true
                 }
             }
-            .sortedByDescending { it.careerGoals }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Search & Filter Bar
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -82,7 +82,6 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Position Filter Pills
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -140,7 +139,6 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Top 3 Podium if not searching
                 if (searchQuery.isEmpty() && selectedPosFilter == "TODOS" && filteredScorers.size >= 3) {
                     item {
                         TopScorersPodium(top3 = filteredScorers.take(3), allTeams = allTeams)
@@ -174,7 +172,6 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Rank Number / Badge
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
@@ -199,13 +196,11 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            // Team Badge
                             if (team != null) {
                                 TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 28.dp)
                                 Spacer(modifier = Modifier.width(10.dp))
                             }
 
-                            // Player Name & Info
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     player.name,
@@ -239,7 +234,6 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
                                 }
                             }
 
-                            // Goals Count Badge
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
@@ -249,7 +243,7 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text("⚽", fontSize = 12.sp)
                                     Text(
-                                        "${player.careerGoals}",
+                                        "${player.gols}",
                                         color = AccentGold,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 14.sp
@@ -287,15 +281,12 @@ fun TopScorersPodium(top3: List<Player>, allTeams: List<Team>) {
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.Bottom
             ) {
-                // 2nd Place
                 if (top3.size > 1) {
                     PodiumCard(player = top3[1], rank = 2, badgeColor = Color(0xFFC0C0C0), allTeams = allTeams, modifier = Modifier.weight(1f))
                 }
-                // 1st Place
                 if (top3.isNotEmpty()) {
                     PodiumCard(player = top3[0], rank = 1, badgeColor = AccentGold, allTeams = allTeams, modifier = Modifier.weight(1.1f))
                 }
-                // 3rd Place
                 if (top3.size > 2) {
                     PodiumCard(player = top3[2], rank = 3, badgeColor = Color(0xFFCD7F32), allTeams = allTeams, modifier = Modifier.weight(1f))
                 }
@@ -340,7 +331,7 @@ fun PodiumCard(player: Player, rank: Int, badgeColor: Color, allTeams: List<Team
             textAlign = TextAlign.Center
         )
         Text(
-            "${player.careerGoals} gols",
+            "${player.gols} gols",
             color = AccentLime,
             fontWeight = FontWeight.Black,
             fontSize = if (rank == 1) 12.sp else 10.sp
