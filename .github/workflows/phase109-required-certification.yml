@@ -547,13 +547,11 @@ jobs:
           chmod +x gradlew
           if [ "$PHASE108_PROFILE" = constrained ]; then
             allowed=$(taskset -pc $$ | sed 's/.*: //'); cpu=${allowed%%,*}; cpu=${cpu%%-*}
-            export PHASE108_CPU_CONSTRAINT="taskset-single-logical-cpu:$cpu"
             report=reports/phase_10_8_full_scale_rollover_constrained.json
-            taskset -c "$cpu" ./gradlew testDebugUnitTest --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
+            taskset -c "$cpu" env PHASE108_CPU_CONSTRAINT="taskset-single-logical-cpu:$cpu" ./gradlew testDebugUnitTest --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
           else
-            export PHASE108_CPU_CONSTRAINT=none
             report=reports/phase_10_8_full_scale_rollover.json
-            ./gradlew testDebugUnitTest --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
+            env PHASE108_CPU_CONSTRAINT=none ./gradlew testDebugUnitTest --tests com.example.data.Phase108FullScaleSeasonRolloverPerformanceStressTest --no-build-cache --rerun-tasks --stacktrace
           fi
           python3 .github/scripts/phase109_policy.py validate-performance "$report" --head "$AUDIT_HEAD_SHA"
           echo "REPORT_PATH=$report" >> "$GITHUB_ENV"
