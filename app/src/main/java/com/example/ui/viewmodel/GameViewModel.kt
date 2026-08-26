@@ -1678,11 +1678,28 @@ class GameViewModel @Inject constructor(
             databaseBootstrapMs = (System.nanoTime() - databaseBootstrapStartedAtNs) / 1_000_000L
 
             val persistenceStartedAtNs = System.nanoTime()
+            val teamSeedStartedAtNs = System.nanoTime()
             targetRepo.saveTeams(dbTeams)
+            val teamSeedAndPersistenceMs = (System.nanoTime() - teamSeedStartedAtNs) / 1_000_000L
+
+            val playerPersistenceStartedAtNs = System.nanoTime()
             targetRepo.savePlayers(allPlayersToSave)
+            val playerPersistenceMs = (System.nanoTime() - playerPersistenceStartedAtNs) / 1_000_000L
+
+            val fixturePersistenceStartedAtNs = System.nanoTime()
             targetRepo.saveFixtures(allGeneratedFixtures)
+            val fixturePersistenceMs = (System.nanoTime() - fixturePersistenceStartedAtNs) / 1_000_000L
+
+            val saveRowStartedAtNs = System.nanoTime()
             targetRepo.saveGameSave(save)
+            val saveRowPersistenceMs = (System.nanoTime() - saveRowStartedAtNs) / 1_000_000L
             persistenceMs = (System.nanoTime() - persistenceStartedAtNs) / 1_000_000L
+            Log.i(
+                "CareerCreationPerformance",
+                "PersistenceBreakdown(teamSeedAndPersistenceMs=$teamSeedAndPersistenceMs, " +
+                    "playerPersistenceMs=$playerPersistenceMs, fixturePersistenceMs=$fixturePersistenceMs, " +
+                    "saveRowPersistenceMs=$saveRowPersistenceMs)"
+            )
         }
 
         if (generation == sessionGeneration.get()) {

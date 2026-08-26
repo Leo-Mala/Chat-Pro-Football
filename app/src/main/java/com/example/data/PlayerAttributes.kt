@@ -75,52 +75,7 @@ class AtributosConverter {
     @TypeConverter
     fun fromAtributos(atributos: Atributos?): String? {
         if (atributos == null) return null
-        return try {
-            JSONObject().apply {
-                // Técnicos
-                put("reflexos", atributos.reflexos)
-                put("pegada", atributos.pegada)
-                put("umContraUm", atributos.umContraUm)
-                put("saidaDeGol", atributos.saidaDeGol)
-                put("lancamento", atributos.lancamento)
-                put("desarme", atributos.desarme)
-                put("marcacao", atributos.marcacao)
-                put("cabeceio", atributos.cabeceio)
-                put("passeCurto", atributos.passeCurto)
-                put("cruzamento", atributos.cruzamento)
-                put("drible", atributos.drible)
-                put("passe", atributos.passe)
-                put("primeiroToque", atributos.primeiroToque)
-                put("finalizacao", atributos.finalizacao)
-                put("chuteDeLonge", atributos.chuteDeLonge)
-                put("controleBola", atributos.controleBola)
-
-                // Mentais
-                put("posicionamento", atributos.posicionamento)
-                put("concentracao", atributos.concentracao)
-                put("sangueFrio", atributos.sangueFrio)
-                put("antecipacao", atributos.antecipacao)
-                put("bravura", atributos.bravura)
-                put("trabalhoEquipe", atributos.trabalhoEquipe)
-                put("decisao", atributos.decisao)
-                put("semBola", atributos.semBola)
-                put("visaoJogo", atributos.visaoJogo)
-                put("criatividade", atributos.criatividade)
-                put("agressividade", atributos.agressividade)
-                put("lideranca", atributos.lideranca)
-                put("regularidade", atributos.regularidade)
-
-                // Físicos
-                put("agilidade", atributos.agilidade)
-                put("impulsao", atributos.impulsao)
-                put("forca", atributos.forca)
-                put("velocidade", atributos.velocidade)
-                put("aceleracao", atributos.aceleracao)
-                put("resistencia", atributos.resistencia)
-            }.toString()
-        } catch (_: Throwable) {
-            """{"reflexos":${atributos.reflexos},"pegada":${atributos.pegada},"umContraUm":${atributos.umContraUm},"saidaDeGol":${atributos.saidaDeGol},"lancamento":${atributos.lancamento},"desarme":${atributos.desarme},"marcacao":${atributos.marcacao},"cabeceio":${atributos.cabeceio},"passeCurto":${atributos.passeCurto},"cruzamento":${atributos.cruzamento},"drible":${atributos.drible},"passe":${atributos.passe},"primeiroToque":${atributos.primeiroToque},"finalizacao":${atributos.finalizacao},"chuteDeLonge":${atributos.chuteDeLonge},"controleBola":${atributos.controleBola},"posicionamento":${atributos.posicionamento},"concentracao":${atributos.concentracao},"sangueFrio":${atributos.sangueFrio},"antecipacao":${atributos.antecipacao},"bravura":${atributos.bravura},"trabalhoEquipe":${atributos.trabalhoEquipe},"decisao":${atributos.decisao},"semBola":${atributos.semBola},"visaoJogo":${atributos.visaoJogo},"criatividade":${atributos.criatividade},"agressividade":${atributos.agressividade},"lideranca":${atributos.lideranca},"regularidade":${atributos.regularidade},"agilidade":${atributos.agilidade},"impulsao":${atributos.impulsao},"forca":${atributos.forca},"velocidade":${atributos.velocidade},"aceleracao":${atributos.aceleracao},"resistencia":${atributos.resistencia}}"""
-        }
+        return """{"reflexos":${atributos.reflexos},"pegada":${atributos.pegada},"umContraUm":${atributos.umContraUm},"saidaDeGol":${atributos.saidaDeGol},"lancamento":${atributos.lancamento},"desarme":${atributos.desarme},"marcacao":${atributos.marcacao},"cabeceio":${atributos.cabeceio},"passeCurto":${atributos.passeCurto},"cruzamento":${atributos.cruzamento},"drible":${atributos.drible},"passe":${atributos.passe},"primeiroToque":${atributos.primeiroToque},"finalizacao":${atributos.finalizacao},"chuteDeLonge":${atributos.chuteDeLonge},"controleBola":${atributos.controleBola},"posicionamento":${atributos.posicionamento},"concentracao":${atributos.concentracao},"sangueFrio":${atributos.sangueFrio},"antecipacao":${atributos.antecipacao},"bravura":${atributos.bravura},"trabalhoEquipe":${atributos.trabalhoEquipe},"decisao":${atributos.decisao},"semBola":${atributos.semBola},"visaoJogo":${atributos.visaoJogo},"criatividade":${atributos.criatividade},"agressividade":${atributos.agressividade},"lideranca":${atributos.lideranca},"regularidade":${atributos.regularidade},"agilidade":${atributos.agilidade},"impulsao":${atributos.impulsao},"forca":${atributos.forca},"velocidade":${atributos.velocidade},"aceleracao":${atributos.aceleracao},"resistencia":${atributos.resistencia}}"""
     }
 
     @TypeConverter
