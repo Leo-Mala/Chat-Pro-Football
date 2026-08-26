@@ -182,5 +182,15 @@ dependencies {
 if (providers.gradleProperty("excludeStressTests").isPresent) {
   tasks.withType<Test>().configureEach {
     exclude("**/*StressTest*")
+
+    // The top-level com.example Phase 10.6 save/recovery tests have a mandatory dedicated
+    // certification invocation. Keep only those direct-package classes out of the unfiltered core
+    // pass; nested Phase106 tests (for example ui.viewmodel publication ordering) remain covered
+    // by Core Regression instead of being dropped by an over-broad recursive pattern.
+    doFirst {
+      if (filter.includePatterns.isEmpty()) {
+        exclude("com/example/Phase106*")
+      }
+    }
   }
 }
