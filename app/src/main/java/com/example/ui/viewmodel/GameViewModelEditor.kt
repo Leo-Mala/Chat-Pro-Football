@@ -243,21 +243,48 @@ fun GameViewModel.deleteTeamFromEditor(teamId: Long) {
     }
 }
 
-fun GameViewModel.savePlayerFromEditor(player: Player) {
+/**
+ * Persiste a edição do atleta e recalcula a força dos clubes afetados na mesma transação Room.
+ * O callback só é entregue no Main depois do commit, para que a tela nunca feche sobre um snapshot
+ * antigo de jogador/time. Ao transferir um atleta pelo editor, tanto o clube de origem quanto o de
+ * destino são recalculados.
+ */
+fun GameViewModel.savePlayerFromEditor(
+    player: Player,
+    onComplete: (Boolean) -> Unit = {}
+) {
     viewModelScope.launch(Dispatchers.IO) {
-        if (player.id == 0L) {
-            repo.savePlayers(listOf(player))
-        } else {
-            repo.updatePlayer(player)
-        }
-        val teamId = player.teamId
-        if (teamId != null) {
-            val roster = repo.getPlayersByTeam(teamId)
-            val calculated = GameEngine.calculateTeamRating(roster)
-            val team = repo.getTeam(teamId)
-            if (team != null && team.rating != calculated) {
-                repo.saveTeams(listOf(team.copy(rating = calculated)))
+        try {
+            repo.withTransaction {
+                val previous = if (player.id == 0L) null else repo.getPlayer(player.id)
+                if (player.id == 0L) {
+                    repo.savePlayers(listOf(player))
+                } else {
+                    repo.updatePlayer(player)
+                }
+
+                val affectedTeamIds = buildSet {
+                    previous?.teamId?.let(::add)
+                    player.teamId?.let(::add)
+                }
+                for (teamId in affectedTeamIds) {
+                    val roster = repo.getPlayersByTeam(teamId)
+                    val team = repo.getTeam(teamId) ?: continue
+                    if (roster.isNotEmpty()) {
+                        val calculated = GameEngine.calculateTeamRating(roster)
+                        if (team.rating != calculated) {
+                            repo.updateTeam(team.copy(rating = calculated))
+                        }
+                    }
+                }
             }
+            withContext(Dispatchers.Main) { onComplete(true) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("GameViewModel", "Falha ao salvar jogador pelo editor", e)
+            _toastMessage.emit("Não foi possível salvar o jogador. Tente novamente.")
+            withContext(Dispatchers.Main) { onComplete(false) }
         }
     }
 }
