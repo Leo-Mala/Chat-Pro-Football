@@ -6,6 +6,9 @@ on:
       - agent/3.0.1-runtime-bugfixes
     paths:
       - .github/workflows/runtime-career-performance.yml
+      - app/src/main/java/com/example/data/Fc26ClubMatcher.kt
+      - app/src/main/java/com/example/data/Fc26SeedPlanner.kt
+      - app/src/main/java/com/example/data/Fc26LoanResolver.kt
 
 permissions:
   contents: read
