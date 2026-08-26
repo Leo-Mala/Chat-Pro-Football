@@ -166,9 +166,7 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun getTeam(id: Long): Team? = db.teamDao().getTeam(id)
     suspend fun saveTeams(teams: List<Team>) = db.withTransaction {
         val teamsToPersist = EuropeanNewSaveSeedCoordinator.teamsFor(this@GameRepository, teams)
-        if (teamsToPersist.size > 100) {
-            teamsToPersist.chunked(100).forEach { db.teamDao().insertTeams(it) }
-        } else {
+        if (teamsToPersist.isNotEmpty()) {
             db.teamDao().insertTeams(teamsToPersist)
         }
     }
@@ -203,9 +201,7 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun savePlayers(players: List<Player>) = db.withTransaction {
         val seed = EuropeanNewSaveSeedCoordinator.consumePlayers(this@GameRepository, players)
         val playersToPersist = seed.players
-        if (playersToPersist.size > 100) {
-            playersToPersist.chunked(100).forEach { db.playerDao().insertPlayersReplace(it) }
-        } else {
+        if (playersToPersist.isNotEmpty()) {
             db.playerDao().insertPlayersReplace(playersToPersist)
         }
         if (seed.loans.isNotEmpty()) {
@@ -250,6 +246,7 @@ class GameRepository(internal val db: AppDatabase) {
 
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForSeasonFlow(season)
     suspend fun getAllFixtures(): List<Fixture> = db.fixtureDao().getAllFixtures()
+    suspend fun getFixture(id: Long): Fixture? = db.fixtureDao().getFixture(id)
 
     /**
      * Toda criação de fixture passa pela mesma barreira de calendário e, desde V21, pela barreira
@@ -265,11 +262,7 @@ class GameRepository(internal val db: AppDatabase) {
             .flatMap { db.fixtureDao().getFixturesForSeason(it) }
         FixtureScheduleValidator.requireCanAdd(existing, fixtures)
 
-        if (fixtures.size > 100) {
-            fixtures.chunked(100).forEach { db.fixtureDao().insertFixtures(it) }
-        } else {
-            db.fixtureDao().insertFixtures(fixtures)
-        }
+        db.fixtureDao().insertFixtures(fixtures)
     }
 
     /**

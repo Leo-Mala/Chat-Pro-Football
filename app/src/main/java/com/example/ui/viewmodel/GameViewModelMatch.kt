@@ -130,8 +130,11 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 isPlayed = true
             )
             repo.withTransaction {
-                repo.updateFixture(updatedFixture)
-                processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+                val persistedFixture = repo.getFixture(updatedFixture.id)
+                if (persistedFixture?.isPlayed != true) {
+                    repo.updateFixture(updatedFixture)
+                    processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+                }
             }
         }
     }
@@ -232,7 +235,8 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
     val playersToUpdate = mutableListOf<Player>()
     for (pid in playerIds) {
         val p = repo.getPlayer(pid) ?: continue
-        var goals = p.careerGoals
+        var careerGoals = p.careerGoals
+        var seasonGoals = p.gols
         var yellow = p.yellowCardsAccumulated
         var isSuspended = p.suspensionWeeksRemaining
         var injury = p.injuryWeeksRemaining
@@ -240,7 +244,10 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
         val pEvents = detailEvents.filter { it.playerId == pid || it.scorerId == pid }
         for (ev in pEvents) {
             when (ev.type) {
-                "GOAL" -> if (ev.scorerId == pid) goals += 1
+                "GOAL" -> if (ev.scorerId == pid) {
+                    careerGoals += 1
+                    seasonGoals += 1
+                }
                 "CARD_YELLOW" -> {
                     yellow += 1
                     if (yellow >= 3) {
@@ -256,10 +263,13 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
                 }
             }
         }
+        val appeared = pid in appearancePlayerIds
         playersToUpdate.add(
             p.copy(
-                careerGoals = goals,
-                careerApps = p.careerApps + if (pid in appearancePlayerIds) 1 else 0,
+                careerGoals = careerGoals,
+                gols = seasonGoals,
+                careerApps = p.careerApps + if (appeared) 1 else 0,
+                partidasDisputadas = p.partidasDisputadas + if (appeared) 1 else 0,
                 yellowCardsAccumulated = yellow,
                 suspensionWeeksRemaining = isSuspended,
                 injuryWeeksRemaining = injury

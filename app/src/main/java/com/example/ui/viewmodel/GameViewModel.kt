@@ -885,8 +885,11 @@ class GameViewModel @Inject constructor(
         
         val updatedFixture = userFixture.copy(homeScore = hGoals, awayScore = aGoals, isPlayed = true)
         repo.withTransaction {
-            repo.updateFixture(updatedFixture)
-            processMatchEventsAndStats(updatedFixture, matchEvents)
+            val persistedFixture = repo.getFixture(updatedFixture.id)
+            if (persistedFixture?.isPlayed != true) {
+                repo.updateFixture(updatedFixture)
+                processMatchEventsAndStats(updatedFixture, matchEvents)
+            }
         }
         return updatedFixture
     }
@@ -1581,8 +1584,10 @@ class GameViewModel @Inject constructor(
         val targetRepo = session.repository
         val generation = session.generation
         val season = 2026
+        val totalStartedAtNs = System.nanoTime()
 
         // 1. Preparação dos dados de times em memória do zero
+        val clubSetupStartedAtNs = System.nanoTime()
         val newTeamsToSeed = mutableListOf<Team>()
         for (countryKey in GlobalFootballSystem.keys) {
             val templates = DefaultData.getTeamsForCountry(countryKey)
@@ -1605,16 +1610,21 @@ class GameViewModel @Inject constructor(
             }
         }
         val dbTeams = newTeamsToSeed
+        val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
 
         // 2. Geração limpa de jogadores para todos os times
+        val rosterMaterializationStartedAtNs = System.nanoTime()
         val allPlayersToSave = mutableListOf<Player>()
         for (t in dbTeams) {
             val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
             allPlayersToSave.addAll(roster)
         }
+        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
 
         // 3. Cálculo do calendário em memória ANTES da transação do banco
+        val competitionCalendarStartedAtNs = System.nanoTime()
         val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)
+        val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L
 
         // 4. Preparação dos metadados do GameSave em memória
         val playerSelectedTeam = dbTeams.find { it.id == teamId }
@@ -1645,10 +1655,13 @@ class GameViewModel @Inject constructor(
         }
 
         // 5. Transação no banco capturado limpando TODAS as tabelas sem exceção
+        var databaseBootstrapMs = 0L
+        var persistenceMs = 0L
         targetRepo.withTransaction {
             if (generation != sessionGeneration.get()) {
                 throw kotlinx.coroutines.CancellationException("Sessão de Novo Jogo mudou antes da limpeza.")
             }
+            val databaseBootstrapStartedAtNs = System.nanoTime()
             targetRepo.deleteSave()
             targetRepo.deleteTeams()
             targetRepo.deletePlayers()
@@ -1662,11 +1675,14 @@ class GameViewModel @Inject constructor(
             targetRepo.deleteInstallments()
             targetRepo.deleteLoans()
             targetRepo.deleteGlobalStandings()
+            databaseBootstrapMs = (System.nanoTime() - databaseBootstrapStartedAtNs) / 1_000_000L
 
+            val persistenceStartedAtNs = System.nanoTime()
             targetRepo.saveTeams(dbTeams)
             targetRepo.savePlayers(allPlayersToSave)
             targetRepo.saveFixtures(allGeneratedFixtures)
             targetRepo.saveGameSave(save)
+            persistenceMs = (System.nanoTime() - persistenceStartedAtNs) / 1_000_000L
         }
 
         if (generation == sessionGeneration.get()) {
@@ -1684,6 +1700,21 @@ class GameViewModel @Inject constructor(
             balance = save.bankBalance
         )
         saveSlots.value = preferencesRepo.loadSaveSlots()
+
+        val totalMs = (System.nanoTime() - totalStartedAtNs) / 1_000_000L
+        val performanceSnapshot = CareerCreationPerformanceSnapshot(
+            databaseBootstrapMs = databaseBootstrapMs,
+            rosterMaterializationMs = rosterMaterializationMs,
+            clubSetupMs = clubSetupMs,
+            competitionCalendarMs = competitionCalendarMs,
+            persistenceMs = persistenceMs,
+            totalMs = totalMs,
+            teamCount = dbTeams.size,
+            playerCount = allPlayersToSave.size,
+            fixtureCount = allGeneratedFixtures.size
+        )
+        CareerCreationPerformanceMonitor.record(performanceSnapshot)
+        Log.i("CareerCreationPerformance", performanceSnapshot.toString())
     }
 
     fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {

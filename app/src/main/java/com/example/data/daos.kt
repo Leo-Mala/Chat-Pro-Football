@@ -125,7 +125,12 @@ interface PlayerDao {
             injuryWeeksRemaining = 0,
             suspensionWeeksRemaining = 0,
             yellowCardsAccumulated = 0,
-            careerGoals = 0
+            gols = 0,
+            assistencias = 0,
+            partidasDisputadas = 0,
+            minutosJogados = 0,
+            mediaNotas = 0.0,
+            evolucaoMensal = 0.0
     """)
     suspend fun resetSeasonState(): Int
 
@@ -210,6 +215,9 @@ interface FixtureDao {
 
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>
+
+    @Query("SELECT * FROM fixtures WHERE id = :id LIMIT 1")
+    suspend fun getFixture(id: Long): Fixture?
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>>
