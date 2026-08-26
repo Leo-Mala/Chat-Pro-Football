@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       release_tag:
-        description: Existing immutable release tag, for example v3.0.0
+        description: Existing immutable release tag, for example v3.0.1
         required: true
         type: string
 
@@ -165,22 +165,22 @@ jobs:
           test -s "$mapping"
           test -s "$schema"
 
-          cp "$release_apk" release-out/Pro-Football-3.0.0-vc31.apk
-          cp "$release_aab" release-out/Pro-Football-3.0.0-vc31.aab
+          cp "$release_apk" release-out/Pro-Football-3.0.1-vc32.apk
+          cp "$release_aab" release-out/Pro-Football-3.0.1-vc32.aab
           cp "$mapping" release-out/mapping.txt
           cp "$schema" release-out/room-schema-v22.json
-          cp docs/releases/3.0.0/RELEASE_NOTES.md release-out/RELEASE_NOTES.md
-          cp docs/releases/3.0.0/TECHNICAL_CHANGELOG.md release-out/TECHNICAL_CHANGELOG.md
-          cp docs/releases/3.0.0/ROLLBACK.md release-out/ROLLBACK.md
+          cp docs/releases/3.0.1/RELEASE_NOTES.md release-out/RELEASE_NOTES.md
+          cp docs/releases/3.0.1/TECHNICAL_CHANGELOG.md release-out/TECHNICAL_CHANGELOG.md
+          cp docs/releases/3.0.1/ROLLBACK.md release-out/ROLLBACK.md
 
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           test -x "$apksigner"
-          "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.0-vc31.apk > "$RUNNER_TEMP/apk-signing.txt"
+          "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.1-vc32.apk > "$RUNNER_TEMP/apk-signing.txt"
           jarsigner -verify -strict \
             -keystore "$KEYSTORE_PATH" \
             -storepass "$STORE_PASSWORD" \
-            release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-jarsigner.txt"
-          keytool -printcert -jarfile release-out/Pro-Football-3.0.0-vc31.aab > "$RUNNER_TEMP/aab-cert.txt"
+            release-out/Pro-Football-3.0.1-vc32.aab > "$RUNNER_TEMP/aab-jarsigner.txt"
+          keytool -printcert -jarfile release-out/Pro-Football-3.0.1-vc32.aab > "$RUNNER_TEMP/aab-cert.txt"
 
           apk_cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' "$RUNNER_TEMP/apk-signing.txt")
           aab_cert_sha256=$(awk -F': ' '/SHA256:/ {print $NF; exit}' "$RUNNER_TEMP/aab-cert.txt")
@@ -219,8 +219,8 @@ jobs:
           python3 .github/scripts/phase111_release.py manifest \
             --mode production \
             --output release-out/provenance.json \
-            --artifact apk=release-out/Pro-Football-3.0.0-vc31.apk \
-            --artifact aab=release-out/Pro-Football-3.0.0-vc31.aab \
+            --artifact apk=release-out/Pro-Football-3.0.1-vc32.apk \
+            --artifact aab=release-out/Pro-Football-3.0.1-vc32.aab \
             --artifact mapping=release-out/mapping.txt \
             --artifact roomSchema=release-out/room-schema-v22.json \
             --artifact dependencies=release-out/release-dependencies.txt \
@@ -265,8 +265,8 @@ jobs:
             exit 1
           fi
           gh release create "$RELEASE_TAG" \
-            release-out/Pro-Football-3.0.0-vc31.apk \
-            release-out/Pro-Football-3.0.0-vc31.aab \
+            release-out/Pro-Football-3.0.1-vc32.apk \
+            release-out/Pro-Football-3.0.1-vc32.aab \
             release-out/mapping.txt \
             release-out/room-schema-v22.json \
             release-out/release-dependencies.txt \
@@ -278,7 +278,7 @@ jobs:
             release-out/TECHNICAL_CHANGELOG.md \
             release-out/ROLLBACK.md \
             --verify-tag \
-            --title "Pro Football 3.0.0" \
+            --title "Pro Football 3.0.1" \
             --notes-file release-out/RELEASE_NOTES.md
 
       - name: Upload production release evidence

@@ -123,24 +123,24 @@ jobs:
           test -s "$mapping"
           test -s "$schema"
 
-          cp "$release_apk" release-out/Pro-Football-3.0.0-vc31-validation.apk
-          cp "$release_aab" release-out/Pro-Football-3.0.0-vc31-validation.aab
+          cp "$release_apk" release-out/Pro-Football-3.0.1-vc32-validation.apk
+          cp "$release_aab" release-out/Pro-Football-3.0.1-vc32-validation.aab
           cp "$mapping" release-out/mapping.txt
           cp "$schema" release-out/room-schema-v22.json
-          cp docs/releases/3.0.0/RELEASE_NOTES.md release-out/RELEASE_NOTES.md
-          cp docs/releases/3.0.0/TECHNICAL_CHANGELOG.md release-out/TECHNICAL_CHANGELOG.md
-          cp docs/releases/3.0.0/ROLLBACK.md release-out/ROLLBACK.md
+          cp docs/releases/3.0.1/RELEASE_NOTES.md release-out/RELEASE_NOTES.md
+          cp docs/releases/3.0.1/TECHNICAL_CHANGELOG.md release-out/TECHNICAL_CHANGELOG.md
+          cp docs/releases/3.0.1/ROLLBACK.md release-out/ROLLBACK.md
 
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           test -x "$apksigner"
           {
             echo "classification=VALIDATION_ONLY_NOT_FOR_STORE"
-            "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.0-vc31-validation.apk
+            "$apksigner" verify --verbose --print-certs release-out/Pro-Football-3.0.1-vc32-validation.apk
             echo "AAB jarsigner verification:"
             jarsigner -verify -strict \
               -keystore "$KEYSTORE_PATH" \
               -storepass "$STORE_PASSWORD" \
-              release-out/Pro-Football-3.0.0-vc31-validation.aab
+              release-out/Pro-Football-3.0.1-vc32-validation.aab
           } > release-out/signing-report.txt
 
           cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' release-out/signing-report.txt)
@@ -159,8 +159,8 @@ jobs:
           python3 .github/scripts/phase111_release.py manifest \
             --mode validation \
             --output release-out/provenance.json \
-            --artifact apk=release-out/Pro-Football-3.0.0-vc31-validation.apk \
-            --artifact aab=release-out/Pro-Football-3.0.0-vc31-validation.aab \
+            --artifact apk=release-out/Pro-Football-3.0.1-vc32-validation.apk \
+            --artifact aab=release-out/Pro-Football-3.0.1-vc32-validation.aab \
             --artifact mapping=release-out/mapping.txt \
             --artifact roomSchema=release-out/room-schema-v22.json \
             --artifact dependencies=release-out/release-dependencies.txt \
