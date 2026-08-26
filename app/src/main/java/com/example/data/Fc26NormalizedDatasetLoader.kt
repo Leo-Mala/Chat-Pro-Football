@@ -190,19 +190,51 @@ object Fc26NormalizedDatasetLoader {
     }
 }
 
-/** Inicializado uma vez no Application; o dataset só é materializado quando um novo save é preparado. */
+/**
+ * Inicializado uma vez no Application. O primeiro acesso valida e materializa o snapshot; os
+ * acessos seguintes reutilizam a mesma instância imutável, evitando reler/rehash/reparsear o asset
+ * de 18 mil jogadores em Editor/Novo Jogo. A carga é single-flight para que prewarm e criação de
+ * carreira concorrentes nunca executem dois parses em paralelo.
+ */
 object Fc26FactualAssetRuntime {
     @Volatile
     private var assetManager: AssetManager? = null
 
+    @Volatile
+    private var cachedDataset: Fc26Dataset? = null
+
+    @Volatile
+    private var cacheResolved: Boolean = false
+
+    private val cacheLock = Any()
+
     fun initialize(assets: AssetManager) {
-        assetManager = assets
+        synchronized(cacheLock) {
+            if (assetManager !== assets) {
+                cachedDataset = null
+                cacheResolved = false
+            }
+            assetManager = assets
+        }
     }
 
-    fun loadValidatedOrNull(): Fc26Dataset? =
-        assetManager?.let(Fc26NormalizedDatasetLoader::loadValidatedOrNull)
+    fun loadValidatedOrNull(): Fc26Dataset? {
+        if (cacheResolved) return cachedDataset
+        return synchronized(cacheLock) {
+            if (cacheResolved) return@synchronized cachedDataset
+            val assets = assetManager ?: return@synchronized null
+            val loaded = Fc26NormalizedDatasetLoader.loadValidatedOrNull(assets)
+            cachedDataset = loaded
+            cacheResolved = true
+            loaded
+        }
+    }
 
     internal fun clearForTesting() {
-        assetManager = null
+        synchronized(cacheLock) {
+            assetManager = null
+            cachedDataset = null
+            cacheResolved = false
+        }
     }
 }
