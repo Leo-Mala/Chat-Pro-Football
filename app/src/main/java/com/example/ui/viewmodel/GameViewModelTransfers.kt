@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 fun GameViewModel.acceptCoachOffer(offer: CoachOffer) {
     viewModelScope.launch(Dispatchers.IO) {
@@ -49,9 +50,15 @@ fun GameViewModel.acceptIncomingOffer(offer: IncomingOffer) {
 
 fun GameViewModel.executeInstantBuy(player: Player, onResult: (Boolean) -> Unit = {}) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val save = repo.getGameSave()
+        if (save == null) {
+            withContext(Dispatchers.Main) { onResult(false) }
+            return@launch
+        }
         val result = processTransfersUseCase.buyPlayer(save, player, getDynamicPlayerPrice(player))
-        onResult(result is ProcessTransfersUseCase.TransferResult.Success)
+        withContext(Dispatchers.Main) {
+            onResult(result is ProcessTransfersUseCase.TransferResult.Success)
+        }
     }
 }
 
@@ -64,7 +71,13 @@ fun GameViewModel.submitPurchaseOffer(
     onResult: (GameViewModel.IAOfferResult) -> Unit
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val save = repo.getGameSave()
+        if (save == null) {
+            withContext(Dispatchers.Main) {
+                onResult(GameViewModel.IAOfferResult("declined", 0L, "Carreira indisponível para negociação."))
+            }
+            return@launch
+        }
         val installments = if (paymentType == "PARCELADO") ProcessTransfersUseCase.INSTALLMENT_COUNT else 1
         val result = TransferNegotiationUseCase(processTransfersUseCase).submitPurchaseOffer(
             save = save,
@@ -72,14 +85,15 @@ fun GameViewModel.submitPurchaseOffer(
             offeredPrice = offeredPrice,
             installments = installments
         )
-        when (result) {
+        val uiResult = when (result) {
             is TransferNegotiationUseCase.NegotiationResult.Accepted ->
-                onResult(GameViewModel.IAOfferResult("accepted", 0L, result.message))
+                GameViewModel.IAOfferResult("accepted", 0L, result.message)
             is TransferNegotiationUseCase.NegotiationResult.Counter ->
-                onResult(GameViewModel.IAOfferResult("counter", result.price, result.message))
+                GameViewModel.IAOfferResult("counter", result.price, result.message)
             is TransferNegotiationUseCase.NegotiationResult.Declined ->
-                onResult(GameViewModel.IAOfferResult("declined", 0L, result.reason))
+                GameViewModel.IAOfferResult("declined", 0L, result.reason)
         }
+        withContext(Dispatchers.Main) { onResult(uiResult) }
     }
 }
 
@@ -88,16 +102,24 @@ fun GameViewModel.buyPlayerAdvanced(
     price: Long,
     paymentType: String,
     hasGoalBonus: Boolean = false,
-    hasSolidarity: Boolean = false
+    hasSolidarity: Boolean = false,
+    onResult: (ProcessTransfersUseCase.TransferResult) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        processTransfersUseCase.buyPlayerAdvanced(
-            save,
-            player,
-            price,
-            if (paymentType == "PARCELADO") ProcessTransfersUseCase.INSTALLMENT_COUNT else 1
-        )
+        val save = repo.getGameSave()
+        val result = if (save == null) {
+            ProcessTransfersUseCase.TransferResult.Error("Carreira indisponível para concluir a contratação.")
+        } else {
+            processTransfersUseCase.buyPlayerAdvanced(
+                save,
+                player,
+                price,
+                if (paymentType == "PARCELADO") ProcessTransfersUseCase.INSTALLMENT_COUNT else 1
+            )
+        }
+        // A UI só recebe confirmação depois que ProcessTransfersUseCase retornou da transação Room.
+        // Isso impede que o diálogo feche enquanto allPlayers ainda representa a propriedade antiga.
+        withContext(Dispatchers.Main) { onResult(result) }
     }
 }
 
