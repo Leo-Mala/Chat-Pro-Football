@@ -50,6 +50,12 @@ _KOTLIN_IMPORT = re.compile(
     r"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;?\s*$"
 )
 _ROOM_ALIAS_FQNS: set[str] = set()
+_RELEASE_WORKFLOW_WRITE_SCOPES = {
+    ".github/workflows/phase111-release-engineering.yml": {"actions"},
+    ".github/workflows/phase111-production-release.yml": {"contents"},
+}
+for _workflow_path, _write_scopes in _RELEASE_WORKFLOW_WRITE_SCOPES.items():
+    _base.ALLOWED_WORKFLOW_WRITE_SCOPES[_workflow_path] = set(_write_scopes)
 
 
 def _yaml_security_lines(source: str) -> list[tuple[int, int, str]]:
@@ -502,9 +508,59 @@ def _expect_rejected(callable_obj: Any, message: str) -> None:
     raise GuardianV12Error(message)
 
 
+def _release_workflow_permission_self_test() -> None:
+    require(
+        _base.ALLOWED_WORKFLOW_WRITE_SCOPES.get(
+            ".github/workflows/phase111-release-engineering.yml"
+        ) == {"actions"},
+        "Phase 11.1 release-engineering write scope is not exact",
+    )
+    require(
+        _base.ALLOWED_WORKFLOW_WRITE_SCOPES.get(
+            ".github/workflows/phase111-production-release.yml"
+        ) == {"contents"},
+        "Phase 11.1 production-release write scope is not exact",
+    )
+    engineering = (
+        "permissions:\n  contents: read\njobs:\n  dispatch:\n    permissions:\n"
+        "      contents: read\n      actions: write\n"
+    )
+    production = (
+        "permissions:\n  contents: read\njobs:\n  release:\n    permissions:\n"
+        "      contents: write\n      actions: read\n"
+    )
+    require(
+        validate_mutable_workflow_permissions(
+            ".github/workflows/phase111-release-engineering.yml", engineering
+        ) == 3,
+        "Required Phase 11.1 actions:write permission was rejected",
+    )
+    require(
+        validate_mutable_workflow_permissions(
+            ".github/workflows/phase111-production-release.yml", production
+        ) == 3,
+        "Required Phase 11.1 contents:write permission was rejected",
+    )
+    _expect_rejected(
+        lambda: validate_mutable_workflow_permissions(
+            ".github/workflows/phase111-release-engineering.yml",
+            "permissions:\n  contents: write\n",
+        ),
+        "Phase 11.1 release-engineering unexpectedly accepted contents:write",
+    )
+    _expect_rejected(
+        lambda: validate_mutable_workflow_permissions(
+            ".github/workflows/phase111-production-release.yml",
+            "permissions:\n  actions: write\n",
+        ),
+        "Phase 11.1 production-release unexpectedly accepted actions:write",
+    )
+
+
 def self_test() -> dict[str, Any]:
     result = _BASE_SELF_TEST()
     _room_alias_namespace_self_test()
+    _release_workflow_permission_self_test()
 
     encoded_uses = (
         "permissions:\n  contents: read\njobs:\n  test:\n    steps:\n"
@@ -580,6 +636,7 @@ def self_test() -> dict[str, Any]:
             "unrelatedSameBasenameRoomAliasesExcluded": True,
             "exactAliasedAndWildcardRoomImportsResolved": True,
             "namespaceValidatorReentrantAcrossPublish": True,
+            "phase111WorkflowWriteScopesExact": True,
         }
     )
     result["trustedCiEvolutionAuthorizationV1"] = evolution
