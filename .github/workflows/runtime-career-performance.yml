@@ -9,6 +9,8 @@ on:
       - app/src/main/java/com/example/data/Fc26ClubMatcher.kt
       - app/src/main/java/com/example/data/Fc26SeedPlanner.kt
       - app/src/main/java/com/example/data/Fc26LoanResolver.kt
+      - app/src/main/java/com/example/data/Fc26NormalizedDatasetLoader.kt
+      - app/src/main/java/com/example/MainApplication.kt
 
 permissions:
   contents: read
