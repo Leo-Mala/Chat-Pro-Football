@@ -73,14 +73,22 @@ object Fc26ClubMatcher {
     ).mapKeys { normalize(it.key) }.mapValues { normalize(it.value) }
 
     fun match(dataset: Fc26Dataset, teams: List<Team>): List<Fc26ClubMatch> {
-        val targets = teams.map { team -> Target(team, targetNames(team)) }
+        val targets = indexedTargets(teams)
         val targetById = targets.associateBy { it.team.id }
+        val targetsByName = targetIndex(targets) { it.names }
+        val targetsByCore = targetIndex(targets) { it.coreNames }
+        val stableIdentities = stableIdentityIndex()
         val sourceCoreFrequency = dataset.sourceClubs.groupingBy { core(it.clubName) }.eachCount()
 
         return dataset.sourceClubs.map { source ->
             val explicit = Fc26ClubMappingRegistry.explicitMappingFor(source)
             if (explicit != null) {
-                val explicitCandidates = targets.filter { targetMatchesExplicitIdentity(it, explicit) }
+                val explicitName = normalize(explicit.targetCanonicalName)
+                val explicitCountry = normalize(explicit.targetCountry)
+                val explicitCandidates = targetsByName[explicitName].orEmpty().filter { target ->
+                    target.normalizedCountry == explicitCountry &&
+                        (explicit.targetTeamId == null || target.team.id == explicit.targetTeamId)
+                }
                 when (explicitCandidates.size) {
                     1 -> return@map explicitCandidates.single().toMatch(
                         source,
@@ -95,7 +103,7 @@ object Fc26ClubMatcher {
                 }
             }
 
-            val stableIdentity = stableIdentityForSource(source)
+            val stableIdentity = stableIdentityForSource(source, stableIdentities)
             if (stableIdentity != null) {
                 targetById[stableIdentity.id]?.let { target ->
                     return@map target.toMatch(source, "stable country/source identity")
@@ -104,9 +112,11 @@ object Fc26ClubMatcher {
 
             val exactKey = normalize(source.clubName)
             val explicitTarget = explicitAliases[exactKey]
-            val exactCandidates = targets.filter { target ->
-                target.names.any { it == exactKey || (explicitTarget != null && it == explicitTarget) }
-            }
+            val exactCandidates = exactOrAliasTargets(
+                targetsByName = targetsByName,
+                exactKey = exactKey,
+                explicitTarget = explicitTarget
+            )
 
             when {
                 exactCandidates.size == 1 -> exactCandidates.single().toMatch(source, "exact/explicit alias")
@@ -116,7 +126,7 @@ object Fc26ClubMatcher {
                     if (sourceCoreFrequency.getValue(sourceCore) > 1) {
                         unresolved(source, "source club name is non-unique after conservative normalization")
                     } else {
-                        val coreCandidates = targets.filter { target -> target.names.any { core(it) == sourceCore } }
+                        val coreCandidates = targetsByCore[sourceCore].orEmpty()
                         when (coreCandidates.size) {
                             1 -> coreCandidates.single().toMatch(source, "unique designator-normalized match")
                             0 -> unresolved(source, "no safe target club match")
@@ -139,8 +149,10 @@ object Fc26ClubMatcher {
     ): List<Fc26ClubCandidateAudit> {
         require(limitPerClub in 1..20)
         val matchesBySourceId = match(dataset, teams).associateBy { it.sourceClubTeamId }
-        val targets = teams.map { Target(it, targetNames(it)) }
+        val targets = indexedTargets(teams)
         val targetIds = teams.mapTo(mutableSetOf()) { it.id }
+        val stableIdentities = stableIdentityIndex()
+        val targetsByCountry = targets.groupBy { it.normalizedCountry }
 
         return dataset.sourceClubs
             .asSequence()
@@ -148,7 +160,7 @@ object Fc26ClubMatcher {
             .map { source ->
                 val currentMatch = matchesBySourceId.getValue(source.sourceClubTeamId)
                 val country = Fc26ClubMappingRegistry.countryFor(source)
-                val stableIdentity = stableIdentityForSource(source)
+                val stableIdentity = stableIdentityForSource(source, stableIdentities)
                 val materialization = when {
                     country == null -> Fc26TargetMaterializationStatus.UNKNOWN_COUNTRY_CONTEXT
                     stableIdentity == null -> Fc26TargetMaterializationStatus.NO_STABLE_IDENTITY
@@ -159,7 +171,7 @@ object Fc26ClubMatcher {
                 val scopedTargets = if (country == null) {
                     targets
                 } else {
-                    targets.filter { normalize(it.team.country) == normalize(country) }
+                    targetsByCountry[normalize(country)].orEmpty()
                 }
 
                 val candidates = scopedTargets
@@ -192,7 +204,13 @@ object Fc26ClubMatcher {
             .toList()
     }
 
-    private data class Target(val team: Team, val names: Set<String>) {
+    private data class Target(
+        val team: Team,
+        val names: Set<String>,
+        val coreNames: Set<String>,
+        val normalizedCountry: String,
+        val ordinal: Int
+    ) {
         fun toMatch(source: Fc26SourceClub, reason: String) = Fc26ClubMatch(
             sourceClubTeamId = source.sourceClubTeamId,
             sourceClubName = source.clubName,
@@ -206,27 +224,77 @@ object Fc26ClubMatcher {
         )
     }
 
-    private fun targetMatchesExplicitIdentity(
-        target: Target,
-        explicit: Fc26ClubMappingRegistry.ExplicitMapping
-    ): Boolean {
-        if (normalize(target.team.country) != normalize(explicit.targetCountry)) return false
-        if (explicit.targetTeamId != null && target.team.id != explicit.targetTeamId) return false
-        return target.names.any { it == normalize(explicit.targetCanonicalName) }
+    private fun indexedTargets(teams: List<Team>): List<Target> = teams.mapIndexed { ordinal, team ->
+        val names = targetNames(team)
+        Target(
+            team = team,
+            names = names,
+            coreNames = names.mapTo(linkedSetOf()) { core(it) },
+            normalizedCountry = normalize(team.country),
+            ordinal = ordinal
+        )
     }
 
-    private fun stableIdentityForSource(source: Fc26SourceClub): StableTeamIdentity? {
-        val country = Fc26ClubMappingRegistry.countryFor(source) ?: return null
-        val sourceName = normalize(source.clubName)
-        val aliasTarget = explicitAliases[sourceName]
+    private fun targetIndex(
+        targets: List<Target>,
+        keys: (Target) -> Set<String>
+    ): Map<String, List<Target>> {
+        val mutable = linkedMapOf<String, MutableList<Target>>()
+        targets.forEach { target ->
+            keys(target).forEach { key ->
+                mutable.getOrPut(key) { mutableListOf() }.add(target)
+            }
+        }
+        return mutable
+    }
 
-        return StableTeamIdentityRegistry.all.singleOrNull { identity ->
-            normalize(identity.country) == normalize(country) &&
-                (identity.aliases + identity.canonicalName).any { name ->
-                    val normalized = normalize(name)
-                    normalized == sourceName || (aliasTarget != null && normalized == aliasTarget)
+    private fun exactOrAliasTargets(
+        targetsByName: Map<String, List<Target>>,
+        exactKey: String,
+        explicitTarget: String?
+    ): List<Target> {
+        val exact = targetsByName[exactKey].orEmpty()
+        if (explicitTarget == null || explicitTarget == exactKey) return exact
+        val aliased = targetsByName[explicitTarget].orEmpty()
+        if (exact.isEmpty()) return aliased
+        if (aliased.isEmpty()) return exact
+        return (exact + aliased)
+            .distinctBy { it.team.id }
+            .sortedBy { it.ordinal }
+    }
+
+    private data class StableIdentityIndex(
+        val byCountryAndName: Map<Pair<String, String>, List<StableTeamIdentity>>
+    )
+
+    private fun stableIdentityIndex(): StableIdentityIndex {
+        val index = linkedMapOf<Pair<String, String>, MutableList<StableTeamIdentity>>()
+        StableTeamIdentityRegistry.all.forEach { identity ->
+            val country = normalize(identity.country)
+            (identity.aliases + identity.canonicalName)
+                .mapTo(linkedSetOf()) { normalize(it) }
+                .forEach { name ->
+                    index.getOrPut(country to name) { mutableListOf() }.add(identity)
                 }
         }
+        return StableIdentityIndex(index)
+    }
+
+    private fun stableIdentityForSource(
+        source: Fc26SourceClub,
+        identities: StableIdentityIndex
+    ): StableTeamIdentity? {
+        val country = Fc26ClubMappingRegistry.countryFor(source) ?: return null
+        val normalizedCountry = normalize(country)
+        val sourceName = normalize(source.clubName)
+        val aliasTarget = explicitAliases[sourceName]
+        val candidates = buildList {
+            addAll(identities.byCountryAndName[normalizedCountry to sourceName].orEmpty())
+            if (aliasTarget != null && aliasTarget != sourceName) {
+                addAll(identities.byCountryAndName[normalizedCountry to aliasTarget].orEmpty())
+            }
+        }.distinctBy { it.id }
+        return candidates.singleOrNull()
     }
 
     private fun targetNames(team: Team): Set<String> = buildSet {
