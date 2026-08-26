@@ -182,5 +182,14 @@ dependencies {
 if (providers.gradleProperty("excludeStressTests").isPresent) {
   tasks.withType<Test>().configureEach {
     exclude("**/*StressTest*")
+
+    // Phase 10.6 save/recovery tests already have a mandatory dedicated certification invocation.
+    // Keep the unfiltered core pass from running them a second time in the same long-lived test
+    // process; explicit --tests filters (including the dedicated Phase106 gate) remain untouched.
+    doFirst {
+      if (filter.includePatterns.isEmpty()) {
+        exclude("**/Phase106*")
+      }
+    }
   }
 }
