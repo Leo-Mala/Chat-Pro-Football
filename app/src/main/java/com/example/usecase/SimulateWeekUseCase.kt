@@ -79,13 +79,6 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
         val rostersByTeam = participatingTeamIds.associateWith { teamId ->
             repository.getPlayersByTeam(teamId)
         }
-        // O mesmo snapshot em lote usado para planejar participantes é retido por id para aplicar
-        // apenas os deltas desta simulação. Isso elimina o segundo N+1 de SELECT por participante
-        // dentro da transação de escrita, sem voltar a materializar o universo inteiro de jogadores.
-        val playersById = rostersByTeam.values
-            .asSequence()
-            .flatten()
-            .associateBy { it.id }
 
         val plans = unplayedFixtures.map { fixture ->
             val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(
@@ -118,10 +111,6 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 randomSeed = seed
             )
 
-            // Um placar positivo só pode ser persistido quando existe ao menos um participante
-            // elegível e persistido para receber sua atribuição estatística. Isso cobre tanto clubes
-            // virtuais sem roster quanto clubes reais temporariamente sem atleta disponível, sem
-            // inventar jogadores ou permitir gols sem artilheiro correspondente.
             val homeScore = if (homeParticipants.isEmpty()) 0 else rawHomeScore
             val awayScore = if (awayParticipants.isEmpty()) 0 else rawAwayScore
 
@@ -182,8 +171,20 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
             val affectedPlayerIds = (goalCounts.keys + appearanceCounts.keys).toSet()
 
             if (affectedPlayerIds.isNotEmpty()) {
+                // Releia os rosters já dentro da transação, depois de adquirir o banco. Assim um
+                // transfer/editor/contrato confirmado após o planejamento não pode ser sobrescrito
+                // por um snapshot stale de Player. Mantemos consultas por equipe, não por atleta,
+                // evitando o antigo N+1 por participant e preservando as colunas mais recentes.
+                val committedTeamIds = committedPlans
+                    .flatMap { listOf(it.fixture.homeTeamId, it.fixture.awayTeamId) }
+                    .distinct()
+                val currentPlayersById = committedTeamIds
+                    .asSequence()
+                    .flatMap { teamId -> repository.getPlayersByTeam(teamId).asSequence() }
+                    .associateBy { it.id }
+
                 val updatedPlayers = affectedPlayerIds.mapNotNull { playerId ->
-                    playersById[playerId]?.let { persisted ->
+                    currentPlayersById[playerId]?.let { persisted ->
                         val goals = goalCounts[playerId] ?: 0
                         val appearances = appearanceCounts[playerId] ?: 0
                         persisted.copy(
