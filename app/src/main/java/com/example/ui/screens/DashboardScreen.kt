@@ -149,7 +149,7 @@ fun CareerDashboardScreen(viewModel: GameViewModel) {
                                     fontSize = 13.sp
                                 )
                             }
-                        )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
