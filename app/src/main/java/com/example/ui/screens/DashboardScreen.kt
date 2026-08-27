@@ -149,7 +149,7 @@ fun CareerDashboardScreen(viewModel: GameViewModel) {
                                     fontSize = 13.sp
                                 )
                             }
-                        }
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -251,7 +251,6 @@ fun CareerDashboardScreen(viewModel: GameViewModel) {
                             players = playerRoster,
                             onUpdateTrainingFocus = { p, focus -> viewModel.updatePlayerTrainingFocus(p, focus) },
                             onUpgradeCT = { viewModel.upgradeTrainingCenter() },
-                            onAdvanceMonth = { viewModel.advanceMonthAndRunEvolution() },
                             onBack = { activeTabIndex = 0 }
                         )
                         4 -> MarketTab(viewModel)
