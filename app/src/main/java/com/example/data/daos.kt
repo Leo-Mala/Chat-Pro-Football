@@ -115,8 +115,10 @@ interface PlayerDao {
     suspend fun deletePlayersByIds(ids: List<Long>): Int
 
     /**
-     * Reset sazonal em action-set SQL. Só toca nos campos esportivos que pertencem ao reset e
-     * evita materializar dezenas de milhares de Player apenas para gravar valores constantes.
+     * Reinício da temporada atual em action-set SQL. Como o calendário da mesma temporada é
+     * recriado do zero, tanto as estatísticas sazonais quanto o acumulado produzido por essa
+     * temporada precisam voltar ao estado inicial. O rollover anual usa o caminho dedicado de
+     * `SeasonRolloverRepository` e preserva o histórico cumulativo entre temporadas.
      */
     @Query("""
         UPDATE players
@@ -125,6 +127,7 @@ interface PlayerDao {
             injuryWeeksRemaining = 0,
             suspensionWeeksRemaining = 0,
             yellowCardsAccumulated = 0,
+            careerGoals = 0,
             gols = 0,
             assistencias = 0,
             partidasDisputadas = 0,
