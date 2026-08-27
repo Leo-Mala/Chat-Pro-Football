@@ -74,14 +74,12 @@ data class Fc26NormalizedPlayer(
         RealPlayerIdentityKey(fullName, birthDateIso)
     }
 
-    val stableId: Long
-        get() = StableRealPlayerIdentity.idFor(fullName, birthDateIso)
-
-    val primaryPosition: String
-        get() = positions.first()
-
-    val alternativePositions: List<String>
-        get() = positions.drop(1)
+    // These values are pure functions of immutable constructor fields. Persist them once per
+    // normalized player so club sorting and mapping do not repeatedly redo Unicode normalization,
+    // regex cleanup and ISO-date validation while preserving the exact same factual identity.
+    val stableId: Long = StableRealPlayerIdentity.idFor(fullName, birthDateIso)
+    val primaryPosition: String = positions.first()
+    val alternativePositions: List<String> = positions.drop(1)
 }
 
 data class Fc26Dataset(

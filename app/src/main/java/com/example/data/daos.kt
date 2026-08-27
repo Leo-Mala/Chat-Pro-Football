@@ -115,8 +115,9 @@ interface PlayerDao {
     suspend fun deletePlayersByIds(ids: List<Long>): Int
 
     /**
-     * Reset sazonal em action-set SQL. Só toca nos campos esportivos que pertencem ao reset e
-     * evita materializar dezenas de milhares de Player apenas para gravar valores constantes.
+     * Reinício da temporada atual em action-set SQL. O calendário e as estatísticas sazonais são
+     * recriados do zero, mas os contadores cumulativos de carreira permanecem históricos e não
+     * pertencem ao reset. O rollover anual usa o caminho dedicado de `SeasonRolloverRepository`.
      */
     @Query("""
         UPDATE players
@@ -125,7 +126,12 @@ interface PlayerDao {
             injuryWeeksRemaining = 0,
             suspensionWeeksRemaining = 0,
             yellowCardsAccumulated = 0,
-            careerGoals = 0
+            gols = 0,
+            assistencias = 0,
+            partidasDisputadas = 0,
+            minutosJogados = 0,
+            mediaNotas = 0.0,
+            evolucaoMensal = 0.0
     """)
     suspend fun resetSeasonState(): Int
 
@@ -210,6 +216,9 @@ interface FixtureDao {
 
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>
+
+    @Query("SELECT * FROM fixtures WHERE id = :id LIMIT 1")
+    suspend fun getFixture(id: Long): Fixture?
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND week = :week ORDER BY isPlayed ASC, matchSlot ASC, id ASC")
     fun getFixturesForWeekFlow(season: Int, week: Int): Flow<List<Fixture>>

@@ -92,16 +92,26 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         return updatedPlayers
     }
 
-    /** CPU-heavy monthly planning. Call this before opening a larger write transaction. */
+    /**
+     * CPU-heavy monthly planning. The weekly production path defaults to compact result retention:
+     * every player is still processed in the same order with the same RNG calls, but no-op result
+     * objects are not kept alive through the weekly commit. Standalone callers that need the legacy
+     * one-result-per-player detail can opt into [retainDetailedResults].
+     */
     suspend fun prepareMonthlyEvolution(
         save: GameSave,
-        periodDate: String
+        periodDate: String,
+        retainDetailedResults: Boolean = false
     ): MonthlyEvolutionPlan {
         val allPlayers = repository.getAllPlayers()
         val allTeams = repository.getAllTeams().associateBy { it.id }
-        val evolutionResults = PlayerEvolutionMonthlyEngine.process(allPlayers, allTeams, periodDate)
+        val evolutionResults = if (retainDetailedResults) {
+            PlayerEvolutionMonthlyEngine.process(allPlayers, allTeams, periodDate)
+        } else {
+            PlayerEvolutionMonthlyEngine.processChanged(allPlayers, allTeams, periodDate)
+        }
 
-        val changedPlayers = ArrayList<Player>()
+        val changedPlayers = ArrayList<Player>(evolutionResults.size)
         val historyLogs = ArrayList<HistoricoEvolucao>()
         for (result in evolutionResults) {
             if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) changedPlayers.add(result.player)
@@ -173,7 +183,6 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             val plannedFingerprints = plan.historyLogs.mapTo(hashSetOf()) { it.monthlyEvolutionFingerprint() }
             val alreadyCommitted = plannedFingerprints.all { it in existingHistory }
             if (alreadyCommitted) return@withTransaction true
-            // An atomic monthly commit cannot legitimately leave only part of its audit rows.
             if (plannedFingerprints.any { it in existingHistory }) return@withTransaction false
         }
 
@@ -206,8 +215,6 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 val currentInputs = repository.getAllMonthlyEvolutionInputSnapshots()
                 val expectedById = plan.expectedInputs.associateBy { it.id }
 
-                // Weekly maintenance never deletes an existing player. A missing planned player is
-                // therefore ambiguous/destructive and must abort the atomic weekly close.
                 if (expectedById.keys.any { it !in currentInputs }) return@withTransaction false
 
                 val teams = currentTeamsById ?: repository.getAllTeams().associateBy { it.id }.also {
@@ -227,8 +234,6 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                     }
                 }
 
-                // CPU squad integrity may add emergency players after pre-planning. They must still
-                // receive the month's evolution rather than being silently omitted by the old plan.
                 for (playerId in currentInputs.keys) {
                     if (playerId !in expectedById) corrections.add(playerId)
                 }
@@ -286,11 +291,6 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         true
     }
 
-    /**
-     * Applies one already-prepared standalone plan without converting expected stale-state rejection
-     * into an exception. This seam is also used by regression tests to model state changes that
-     * happen between preparation and commit.
-     */
     internal suspend fun executePreparedMonthlyEvolution(
         plan: MonthlyEvolutionPlan
     ): MonthlyEvolutionExecutionOutcome {
@@ -302,25 +302,14 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         }
     }
 
-    /**
-     * Standalone API with an explicit stale/committed outcome for callers that need to surface a
-     * conflict. No stale snapshot is ever applied and a stale plan is not an exceptional crash.
-     */
     suspend fun executeMonthlyEvolutionDetailed(
         save: GameSave,
         periodDate: String
     ): MonthlyEvolutionExecutionOutcome {
-        val plan = prepareMonthlyEvolution(save, periodDate)
+        val plan = prepareMonthlyEvolution(save, periodDate, retainDetailedResults = true)
         return executePreparedMonthlyEvolution(plan)
     }
 
-    /**
-     * Backwards-compatible standalone monthly evolution API.
-     *
-     * On a concurrent stale-state conflict the plan is safely discarded and an empty result list is
-     * returned instead of throwing IllegalStateException. Callers that need to distinguish an empty
-     * committed month from a discarded stale plan should use [executeMonthlyEvolutionDetailed].
-     */
     suspend fun executeMonthlyEvolution(
         save: GameSave,
         periodDate: String

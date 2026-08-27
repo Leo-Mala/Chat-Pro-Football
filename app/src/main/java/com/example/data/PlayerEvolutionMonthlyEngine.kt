@@ -37,12 +37,47 @@ object PlayerEvolutionMonthlyEngine {
         Posicao.ATACANTE to listOf("finalizacao", "velocidade", "aceleracao", "drible", "sangueFrio", "cabeceio")
     )
 
+    /**
+     * Compatibility path: returns a result for every processed player.
+     */
     fun process(
         players: List<Player>,
         teamsMap: Map<Long, Team>,
         periodDate: String = "2026-01"
+    ): List<PlayerEvolutionResult> = processInternal(
+        players = players,
+        teamsMap = teamsMap,
+        periodDate = periodDate,
+        retainUnchangedResults = true
+    )
+
+    /**
+     * Production monthly-planning path. It executes the exact same rules and Random calls as
+     * [process], but retains heavy Player/Atributos/result objects only for players whose persisted
+     * evolution state actually changes. Players without a delta are handled by the set-based
+     * monthly counter reset at commit time, so keeping ~60k no-op result objects has no semantic
+     * value and creates a large avoidable heap spike every fourth week.
+     */
+    fun processChanged(
+        players: List<Player>,
+        teamsMap: Map<Long, Team>,
+        periodDate: String = "2026-01"
+    ): List<PlayerEvolutionResult> = processInternal(
+        players = players,
+        teamsMap = teamsMap,
+        periodDate = periodDate,
+        retainUnchangedResults = false
+    )
+
+    private fun processInternal(
+        players: List<Player>,
+        teamsMap: Map<Long, Team>,
+        periodDate: String,
+        retainUnchangedResults: Boolean
     ): List<PlayerEvolutionResult> {
-        val results = ArrayList<PlayerEvolutionResult>(players.size)
+        val results = ArrayList<PlayerEvolutionResult>(
+            if (retainUnchangedResults) players.size else minOf(players.size, 4096)
+        )
 
         for (player in players) {
             val team = teamsMap[player.teamId]
@@ -129,23 +164,28 @@ object PlayerEvolutionMonthlyEngine {
 
             val newAtributos = values.toAtributos()
             val newCalculatedForce = CalculadoraNota.calcularNota(posEnum, newAtributos)
-            val newJson = serializeAttributes(newAtributos)
-            val updatedPlayer = player.copy(
-                atributosJson = newJson,
-                force = newCalculatedForce,
-                minutosJogados = 0,
-                evolucaoMensal = (newCalculatedForce - player.force).toDouble()
-            )
+            val netChange = (newCalculatedForce - player.force).toDouble()
+            val hasPersistedDelta = historyLogs.isNotEmpty() || netChange != 0.0
 
-            results.add(
-                PlayerEvolutionResult(
-                    player = updatedPlayer,
-                    oldAttributes = oldAtributos,
-                    newAttributes = newAtributos,
-                    netChange = (newCalculatedForce - player.force).toDouble(),
-                    historyLogs = historyLogs
+            if (retainUnchangedResults || hasPersistedDelta) {
+                val newJson = serializeAttributes(newAtributos)
+                val updatedPlayer = player.copy(
+                    atributosJson = newJson,
+                    force = newCalculatedForce,
+                    minutosJogados = 0,
+                    evolucaoMensal = netChange
                 )
-            )
+
+                results.add(
+                    PlayerEvolutionResult(
+                        player = updatedPlayer,
+                        oldAttributes = oldAtributos,
+                        newAttributes = newAtributos,
+                        netChange = netChange,
+                        historyLogs = historyLogs
+                    )
+                )
+            }
         }
 
         return results

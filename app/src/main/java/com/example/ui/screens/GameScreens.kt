@@ -307,11 +307,10 @@ fun GameApp(
                                     menuScreenState = "SAVES"
                                 },
                                 onOpenEditor = {
-                                    viewModel.ensureSaveActiveForEditor { ready ->
-                                        if (ready) {
-                                            menuScreenState = "EDITOR"
-                                        }
-                                    }
+                                    // Enter the editor immediately. The editor owns its asynchronous
+                                    // pre-career bootstrap, so a transient save id can never route the
+                                    // user through TeamSelection while that bootstrap is still running.
+                                    menuScreenState = "EDITOR"
                                 }
                             )
                         }
@@ -365,4 +364,3 @@ fun GameApp(
         }
     }
 }
-

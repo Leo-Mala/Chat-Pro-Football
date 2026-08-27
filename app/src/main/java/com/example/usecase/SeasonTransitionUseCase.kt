@@ -227,6 +227,9 @@ class SeasonTransitionUseCase(
         measuredStage("player-age-and-season-reset") {
             repository.ageAndResetRolloverPlayers(RETIREMENT_CURRENT_AGE)
         }
+        measuredStage("player-seasonal-statistics-reset") {
+            repository.resetRolloverSeasonalStatistics()
+        }
         measuredStage("persist-retirement-replacements") {
             if (replacementPlayers.isNotEmpty()) {
                 repository.savePlayers(replacementPlayers)

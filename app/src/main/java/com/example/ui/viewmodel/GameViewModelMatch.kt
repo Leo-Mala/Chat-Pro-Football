@@ -25,6 +25,26 @@ internal fun collectAppearancePlayerIds(
     )
 }
 
+internal fun normalizeUnattributableGoalEvents(
+    events: List<GameEngine.MatchEventDetail>,
+    homePersistedPlayers: List<Player>,
+    awayPersistedPlayers: List<Player>
+): List<GameEngine.MatchEventDetail> {
+    val homeHasEligiblePersistedPlayer = homePersistedPlayers.any {
+        it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0
+    }
+    val awayHasEligiblePersistedPlayer = awayPersistedPlayers.any {
+        it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0
+    }
+    if (homeHasEligiblePersistedPlayer && awayHasEligiblePersistedPlayer) return events
+
+    return events.filterNot { event ->
+        event.type == "GOAL" &&
+            ((event.isHomeEvent && !homeHasEligiblePersistedPlayer) ||
+                (!event.isHomeEvent && !awayHasEligiblePersistedPlayer))
+    }
+}
+
 internal fun hasPendingUserFixtures(
     fixtures: List<Fixture>,
     userTeamId: Long
@@ -76,7 +96,11 @@ fun GameViewModel.startLiveMatch(fixture: Fixture) {
             awayReserves = awayReserves
         )
 
-        currentMatchEvents = matchEventsList
+        // `getStartingXIForTeam()` fornece atletas procedurais quando não existe nenhum atleta
+        // persistido elegível. Esses ids não podem alimentar placar/estatísticas oficiais porque
+        // não há Player correspondente no Room para receber o gol. A regra cobre tanto clube
+        // virtual sem roster quanto roster real inteiro lesionado/suspenso.
+        currentMatchEvents = normalizeUnattributableGoalEvents(matchEventsList, homePls, awayPls)
 
         _matchMinute.value = 0
         _matchHomeScore.value = 0
@@ -130,8 +154,11 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 isPlayed = true
             )
             repo.withTransaction {
-                repo.updateFixture(updatedFixture)
-                processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+                val persistedFixture = repo.getFixture(updatedFixture.id)
+                if (persistedFixture?.isPlayed != true) {
+                    repo.updateFixture(updatedFixture)
+                    processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+                }
             }
         }
     }
@@ -178,6 +205,60 @@ fun GameViewModel.resumeLiveMatch() {
     }
 }
 
+private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
+    userFixture: Fixture,
+    save: GameSave
+): Fixture {
+    val home = repo.getTeam(userFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.homeTeamId)
+    val away = repo.getTeam(userFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.awayTeamId)
+
+    if (_autoLineupEnabled.value) {
+        autoLineup(save.playerTeamId).join()
+    } else {
+        autoReplaceSuspendedAndInjuredPlayers(save.playerTeamId).join()
+    }
+
+    val homePls = repo.getPlayersByTeam(home.id)
+    val awayPls = repo.getPlayersByTeam(away.id)
+    val homeStarters = getStartingXIForTeam(homePls, home.id, home.rating, home.name, home.country)
+    val awayStarters = getStartingXIForTeam(awayPls, away.id, away.rating, away.name, away.country)
+    val homeReserves = homePls.filter { it !in homeStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
+    val awayReserves = awayPls.filter { it !in awayStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
+
+    val isRivalry = (home.rivalTeamId == away.id || away.rivalTeamId == home.id || (home.state == away.state && home.city == away.city))
+    val rawEvents = GameEngine.simulateMatchDetailed(
+        homeTeam = home,
+        awayTeam = away,
+        homePlayers = homeStarters,
+        awayPlayers = awayStarters,
+        homeTactics = if (home.isPlayerControlled) playerFormation.value else "4-4-2",
+        homeStyle = if (home.isPlayerControlled) playerStyle.value else "Equilibrado",
+        awayTactics = if (away.isPlayerControlled) playerFormation.value else "4-4-2",
+        awayStyle = if (away.isPlayerControlled) playerStyle.value else "Equilibrado",
+        isRivalry = isRivalry,
+        randomSeed = kotlin.random.Random.nextLong(),
+        homeReserves = homeReserves,
+        awayReserves = awayReserves
+    )
+    val matchEvents = normalizeUnattributableGoalEvents(rawEvents, homePls, awayPls)
+    val hGoals = matchEvents.count { it.type == "GOAL" && it.isHomeEvent }
+    val aGoals = matchEvents.count { it.type == "GOAL" && !it.isHomeEvent }
+    val updatedFixture = userFixture.copy(homeScore = hGoals, awayScore = aGoals, isPlayed = true)
+
+    var committedFixture = updatedFixture
+    repo.withTransaction {
+        val persistedFixture = repo.getFixture(updatedFixture.id)
+        if (persistedFixture?.isPlayed == true) {
+            committedFixture = persistedFixture
+            return@withTransaction
+        }
+        repo.updateFixture(updatedFixture)
+        processMatchEventsAndStats(updatedFixture, matchEvents)
+        committedFixture = repo.getFixture(updatedFixture.id) ?: updatedFixture
+    }
+    return committedFixture
+}
+
 fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
     liveMatchJob?.cancel()
     viewModelScope.launch(Dispatchers.IO) {
@@ -188,11 +269,12 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            var updated = simulateSingleUserFixture(targetFixture, save)
+            val simulated = simulateSingleUserFixtureSafely(targetFixture, save)
+            var updated = repo.getFixture(targetFixture.id) ?: simulated
             val decided = CompetitionRules.ensureKnockoutDecision(updated)
             if (decided != updated) {
                 repo.updateFixture(decided)
-                updated = decided
+                updated = repo.getFixture(decided.id) ?: decided
             }
             _matchHomeScore.value = updated.homeScore ?: 0
             _matchAwayScore.value = updated.awayScore ?: 0
@@ -232,7 +314,8 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
     val playersToUpdate = mutableListOf<Player>()
     for (pid in playerIds) {
         val p = repo.getPlayer(pid) ?: continue
-        var goals = p.careerGoals
+        var careerGoals = p.careerGoals
+        var seasonGoals = p.gols
         var yellow = p.yellowCardsAccumulated
         var isSuspended = p.suspensionWeeksRemaining
         var injury = p.injuryWeeksRemaining
@@ -240,7 +323,10 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
         val pEvents = detailEvents.filter { it.playerId == pid || it.scorerId == pid }
         for (ev in pEvents) {
             when (ev.type) {
-                "GOAL" -> if (ev.scorerId == pid) goals += 1
+                "GOAL" -> if (ev.scorerId == pid) {
+                    careerGoals += 1
+                    seasonGoals += 1
+                }
                 "CARD_YELLOW" -> {
                     yellow += 1
                     if (yellow >= 3) {
@@ -256,10 +342,13 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
                 }
             }
         }
+        val appeared = pid in appearancePlayerIds
         playersToUpdate.add(
             p.copy(
-                careerGoals = goals,
-                careerApps = p.careerApps + if (pid in appearancePlayerIds) 1 else 0,
+                careerGoals = careerGoals,
+                gols = seasonGoals,
+                careerApps = p.careerApps + if (appeared) 1 else 0,
+                partidasDisputadas = p.partidasDisputadas + if (appeared) 1 else 0,
                 yellowCardsAccumulated = yellow,
                 suspensionWeeksRemaining = isSuspended,
                 injuryWeeksRemaining = injury

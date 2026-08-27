@@ -6,11 +6,13 @@ import com.example.data.*
 import com.example.data.repository.SlotRecoveryRequiredException
 import java.util.WeakHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 /**
@@ -23,15 +25,103 @@ import kotlin.math.roundToInt
  * WeakHashMap evita reter ViewModels depois que seu lifecycle termina.
  */
 private val editorPreparationMutexes = WeakHashMap<GameViewModel, Mutex>()
-private val editorPreparationMutexesGuard = Any()
+private val editorPlayerSaveMutexes = WeakHashMap<GameViewModel, Mutex>()
+private val editorPreparedSessions = WeakHashMap<GameViewModel, SaveSession>()
+private val editorPreparationWaiters = WeakHashMap<GameViewModel, MutableList<CompletableDeferred<Unit>>>()
+private val editorMutexesGuard = Any()
 
 private fun GameViewModel.editorPreparationMutex(): Mutex =
-    synchronized(editorPreparationMutexesGuard) {
+    synchronized(editorMutexesGuard) {
         editorPreparationMutexes.getOrPut(this) { Mutex() }
+    }
+
+private fun GameViewModel.editorPlayerSaveMutex(): Mutex =
+    synchronized(editorMutexesGuard) {
+        editorPlayerSaveMutexes.getOrPut(this) { Mutex() }
     }
 
 private fun GameViewModel.isEditorSessionCurrent(session: SaveSession): Boolean =
     activeSaveSession.value === session && currentSaveId.value == session.slotId
+
+private fun GameViewModel.clearPreparedEditorSession() {
+    synchronized(editorMutexesGuard) {
+        editorPreparedSessions.remove(this)
+    }
+}
+
+private fun GameViewModel.markPreparedEditorSession(session: SaveSession) {
+    synchronized(editorMutexesGuard) {
+        editorPreparedSessions[this] = session
+    }
+}
+
+/**
+ * Retorna exclusivamente o repositório cuja sessão concluiu o bootstrap do Editor e continua ativa.
+ * Assim nenhuma ação exposta durante o primeiro frame, nem uma ação atrasada depois de Voltar/trocar
+ * de slot, consegue gravar em um banco que não passou pela preparação atual.
+ */
+private fun GameViewModel.preparedEditorRepositoryOrNull() =
+    synchronized(editorMutexesGuard) {
+        val preparedSession = editorPreparedSessions[this]
+        if (
+            preparedSession != null &&
+            activeSaveSession.value === preparedSession &&
+            currentSaveId.value == preparedSession.slotId
+        ) {
+            preparedSession.repository
+        } else {
+            null
+        }
+    }
+
+/**
+ * Aguarda somente a preparação que pertence ao lifecycle da tela. A mutação nunca inicia ou recria
+ * uma sessão por conta própria: isso preserva o contrato fail-closed e evita que um `viewModelScope`
+ * destacado continue semeando depois que o usuário saiu do Editor. O waiter também cobre o primeiro
+ * frame, quando a ação pode chegar imediatamente antes de o `LaunchedEffect` entrar no bootstrap.
+ */
+private suspend fun GameViewModel.awaitPreparedEditorRepositoryOrNull(): GameRepository? {
+    preparedEditorRepositoryOrNull()?.let { return it }
+
+    val waiter = CompletableDeferred<Unit>()
+    synchronized(editorMutexesGuard) {
+        editorPreparationWaiters.getOrPut(this) { mutableListOf() }.add(waiter)
+    }
+
+    // Fecha a janela em que a preparação pode ter terminado entre a primeira leitura e o registro.
+    preparedEditorRepositoryOrNull()?.let { repository ->
+        synchronized(editorMutexesGuard) {
+            editorPreparationWaiters[this]?.remove(waiter)
+        }
+        waiter.complete(Unit)
+        return repository
+    }
+
+    val signalled = withTimeoutOrNull(120_000L) {
+        waiter.await()
+        true
+    } ?: false
+
+    synchronized(editorMutexesGuard) {
+        editorPreparationWaiters[this]?.let { waiters ->
+            waiters.remove(waiter)
+            if (waiters.isEmpty()) editorPreparationWaiters.remove(this)
+        }
+    }
+
+    val repository = preparedEditorRepositoryOrNull()
+    if (!signalled && repository == null) {
+        _toastMessage.emit("O Editor ainda não está disponível. Tente novamente.")
+    }
+    return repository
+}
+
+private fun GameViewModel.releaseEditorPreparationWaiters() {
+    val waiters = synchronized(editorMutexesGuard) {
+        editorPreparationWaiters.remove(this)?.toList().orEmpty()
+    }
+    waiters.forEach { waiter -> waiter.complete(Unit) }
+}
 
 private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean) {
     withContext(Dispatchers.Main) {
@@ -39,21 +129,25 @@ private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean
     }
 }
 
-fun GameViewModel.ensureSaveActiveForEditor(
+/**
+ * Prepara o slot do Editor na coroutine do chamador.
+ *
+ * A tela chama esta função dentro de `LaunchedEffect`; portanto sair do Editor cancela esta mesma
+ * coroutine. Não existe um `viewModelScope.launch` destacado capaz de continuar semeando/reabrindo
+ * um slot depois que `exitToSavesMenu()` invalidou a sessão.
+ */
+suspend fun GameViewModel.ensureSaveActiveForEditor(
     preparationCheckpoint: suspend () -> Unit = {},
     preparationAttemptCheckpoint: suspend () -> Unit = {},
     onReady: (Boolean) -> Unit = {}
-) {
-    viewModelScope.launch(Dispatchers.IO) {
-        // Checkpoint inerte em produção. Em teste, comprova que uma segunda coroutine realmente
-        // chegou à fronteira de serialização antes de verificarmos que ela não entrou no bootstrap.
+) = withContext(Dispatchers.IO) {
+    try {
         preparationAttemptCheckpoint()
         editorPreparationMutex().withLock {
+            clearPreparedEditorSession()
             val targetSaveId = _currentSaveId.value ?: "1"
             var editorSession: SaveSession? = null
             try {
-                // Materializa/valida Room em IO antes de publicar currentSaveId. O preparo inteiro fica
-                // vinculado à mesma SaveSession e nunca pode concluir em favor de uma sessão posterior.
                 val session = getOrCreateSession(targetSaveId)
                 editorSession = session
                 val currentRepository = session.repository
@@ -62,14 +156,13 @@ fun GameViewModel.ensureSaveActiveForEditor(
                 }
                 if (!isEditorSessionCurrent(session)) {
                     notifyEditorReady(onReady, false)
-                    return@launch
+                    return@withLock
                 }
 
-                // Checkpoint inerte em produção e útil para provar races de lifecycle sem sleeps frágeis.
                 preparationCheckpoint()
                 if (!isEditorSessionCurrent(session)) {
                     notifyEditorReady(onReady, false)
-                    return@launch
+                    return@withLock
                 }
 
                 var dbTeams = currentRepository.getAllTeams()
@@ -97,7 +190,7 @@ fun GameViewModel.ensureSaveActiveForEditor(
                     }
                     if (!isEditorSessionCurrent(session)) {
                         notifyEditorReady(onReady, false)
-                        return@launch
+                        return@withLock
                     }
                     currentRepository.saveTeams(seededTeams)
                     dbTeams = seededTeams
@@ -105,7 +198,7 @@ fun GameViewModel.ensureSaveActiveForEditor(
 
                 if (!isEditorSessionCurrent(session)) {
                     notifyEditorReady(onReady, false)
-                    return@launch
+                    return@withLock
                 }
 
                 val allDbPlayers = currentRepository.getAllPlayers()
@@ -117,16 +210,23 @@ fun GameViewModel.ensureSaveActiveForEditor(
                     }
                     if (!isEditorSessionCurrent(session)) {
                         notifyEditorReady(onReady, false)
-                        return@launch
+                        return@withLock
                     }
                     currentRepository.savePlayers(allPlayersToSave)
                 }
 
-                // A UI só navega se a sessão usada no preparo ainda for exatamente a ativa.
-                notifyEditorReady(onReady, isEditorSessionCurrent(session))
+                val ready = isEditorSessionCurrent(session)
+                if (ready) {
+                    markPreparedEditorSession(session)
+                } else {
+                    clearPreparedEditorSession()
+                }
+                notifyEditorReady(onReady, ready)
             } catch (e: CancellationException) {
+                clearPreparedEditorSession()
                 throw e
             } catch (e: SlotRecoveryRequiredException) {
+                clearPreparedEditorSession()
                 Log.w(
                     "GameViewModel",
                     "Editor bloqueado para slot $targetSaveId em recuperação: ${e.inspection.failureReason}"
@@ -138,6 +238,7 @@ fun GameViewModel.ensureSaveActiveForEditor(
                 }
                 notifyEditorReady(onReady, false)
             } catch (e: Exception) {
+                clearPreparedEditorSession()
                 Log.e("GameViewModel", "Falha fail-closed ao preparar editor no slot $targetSaveId", e)
                 val session = editorSession
                 if (session == null || isEditorSessionCurrent(session)) {
@@ -147,12 +248,20 @@ fun GameViewModel.ensureSaveActiveForEditor(
                 notifyEditorReady(onReady, false)
             }
         }
+    } finally {
+        // Acorda ações do primeiro frame tanto em sucesso quanto em falha/cancelamento. Elas ainda
+        // precisam passar por `preparedEditorRepositoryOrNull()`, então um bootstrap incompleto nunca
+        // autoriza escrita.
+        releaseEditorPreparationWaiters()
     }
 }
 
 fun GameViewModel.ensureRosterForTeam(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val players = repo.getPlayersByTeam(teamId)
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+            ?: return@launch
+        val players = editorRepository.getPlayersByTeam(teamId)
         if (players.isEmpty()) {
             val defaultPlayers = List(18) { idx ->
                 Player(
@@ -165,21 +274,24 @@ fun GameViewModel.ensureRosterForTeam(teamId: Long) {
                     salary = 5000L
                 )
             }
-            repo.savePlayers(defaultPlayers)
+            editorRepository.savePlayers(defaultPlayers)
         }
     }
 }
 
 fun GameViewModel.saveTeamFromEditor(team: Team) {
     viewModelScope.launch(Dispatchers.IO) {
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+            ?: return@launch
         val finalTeamId = if (team.id == 0L) System.currentTimeMillis() else team.id
         val teamToSave = team.copy(id = finalTeamId)
-        repo.saveTeams(listOf(teamToSave))
+        editorRepository.saveTeams(listOf(teamToSave))
 
-        val existingPlayers = repo.getPlayersByTeam(finalTeamId)
+        val existingPlayers = editorRepository.getPlayersByTeam(finalTeamId)
         if (existingPlayers.isEmpty()) {
             val roster = DefaultData.generateRosterForTeam(finalTeamId, teamToSave.rating, teamToSave.name, teamToSave.country)
-            repo.savePlayers(roster)
+            editorRepository.savePlayers(roster)
         } else {
             val currentAvg = existingPlayers.map { it.force }.average().toInt()
             val delta = teamToSave.rating - currentAvg
@@ -191,7 +303,7 @@ fun GameViewModel.saveTeamFromEditor(team: Team) {
                         potential = maxOf(p.potential, newForce + 3).coerceIn(35, 99)
                     )
                 }
-                repo.savePlayers(updatedPlayers)
+                editorRepository.savePlayers(updatedPlayers)
             }
         }
     }
@@ -199,18 +311,19 @@ fun GameViewModel.saveTeamFromEditor(team: Team) {
 
 fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int) {
     viewModelScope.launch(Dispatchers.IO) {
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+            ?: return@launch
         val newRating = ((attack + mid + def) / 3).coerceIn(15, 99)
-        val team = repo.getTeam(teamId) ?: return@launch
-        repo.updateTeam(team.copy(rating = newRating))
+        val team = editorRepository.getTeam(teamId) ?: return@launch
+        editorRepository.updateTeam(team.copy(rating = newRating))
 
-        // Atualizar também os atributos individuais dos jogadores do time proporcionalmente
-        val players = repo.getPlayersByTeam(teamId)
+        val players = editorRepository.getPlayersByTeam(teamId)
         val updatedPlayers = players.map { player ->
             val currentAttr = player.getAtributosObject()
             val oldForce = player.force.coerceAtLeast(1)
             val ratio = newRating.toDouble() / oldForce.toDouble()
 
-            // Escala os atributos mantendo as proporções originais do atleta
             val scaledAttr = currentAttr.copy(
                 finalizacao = (currentAttr.finalizacao * ratio).roundToInt().coerceIn(10, 99),
                 passe = (currentAttr.passe * ratio).roundToInt().coerceIn(10, 99),
@@ -233,45 +346,96 @@ fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int
                 defense = scaledAttr.desarme
             )
         }
-        repo.updatePlayers(updatedPlayers)
+        editorRepository.updatePlayers(updatedPlayers)
     }
 }
 
 fun GameViewModel.deleteTeamFromEditor(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        repo.deleteTeam(teamId)
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+            ?: return@launch
+        editorRepository.deleteTeam(teamId)
     }
 }
 
-fun GameViewModel.savePlayerFromEditor(player: Player) {
+/**
+ * Persiste a edição do atleta e recalcula a força dos clubes afetados na mesma transação Room.
+ * Só uma gravação do diálogo pode ficar em voo por ViewModel. Isso protege especialmente o cadastro
+ * com id=0 contra duplo toque, que de outro modo poderia gerar duas linhas auto-ID para o mesmo atleta.
+ */
+fun GameViewModel.savePlayerFromEditor(
+    player: Player,
+    onComplete: (Boolean) -> Unit = {}
+) {
     viewModelScope.launch(Dispatchers.IO) {
-        if (player.id == 0L) {
-            repo.savePlayers(listOf(player))
-        } else {
-            repo.updatePlayer(player)
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+        if (editorRepository == null) {
+            withContext(Dispatchers.Main) { onComplete(false) }
+            return@launch
         }
-        val teamId = player.teamId
-        if (teamId != null) {
-            val roster = repo.getPlayersByTeam(teamId)
-            val calculated = GameEngine.calculateTeamRating(roster)
-            val team = repo.getTeam(teamId)
-            if (team != null && team.rating != calculated) {
-                repo.saveTeams(listOf(team.copy(rating = calculated)))
+
+        val saveMutex = editorPlayerSaveMutex()
+        if (!saveMutex.tryLock()) {
+            withContext(Dispatchers.Main) { onComplete(false) }
+            return@launch
+        }
+        try {
+            if (preparedEditorRepositoryOrNull() !== editorRepository) {
+                withContext(Dispatchers.Main) { onComplete(false) }
+                return@launch
             }
+            editorRepository.withTransaction {
+                val previous = if (player.id == 0L) null else editorRepository.getPlayer(player.id)
+                if (player.id == 0L) {
+                    editorRepository.savePlayers(listOf(player))
+                } else {
+                    editorRepository.updatePlayer(player)
+                }
+
+                val affectedTeamIds = buildSet {
+                    previous?.teamId?.let(::add)
+                    player.teamId?.let(::add)
+                }
+                for (teamId in affectedTeamIds) {
+                    val roster = editorRepository.getPlayersByTeam(teamId)
+                    val team = editorRepository.getTeam(teamId) ?: continue
+                    val calculated = GameEngine.calculateTeamRating(roster)
+                    if (team.rating != calculated) {
+                        editorRepository.updateTeam(team.copy(rating = calculated))
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) { onComplete(true) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("GameViewModel", "Falha ao salvar jogador pelo editor", e)
+            _toastMessage.emit("Não foi possível salvar o jogador. Tente novamente.")
+            withContext(Dispatchers.Main) { onComplete(false) }
+        } finally {
+            saveMutex.unlock()
         }
     }
 }
 
 fun GameViewModel.deletePlayerFromEditor(playerId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        repo.deletePlayer(playerId)
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+            ?: return@launch
+        editorRepository.deletePlayer(playerId)
     }
 }
 
 fun GameViewModel.transferPlayerFromEditor(playerId: Long, targetTeamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val player = repo.getPlayer(playerId) ?: return@launch
+        val editorRepository = preparedEditorRepositoryOrNull()
+            ?: awaitPreparedEditorRepositoryOrNull()
+            ?: return@launch
+        val player = editorRepository.getPlayer(playerId) ?: return@launch
         val updated = player.copy(teamId = targetTeamId, originalTeamId = null, isOnLoan = false, loanWeeksRemaining = 0)
-        repo.updatePlayer(updated)
+        editorRepository.updatePlayer(updated)
     }
 }

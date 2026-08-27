@@ -148,6 +148,11 @@ class GameRepository(internal val db: AppDatabase) {
         }
 
         db.playerDao().resetSeasonState()
+        // careerGoals é cumulativo e deve sobreviver ao restart quando existe histórico de carreira.
+        // Um valor sem nenhuma careerApp é um estado legado inconsistente e pode ser normalizado.
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE players SET careerGoals = 0 WHERE careerApps = 0 AND careerGoals != 0"
+        )
         db.coachOfferDao().deleteOffers()
         true
     }
@@ -166,9 +171,7 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun getTeam(id: Long): Team? = db.teamDao().getTeam(id)
     suspend fun saveTeams(teams: List<Team>) = db.withTransaction {
         val teamsToPersist = EuropeanNewSaveSeedCoordinator.teamsFor(this@GameRepository, teams)
-        if (teamsToPersist.size > 100) {
-            teamsToPersist.chunked(100).forEach { db.teamDao().insertTeams(it) }
-        } else {
+        if (teamsToPersist.isNotEmpty()) {
             db.teamDao().insertTeams(teamsToPersist)
         }
     }
@@ -203,9 +206,7 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun savePlayers(players: List<Player>) = db.withTransaction {
         val seed = EuropeanNewSaveSeedCoordinator.consumePlayers(this@GameRepository, players)
         val playersToPersist = seed.players
-        if (playersToPersist.size > 100) {
-            playersToPersist.chunked(100).forEach { db.playerDao().insertPlayersReplace(it) }
-        } else {
+        if (playersToPersist.isNotEmpty()) {
             db.playerDao().insertPlayersReplace(playersToPersist)
         }
         if (seed.loans.isNotEmpty()) {
@@ -250,6 +251,7 @@ class GameRepository(internal val db: AppDatabase) {
 
     fun getFixturesForSeasonFlow(season: Int): Flow<List<Fixture>> = db.fixtureDao().getFixturesForSeasonFlow(season)
     suspend fun getAllFixtures(): List<Fixture> = db.fixtureDao().getAllFixtures()
+    suspend fun getFixture(id: Long): Fixture? = db.fixtureDao().getFixture(id)
 
     /**
      * Toda criação de fixture passa pela mesma barreira de calendário e, desde V21, pela barreira
@@ -265,11 +267,7 @@ class GameRepository(internal val db: AppDatabase) {
             .flatMap { db.fixtureDao().getFixturesForSeason(it) }
         FixtureScheduleValidator.requireCanAdd(existing, fixtures)
 
-        if (fixtures.size > 100) {
-            fixtures.chunked(100).forEach { db.fixtureDao().insertFixtures(it) }
-        } else {
-            db.fixtureDao().insertFixtures(fixtures)
-        }
+        db.fixtureDao().insertFixtures(fixtures)
     }
 
     /**
@@ -281,6 +279,13 @@ class GameRepository(internal val db: AppDatabase) {
         ensureFixtureTeamReferences(listOf(fixture))
         val seasonFixtures = db.fixtureDao().getFixturesForSeason(fixture.season)
         val persisted = seasonFixtures.firstOrNull { it.id == fixture.id }
+        if (persisted?.isPlayed == true && fixture.isPlayed &&
+            (persisted.homeScore != fixture.homeScore || persisted.awayScore != fixture.awayScore)
+        ) {
+            // Um resultado já finalizado é imutável. Chamadas tardias podem completar pênaltis ou
+            // metadados mantendo o mesmo placar, mas nunca substituir o placar vencedor da corrida.
+            return@withTransaction
+        }
         if (persisted == null || !sameScheduleIdentity(persisted, fixture)) {
             FixtureScheduleValidator.requireCanAdd(
                 seasonFixtures.filterNot { it.id == fixture.id },
@@ -377,7 +382,7 @@ class GameRepository(internal val db: AppDatabase) {
     ) = db.withTransaction {
         db.globalLeagueStandingDao().deleteForSeason(season)
         if (rows.size > 100) {
-            rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(it) }
+            rows.chunked(100).forEach { chunk -> db.globalLeagueStandingDao().insertAll(chunk) }
         } else if (rows.isNotEmpty()) {
             db.globalLeagueStandingDao().insertAll(rows)
         }

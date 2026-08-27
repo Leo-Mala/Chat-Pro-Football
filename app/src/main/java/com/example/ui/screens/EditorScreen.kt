@@ -637,8 +637,9 @@ fun TeamAndPlayerEditorScreen(
             isNew = isCreatingPlayer,
             onDismiss = { editingPlayer = null },
             onSave = { updatedPlayer ->
-                viewModel.savePlayerFromEditor(updatedPlayer)
-                editingPlayer = null
+                viewModel.savePlayerFromEditor(updatedPlayer) { saved ->
+                    if (saved) editingPlayer = null
+                }
             }
         )
     }

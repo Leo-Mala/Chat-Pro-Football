@@ -3,6 +3,7 @@ package com.example.usecase
 import com.example.data.CompetitionRules
 import com.example.data.Fixture
 import com.example.data.GameRepository
+import com.example.data.Player
 import kotlin.math.max
 import kotlin.random.Random
 
@@ -17,6 +18,12 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
         val competitionName: String,
         val matchSummary: String,
         val isUserMatch: Boolean
+    )
+
+    private data class PlannedCpuFixture(
+        val fixture: Fixture,
+        val scorerIds: List<Long>,
+        val participantTeamById: Map<Long, Long>
     )
 
     /**
@@ -49,9 +56,9 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     /**
      * Executa a simulação em lote das partidas da CPU para a semana corrente.
      *
-     * Quando [excludedTeamId] é informado, nenhuma partida desse clube é simulada aqui.
-     * Isso é essencial nas semanas com liga + copa/continental: todos os jogos do usuário
-     * continuam disponíveis para serem disputados ou pulados explicitamente pelo jogador.
+     * O placar, os gols e as aparições dos participantes são confirmados na mesma transação.
+     * Uma chamada repetida ou concorrente só aplica estatísticas aos fixtures que continuarem
+     * `isPlayed=false` quando a transação adquirir o banco, tornando a agregação idempotente.
      */
     suspend fun simulateCpuMatchesForWeek(
         season: Int,
@@ -63,12 +70,17 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 (excludedTeamId == null ||
                     (fixture.homeTeamId != excludedTeamId && fixture.awayTeamId != excludedTeamId))
         }
-        val allTeams = repository.getAllTeams()
-        val teamMap = allTeams.associateBy { it.id }
+        if (unplayedFixtures.isEmpty()) return emptyList()
 
-        val updatedFixtures = mutableListOf<Fixture>()
+        val teamMap = repository.getAllTeams().associateBy { it.id }
+        val participatingTeamIds = unplayedFixtures
+            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+            .distinct()
+        val rostersByTeam = participatingTeamIds.associateWith { teamId ->
+            repository.getPlayersByTeam(teamId)
+        }
 
-        for (fixture in unplayedFixtures) {
+        val plans = unplayedFixtures.map { fixture ->
             val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(
                 id = fixture.homeTeamId,
                 name = "Time A",
@@ -85,15 +97,22 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 division = 1,
                 rating = 50
             )
+            val homeRoster = rostersByTeam[fixture.homeTeamId].orEmpty()
+            val awayRoster = rostersByTeam[fixture.awayTeamId].orEmpty()
+            val homeParticipants = selectParticipants(homeRoster)
+            val awayParticipants = selectParticipants(awayRoster)
 
-            val isRivalry = (homeTeam.rivalTeamId == awayTeam.id)
-            val seed = (season * 1000L + week * 100L + fixture.id)
-            val (homeScore, awayScore) = com.example.data.GameEngine.simulateMatchInstant(
+            val isRivalry = homeTeam.rivalTeamId == awayTeam.id
+            val seed = season * 1000L + week * 100L + fixture.id
+            val (rawHomeScore, rawAwayScore) = com.example.data.GameEngine.simulateMatchInstant(
                 homeTeam = homeTeam,
                 awayTeam = awayTeam,
                 isRivalry = isRivalry,
                 randomSeed = seed
             )
+
+            val homeScore = if (homeParticipants.isEmpty()) 0 else rawHomeScore
+            val awayScore = if (awayParticipants.isEmpty()) 0 else rawAwayScore
 
             val (homePenalties, awayPenalties) = CompetitionRules.resolvePenaltiesIfNeeded(
                 fixture = fixture,
@@ -101,19 +120,151 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 awayScore = awayScore
             )
 
-            updatedFixtures += fixture.copy(
-                homeScore = homeScore,
-                awayScore = awayScore,
-                homePenalties = homePenalties,
-                awayPenalties = awayPenalties,
-                isPlayed = true
+            val scorerIds = buildList {
+                addAll(
+                    selectScorers(
+                        players = homeParticipants,
+                        goals = homeScore,
+                        random = Random(seed xor HOME_SCORER_SALT)
+                    )
+                )
+                addAll(
+                    selectScorers(
+                        players = awayParticipants,
+                        goals = awayScore,
+                        random = Random(seed xor AWAY_SCORER_SALT)
+                    )
+                )
+            }
+            val participantTeamById = buildMap {
+                homeParticipants.forEach { put(it.id, fixture.homeTeamId) }
+                awayParticipants.forEach { put(it.id, fixture.awayTeamId) }
+            }
+
+            PlannedCpuFixture(
+                fixture = fixture.copy(
+                    homeScore = homeScore,
+                    awayScore = awayScore,
+                    homePenalties = homePenalties,
+                    awayPenalties = awayPenalties,
+                    isPlayed = true
+                ),
+                scorerIds = scorerIds,
+                participantTeamById = participantTeamById
             )
         }
 
-        if (updatedFixtures.isNotEmpty()) {
-            repository.updateFixtures(updatedFixtures)
-        }
+        return repository.withTransaction {
+            val currentById = repository.getFixturesForWeek(season, week).associateBy { it.id }
+            val pendingPlans = plans.filter { plan ->
+                currentById[plan.fixture.id]?.isPlayed == false
+            }
+            if (pendingPlans.isEmpty()) return@withTransaction emptyList()
 
-        return updatedFixtures
+            // Releia os rosters já dentro da transação, depois de adquirir o banco. Um atleta
+            // transferido, lesionado ou suspenso depois do planejamento invalida somente o fixture
+            // que dependia daquele snapshot; assim nunca persistimos o placar sem seus participantes.
+            val committedTeamIds = pendingPlans
+                .flatMap { listOf(it.fixture.homeTeamId, it.fixture.awayTeamId) }
+                .distinct()
+            val currentPlayersById = mutableMapOf<Long, Player>()
+            for (teamId in committedTeamIds) {
+                repository.getPlayersByTeam(teamId).forEach { player ->
+                    currentPlayersById[player.id] = player
+                }
+            }
+            val committedPlans = pendingPlans.filter { plan ->
+                plan.participantTeamById.all { (playerId, plannedTeamId) ->
+                    currentPlayersById[playerId]?.let { current ->
+                        current.teamId == plannedTeamId &&
+                            current.injuryWeeksRemaining == 0 &&
+                            current.suspensionWeeksRemaining == 0
+                    } == true
+                }
+            }
+            if (committedPlans.isEmpty()) return@withTransaction emptyList()
+
+            val committedFixtures = committedPlans.map { it.fixture }
+            repository.updateFixtures(committedFixtures)
+
+            val goalCounts = committedPlans
+                .flatMap { it.scorerIds }
+                .groupingBy { it }
+                .eachCount()
+            val appearanceCounts = committedPlans
+                .flatMap { plan -> plan.participantTeamById.keys }
+                .groupingBy { it }
+                .eachCount()
+            val affectedPlayerIds = (goalCounts.keys + appearanceCounts.keys).toSet()
+
+            if (affectedPlayerIds.isNotEmpty()) {
+                val updatedPlayers = affectedPlayerIds.mapNotNull { playerId ->
+                    currentPlayersById[playerId]?.let { persisted ->
+                        val goals = goalCounts[playerId] ?: 0
+                        val appearances = appearanceCounts[playerId] ?: 0
+                        persisted.copy(
+                            gols = persisted.gols + goals,
+                            careerGoals = persisted.careerGoals + goals,
+                            careerApps = persisted.careerApps + appearances,
+                            partidasDisputadas = persisted.partidasDisputadas + appearances
+                        )
+                    }
+                }
+                if (updatedPlayers.isNotEmpty()) {
+                    repository.updatePlayers(updatedPlayers)
+                }
+            }
+
+            committedFixtures
+        }
+    }
+
+    private fun selectParticipants(players: List<Player>): List<Player> =
+        players
+            .asSequence()
+            .filter { it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
+            .sortedWith(
+                compareByDescending<Player> { it.isStarter }
+                    .thenByDescending { it.force }
+                    .thenBy { it.id }
+            )
+            .take(11)
+            .toList()
+
+    /** Usa a mesma ponderação por posição/força do motor detalhado, mas com RNG derivado do fixture. */
+    private fun selectScorers(players: List<Player>, goals: Int, random: Random): List<Long> {
+        if (goals <= 0) return emptyList()
+        val active = players.filter { it.position != "GOL" }.ifEmpty { players }
+        if (active.isEmpty()) return emptyList()
+
+        val weights = active.map { player ->
+            when (player.position) {
+                "ATA" -> player.force * 5.0
+                "MEI" -> player.force * 3.0
+                "VOL" -> player.force * 1.2
+                "LAT" -> player.force * 0.8
+                "ZAG" -> player.force * 0.5
+                else -> 1.0
+            }.coerceAtLeast(1.0)
+        }
+        val totalWeight = weights.sum()
+
+        return List(goals) {
+            var roll = random.nextDouble() * totalWeight
+            var selected = active.last()
+            for (index in active.indices) {
+                roll -= weights[index]
+                if (roll <= 0.0) {
+                    selected = active[index]
+                    break
+                }
+            }
+            selected.id
+        }
+    }
+
+    private companion object {
+        const val HOME_SCORER_SALT = 0x6A09E667F3BCC909L
+        const val AWAY_SCORER_SALT = 0x3C6EF372FE94F82BL
     }
 }

@@ -54,6 +54,7 @@ fun PurchaseNegotiationDialog(
 
     var offerResult by remember { mutableStateOf<GameViewModel.IAOfferResult?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
+    var isPurchasing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     var paymentType by remember { mutableStateOf("VISTA") }
@@ -69,7 +70,7 @@ fun PurchaseNegotiationDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isPurchasing) onDismiss() },
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
@@ -86,7 +87,6 @@ fun PurchaseNegotiationDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header Title
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -98,7 +98,7 @@ fun PurchaseNegotiationDialog(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Black
                     )
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, enabled = !isPurchasing) {
                         Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
                     }
                 }
@@ -122,7 +122,6 @@ fun PurchaseNegotiationDialog(
                     }
                 }
 
-                // Player Info Block
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = TurfDeepGreen.copy(alpha = 0.4f)),
@@ -196,7 +195,6 @@ fun PurchaseNegotiationDialog(
                     }
                 }
 
-                // Watchlist (Olheiro) toggle button
                 val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
                 val isWatching = watchlist.contains(player.id)
                 Button(
@@ -223,7 +221,6 @@ fun PurchaseNegotiationDialog(
                     )
                 }
 
-                // Scout Option inside Negotiation Dialog
                 if (!isUserTeam && !isGlobalReveal && player.scoutedLevel < 5) {
                     Button(
                         onClick = { showScoutDialog = true },
@@ -244,7 +241,6 @@ fun PurchaseNegotiationDialog(
                     }
                 }
 
-                // Financial details
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -265,7 +261,6 @@ fun PurchaseNegotiationDialog(
 
                 HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
 
-                // Instant Buy Section
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -279,28 +274,33 @@ fun PurchaseNegotiationDialog(
                     )
                     Button(
                         onClick = {
+                            isPurchasing = true
                             errorMessage = null
                             viewModel.executeInstantBuy(player) { success ->
+                                isPurchasing = false
                                 if (success) {
                                     onDismiss()
                                 } else {
-                                    errorMessage = "Saldo bancário insuficiente para compra imediata!"
+                                    errorMessage = "Não foi possível concluir a compra imediata. Verifique saldo, elenco e propriedade do atleta."
                                 }
                             }
                         },
-                        enabled = (rosterSize < 30 || isInRosterLoanConversion) && balance >= marketValue,
+                        enabled = (rosterSize < 30 || isInRosterLoanConversion) && balance >= marketValue && !isPurchasing,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentGold, contentColor = TurfDeepGreen)
                     ) {
-                        Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("COMPRAR AGORA (R$ %,d)".format(marketValue), fontWeight = FontWeight.Black, fontSize = 12.sp)
+                        if (isPurchasing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = TurfDeepGreen)
+                        } else {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("COMPRAR AGORA (R$ %,d)".format(marketValue), fontWeight = FontWeight.Black, fontSize = 12.sp)
+                        }
                     }
                 }
 
                 HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
 
-                // Slider Offer Section
                 if (offerResult == null) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -342,7 +342,6 @@ fun PurchaseNegotiationDialog(
                             Text("Máx: R$ %,d".format(maxOffer), color = Color.Gray, fontSize = 10.sp)
                         }
 
-                        // Payment Type Options
                         Text("Forma de Pagamento:", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("VISTA" to "À Vista (Dinheiro)", "PARCELADO" to "Parcelado (3x)").forEach { type ->
@@ -358,7 +357,6 @@ fun PurchaseNegotiationDialog(
                             }
                         }
 
-                        // Bonus Checkboxes
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(
                                 checked = hasGoalBonus,
@@ -396,7 +394,7 @@ fun PurchaseNegotiationDialog(
                                     offerResult = result
                                 }
                             },
-                            enabled = (rosterSize < 30 || isInRosterLoanConversion) && balance >= reqBalance && !isSubmitting,
+                            enabled = (rosterSize < 30 || isInRosterLoanConversion) && balance >= reqBalance && !isSubmitting && !isPurchasing,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = AccentLime, contentColor = TurfDeepGreen)
                         ) {
@@ -410,7 +408,6 @@ fun PurchaseNegotiationDialog(
                         }
                     }
                 } else {
-                    // Display offerResult nicely
                     offerResult?.let { res ->
                         val cardColor = when (res.status) {
                             "accepted" -> TurfDeepGreen.copy(alpha = 0.3f)
@@ -453,39 +450,62 @@ fun PurchaseNegotiationDialog(
                                 if (res.status == "accepted") {
                                     Button(
                                         onClick = {
-                                            viewModel.buyPlayerAdvanced(player, offeredPrice, paymentType, hasGoalBonus, hasSolidarity)
-                                            onDismiss()
+                                            isPurchasing = true
+                                            errorMessage = null
+                                            viewModel.buyPlayerAdvanced(player, offeredPrice, paymentType, hasGoalBonus, hasSolidarity) { result ->
+                                                isPurchasing = false
+                                                when (result) {
+                                                    is com.example.usecase.ProcessTransfersUseCase.TransferResult.Success -> onDismiss()
+                                                    is com.example.usecase.ProcessTransfersUseCase.TransferResult.Error -> errorMessage = result.reason
+                                                }
+                                            }
                                         },
+                                        enabled = !isPurchasing,
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = ButtonDefaults.buttonColors(containerColor = AccentLime, contentColor = TurfDeepGreen)
                                     ) {
-                                        Text("CONTRATAR ATLETA", fontWeight = FontWeight.Black)
+                                        if (isPurchasing) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = TurfDeepGreen)
+                                        } else {
+                                            Text("CONTRATAR ATLETA", fontWeight = FontWeight.Black)
+                                        }
                                     }
                                 } else if (res.status == "counter" && res.counterPrice != null) {
+                                    val counterPrice = res.counterPrice
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Button(
                                             onClick = {
-                                                if (balance >= res.counterPrice) {
-                                                    viewModel.buyPlayerAdvanced(player, res.counterPrice, paymentType, hasGoalBonus, hasSolidarity)
-                                                    onDismiss()
+                                                if (balance >= counterPrice) {
+                                                    isPurchasing = true
+                                                    errorMessage = null
+                                                    viewModel.buyPlayerAdvanced(player, counterPrice, paymentType, hasGoalBonus, hasSolidarity) { result ->
+                                                        isPurchasing = false
+                                                        when (result) {
+                                                            is com.example.usecase.ProcessTransfersUseCase.TransferResult.Success -> onDismiss()
+                                                            is com.example.usecase.ProcessTransfersUseCase.TransferResult.Error -> errorMessage = result.reason
+                                                        }
+                                                    }
                                                 } else {
                                                     errorMessage = "Saldo bancário insuficiente!"
                                                 }
                                             },
-                                            enabled = balance >= res.counterPrice,
+                                            enabled = balance >= counterPrice && !isPurchasing,
                                             modifier = Modifier.weight(1.5f),
                                             colors = ButtonDefaults.buttonColors(containerColor = AccentLime, contentColor = TurfDeepGreen)
                                         ) {
-                                            Text("ACEITAR R$ %,d".format(res.counterPrice), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                            if (isPurchasing) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = TurfDeepGreen)
+                                            } else {
+                                                Text("ACEITAR R$ %,d".format(counterPrice), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                            }
                                         }
 
                                         Button(
-                                            onClick = {
-                                                offerResult = null
-                                            },
+                                            onClick = { offerResult = null },
+                                            enabled = !isPurchasing,
                                             modifier = Modifier.weight(1f),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color.Gray.copy(alpha = 0.2f), contentColor = Color.White)
                                         ) {
@@ -494,9 +514,8 @@ fun PurchaseNegotiationDialog(
                                     }
                                 } else {
                                     Button(
-                                        onClick = {
-                                            offerResult = null
-                                        },
+                                        onClick = { offerResult = null },
+                                        enabled = !isPurchasing,
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = ButtonDefaults.buttonColors(containerColor = AccentGold, contentColor = TurfDeepGreen)
                                     ) {
