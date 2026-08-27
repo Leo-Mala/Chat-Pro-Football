@@ -110,12 +110,24 @@ fun GameViewModel.buyPlayerAdvanced(
         val result = if (save == null) {
             ProcessTransfersUseCase.TransferResult.Error("Carreira indisponível para concluir a contratação.")
         } else {
-            processTransfersUseCase.buyPlayerAdvanced(
-                save,
-                player,
-                price,
-                if (paymentType == "PARCELADO") ProcessTransfersUseCase.INSTALLMENT_COUNT else 1
-            )
+            val freshPlayer = repo.getPlayer(player.id)
+            if (freshPlayer != null && freshPlayer.teamId == save.playerTeamId && !freshPlayer.isOnLoan) {
+                // A negociação aceita já pode ter efetivado a compra dentro do use case. Tratar a
+                // confirmação subsequente como idempotente evita uma segunda cobrança e permite que
+                // a UI encerre o fluxo usando a propriedade persistida como fonte de verdade.
+                ProcessTransfersUseCase.TransferResult.Success(
+                    updatedSave = save,
+                    updatedPlayer = freshPlayer,
+                    message = "Jogador ${freshPlayer.name} já contratado pelo seu clube."
+                )
+            } else {
+                processTransfersUseCase.buyPlayerAdvanced(
+                    save,
+                    player,
+                    price,
+                    if (paymentType == "PARCELADO") ProcessTransfersUseCase.INSTALLMENT_COUNT else 1
+                )
+            }
         }
         // A UI só recebe confirmação depois que ProcessTransfersUseCase retornou da transação Room.
         // Isso impede que o diálogo feche enquanto allPlayers ainda representa a propriedade antiga.
