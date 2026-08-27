@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.AccentLime
 import com.example.ui.viewmodel.GameViewModel
+import com.example.ui.viewmodel.ensureSaveActiveForEditor
 
 enum class PreCareerEditorPreparationState {
     PREPARING,
@@ -41,13 +42,15 @@ fun PreparedPreCareerEditorScreen(
 
     LaunchedEffect(viewModel) {
         state = PreCareerEditorPreparationState.PREPARING
-        viewModel.ensureSaveActiveForEditor { ready ->
-            state = if (ready) {
-                PreCareerEditorPreparationState.READY
-            } else {
-                PreCareerEditorPreparationState.FAILED
+        viewModel.ensureSaveActiveForEditor(
+            onReady = { ready ->
+                state = if (ready) {
+                    PreCareerEditorPreparationState.READY
+                } else {
+                    PreCareerEditorPreparationState.FAILED
+                }
             }
-        }
+        )
     }
 
     when (state) {
