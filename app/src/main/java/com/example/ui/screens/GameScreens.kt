@@ -282,7 +282,7 @@ fun GameApp(
                     LiveMatchScreen(viewModel)
                 }
                 key == "EDITOR" -> {
-                    TeamAndPlayerEditorScreen(
+                    PreparedPreCareerEditorScreen(
                         viewModel = viewModel,
                         onBack = {
                             viewModel.exitToSavesMenu()
@@ -307,9 +307,8 @@ fun GameApp(
                                     menuScreenState = "SAVES"
                                 },
                                 onOpenEditor = {
-                                    // Enter the editor immediately. The editor owns its asynchronous
-                                    // pre-career bootstrap, so a transient save id can never route the
-                                    // user through TeamSelection while that bootstrap is still running.
+                                    // Enter the editor immediately. The wrapper owns its asynchronous
+                                    // pre-career bootstrap and only renders persisted data once ready.
                                     menuScreenState = "EDITOR"
                                 }
                             )
@@ -321,9 +320,12 @@ fun GameApp(
                             )
                         }
                         "EDITOR" -> {
-                            TeamAndPlayerEditorScreen(
+                            PreparedPreCareerEditorScreen(
                                 viewModel = viewModel,
-                                onBack = { menuScreenState = "MAIN_MENU" }
+                                onBack = {
+                                    viewModel.exitToSavesMenu()
+                                    menuScreenState = "MAIN_MENU"
+                                }
                             )
                         }
                     }
