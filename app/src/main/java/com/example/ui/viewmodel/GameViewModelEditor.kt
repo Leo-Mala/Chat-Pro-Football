@@ -71,6 +71,18 @@ private fun GameViewModel.preparedEditorRepositoryOrNull() =
         }
     }
 
+/**
+ * Uma ação disparada no primeiro frame do Editor não pode simplesmente desaparecer enquanto o
+ * bootstrap ainda está em andamento. Se a sessão ainda não estiver pronta, a própria ação participa
+ * da mesma preparação serializada e só prossegue depois que existir uma sessão preparada válida.
+ * Falhas/cancelamentos continuam fail-closed e nunca redirecionam a escrita para outro slot.
+ */
+private suspend fun GameViewModel.awaitPreparedEditorRepositoryOrNull(): GameRepository? {
+    preparedEditorRepositoryOrNull()?.let { return it }
+    ensureSaveActiveForEditor()
+    return preparedEditorRepositoryOrNull()
+}
+
 private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean) {
     withContext(Dispatchers.Main) {
         onReady(ready)
@@ -199,7 +211,7 @@ suspend fun GameViewModel.ensureSaveActiveForEditor(
 
 fun GameViewModel.ensureRosterForTeam(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val editorRepository = awaitPreparedEditorRepositoryOrNull() ?: return@launch
         val players = editorRepository.getPlayersByTeam(teamId)
         if (players.isEmpty()) {
             val defaultPlayers = List(18) { idx ->
@@ -220,7 +232,7 @@ fun GameViewModel.ensureRosterForTeam(teamId: Long) {
 
 fun GameViewModel.saveTeamFromEditor(team: Team) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val editorRepository = awaitPreparedEditorRepositoryOrNull() ?: return@launch
         val finalTeamId = if (team.id == 0L) System.currentTimeMillis() else team.id
         val teamToSave = team.copy(id = finalTeamId)
         editorRepository.saveTeams(listOf(teamToSave))
@@ -248,7 +260,7 @@ fun GameViewModel.saveTeamFromEditor(team: Team) {
 
 fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val editorRepository = awaitPreparedEditorRepositoryOrNull() ?: return@launch
         val newRating = ((attack + mid + def) / 3).coerceIn(15, 99)
         val team = editorRepository.getTeam(teamId) ?: return@launch
         editorRepository.updateTeam(team.copy(rating = newRating))
@@ -287,7 +299,7 @@ fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int
 
 fun GameViewModel.deleteTeamFromEditor(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val editorRepository = awaitPreparedEditorRepositoryOrNull() ?: return@launch
         editorRepository.deleteTeam(teamId)
     }
 }
@@ -302,18 +314,17 @@ fun GameViewModel.savePlayerFromEditor(
     onComplete: (Boolean) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull()
-        if (editorRepository == null) {
-            withContext(Dispatchers.Main) { onComplete(false) }
-            return@launch
-        }
-
         val saveMutex = editorPlayerSaveMutex()
         if (!saveMutex.tryLock()) {
             withContext(Dispatchers.Main) { onComplete(false) }
             return@launch
         }
         try {
+            val editorRepository = awaitPreparedEditorRepositoryOrNull()
+            if (editorRepository == null) {
+                withContext(Dispatchers.Main) { onComplete(false) }
+                return@launch
+            }
             if (preparedEditorRepositoryOrNull() !== editorRepository) {
                 withContext(Dispatchers.Main) { onComplete(false) }
                 return@launch
@@ -354,14 +365,14 @@ fun GameViewModel.savePlayerFromEditor(
 
 fun GameViewModel.deletePlayerFromEditor(playerId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val editorRepository = awaitPreparedEditorRepositoryOrNull() ?: return@launch
         editorRepository.deletePlayer(playerId)
     }
 }
 
 fun GameViewModel.transferPlayerFromEditor(playerId: Long, targetTeamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val editorRepository = awaitPreparedEditorRepositoryOrNull() ?: return@launch
         val player = editorRepository.getPlayer(playerId) ?: return@launch
         val updated = player.copy(teamId = targetTeamId, originalTeamId = null, isOnLoan = false, loanWeeksRemaining = 0)
         editorRepository.updatePlayer(updated)
