@@ -23,7 +23,7 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     private data class PlannedCpuFixture(
         val fixture: Fixture,
         val scorerIds: List<Long>,
-        val participantIds: List<Long>
+        val participantTeamById: Map<Long, Long>
     )
 
     /**
@@ -136,6 +136,10 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                     )
                 )
             }
+            val participantTeamById = buildMap {
+                homeParticipants.forEach { put(it.id, fixture.homeTeamId) }
+                awayParticipants.forEach { put(it.id, fixture.awayTeamId) }
+            }
 
             PlannedCpuFixture(
                 fixture = fixture.copy(
@@ -146,14 +150,37 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                     isPlayed = true
                 ),
                 scorerIds = scorerIds,
-                participantIds = (homeParticipants + awayParticipants).map { it.id }
+                participantTeamById = participantTeamById
             )
         }
 
         return repository.withTransaction {
             val currentById = repository.getFixturesForWeek(season, week).associateBy { it.id }
-            val committedPlans = plans.filter { plan ->
+            val pendingPlans = plans.filter { plan ->
                 currentById[plan.fixture.id]?.isPlayed == false
+            }
+            if (pendingPlans.isEmpty()) return@withTransaction emptyList()
+
+            // Releia os rosters já dentro da transação, depois de adquirir o banco. Um atleta
+            // transferido, lesionado ou suspenso depois do planejamento invalida somente o fixture
+            // que dependia daquele snapshot; assim nunca persistimos o placar sem seus participantes.
+            val committedTeamIds = pendingPlans
+                .flatMap { listOf(it.fixture.homeTeamId, it.fixture.awayTeamId) }
+                .distinct()
+            val currentPlayersById = mutableMapOf<Long, Player>()
+            for (teamId in committedTeamIds) {
+                repository.getPlayersByTeam(teamId).forEach { player ->
+                    currentPlayersById[player.id] = player
+                }
+            }
+            val committedPlans = pendingPlans.filter { plan ->
+                plan.participantTeamById.all { (playerId, plannedTeamId) ->
+                    currentPlayersById[playerId]?.let { current ->
+                        current.teamId == plannedTeamId &&
+                            current.injuryWeeksRemaining == 0 &&
+                            current.suspensionWeeksRemaining == 0
+                    } == true
+                }
             }
             if (committedPlans.isEmpty()) return@withTransaction emptyList()
 
@@ -165,26 +192,12 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 .groupingBy { it }
                 .eachCount()
             val appearanceCounts = committedPlans
-                .flatMap { plan -> plan.participantIds.distinct() }
+                .flatMap { plan -> plan.participantTeamById.keys }
                 .groupingBy { it }
                 .eachCount()
             val affectedPlayerIds = (goalCounts.keys + appearanceCounts.keys).toSet()
 
             if (affectedPlayerIds.isNotEmpty()) {
-                // Releia os rosters já dentro da transação, depois de adquirir o banco. Assim um
-                // transfer/editor/contrato confirmado após o planejamento não pode ser sobrescrito
-                // por um snapshot stale de Player. Mantemos consultas por equipe, não por atleta,
-                // evitando o antigo N+1 por participant e preservando as colunas mais recentes.
-                val committedTeamIds = committedPlans
-                    .flatMap { listOf(it.fixture.homeTeamId, it.fixture.awayTeamId) }
-                    .distinct()
-                val currentPlayersById = mutableMapOf<Long, Player>()
-                for (teamId in committedTeamIds) {
-                    repository.getPlayersByTeam(teamId).forEach { player ->
-                        currentPlayersById[player.id] = player
-                    }
-                }
-
                 val updatedPlayers = affectedPlayerIds.mapNotNull { playerId ->
                     currentPlayersById[playerId]?.let { persisted ->
                         val goals = goalCounts[playerId] ?: 0
