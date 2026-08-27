@@ -41,6 +41,7 @@ object EuropeanNewSaveSeedCoordinator {
     private val lock = Any()
     private val pendingRequestByRepository = WeakHashMap<Any, List<Team>>()
     private val pendingSeedByRepository = WeakHashMap<Any, PendingSeed>()
+    private val pendingProceduralFallbackByRepository = WeakHashMap<Any, Boolean>()
 
     /**
      * Registra somente uma intenção de seed. Nenhum asset é lido aqui.
@@ -54,6 +55,7 @@ object EuropeanNewSaveSeedCoordinator {
         synchronized(lock) {
             pendingRequestByRepository[repository] = teams
             pendingSeedByRepository.remove(repository)
+            pendingProceduralFallbackByRepository.remove(repository)
         }
     }
 
@@ -117,7 +119,12 @@ object EuropeanNewSaveSeedCoordinator {
         synchronized(lock) {
             if (seed == null) {
                 pendingSeedByRepository.remove(repositoryKey)
+                // Marca apenas o fallback procedural pertencente ao fluxo canônico de Novo Jogo.
+                // Chamadas comuns de savePlayers (Editor, testes, saves existentes) não passam por
+                // este marcador e, portanto, nunca têm histórico cumulativo reescrito aqui.
+                pendingProceduralFallbackByRepository[repositoryKey] = true
             } else {
+                pendingProceduralFallbackByRepository.remove(repositoryKey)
                 pendingSeedByRepository[repositoryKey] = seed
             }
         }
@@ -136,6 +143,7 @@ object EuropeanNewSaveSeedCoordinator {
             if (requested !== fallback) {
                 pendingRequestByRepository.remove(repositoryKey)
                 pendingSeedByRepository.remove(repositoryKey)
+                pendingProceduralFallbackByRepository.remove(repositoryKey)
                 return fallback
             }
         }
@@ -156,6 +164,7 @@ object EuropeanNewSaveSeedCoordinator {
         )
         synchronized(lock) {
             pendingRequestByRepository.remove(repositoryKey)
+            pendingProceduralFallbackByRepository.remove(repositoryKey)
             pendingSeedByRepository[repositoryKey] = PendingSeed(
                 teams = teams,
                 players = plan.players,
@@ -200,6 +209,7 @@ object EuropeanNewSaveSeedCoordinator {
         }
         synchronized(lock) {
             pendingRequestByRepository.remove(repositoryKey)
+            pendingProceduralFallbackByRepository.remove(repositoryKey)
             pendingSeedByRepository[repositoryKey] = PendingSeed(
                 teams = factualTeams,
                 players = plan.players,
@@ -217,14 +227,32 @@ object EuropeanNewSaveSeedCoordinator {
     fun consumePlayers(repository: GameRepository, fallback: List<Player>): PlayerSeed =
         consumePlayersForKey(repository, fallback)
 
+    private fun normalizeNewSaveProceduralHistory(players: List<Player>): List<Player> =
+        players.map { player ->
+            if (player.careerApps == 0 && player.careerGoals != 0) {
+                player.copy(careerGoals = 0)
+            } else {
+                player
+            }
+        }
+
     internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed {
         val seed = synchronized(lock) {
             // Não materializa a partir de uma requisição crua: somente saveTeams pode fazê-lo.
             // Isso congela a ordem canônica do novo save: prepare -> saveTeams -> savePlayers.
             pendingRequestByRepository.remove(repositoryKey)
             val pending = pendingSeedByRepository.remove(repositoryKey)
+            val isNewSaveProceduralFallback =
+                pendingProceduralFallbackByRepository.remove(repositoryKey) == true
             if (pending == null) {
-                PlayerSeed(fallback, emptyList(), overridden = false)
+                val players = if (isNewSaveProceduralFallback) {
+                    // O restart protegido considera careerApps=0 + careerGoals>0 um legado
+                    // inconsistente. Novo Jogo procedural não deve mais fabricar esse estado.
+                    normalizeNewSaveProceduralHistory(fallback)
+                } else {
+                    fallback
+                }
+                PlayerSeed(players, emptyList(), overridden = false)
             } else {
                 PlayerSeed(pending.players, pending.loans, overridden = true)
             }
@@ -241,6 +269,7 @@ object EuropeanNewSaveSeedCoordinator {
         synchronized(lock) {
             pendingRequestByRepository.remove(repositoryKey)
             pendingSeedByRepository.remove(repositoryKey)
+            pendingProceduralFallbackByRepository.remove(repositoryKey)
         }
     }
 }
