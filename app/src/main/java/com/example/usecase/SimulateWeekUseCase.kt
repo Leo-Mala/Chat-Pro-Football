@@ -3,7 +3,6 @@ package com.example.usecase
 import com.example.data.CompetitionRules
 import com.example.data.Fixture
 import com.example.data.GameRepository
-import com.example.data.GlobalFootballSystem
 import com.example.data.Player
 import kotlin.math.max
 import kotlin.random.Random
@@ -112,16 +111,12 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 randomSeed = seed
             )
 
-            // Clubes virtuais gerados são participantes estruturais sem atletas persistidos. Eles não
-            // podem produzir gols sem artilheiro correspondente; nesses casos o placar ofensivo do
-            // placeholder é normalizado para zero, preservando a igualdade entre gols de fixtures e
-            // gols atribuídos a jogadores reais sem inventar atletas/dados factuais.
-            val homeScore = if (
-                homeRoster.isEmpty() && GlobalFootballSystem.isGeneratedVirtualTeamId(fixture.homeTeamId)
-            ) 0 else rawHomeScore
-            val awayScore = if (
-                awayRoster.isEmpty() && GlobalFootballSystem.isGeneratedVirtualTeamId(fixture.awayTeamId)
-            ) 0 else rawAwayScore
+            // Um placar positivo só pode ser persistido quando existe ao menos um participante
+            // elegível e persistido para receber sua atribuição estatística. Isso cobre tanto clubes
+            // virtuais sem roster quanto clubes reais temporariamente sem atleta disponível, sem
+            // inventar jogadores ou permitir gols sem artilheiro correspondente.
+            val homeScore = if (homeParticipants.isEmpty()) 0 else rawHomeScore
+            val awayScore = if (awayParticipants.isEmpty()) 0 else rawAwayScore
 
             val (homePenalties, awayPenalties) = CompetitionRules.resolvePenaltiesIfNeeded(
                 fixture = fixture,
