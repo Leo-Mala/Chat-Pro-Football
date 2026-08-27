@@ -178,10 +178,12 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 val committedTeamIds = committedPlans
                     .flatMap { listOf(it.fixture.homeTeamId, it.fixture.awayTeamId) }
                     .distinct()
-                val currentPlayersById = committedTeamIds
-                    .asSequence()
-                    .flatMap { teamId -> repository.getPlayersByTeam(teamId).asSequence() }
-                    .associateBy { it.id }
+                val currentPlayersById = mutableMapOf<Long, Player>()
+                for (teamId in committedTeamIds) {
+                    repository.getPlayersByTeam(teamId).forEach { player ->
+                        currentPlayersById[player.id] = player
+                    }
+                }
 
                 val updatedPlayers = affectedPlayerIds.mapNotNull { playerId ->
                     currentPlayersById[playerId]?.let { persisted ->
