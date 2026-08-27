@@ -79,6 +79,60 @@ class MatchStatisticsIdempotencyTest {
     }
 
     @Test
+    fun `stale played result cannot overwrite committed score`() = runTest {
+        seedTeams()
+        val fixture = Fixture(
+            id = 51L,
+            season = 2026,
+            week = 4,
+            homeTeamId = 1L,
+            awayTeamId = 2L,
+            competitionType = "SERIE_A",
+            isPlayed = false
+        )
+        repository.saveFixtures(listOf(fixture))
+        repository.updateFixture(fixture.copy(homeScore = 2, awayScore = 1, isPlayed = true))
+
+        repository.updateFixture(fixture.copy(homeScore = 0, awayScore = 4, isPlayed = true))
+
+        val persisted = requireNotNull(repository.getFixture(51L))
+        assertEquals(2, persisted.homeScore)
+        assertEquals(1, persisted.awayScore)
+    }
+
+    @Test
+    fun `same committed score may receive knockout penalty metadata`() = runTest {
+        seedTeams()
+        val fixture = Fixture(
+            id = 52L,
+            season = 2026,
+            week = 4,
+            homeTeamId = 1L,
+            awayTeamId = 2L,
+            competitionType = "CUP_TEST",
+            isPlayed = false
+        )
+        repository.saveFixtures(listOf(fixture))
+        repository.updateFixture(fixture.copy(homeScore = 1, awayScore = 1, isPlayed = true))
+
+        repository.updateFixture(
+            fixture.copy(
+                homeScore = 1,
+                awayScore = 1,
+                homePenalties = 5,
+                awayPenalties = 4,
+                isPlayed = true
+            )
+        )
+
+        val persisted = requireNotNull(repository.getFixture(52L))
+        assertEquals(1, persisted.homeScore)
+        assertEquals(1, persisted.awayScore)
+        assertEquals(5, persisted.homePenalties)
+        assertEquals(4, persisted.awayPenalties)
+    }
+
+    @Test
     fun `season reset clears seasonal goals but preserves cumulative career goals`() = runTest {
         repository.saveTeams(
             listOf(Team(id = 1L, name = "Owner", city = "A", state = "AA", division = 1, rating = 70))
