@@ -76,7 +76,15 @@ fun GameViewModel.startLiveMatch(fixture: Fixture) {
             awayReserves = awayReserves
         )
 
-        currentMatchEvents = matchEventsList
+        // `getStartingXIForTeam()` pode fornecer atletas procedurais para um participante virtual
+        // sem roster persistido. Esses ids nunca podem alimentar placar/estatísticas oficiais: não
+        // existe Player correspondente no Room para receber o gol. Removemos somente gols do lado
+        // sem roster real, mantendo os demais eventos de apresentação e sem inventar dados factuais.
+        currentMatchEvents = matchEventsList.filterNot { event ->
+            event.type == "GOAL" &&
+                ((event.isHomeEvent && homePls.isEmpty()) ||
+                    (!event.isHomeEvent && awayPls.isEmpty()))
+        }
 
         _matchMinute.value = 0
         _matchHomeScore.value = 0
