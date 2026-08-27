@@ -52,13 +52,15 @@ fun GameViewModel.executeInstantBuy(player: Player, onResult: (Boolean) -> Unit 
     viewModelScope.launch(Dispatchers.IO) {
         val save = repo.getGameSave()
         if (save == null) {
-            withContext(Dispatchers.Main) { onResult(false) }
+            onResult(false)
             return@launch
         }
         val result = processTransfersUseCase.buyPlayer(save, player, getDynamicPlayerPrice(player))
-        withContext(Dispatchers.Main) {
-            onResult(result is ProcessTransfersUseCase.TransferResult.Success)
-        }
+        // O callback representa apenas a conclusão da operação de domínio; ele não é um callback
+        // de renderização. Entregá-lo no mesmo worker depois que buyPlayer retorna evita manter o
+        // resultado comprometido preso atrás do looper da UI (por exemplo, durante lifecycle/testes).
+        // Callers de UI que precisem mutar estado visual devem fazer seu próprio dispatch para Main.
+        onResult(result is ProcessTransfersUseCase.TransferResult.Success)
     }
 }
 
