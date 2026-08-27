@@ -377,7 +377,7 @@ class GameRepository(internal val db: AppDatabase) {
     ) = db.withTransaction {
         db.globalLeagueStandingDao().deleteForSeason(season)
         if (rows.size > 100) {
-            rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(rows) }
+            rows.chunked(100).forEach { chunk -> db.globalLeagueStandingDao().insertAll(chunk) }
         } else if (rows.isNotEmpty()) {
             db.globalLeagueStandingDao().insertAll(rows)
         }
