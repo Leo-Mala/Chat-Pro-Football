@@ -23,11 +23,17 @@ import kotlin.math.roundToInt
  * WeakHashMap evita reter ViewModels depois que seu lifecycle termina.
  */
 private val editorPreparationMutexes = WeakHashMap<GameViewModel, Mutex>()
-private val editorPreparationMutexesGuard = Any()
+private val editorPlayerSaveMutexes = WeakHashMap<GameViewModel, Mutex>()
+private val editorMutexesGuard = Any()
 
 private fun GameViewModel.editorPreparationMutex(): Mutex =
-    synchronized(editorPreparationMutexesGuard) {
+    synchronized(editorMutexesGuard) {
         editorPreparationMutexes.getOrPut(this) { Mutex() }
+    }
+
+private fun GameViewModel.editorPlayerSaveMutex(): Mutex =
+    synchronized(editorMutexesGuard) {
+        editorPlayerSaveMutexes.getOrPut(this) { Mutex() }
     }
 
 private fun GameViewModel.isEditorSessionCurrent(session: SaveSession): Boolean =
@@ -45,15 +51,11 @@ fun GameViewModel.ensureSaveActiveForEditor(
     onReady: (Boolean) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        // Checkpoint inerte em produção. Em teste, comprova que uma segunda coroutine realmente
-        // chegou à fronteira de serialização antes de verificarmos que ela não entrou no bootstrap.
         preparationAttemptCheckpoint()
         editorPreparationMutex().withLock {
             val targetSaveId = _currentSaveId.value ?: "1"
             var editorSession: SaveSession? = null
             try {
-                // Materializa/valida Room em IO antes de publicar currentSaveId. O preparo inteiro fica
-                // vinculado à mesma SaveSession e nunca pode concluir em favor de uma sessão posterior.
                 val session = getOrCreateSession(targetSaveId)
                 editorSession = session
                 val currentRepository = session.repository
@@ -65,7 +67,6 @@ fun GameViewModel.ensureSaveActiveForEditor(
                     return@launch
                 }
 
-                // Checkpoint inerte em produção e útil para provar races de lifecycle sem sleeps frágeis.
                 preparationCheckpoint()
                 if (!isEditorSessionCurrent(session)) {
                     notifyEditorReady(onReady, false)
@@ -122,7 +123,6 @@ fun GameViewModel.ensureSaveActiveForEditor(
                     currentRepository.savePlayers(allPlayersToSave)
                 }
 
-                // A UI só navega se a sessão usada no preparo ainda for exatamente a ativa.
                 notifyEditorReady(onReady, isEditorSessionCurrent(session))
             } catch (e: CancellationException) {
                 throw e
@@ -203,14 +203,12 @@ fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int
         val team = repo.getTeam(teamId) ?: return@launch
         repo.updateTeam(team.copy(rating = newRating))
 
-        // Atualizar também os atributos individuais dos jogadores do time proporcionalmente
         val players = repo.getPlayersByTeam(teamId)
         val updatedPlayers = players.map { player ->
             val currentAttr = player.getAtributosObject()
             val oldForce = player.force.coerceAtLeast(1)
             val ratio = newRating.toDouble() / oldForce.toDouble()
 
-            // Escala os atributos mantendo as proporções originais do atleta
             val scaledAttr = currentAttr.copy(
                 finalizacao = (currentAttr.finalizacao * ratio).roundToInt().coerceIn(10, 99),
                 passe = (currentAttr.passe * ratio).roundToInt().coerceIn(10, 99),
@@ -245,15 +243,19 @@ fun GameViewModel.deleteTeamFromEditor(teamId: Long) {
 
 /**
  * Persiste a edição do atleta e recalcula a força dos clubes afetados na mesma transação Room.
- * O callback só é entregue no Main depois do commit, para que a tela nunca feche sobre um snapshot
- * antigo de jogador/time. Ao transferir um atleta pelo editor, tanto o clube de origem quanto o de
- * destino são recalculados.
+ * Só uma gravação do diálogo pode ficar em voo por ViewModel. Isso protege especialmente o cadastro
+ * com id=0 contra duplo toque, que de outro modo poderia gerar duas linhas auto-ID para o mesmo atleta.
  */
 fun GameViewModel.savePlayerFromEditor(
     player: Player,
     onComplete: (Boolean) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
+        val saveMutex = editorPlayerSaveMutex()
+        if (!saveMutex.tryLock()) {
+            withContext(Dispatchers.Main) { onComplete(false) }
+            return@launch
+        }
         try {
             repo.withTransaction {
                 val previous = if (player.id == 0L) null else repo.getPlayer(player.id)
@@ -283,6 +285,8 @@ fun GameViewModel.savePlayerFromEditor(
             Log.e("GameViewModel", "Falha ao salvar jogador pelo editor", e)
             _toastMessage.emit("Não foi possível salvar o jogador. Tente novamente.")
             withContext(Dispatchers.Main) { onComplete(false) }
+        } finally {
+            saveMutex.unlock()
         }
     }
 }
