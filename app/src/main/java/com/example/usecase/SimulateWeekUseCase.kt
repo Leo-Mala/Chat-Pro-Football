@@ -23,7 +23,8 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
 
     private data class PlannedCpuFixture(
         val fixture: Fixture,
-        val scorerIds: List<Long>
+        val scorerIds: List<Long>,
+        val participantIds: List<Long>
     )
 
     /**
@@ -56,7 +57,7 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
     /**
      * Executa a simulação em lote das partidas da CPU para a semana corrente.
      *
-     * O placar e os gols sazonais/cumulativos dos artilheiros são confirmados na mesma transação.
+     * O placar, os gols e as aparições dos participantes são confirmados na mesma transação.
      * Uma chamada repetida ou concorrente só aplica estatísticas aos fixtures que continuarem
      * `isPlayed=false` quando a transação adquirir o banco, tornando a agregação idempotente.
      */
@@ -73,9 +74,12 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
         if (unplayedFixtures.isEmpty()) return emptyList()
 
         val teamMap = repository.getAllTeams().associateBy { it.id }
-        // Uma leitura global evita N+1 por fixture; o mesmo snapshot alimenta apenas a escolha
-        // determinística dos artilheiros. A confirmação dos contadores é relida por id na transação.
-        val rostersByTeam = repository.getAllPlayers().groupBy { it.teamId }
+        val participatingTeamIds = unplayedFixtures
+            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
+            .distinct()
+        val rostersByTeam = participatingTeamIds.associateWith { teamId ->
+            repository.getPlayersByTeam(teamId)
+        }
 
         val plans = unplayedFixtures.map { fixture ->
             val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(
@@ -96,6 +100,8 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
             )
             val homeRoster = rostersByTeam[fixture.homeTeamId].orEmpty()
             val awayRoster = rostersByTeam[fixture.awayTeamId].orEmpty()
+            val homeParticipants = selectParticipants(homeRoster)
+            val awayParticipants = selectParticipants(awayRoster)
 
             val isRivalry = homeTeam.rivalTeamId == awayTeam.id
             val seed = season * 1000L + week * 100L + fixture.id
@@ -126,14 +132,14 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
             val scorerIds = buildList {
                 addAll(
                     selectScorers(
-                        players = homeRoster,
+                        players = homeParticipants,
                         goals = homeScore,
                         random = Random(seed xor HOME_SCORER_SALT)
                     )
                 )
                 addAll(
                     selectScorers(
-                        players = awayRoster,
+                        players = awayParticipants,
                         goals = awayScore,
                         random = Random(seed xor AWAY_SCORER_SALT)
                     )
@@ -148,7 +154,8 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                     awayPenalties = awayPenalties,
                     isPlayed = true
                 ),
-                scorerIds = scorerIds
+                scorerIds = scorerIds,
+                participantIds = (homeParticipants + awayParticipants).map { it.id }
             )
         }
 
@@ -167,28 +174,44 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 .groupingBy { it }
                 .eachCount()
             val appearanceCounts = committedPlans
-                .flatMap { plan -> plan.scorerIds.distinct() }
+                .flatMap { plan -> plan.participantIds.distinct() }
                 .groupingBy { it }
                 .eachCount()
+            val affectedPlayerIds = (goalCounts.keys + appearanceCounts.keys).toSet()
 
-            if (goalCounts.isNotEmpty()) {
-                val updatedScorers = goalCounts.mapNotNull { (playerId, goals) ->
+            if (affectedPlayerIds.isNotEmpty()) {
+                val updatedPlayers = affectedPlayerIds.mapNotNull { playerId ->
                     repository.getPlayer(playerId)?.let { persisted ->
+                        val goals = goalCounts[playerId] ?: 0
+                        val appearances = appearanceCounts[playerId] ?: 0
                         persisted.copy(
                             gols = persisted.gols + goals,
                             careerGoals = persisted.careerGoals + goals,
-                            careerApps = persisted.careerApps + (appearanceCounts[playerId] ?: 0)
+                            careerApps = persisted.careerApps + appearances,
+                            partidasDisputadas = persisted.partidasDisputadas + appearances
                         )
                     }
                 }
-                if (updatedScorers.isNotEmpty()) {
-                    repository.updatePlayers(updatedScorers)
+                if (updatedPlayers.isNotEmpty()) {
+                    repository.updatePlayers(updatedPlayers)
                 }
             }
 
             committedFixtures
         }
     }
+
+    private fun selectParticipants(players: List<Player>): List<Player> =
+        players
+            .asSequence()
+            .filter { it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
+            .sortedWith(
+                compareByDescending<Player> { it.isStarter }
+                    .thenByDescending { it.force }
+                    .thenBy { it.id }
+            )
+            .take(11)
+            .toList()
 
     /** Usa a mesma ponderação por posição/força do motor detalhado, mas com RNG derivado do fixture. */
     private fun selectScorers(players: List<Player>, goals: Int, random: Random): List<Long> {
