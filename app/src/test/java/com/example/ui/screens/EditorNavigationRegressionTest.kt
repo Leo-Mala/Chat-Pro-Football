@@ -30,6 +30,35 @@ class EditorNavigationRegressionTest {
         )
     }
 
+    @Test
+    fun `editor bootstrap belongs to composable lifecycle instead of detached viewmodel job`() {
+        val editorScreen = readProjectSource("src/main/java/com/example/ui/screens/EditorScreen.kt")
+        assertTrue(
+            "Editor must launch preparation from its LaunchedEffect",
+            editorScreen.contains("LaunchedEffect(Unit) {\n        viewModel.ensureSaveActiveForEditor()\n    }")
+        )
+
+        val viewModelSource = readProjectSource("src/main/java/com/example/ui/viewmodel/GameViewModelEditor.kt")
+        val preparationStart = viewModelSource.indexOf("suspend fun GameViewModel.ensureSaveActiveForEditor(")
+        val nextFunction = viewModelSource.indexOf("fun GameViewModel.ensureRosterForTeam", preparationStart)
+        assertTrue("Editor preparation must be suspend", preparationStart >= 0)
+        assertTrue("Could not isolate editor preparation", nextFunction > preparationStart)
+
+        val preparationBlock = viewModelSource.substring(preparationStart, nextFunction)
+        assertTrue(
+            "Preparation should perform its IO in the caller-owned coroutine",
+            preparationBlock.contains("withContext(Dispatchers.IO)")
+        )
+        assertFalse(
+            "Preparation must not detach from LaunchedEffect through viewModelScope.launch",
+            preparationBlock.contains("viewModelScope.launch")
+        )
+        assertTrue(
+            "Cancellation must remain transparent so leaving the screen stops preparation",
+            preparationBlock.contains("catch (e: CancellationException)") && preparationBlock.contains("throw e")
+        )
+    }
+
     private fun readProjectSource(relativeToApp: String): String {
         val candidates = listOf(
             File(relativeToApp),
