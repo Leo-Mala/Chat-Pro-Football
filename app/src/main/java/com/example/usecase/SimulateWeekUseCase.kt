@@ -79,6 +79,13 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
         val rostersByTeam = participatingTeamIds.associateWith { teamId ->
             repository.getPlayersByTeam(teamId)
         }
+        // O mesmo snapshot em lote usado para planejar participantes é retido por id para aplicar
+        // apenas os deltas desta simulação. Isso elimina o segundo N+1 de SELECT por participante
+        // dentro da transação de escrita, sem voltar a materializar o universo inteiro de jogadores.
+        val playersById = rostersByTeam.values
+            .asSequence()
+            .flatten()
+            .associateBy { it.id }
 
         val plans = unplayedFixtures.map { fixture ->
             val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(
@@ -176,7 +183,7 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
 
             if (affectedPlayerIds.isNotEmpty()) {
                 val updatedPlayers = affectedPlayerIds.mapNotNull { playerId ->
-                    repository.getPlayer(playerId)?.let { persisted ->
+                    playersById[playerId]?.let { persisted ->
                         val goals = goalCounts[playerId] ?: 0
                         val appearances = appearanceCounts[playerId] ?: 0
                         persisted.copy(
