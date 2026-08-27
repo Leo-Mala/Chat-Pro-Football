@@ -270,11 +270,9 @@ fun GameViewModel.savePlayerFromEditor(
                 for (teamId in affectedTeamIds) {
                     val roster = repo.getPlayersByTeam(teamId)
                     val team = repo.getTeam(teamId) ?: continue
-                    if (roster.isNotEmpty()) {
-                        val calculated = GameEngine.calculateTeamRating(roster)
-                        if (team.rating != calculated) {
-                            repo.updateTeam(team.copy(rating = calculated))
-                        }
+                    val calculated = GameEngine.calculateTeamRating(roster)
+                    if (team.rating != calculated) {
+                        repo.updateTeam(team.copy(rating = calculated))
                     }
                 }
             }
