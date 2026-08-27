@@ -9,12 +9,17 @@ package com.example.data
 suspend fun GameRepository.getRolloverRetiringPlayers(retirementCurrentAge: Int): List<Player> =
     db.playerDao().getPlayersAtLeastAge(retirementCurrentAge)
 
-suspend fun GameRepository.ageAndResetRolloverPlayers(retirementCurrentAge: Int): Int {
-    val updated = db.playerDao().ageAndResetPlayersBelowRetirementAge(retirementCurrentAge)
-    // O rollover anual precisa limpar apenas estatísticas sazonais dos sobreviventes, preservando
-    // careerGoals/careerApps e os demais acumulados históricos. A exclusão dos aposentados ocorre
-    // logo em seguida no mesmo fluxo transacional, então limpar também suas colunas sazonais aqui é
-    // inofensivo e mantém o hot path em um único action-set SQL.
+suspend fun GameRepository.ageAndResetRolloverPlayers(retirementCurrentAge: Int): Int =
+    db.playerDao().ageAndResetPlayersBelowRetirementAge(retirementCurrentAge)
+
+/**
+ * Limpa somente estatísticas da temporada encerrada durante a transição anual.
+ *
+ * Este action-set fica deliberadamente separado de [ageAndResetRolloverPlayers]: o contrato
+ * histórico da Fase 10.8 desse método é alterar somente idade/energia/moral/lesão/suspensão/cartões.
+ * Os acumulados de carreira (careerGoals/careerApps/careerAssists) permanecem intactos.
+ */
+suspend fun GameRepository.resetRolloverSeasonalStatistics() {
     db.openHelper.writableDatabase.execSQL(
         """
         UPDATE players
@@ -26,7 +31,6 @@ suspend fun GameRepository.ageAndResetRolloverPlayers(retirementCurrentAge: Int)
             evolucaoMensal = 0.0
         """.trimIndent()
     )
-    return updated
 }
 
 suspend fun GameRepository.completeRolloverLoansForPlayers(playerIds: Collection<Long>): Int {
