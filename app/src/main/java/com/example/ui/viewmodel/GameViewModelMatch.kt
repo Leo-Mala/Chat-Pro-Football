@@ -205,6 +205,60 @@ fun GameViewModel.resumeLiveMatch() {
     }
 }
 
+private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
+    userFixture: Fixture,
+    save: GameSave
+): Fixture {
+    val home = repo.getTeam(userFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.homeTeamId)
+    val away = repo.getTeam(userFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.awayTeamId)
+
+    if (_autoLineupEnabled.value) {
+        autoLineup(save.playerTeamId).join()
+    } else {
+        autoReplaceSuspendedAndInjuredPlayers(save.playerTeamId).join()
+    }
+
+    val homePls = repo.getPlayersByTeam(home.id)
+    val awayPls = repo.getPlayersByTeam(away.id)
+    val homeStarters = getStartingXIForTeam(homePls, home.id, home.rating, home.name, home.country)
+    val awayStarters = getStartingXIForTeam(awayPls, away.id, away.rating, away.name, away.country)
+    val homeReserves = homePls.filter { it !in homeStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
+    val awayReserves = awayPls.filter { it !in awayStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
+
+    val isRivalry = (home.rivalTeamId == away.id || away.rivalTeamId == home.id || (home.state == away.state && home.city == away.city))
+    val rawEvents = GameEngine.simulateMatchDetailed(
+        homeTeam = home,
+        awayTeam = away,
+        homePlayers = homeStarters,
+        awayPlayers = awayStarters,
+        homeTactics = if (home.isPlayerControlled) playerFormation.value else "4-4-2",
+        homeStyle = if (home.isPlayerControlled) playerStyle.value else "Equilibrado",
+        awayTactics = if (away.isPlayerControlled) playerFormation.value else "4-4-2",
+        awayStyle = if (away.isPlayerControlled) playerStyle.value else "Equilibrado",
+        isRivalry = isRivalry,
+        randomSeed = kotlin.random.Random.nextLong(),
+        homeReserves = homeReserves,
+        awayReserves = awayReserves
+    )
+    val matchEvents = normalizeUnattributableGoalEvents(rawEvents, homePls, awayPls)
+    val hGoals = matchEvents.count { it.type == "GOAL" && it.isHomeEvent }
+    val aGoals = matchEvents.count { it.type == "GOAL" && !it.isHomeEvent }
+    val updatedFixture = userFixture.copy(homeScore = hGoals, awayScore = aGoals, isPlayed = true)
+
+    var committedFixture = updatedFixture
+    repo.withTransaction {
+        val persistedFixture = repo.getFixture(updatedFixture.id)
+        if (persistedFixture?.isPlayed == true) {
+            committedFixture = persistedFixture
+            return@withTransaction
+        }
+        repo.updateFixture(updatedFixture)
+        processMatchEventsAndStats(updatedFixture, matchEvents)
+        committedFixture = repo.getFixture(updatedFixture.id) ?: updatedFixture
+    }
+    return committedFixture
+}
+
 fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
     liveMatchJob?.cancel()
     viewModelScope.launch(Dispatchers.IO) {
@@ -215,7 +269,7 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            val simulated = simulateSingleUserFixture(targetFixture, save)
+            val simulated = simulateSingleUserFixtureSafely(targetFixture, save)
             var updated = repo.getFixture(targetFixture.id) ?: simulated
             val decided = CompetitionRules.ensureKnockoutDecision(updated)
             if (decided != updated) {
