@@ -259,6 +259,51 @@ private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
     return committedFixture
 }
 
+/**
+ * Finaliza a partida AO VIVO usando exatamente a sequência já preparada para ela.
+ *
+ * O botão Pular não é uma nova simulação: ele apenas revela os eventos restantes, deriva o placar
+ * desses mesmos gols e persiste o fixture/estatísticas uma única vez. Isso mantém placar, feed de
+ * eventos e estatísticas sob a mesma fonte de verdade, inclusive quando o usuário pula no meio do
+ * jogo ou quando a partida está pausada.
+ */
+private suspend fun GameViewModel.finishPreparedLiveFixture(targetFixture: Fixture): Fixture {
+    val preparedEvents = currentMatchEvents.toList().sortedBy { it.minute }
+    val homeScore = preparedEvents.count { it.type == "GOAL" && it.isHomeEvent }
+    val awayScore = preparedEvents.count { it.type == "GOAL" && !it.isHomeEvent }
+    val (homePenalties, awayPenalties) = CompetitionRules.resolvePenaltiesIfNeeded(
+        fixture = targetFixture,
+        homeScore = homeScore,
+        awayScore = awayScore
+    )
+    val finishedFixture = targetFixture.copy(
+        homeScore = homeScore,
+        awayScore = awayScore,
+        homePenalties = homePenalties,
+        awayPenalties = awayPenalties,
+        isPlayed = true
+    )
+
+    var committedFixture = finishedFixture
+    repo.withTransaction {
+        val persistedFixture = repo.getFixture(finishedFixture.id)
+        if (persistedFixture?.isPlayed == true) {
+            committedFixture = persistedFixture
+            return@withTransaction
+        }
+        repo.updateFixture(finishedFixture)
+        processMatchEventsAndStats(finishedFixture, preparedEvents)
+        committedFixture = repo.getFixture(finishedFixture.id) ?: finishedFixture
+    }
+
+    _matchEvents.value = preparedEvents
+    _matchHomeScore.value = committedFixture.homeScore ?: homeScore
+    _matchAwayScore.value = committedFixture.awayScore ?: awayScore
+    _matchMinute.value = 90
+    _matchState.value = GameViewModel.MatchState.FINISHED
+    return committedFixture
+}
+
 fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
     liveMatchJob?.cancel()
     viewModelScope.launch(Dispatchers.IO) {
@@ -269,8 +314,15 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            val simulated = simulateSingleUserFixtureSafely(targetFixture, save)
-            var updated = repo.getFixture(targetFixture.id) ?: simulated
+            val isPreparedLiveFixture = liveMatchFixture?.id == targetFixture.id &&
+                _matchState.value != GameViewModel.MatchState.IDLE
+            val finished = if (isPreparedLiveFixture) {
+                finishPreparedLiveFixture(targetFixture)
+            } else {
+                simulateSingleUserFixtureSafely(targetFixture, save)
+            }
+
+            var updated = repo.getFixture(targetFixture.id) ?: finished
             val decided = CompetitionRules.ensureKnockoutDecision(updated)
             if (decided != updated) {
                 repo.updateFixture(decided)
