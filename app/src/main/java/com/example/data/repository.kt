@@ -147,10 +147,12 @@ class GameRepository(internal val db: AppDatabase) {
             }
         }
 
-        // O restart limpa somente estado sazonal. Totais históricos de carreira são cumulativos e
-        // nunca podem ser inferidos como inválidos a partir de careerApps, pois seeds/legados podem
-        // legitimamente conter careerGoals > 0 com careerApps == 0.
         db.playerDao().resetSeasonState()
+        // careerGoals é cumulativo e deve sobreviver ao restart quando existe histórico de carreira.
+        // Um valor sem nenhuma careerApp é um estado legado inconsistente e pode ser normalizado.
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE players SET careerGoals = 0 WHERE careerApps = 0 AND careerGoals != 0"
+        )
         db.coachOfferDao().deleteOffers()
         true
     }
