@@ -191,11 +191,12 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
-            var updated = simulateSingleUserFixture(targetFixture, save)
+            val simulated = simulateSingleUserFixture(targetFixture, save)
+            var updated = repo.getFixture(targetFixture.id) ?: simulated
             val decided = CompetitionRules.ensureKnockoutDecision(updated)
             if (decided != updated) {
                 repo.updateFixture(decided)
-                updated = decided
+                updated = repo.getFixture(decided.id) ?: decided
             }
             _matchHomeScore.value = updated.homeScore ?: 0
             _matchAwayScore.value = updated.awayScore ?: 0
