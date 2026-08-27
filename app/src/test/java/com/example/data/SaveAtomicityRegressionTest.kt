@@ -245,7 +245,8 @@ class SaveAtomicityRegressionTest {
                 moral = 75,
                 injuryWeeksRemaining = 0,
                 suspensionWeeksRemaining = 0,
-                yellowCardsAccumulated = 0
+                yellowCardsAccumulated = 0,
+                careerGoals = 0
             ),
             repository.getPlayer(originalPlayer.id)
         )
