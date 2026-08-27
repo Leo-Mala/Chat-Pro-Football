@@ -21,6 +21,18 @@ object CareerCreationPerformanceMonitor {
     var latest: CareerCreationPerformanceSnapshot? = null
         private set
 
+    @Volatile
+    private var pendingPersistedPlayerCount: Int? = null
+
+    /**
+     * Chamado no ponto em que o seed de jogadores efetivamente usado por Room é conhecido.
+     * Isso evita associar a medição ao roster procedural que pode ter sido substituído pelo FC26.
+     */
+    fun notePersistedPlayerCount(count: Int) {
+        require(count >= 0)
+        pendingPersistedPlayerCount = count
+    }
+
     fun record(snapshot: CareerCreationPerformanceSnapshot) {
         require(snapshot.databaseBootstrapMs >= 0L)
         require(snapshot.rosterMaterializationMs >= 0L)
@@ -30,10 +42,13 @@ object CareerCreationPerformanceMonitor {
         require(snapshot.totalMs >= 0L)
         require(snapshot.totalMs >= snapshot.databaseBootstrapMs)
         require(snapshot.totalMs >= snapshot.persistenceMs)
-        latest = snapshot
+        val persistedCount = pendingPersistedPlayerCount
+        pendingPersistedPlayerCount = null
+        latest = if (persistedCount == null) snapshot else snapshot.copy(playerCount = persistedCount)
     }
 
     fun clear() {
         latest = null
+        pendingPersistedPlayerCount = null
     }
 }
