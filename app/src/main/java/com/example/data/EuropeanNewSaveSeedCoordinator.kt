@@ -2,6 +2,8 @@ package com.example.data
 
 import android.content.res.AssetManager
 import java.util.WeakHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 
 /**
  * Ponte mínima entre os assets canônicos e o fluxo de criação de uma carreira.
@@ -42,20 +44,38 @@ object EuropeanNewSaveSeedCoordinator {
     private val pendingRequestByRepository = WeakHashMap<Any, List<Team>>()
     private val pendingSeedByRepository = WeakHashMap<Any, PendingSeed>()
     private val pendingProceduralFallbackByRepository = WeakHashMap<Any, Boolean>()
+    private val preCareerEditorOverridesByRepository = WeakHashMap<Any, PreCareerEditorOverrides>()
 
     /**
-     * Registra somente uma intenção de seed. Nenhum asset é lido aqui.
+     * Registra somente uma intenção de seed factual. O asset pesado continua lazy.
      *
-     * `generateSeasonFixtures()` também é reutilizado por viradas/reinícios de temporada. Carregar
-     * 18 mil jogadores nesse ponto faria o snapshot inicial contaminar a carreira e os testes.
-     * O materialization acontece apenas quando o fluxo de novo save persiste a MESMA lista em
-     * `saveTeams` e, em seguida, consome o resultado em `savePlayers`.
+     * Antes de a criação de uma NOVA carreira apagar o banco de preparação do Editor, capturamos
+     * apenas os clubes/elencos que realmente diferem do bootstrap determinístico. O snapshot FC26
+     * permanece imutável e as alterações feitas pelo usuário são reaplicadas depois como overlay.
+     * Em saves já existentes (inclusive restart/virada de temporada) nenhum override é capturado.
      */
     fun prepare(repository: GameRepository, teams: List<Team>) {
+        val preCareerOverrides = runBlocking(Dispatchers.IO) {
+            if (repository.getGameSave() != null) {
+                null
+            } else {
+                detectPreCareerEditorOverrides(
+                    requestedTeams = teams,
+                    persistedTeams = repository.getAllTeams(),
+                    persistedPlayers = repository.getAllPlayers()
+                )
+            }
+        }
+
         synchronized(lock) {
             pendingRequestByRepository[repository] = teams
             pendingSeedByRepository.remove(repository)
             pendingProceduralFallbackByRepository.remove(repository)
+            if (preCareerOverrides == null) {
+                preCareerEditorOverridesByRepository.remove(repository)
+            } else {
+                preCareerEditorOverridesByRepository[repository] = preCareerOverrides
+            }
         }
     }
 
@@ -102,6 +122,17 @@ object EuropeanNewSaveSeedCoordinator {
         return PendingSeed(teams = factualTeams, players = plan.players, loans = plan.loans)
     }
 
+    private fun withPreCareerOverrides(repositoryKey: Any, seed: PendingSeed): PendingSeed {
+        val overrides = synchronized(lock) { preCareerEditorOverridesByRepository[repositoryKey] }
+        val (teams, players, loans) = applyPreCareerEditorOverrides(
+            seedTeams = seed.teams,
+            seedPlayers = seed.players,
+            seedLoans = seed.loans,
+            overrides = overrides
+        )
+        return PendingSeed(teams = teams, players = players, loans = loans)
+    }
+
     private fun materializeRequestedSeed(repositoryKey: Any): PendingSeed? {
         synchronized(lock) {
             pendingSeedByRepository[repositoryKey]?.let { return it }
@@ -111,7 +142,8 @@ object EuropeanNewSaveSeedCoordinator {
         } ?: return null
 
         val startedAtNs = System.nanoTime()
-        val seed = buildPendingSeed(requestedTeams)
+        val rawSeed = buildPendingSeed(requestedTeams)
+        val seed = rawSeed?.let { withPreCareerOverrides(repositoryKey, it) }
         val materializationMs = (System.nanoTime() - startedAtNs) / 1_000_000L
         if (seed != null) {
             CareerCreationPerformanceMonitor.noteFactualSeedMaterialization(materializationMs)
@@ -131,6 +163,18 @@ object EuropeanNewSaveSeedCoordinator {
         return seed
     }
 
+    private fun applyTeamOverridesOnly(repositoryKey: Any, fallback: List<Team>): List<Team> {
+        val overrides = synchronized(lock) { preCareerEditorOverridesByRepository[repositoryKey] }
+            ?: return fallback
+        val (teams, _, _) = applyPreCareerEditorOverrides(
+            seedTeams = fallback,
+            seedPlayers = emptyList(),
+            seedLoans = emptyList(),
+            overrides = overrides.copy(rostersByTeamId = emptyMap())
+        )
+        return teams
+    }
+
     /**
      * A requisição lazy só é válida se `saveTeams` receber exatamente a mesma instância de lista
      * registrada pelo checkpoint de novo save. Uma geração de calendário antiga não pode, portanto,
@@ -144,10 +188,12 @@ object EuropeanNewSaveSeedCoordinator {
                 pendingRequestByRepository.remove(repositoryKey)
                 pendingSeedByRepository.remove(repositoryKey)
                 pendingProceduralFallbackByRepository.remove(repositoryKey)
+                preCareerEditorOverridesByRepository.remove(repositoryKey)
                 return fallback
             }
         }
-        return materializeRequestedSeed(repositoryKey)?.teams ?: fallback
+        return materializeRequestedSeed(repositoryKey)?.teams
+            ?: applyTeamOverridesOnly(repositoryKey, fallback)
     }
 
     internal fun prepareForFc26(
@@ -165,6 +211,7 @@ object EuropeanNewSaveSeedCoordinator {
         synchronized(lock) {
             pendingRequestByRepository.remove(repositoryKey)
             pendingProceduralFallbackByRepository.remove(repositoryKey)
+            preCareerEditorOverridesByRepository.remove(repositoryKey)
             pendingSeedByRepository[repositoryKey] = PendingSeed(
                 teams = teams,
                 players = plan.players,
@@ -210,6 +257,7 @@ object EuropeanNewSaveSeedCoordinator {
         synchronized(lock) {
             pendingRequestByRepository.remove(repositoryKey)
             pendingProceduralFallbackByRepository.remove(repositoryKey)
+            preCareerEditorOverridesByRepository.remove(repositoryKey)
             pendingSeedByRepository[repositoryKey] = PendingSeed(
                 teams = factualTeams,
                 players = plan.players,
@@ -244,15 +292,22 @@ object EuropeanNewSaveSeedCoordinator {
             val pending = pendingSeedByRepository.remove(repositoryKey)
             val isNewSaveProceduralFallback =
                 pendingProceduralFallbackByRepository.remove(repositoryKey) == true
+            val overrides = preCareerEditorOverridesByRepository.remove(repositoryKey)
             if (pending == null) {
-                val players = if (isNewSaveProceduralFallback) {
+                val normalizedFallback = if (isNewSaveProceduralFallback) {
                     // O restart protegido considera careerApps=0 + careerGoals>0 um legado
                     // inconsistente. Novo Jogo procedural não deve mais fabricar esse estado.
                     normalizeNewSaveProceduralHistory(fallback)
                 } else {
                     fallback
                 }
-                PlayerSeed(players, emptyList(), overridden = false)
+                val (_, players, loans) = applyPreCareerEditorOverrides(
+                    seedTeams = emptyList(),
+                    seedPlayers = normalizedFallback,
+                    seedLoans = emptyList(),
+                    overrides = overrides?.copy(teamsById = emptyMap())
+                )
+                PlayerSeed(players, loans, overridden = overrides != null)
             } else {
                 PlayerSeed(pending.players, pending.loans, overridden = true)
             }
@@ -270,6 +325,7 @@ object EuropeanNewSaveSeedCoordinator {
             pendingRequestByRepository.remove(repositoryKey)
             pendingSeedByRepository.remove(repositoryKey)
             pendingProceduralFallbackByRepository.remove(repositoryKey)
+            preCareerEditorOverridesByRepository.remove(repositoryKey)
         }
     }
 }
