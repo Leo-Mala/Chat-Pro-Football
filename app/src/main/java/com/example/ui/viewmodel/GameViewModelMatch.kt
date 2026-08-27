@@ -25,6 +25,26 @@ internal fun collectAppearancePlayerIds(
     )
 }
 
+internal fun normalizeUnattributableGoalEvents(
+    events: List<GameEngine.MatchEventDetail>,
+    homePersistedPlayers: List<Player>,
+    awayPersistedPlayers: List<Player>
+): List<GameEngine.MatchEventDetail> {
+    val homeHasEligiblePersistedPlayer = homePersistedPlayers.any {
+        it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0
+    }
+    val awayHasEligiblePersistedPlayer = awayPersistedPlayers.any {
+        it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0
+    }
+    if (homeHasEligiblePersistedPlayer && awayHasEligiblePersistedPlayer) return events
+
+    return events.filterNot { event ->
+        event.type == "GOAL" &&
+            ((event.isHomeEvent && !homeHasEligiblePersistedPlayer) ||
+                (!event.isHomeEvent && !awayHasEligiblePersistedPlayer))
+    }
+}
+
 internal fun hasPendingUserFixtures(
     fixtures: List<Fixture>,
     userTeamId: Long
@@ -76,15 +96,11 @@ fun GameViewModel.startLiveMatch(fixture: Fixture) {
             awayReserves = awayReserves
         )
 
-        // `getStartingXIForTeam()` pode fornecer atletas procedurais para um participante virtual
-        // sem roster persistido. Esses ids nunca podem alimentar placar/estatísticas oficiais: não
-        // existe Player correspondente no Room para receber o gol. Removemos somente gols do lado
-        // sem roster real, mantendo os demais eventos de apresentação e sem inventar dados factuais.
-        currentMatchEvents = matchEventsList.filterNot { event ->
-            event.type == "GOAL" &&
-                ((event.isHomeEvent && homePls.isEmpty()) ||
-                    (!event.isHomeEvent && awayPls.isEmpty()))
-        }
+        // `getStartingXIForTeam()` fornece atletas procedurais quando não existe nenhum atleta
+        // persistido elegível. Esses ids não podem alimentar placar/estatísticas oficiais porque
+        // não há Player correspondente no Room para receber o gol. A regra cobre tanto clube
+        // virtual sem roster quanto roster real inteiro lesionado/suspenso.
+        currentMatchEvents = normalizeUnattributableGoalEvents(matchEventsList, homePls, awayPls)
 
         _matchMinute.value = 0
         _matchHomeScore.value = 0
