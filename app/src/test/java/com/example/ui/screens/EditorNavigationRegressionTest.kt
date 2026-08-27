@@ -25,9 +25,52 @@ class EditorNavigationRegressionTest {
 
         assertTrue(openEditorBlock.contains("menuScreenState = \"EDITOR\""))
         assertFalse(
-            "Navigation must not wait for editor database bootstrap",
+            "Navigation callback itself must not launch detached bootstrap work",
             openEditorBlock.contains("ensureSaveActiveForEditor")
         )
+        assertTrue(
+            "Pre-career route must render through readiness guard",
+            source.contains("PreparedPreCareerEditorScreen(")
+        )
+    }
+
+    @Test
+    fun `pre-career editor does not render persisted values until Room preparation succeeds`() {
+        val source = readProjectSource("src/main/java/com/example/ui/screens/PreparedPreCareerEditorScreen.kt")
+
+        val readyBranch = source.indexOf("PreCareerEditorPreparationState.READY ->")
+        val editorRender = source.indexOf("TeamAndPlayerEditorScreen(", startIndex = readyBranch)
+        assertTrue("READY branch must exist", readyBranch >= 0)
+        assertTrue("Editor must render only after READY", editorRender > readyBranch)
+        assertTrue(source.contains("precareer_editor_loading_guard"))
+        assertTrue(source.contains("viewModel.ensureSaveActiveForEditor"))
+    }
+
+    @Test
+    fun `pre-career menu has club-player editor but no coach editor while career keeps coach editor`() {
+        val mainMenu = readProjectSource("src/main/java/com/example/ui/screens/MainMenuScreen.kt")
+        val coach = readProjectSource("src/main/java/com/example/ui/screens/CoachScreen.kt")
+
+        assertFalse("Coach editor entry must not exist before career", mainMenu.contains("EDITOR TÉCNICO"))
+        assertTrue(mainMenu.contains("EDITOR DE CLUBES E JOGADORES"))
+        assertTrue(mainMenu.contains("open_club_player_editor_button"))
+
+        assertTrue("Career coach editor must remain available", coach.contains("Text(\"Editor Técnico\""))
+        assertTrue(coach.contains("Text(\"ABRIR EDITOR TÉCNICO\""))
+        assertTrue(coach.contains("TeamAndPlayerEditorScreen("))
+    }
+
+    @Test
+    fun `manual monthly evolution debug trigger is absent while automatic four-week evolution remains`() {
+        val training = readProjectSource("src/main/java/com/example/ui/screens/TrainingScreen.kt")
+        val dashboard = readProjectSource("src/main/java/com/example/ui/screens/DashboardScreen.kt")
+        val matchRuntime = readProjectSource("src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt")
+
+        assertFalse(training.contains("advance_month_button"))
+        assertFalse(training.contains("Avançar Mês (Processar Evolução de Atributos)"))
+        assertFalse(dashboard.contains("advanceMonthAndRunEvolution"))
+        assertTrue(matchRuntime.contains("requestedSave.currentWeek % 4 == 0"))
+        assertTrue(matchRuntime.contains("commitMonthlyEvolution"))
     }
 
     @Test
