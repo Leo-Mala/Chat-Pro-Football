@@ -45,107 +45,112 @@ private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean
     }
 }
 
-fun GameViewModel.ensureSaveActiveForEditor(
+/**
+ * Prepara o slot do Editor na coroutine do chamador.
+ *
+ * A tela chama esta função dentro de `LaunchedEffect`; portanto sair do Editor cancela esta mesma
+ * coroutine. Não existe um `viewModelScope.launch` destacado capaz de continuar semeando/reabrindo
+ * um slot depois que `exitToSavesMenu()` invalidou a sessão.
+ */
+suspend fun GameViewModel.ensureSaveActiveForEditor(
     preparationCheckpoint: suspend () -> Unit = {},
     preparationAttemptCheckpoint: suspend () -> Unit = {},
     onReady: (Boolean) -> Unit = {}
-) {
-    viewModelScope.launch(Dispatchers.IO) {
-        preparationAttemptCheckpoint()
-        editorPreparationMutex().withLock {
-            val targetSaveId = _currentSaveId.value ?: "1"
-            var editorSession: SaveSession? = null
-            try {
-                val session = getOrCreateSession(targetSaveId)
-                editorSession = session
-                val currentRepository = session.repository
-                if (_currentSaveId.value == null) {
-                    _currentSaveId.value = targetSaveId
-                }
-                if (!isEditorSessionCurrent(session)) {
-                    notifyEditorReady(onReady, false)
-                    return@launch
-                }
-
-                preparationCheckpoint()
-                if (!isEditorSessionCurrent(session)) {
-                    notifyEditorReady(onReady, false)
-                    return@launch
-                }
-
-                var dbTeams = currentRepository.getAllTeams()
-                if (dbTeams.isEmpty()) {
-                    val seededTeams = mutableListOf<Team>()
-                    for (countryKey in GlobalFootballSystem.keys) {
-                        val templates = DefaultData.getTeamsForCountry(countryKey)
-                        for (t in templates) {
-                            val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
-                            seededTeams.add(
-                                Team(
-                                    id = globalId,
-                                    name = t.name,
-                                    city = t.city,
-                                    state = t.state,
-                                    country = countryKey,
-                                    division = t.division,
-                                    rating = t.rating,
-                                    stadiumName = t.stadium,
-                                    logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
-                                    isPlayerControlled = (globalId == 1L)
-                                )
-                            )
-                        }
-                    }
-                    if (!isEditorSessionCurrent(session)) {
-                        notifyEditorReady(onReady, false)
-                        return@launch
-                    }
-                    currentRepository.saveTeams(seededTeams)
-                    dbTeams = seededTeams
-                }
-
-                if (!isEditorSessionCurrent(session)) {
-                    notifyEditorReady(onReady, false)
-                    return@launch
-                }
-
-                val allDbPlayers = currentRepository.getAllPlayers()
-                if (allDbPlayers.isEmpty()) {
-                    val allPlayersToSave = mutableListOf<Player>()
-                    for (t in dbTeams) {
-                        val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
-                        allPlayersToSave.addAll(roster)
-                    }
-                    if (!isEditorSessionCurrent(session)) {
-                        notifyEditorReady(onReady, false)
-                        return@launch
-                    }
-                    currentRepository.savePlayers(allPlayersToSave)
-                }
-
-                notifyEditorReady(onReady, isEditorSessionCurrent(session))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: SlotRecoveryRequiredException) {
-                Log.w(
-                    "GameViewModel",
-                    "Editor bloqueado para slot $targetSaveId em recuperação: ${e.inspection.failureReason}"
-                )
-                val session = editorSession
-                if (session == null || isEditorSessionCurrent(session)) {
-                    exitToSavesMenu()
-                    loadSaveSlots()
-                }
-                notifyEditorReady(onReady, false)
-            } catch (e: Exception) {
-                Log.e("GameViewModel", "Falha fail-closed ao preparar editor no slot $targetSaveId", e)
-                val session = editorSession
-                if (session == null || isEditorSessionCurrent(session)) {
-                    exitToSavesMenu()
-                    loadSaveSlots()
-                }
-                notifyEditorReady(onReady, false)
+) = withContext(Dispatchers.IO) {
+    preparationAttemptCheckpoint()
+    editorPreparationMutex().withLock {
+        val targetSaveId = _currentSaveId.value ?: "1"
+        var editorSession: SaveSession? = null
+        try {
+            val session = getOrCreateSession(targetSaveId)
+            editorSession = session
+            val currentRepository = session.repository
+            if (_currentSaveId.value == null) {
+                _currentSaveId.value = targetSaveId
             }
+            if (!isEditorSessionCurrent(session)) {
+                notifyEditorReady(onReady, false)
+                return@withLock
+            }
+
+            preparationCheckpoint()
+            if (!isEditorSessionCurrent(session)) {
+                notifyEditorReady(onReady, false)
+                return@withLock
+            }
+
+            var dbTeams = currentRepository.getAllTeams()
+            if (dbTeams.isEmpty()) {
+                val seededTeams = mutableListOf<Team>()
+                for (countryKey in GlobalFootballSystem.keys) {
+                    val templates = DefaultData.getTeamsForCountry(countryKey)
+                    for (t in templates) {
+                        val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                        seededTeams.add(
+                            Team(
+                                id = globalId,
+                                name = t.name,
+                                city = t.city,
+                                state = t.state,
+                                country = countryKey,
+                                division = t.division,
+                                rating = t.rating,
+                                stadiumName = t.stadium,
+                                logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
+                                isPlayerControlled = (globalId == 1L)
+                            )
+                        )
+                    }
+                }
+                if (!isEditorSessionCurrent(session)) {
+                    notifyEditorReady(onReady, false)
+                    return@withLock
+                }
+                currentRepository.saveTeams(seededTeams)
+                dbTeams = seededTeams
+            }
+
+            if (!isEditorSessionCurrent(session)) {
+                notifyEditorReady(onReady, false)
+                return@withLock
+            }
+
+            val allDbPlayers = currentRepository.getAllPlayers()
+            if (allDbPlayers.isEmpty()) {
+                val allPlayersToSave = mutableListOf<Player>()
+                for (t in dbTeams) {
+                    val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
+                    allPlayersToSave.addAll(roster)
+                }
+                if (!isEditorSessionCurrent(session)) {
+                    notifyEditorReady(onReady, false)
+                    return@withLock
+                }
+                currentRepository.savePlayers(allPlayersToSave)
+            }
+
+            notifyEditorReady(onReady, isEditorSessionCurrent(session))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SlotRecoveryRequiredException) {
+            Log.w(
+                "GameViewModel",
+                "Editor bloqueado para slot $targetSaveId em recuperação: ${e.inspection.failureReason}"
+            )
+            val session = editorSession
+            if (session == null || isEditorSessionCurrent(session)) {
+                exitToSavesMenu()
+                loadSaveSlots()
+            }
+            notifyEditorReady(onReady, false)
+        } catch (e: Exception) {
+            Log.e("GameViewModel", "Falha fail-closed ao preparar editor no slot $targetSaveId", e)
+            val session = editorSession
+            if (session == null || isEditorSessionCurrent(session)) {
+                exitToSavesMenu()
+                loadSaveSlots()
+            }
+            notifyEditorReady(onReady, false)
         }
     }
 }
