@@ -41,7 +41,7 @@ class MarketPurchasePersistenceTest {
     }
 
     @Test
-    fun `successful purchase survives repository and database reopen`() = runTest {
+    fun `successful purchase is idempotent and survives repository and database reopen`() = runTest {
         val buyerId = 1L
         val sellerId = 2L
         val playerId = 20L
@@ -65,14 +65,30 @@ class MarketPurchasePersistenceTest {
         )
         repository.savePlayers(listOf(player))
 
-        val result = ProcessTransfersUseCase(repository).buyPlayerAdvanced(
+        val transfers = ProcessTransfersUseCase(repository)
+        val firstResult = transfers.buyPlayerAdvanced(
             save = save,
             player = player,
             offerPrice = 2_000_000L,
             installments = 1
         )
-        assertTrue(result is ProcessTransfersUseCase.TransferResult.Success)
+        assertTrue(firstResult is ProcessTransfersUseCase.TransferResult.Success)
         assertEquals(buyerId, repository.getPlayer(playerId)?.teamId)
+        assertEquals(18_000_000L, repository.getGameSave()?.bankBalance)
+        assertEquals(1, repository.getAllTransactions().size)
+
+        // A tela de negociação pode ainda ter o snapshot antigo do jogador quando recebe o callback
+        // Accepted. Uma confirmação repetida deve ser um no-op bem-sucedido, nunca uma segunda compra.
+        val repeatedConfirmation = transfers.buyPlayerAdvanced(
+            save = save,
+            player = player,
+            offerPrice = 2_000_000L,
+            installments = 1
+        )
+        assertTrue(repeatedConfirmation is ProcessTransfersUseCase.TransferResult.Success)
+        assertEquals(buyerId, repository.getPlayer(playerId)?.teamId)
+        assertEquals(18_000_000L, repository.getGameSave()?.bankBalance)
+        assertEquals(1, repository.getAllTransactions().size)
 
         db.close()
         db = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
@@ -82,5 +98,6 @@ class MarketPurchasePersistenceTest {
 
         assertEquals(buyerId, repository.getPlayer(playerId)?.teamId)
         assertEquals(18_000_000L, repository.getGameSave()?.bankBalance)
+        assertEquals(1, repository.getAllTransactions().size)
     }
 }
