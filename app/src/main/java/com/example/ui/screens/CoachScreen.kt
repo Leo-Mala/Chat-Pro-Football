@@ -308,7 +308,7 @@ fun CoachTab(viewModel: GameViewModel) {
         // Top Scorers Section
         Text("ARTILHARIA DA TEMPORADA", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         val topScorers = remember(allPlayers) {
-            allPlayers.filter { it.careerGoals > 0 }.sortedByDescending { it.careerGoals }.take(5)
+            allPlayers.filter { it.gols > 0 }.sortedByDescending { it.gols }.take(5)
         }
 
         if (topScorers.isEmpty()) {
@@ -341,7 +341,7 @@ fun CoachTab(viewModel: GameViewModel) {
                                 fontSize = 13.sp
                             )
                             Text(
-                                "${player.careerGoals} Gols",
+                                "${player.gols} Gols",
                                 color = AccentGold,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
