@@ -147,7 +147,12 @@ class GameRepository(internal val db: AppDatabase) {
             }
         }
 
+        // resetSeasonState() também é usado pelo rollover/estatísticas e, nesse contexto, precisa
+        // preservar os acumulados de carreira. Já o comando explícito de reinício da MESMA
+        // temporada recria o estado esportivo desde a semana 1; por contrato histórico desse fluxo,
+        // careerGoals volta ao estado inicial. Mantemos as duas semânticas separadas e atômicas.
         db.playerDao().resetSeasonState()
+        db.openHelper.writableDatabase.execSQL("UPDATE players SET careerGoals = 0")
         db.coachOfferDao().deleteOffers()
         true
     }
