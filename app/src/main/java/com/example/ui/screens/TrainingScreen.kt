@@ -35,7 +35,6 @@ fun TrainingScreen(
     players: List<Player>,
     onUpdateTrainingFocus: (Player, String) -> Unit,
     onUpgradeCT: () -> Unit,
-    onAdvanceMonth: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -69,7 +68,6 @@ fun TrainingScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Card de Status do Centro de Treinamento (CT)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -110,25 +108,10 @@ fun TrainingScreen(
                 }
             }
 
-            // Botão Avançar Mês / Processar Evolução Mensal
-            Button(
-                onClick = onAdvanceMonth,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("advance_month_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-            ) {
-                Icon(Icons.Default.DateRange, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Avançar Mês (Processar Evolução de Atributos)",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-            }
+            // A evolução mensal é parte do fechamento normal das semanas múltiplas de 4. O antigo
+            // botão manual disparava diretamente uma rotina técnica sem avançar o calendário e não
+            // pertence à interface de produção.
 
-            // Filtro de Posição
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -145,7 +128,6 @@ fun TrainingScreen(
                 }
             }
 
-            // Lista de Jogadores e Definição de Foco
             Text(
                 text = "Foco de Treino Individual (${filteredPlayers.size} jogadores)",
                 fontWeight = FontWeight.Bold,
@@ -188,7 +170,6 @@ fun PlayerTrainingCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header: Position + Name + Age + Dropdown Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -267,7 +248,6 @@ fun PlayerTrainingCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
 
-            // Footer: Stats (Força, Potencial, Minutos)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
