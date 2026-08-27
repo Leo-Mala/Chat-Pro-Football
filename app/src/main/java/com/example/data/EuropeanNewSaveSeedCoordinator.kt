@@ -108,7 +108,12 @@ object EuropeanNewSaveSeedCoordinator {
             pendingRequestByRepository.remove(repositoryKey)
         } ?: return null
 
+        val startedAtNs = System.nanoTime()
         val seed = buildPendingSeed(requestedTeams)
+        val materializationMs = (System.nanoTime() - startedAtNs) / 1_000_000L
+        if (seed != null) {
+            CareerCreationPerformanceMonitor.noteFactualSeedMaterialization(materializationMs)
+        }
         synchronized(lock) {
             if (seed == null) {
                 pendingSeedByRepository.remove(repositoryKey)
