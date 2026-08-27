@@ -214,7 +214,7 @@ class CareerFunctionalFlowTest {
         viewModel.executeInstantBuy(purchaseTarget) { success ->
             if (!purchaseResult.isCompleted) purchaseResult.complete(success)
         }
-        assertTrue(withTimeout(30_000L) { purchaseResult.await() })
+        assertTrue(awaitDeferred(purchaseResult, timeoutMs = 30_000L))
         awaitCondition {
             repository.getPlayer(purchaseTarget.id)?.teamId == selectedTeam.id
         }
