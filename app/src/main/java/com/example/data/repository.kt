@@ -274,6 +274,13 @@ class GameRepository(internal val db: AppDatabase) {
         ensureFixtureTeamReferences(listOf(fixture))
         val seasonFixtures = db.fixtureDao().getFixturesForSeason(fixture.season)
         val persisted = seasonFixtures.firstOrNull { it.id == fixture.id }
+        if (persisted?.isPlayed == true && fixture.isPlayed &&
+            (persisted.homeScore != fixture.homeScore || persisted.awayScore != fixture.awayScore)
+        ) {
+            // Um resultado já finalizado é imutável. Chamadas tardias podem completar pênaltis ou
+            // metadados mantendo o mesmo placar, mas nunca substituir o placar vencedor da corrida.
+            return@withTransaction
+        }
         if (persisted == null || !sameScheduleIdentity(persisted, fixture)) {
             FixtureScheduleValidator.requireCanAdd(
                 seasonFixtures.filterNot { it.id == fixture.id },
@@ -370,7 +377,7 @@ class GameRepository(internal val db: AppDatabase) {
     ) = db.withTransaction {
         db.globalLeagueStandingDao().deleteForSeason(season)
         if (rows.size > 100) {
-            rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(it) }
+            rows.chunked(100).forEach { db.globalLeagueStandingDao().insertAll(rows) }
         } else if (rows.isNotEmpty()) {
             db.globalLeagueStandingDao().insertAll(rows)
         }
