@@ -31,32 +31,54 @@ class EditorNavigationRegressionTest {
     }
 
     @Test
-    fun `editor bootstrap belongs to composable lifecycle instead of detached viewmodel job`() {
-        val editorScreen = readProjectSource("src/main/java/com/example/ui/screens/EditorScreen.kt")
-        assertTrue(
-            "Editor must launch preparation from its LaunchedEffect",
-            editorScreen.contains("LaunchedEffect(Unit) {\n        viewModel.ensureSaveActiveForEditor()\n    }")
-        )
+    fun `editor bootstrap belongs to screen lifecycle and cannot detach into viewmodel scope`() {
+        val source = readProjectSource("src/main/java/com/example/ui/viewmodel/GameViewModelEditor.kt")
 
-        val viewModelSource = readProjectSource("src/main/java/com/example/ui/viewmodel/GameViewModelEditor.kt")
-        val preparationStart = viewModelSource.indexOf("suspend fun GameViewModel.ensureSaveActiveForEditor(")
-        val nextFunction = viewModelSource.indexOf("fun GameViewModel.ensureRosterForTeam", preparationStart)
-        assertTrue("Editor preparation must be suspend", preparationStart >= 0)
-        assertTrue("Could not isolate editor preparation", nextFunction > preparationStart)
+        val functionStart = source.indexOf("suspend fun GameViewModel.ensureSaveActiveForEditor(")
+        val nextFunction = source.indexOf("fun GameViewModel.ensureRosterForTeam", startIndex = functionStart)
+        assertTrue("Editor bootstrap must be suspend", functionStart >= 0)
+        assertTrue("Could not isolate editor bootstrap", nextFunction > functionStart)
 
-        val preparationBlock = viewModelSource.substring(preparationStart, nextFunction)
-        assertTrue(
-            "Preparation should perform its IO in the caller-owned coroutine",
-            preparationBlock.contains("withContext(Dispatchers.IO)")
-        )
+        val bootstrapBody = source.substring(functionStart, nextFunction)
         assertFalse(
-            "Preparation must not detach from LaunchedEffect through viewModelScope.launch",
-            preparationBlock.contains("viewModelScope.launch")
+            "Editor bootstrap must stay owned by the caller lifecycle",
+            bootstrapBody.contains("viewModelScope.launch")
         )
         assertTrue(
-            "Cancellation must remain transparent so leaving the screen stops preparation",
-            preparationBlock.contains("catch (e: CancellationException)") && preparationBlock.contains("throw e")
+            "Editor bootstrap must remain cancellable while doing IO",
+            bootstrapBody.contains("withContext(Dispatchers.IO)")
         )
+    }
+
+    @Test
+    fun `editor mutations require the currently prepared session repository`() {
+        val source = readProjectSource("src/main/java/com/example/ui/viewmodel/GameViewModelEditor.kt")
+
+        assertTrue(
+            "Prepared-session repository gate must exist",
+            source.contains("private fun GameViewModel.preparedEditorRepositoryOrNull()")
+        )
+
+        val guardedMutationEntrypoints = listOf(
+            "ensureRosterForTeam",
+            "saveTeamFromEditor",
+            "saveTeamStrength",
+            "deleteTeamFromEditor",
+            "savePlayerFromEditor",
+            "deletePlayerFromEditor",
+            "transferPlayerFromEditor"
+        )
+        guardedMutationEntrypoints.forEach { functionName ->
+            val start = source.indexOf("fun GameViewModel.$functionName")
+            assertTrue("Missing editor mutation entrypoint: $functionName", start >= 0)
+            val next = source.indexOf("\nfun GameViewModel.", startIndex = start + 1)
+                .let { if (it >= 0) it else source.length }
+            val body = source.substring(start, next)
+            assertTrue(
+                "$functionName must reject writes outside the prepared editor session",
+                body.contains("preparedEditorRepositoryOrNull()")
+            )
+        }
     }
 
     private fun readProjectSource(relativeToApp: String): String {
