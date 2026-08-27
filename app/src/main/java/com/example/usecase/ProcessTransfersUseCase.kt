@@ -63,13 +63,20 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (hasInconsistentLoanState(freshPlayer, activeLoan)) {
                 return@withTransaction TransferResult.Error("Estado de empréstimo inconsistente; operação recusada por segurança.")
             }
-            if (isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) {
-                return@withTransaction TransferResult.Error("O jogador já pertence ao seu clube!")
+            val currentSave = repository.getGameSave() ?: save
+            if (isOwnedByTeam(freshPlayer, activeLoan, currentSave.playerTeamId)) {
+                // A negociação aceita já pode ter concluído a compra antes de a UI receber o callback.
+                // Se o snapshot que originou a ação ainda apontava para outro clube, esta é apenas uma
+                // confirmação tardia: devolvemos o estado persistido sem novo débito ou parcelamento.
+                return@withTransaction if (player.teamId != currentSave.playerTeamId) {
+                    TransferResult.Success(currentSave, freshPlayer, "Contratação já concluída.")
+                } else {
+                    TransferResult.Error("O jogador já pertence ao seu clube!")
+                }
             }
             if (player.teamId == null && freshPlayer.teamId != null && activeLoan == null) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
-            val currentSave = repository.getGameSave() ?: save
             val freshRoster = repository.getPlayersByTeam(currentSave.playerTeamId)
             if (freshRoster.size >= 35 && freshPlayer.teamId != currentSave.playerTeamId) {
                 return@withTransaction TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
@@ -314,12 +321,18 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             if (hasInconsistentLoanState(freshPlayer, activeLoan)) {
                 return@withTransaction TransferResult.Error("Estado de empréstimo inconsistente; operação recusada por segurança.")
             }
-            if (isOwnedByTeam(freshPlayer, activeLoan, save.playerTeamId)) return@withTransaction TransferResult.Error("O jogador já pertence ao seu clube!")
+            val currentSave = repository.getGameSave() ?: save
+            if (isOwnedByTeam(freshPlayer, activeLoan, currentSave.playerTeamId)) {
+                return@withTransaction if (player.teamId != currentSave.playerTeamId) {
+                    TransferResult.Success(currentSave, freshPlayer, "Contratação já concluída.")
+                } else {
+                    TransferResult.Error("O jogador já pertence ao seu clube!")
+                }
+            }
             if (player.teamId == null && freshPlayer.teamId != null && activeLoan == null) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
 
-            val currentSave = repository.getGameSave() ?: save
             val freshRoster = repository.getPlayersByTeam(currentSave.playerTeamId)
             if (freshRoster.size >= 35 && freshPlayer.teamId != currentSave.playerTeamId) return@withTransaction TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
             val wageCap = calculateWeeklyWageCap(currentSave)
