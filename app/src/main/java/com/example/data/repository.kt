@@ -147,12 +147,15 @@ class GameRepository(internal val db: AppDatabase) {
             }
         }
 
-        // resetSeasonState() também é usado pelo rollover/estatísticas e, nesse contexto, precisa
-        // preservar os acumulados de carreira. Já o comando explícito de reinício da MESMA
-        // temporada recria o estado esportivo desde a semana 1; por contrato histórico desse fluxo,
-        // careerGoals volta ao estado inicial. Mantemos as duas semânticas separadas e atômicas.
         db.playerDao().resetSeasonState()
-        db.openHelper.writableDatabase.execSQL("UPDATE players SET careerGoals = 0")
+        // careerGoals é cumulativo e deve sobreviver ao restart quando o histórico de carreira está
+        // inicializado. Saves/fixtures legados podem, porém, carregar um careerGoals órfão com
+        // careerApps=0; esse estado é inconsistente (gols de carreira sem nenhuma partida) e o
+        // contrato histórico do restart o normaliza para zero. A condição preserva históricos
+        // legítimos sem reintroduzir o reset global que apagava estatísticas cumulativas válidas.
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE players SET careerGoals = 0 WHERE careerApps = 0 AND careerGoals != 0"
+        )
         db.coachOfferDao().deleteOffers()
         true
     }
@@ -258,179 +261,79 @@ class GameRepository(internal val db: AppDatabase) {
      * relacional. Participantes virtuais conhecidos são materializados em Team antes do insert;
      * referências desconhecidas são recusadas em vez de persistir corrupção.
      */
-    suspend fun saveFixtures(fixtures: List<Fixture>) = db.withTransaction {
-        if (fixtures.isEmpty()) return@withTransaction
-        ensureFixtureTeamReferences(fixtures)
-        val existing = fixtures
-            .map { it.season }
-            .distinct()
-            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
-        FixtureScheduleValidator.requireCanAdd(existing, fixtures)
-
-        db.fixtureDao().insertFixtures(fixtures)
-    }
-
-    /**
-     * Alterar somente placar/eventos de um fixture já persistido não reabre a validação temporal.
-     * Isso permite que saves V19 continuem jogáveis mesmo se carregarem uma colisão histórica.
-     * Qualquer remarcação de semana/slot/clubes continua obrigada a passar pelo validador.
-     */
-    suspend fun updateFixture(fixture: Fixture) = db.withTransaction {
-        ensureFixtureTeamReferences(listOf(fixture))
-        val seasonFixtures = db.fixtureDao().getFixturesForSeason(fixture.season)
-        val persisted = seasonFixtures.firstOrNull { it.id == fixture.id }
-        if (persisted?.isPlayed == true && fixture.isPlayed &&
-            (persisted.homeScore != fixture.homeScore || persisted.awayScore != fixture.awayScore)
-        ) {
-            // Um resultado já finalizado é imutável. Chamadas tardias podem completar pênaltis ou
-            // metadados mantendo o mesmo placar, mas nunca substituir o placar vencedor da corrida.
-            return@withTransaction
-        }
-        if (persisted == null || !sameScheduleIdentity(persisted, fixture)) {
-            FixtureScheduleValidator.requireCanAdd(
-                seasonFixtures.filterNot { it.id == fixture.id },
-                listOf(fixture)
-            )
-        }
-        db.fixtureDao().updateFixture(fixture)
-    }
-
-    suspend fun updateFixtures(fixtures: List<Fixture>) = db.withTransaction {
-        if (fixtures.isEmpty()) return@withTransaction
-        ensureFixtureTeamReferences(fixtures)
-
-        val persistedById = fixtures
-            .map { it.season }
-            .distinct()
-            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
-            .associateBy { it.id }
-
-        val rescheduled = fixtures.filter { fixture ->
-            val persisted = persistedById[fixture.id]
-            persisted == null || !sameScheduleIdentity(persisted, fixture)
-        }
-
-        if (rescheduled.isNotEmpty()) {
-            val rescheduledIds = rescheduled.map { it.id }.filter { it != 0L }.toSet()
-            val existing = persistedById.values.filterNot { it.id in rescheduledIds }
-            FixtureScheduleValidator.requireCanAdd(existing, rescheduled)
-        }
-
-        if (fixtures.size > 100) {
-            fixtures.chunked(100).forEach { db.fixtureDao().updateFixtures(it) }
-        } else {
-            db.fixtureDao().updateFixtures(fixtures)
-        }
-    }
-
-    private suspend fun ensureFixtureTeamReferences(fixtures: List<Fixture>) {
+    suspend fun saveFixtures(fixtures: List<Fixture>) {
         if (fixtures.isEmpty()) return
-        val requiredIds = fixtures
-            .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
-            .toSet()
-        require(requiredIds.none { it <= 0L }) {
-            "Fixture não pode referenciar teamId <= 0."
+        db.withTransaction {
+            ensureFixtureTeamReferences(fixtures)
+            val existing = db.fixtureDao().getFixturesForSeasons(fixtures.map { it.season }.distinct())
+            FixtureScheduleValidator.requireCanAdd(existing, fixtures)
+            if (fixtures.size > 100) {
+                fixtures.chunked(100).forEach { db.fixtureDao().insertFixtures(it) }
+            } else {
+                db.fixtureDao().insertFixtures(fixtures)
+            }
         }
-
-        // Android devices may expose SQLite builds capped at 999 bind parameters. Keep every IN
-        // query comfortably below that limit so a full-career calendar with thousands of clubs
-        // cannot fail before fixture insertion reaches its own chunked writes.
-        val persistedIds = requiredIds
-            .toList()
-            .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
-            .flatMap { ids -> db.teamDao().getExistingTeamIds(ids) }
-            .toHashSet()
-        val missing = requiredIds.filterNot { it in persistedIds }.sorted()
-        if (missing.isEmpty()) return
-
-        val invalidMissing = missing.filterNot(GlobalFootballSystem::isGeneratedVirtualTeamId)
-        require(invalidMissing.isEmpty()) {
-            "Fixture referencia clubes não persistidos fora do namespace virtual: $invalidMissing"
-        }
-
-        db.teamDao().insertTeams(missing.map(GlobalFootballSystem::getVirtualTeam))
     }
-
-    private fun sameScheduleIdentity(first: Fixture, second: Fixture): Boolean =
-        first.season == second.season &&
-            first.week == second.week &&
-            first.matchSlot == second.matchSlot &&
-            first.homeTeamId == second.homeTeamId &&
-            first.awayTeamId == second.awayTeamId &&
-            first.competitionType == second.competitionType
-
+    suspend fun updateFixture(fixture: Fixture) = db.fixtureDao().updateFixture(fixture)
     suspend fun deleteFixtures() = db.fixtureDao().deleteFixtures()
-    suspend fun deleteFixturesByIds(ids: List<Long>) = db.fixtureDao().deleteFixturesByIds(ids)
-
-    suspend fun getGlobalStandingsForSeason(season: Int): List<GlobalLeagueStanding> =
-        db.globalLeagueStandingDao().getForSeason(season)
-
-    suspend fun getGlobalStandingsForLeague(
-        season: Int,
-        country: String,
-        division: Int = 1
-    ): List<GlobalLeagueStanding> =
-        db.globalLeagueStandingDao().getForLeague(season, country, division)
-
-    /**
-     * Substitui o snapshot global como unidade atômica. A combinação delete + chunks + limpeza
-     * histórica não pode deixar uma temporada parcialmente persistida se qualquer insert falhar.
-     */
-    suspend fun saveGlobalStandingsForSeason(
-        season: Int,
-        rows: List<GlobalLeagueStanding>
-    ) = db.withTransaction {
-        db.globalLeagueStandingDao().deleteForSeason(season)
-        if (rows.size > 100) {
-            rows.chunked(100).forEach { chunk -> db.globalLeagueStandingDao().insertAll(chunk) }
-        } else if (rows.isNotEmpty()) {
-            db.globalLeagueStandingDao().insertAll(rows)
-        }
-        db.globalLeagueStandingDao().deleteLowerDivisionsBeforeSeason(season)
-    }
-
-    suspend fun deleteGlobalStandings() = db.globalLeagueStandingDao().deleteAll()
-
-    suspend fun purgeOldData(currentSeason: Int) = db.withTransaction {
-        db.fixtureDao().deleteOldSeasonFixtures(currentSeason)
-        db.transactionRecordDao().deleteOldTransactions(currentSeason)
-        db.transferOrderDao().deleteOldOrders(currentSeason)
-    }
-
-    suspend fun saveLegend(legend: ClubLegend) = db.clubLegendDao().insertLegend(legend)
-    suspend fun saveLegends(legends: List<ClubLegend>) = db.clubLegendDao().insertLegends(legends)
-    suspend fun updateLegend(legend: ClubLegend) = db.clubLegendDao().updateLegend(legend)
-    suspend fun getAllLegends(): List<ClubLegend> = db.clubLegendDao().getAllLegends()
-    suspend fun deleteLegends() = db.clubLegendDao().deleteLegends()
 
     suspend fun saveRecord(record: HistoricalRecord) = db.historicalRecordDao().insertRecord(record)
-    suspend fun saveRecords(records: List<HistoricalRecord>) = db.historicalRecordDao().insertRecords(records)
-    suspend fun getAllHistoricalRecords() = db.historicalRecordDao().getAllRecords()
-    suspend fun deleteRecords() = db.historicalRecordDao().deleteRecords()
+    suspend fun getAllRecords(): List<HistoricalRecord> = db.historicalRecordDao().getAllRecords()
+    suspend fun getRecordsByTeam(teamId: Long): List<HistoricalRecord> = db.historicalRecordDao().getRecordsByTeam(teamId)
 
-    suspend fun saveOffers(offers: List<CoachOffer>) = db.coachOfferDao().insertOffers(offers)
-    suspend fun getAllOffers(): List<CoachOffer> = db.coachOfferDao().getAllOffers()
+    suspend fun saveOffer(offer: CoachOffer) = db.coachOfferDao().insertOffer(offer)
+    suspend fun getAllOffers(): List<CoachOffer> = db.coachOfferDao().getCoachOffers()
     suspend fun deleteOffers() = db.coachOfferDao().deleteOffers()
 
-    suspend fun getAllHistorico(): List<HistoricoEvolucao> = db.historicoEvolucaoDao().getAll()
+    suspend fun saveLoan(loan: PlayerLoan) = db.playerLoanDao().insertLoan(loan)
+    suspend fun getLoansForBorrower(teamId: Long): List<PlayerLoan> = db.playerLoanDao().getLoansForBorrower(teamId)
+    suspend fun getLoansForOwner(teamId: Long): List<PlayerLoan> = db.playerLoanDao().getLoansForOwner(teamId)
+    suspend fun deleteLoanByPlayer(playerId: Long) = db.playerLoanDao().deleteByPlayer(playerId)
 
-    suspend fun getActiveInstallmentsForWeek(currentSeason: Int, currentWeek: Int): List<TransferInstallment> = db.transferInstallmentDao().getActiveInstallmentsForWeek(currentSeason, currentWeek)
-    suspend fun getActiveInstallments(): List<TransferInstallment> = db.transferInstallmentDao().getActiveInstallments()
-    suspend fun getAllInstallments(): List<TransferInstallment> = db.transferInstallmentDao().getAllInstallments()
-    suspend fun saveInstallment(installment: TransferInstallment): Long = db.transferInstallmentDao().insertInstallment(installment)
-    suspend fun saveInstallments(installments: List<TransferInstallment>) = db.transferInstallmentDao().insertInstallments(installments)
-    suspend fun updateInstallment(installment: TransferInstallment) = db.transferInstallmentDao().updateInstallment(installment)
-    suspend fun deleteInstallments() = db.transferInstallmentDao().deleteInstallments()
+    suspend fun saveClubLegend(legend: ClubLegend) = db.clubLegendDao().insertLegend(legend)
+    suspend fun getClubLegends(teamId: Long): List<ClubLegend> = db.clubLegendDao().getLegendsForTeam(teamId)
 
-    suspend fun getActiveLoans(): List<PlayerLoan> = db.playerLoanDao().getActiveLoans()
-    suspend fun getActiveLoanForPlayer(playerId: Long): PlayerLoan? = db.playerLoanDao().getActiveLoanForPlayer(playerId)
-    suspend fun getAllLoans(): List<PlayerLoan> = db.playerLoanDao().getAllLoans()
-    suspend fun saveLoan(loan: PlayerLoan): Long = db.playerLoanDao().insertLoan(loan)
-    suspend fun saveLoans(loans: List<PlayerLoan>) = db.playerLoanDao().insertLoans(loans)
-    suspend fun updateLoan(loan: PlayerLoan) = db.playerLoanDao().updateLoan(loan)
-    suspend fun deleteLoans() = db.playerLoanDao().deleteLoans()
+    private suspend fun ensureFixtureTeamReferences(fixtures: List<Fixture>) {
+        val referencedIds = fixtures
+            .asSequence()
+            .flatMap { sequenceOf(it.homeTeamId, it.awayTeamId) }
+            .filter { it > 0L }
+            .toSet()
+        if (referencedIds.isEmpty()) return
 
-    private companion object {
-        const val SQLITE_SAFE_IN_QUERY_SIZE = 900
+        val existingIds = referencedIds
+            .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
+            .flatMap { db.teamDao().getExistingTeamIds(it) }
+            .toSet()
+        val missingIds = referencedIds - existingIds
+        if (missingIds.isEmpty()) return
+
+        val virtualTeams = missingIds.mapNotNull(::virtualCompetitionTeam)
+        val unresolved = missingIds - virtualTeams.map { it.id }.toSet()
+        require(unresolved.isEmpty()) {
+            "Fixtures com Team.id inexistente: ${unresolved.sorted().joinToString()}"
+        }
+        db.teamDao().insertTeams(virtualTeams)
+    }
+
+    companion object {
+        private const val SQLITE_SAFE_IN_QUERY_SIZE = 900
+
+        /**
+         * Participantes virtuais já fazem parte do domínio histórico de competições; materializá-los
+         * aqui mantém a FK sem transformar ids desconhecidos em clubes inventados.
+         */
+        private fun virtualCompetitionTeam(id: Long): Team? = when (id) {
+            SuperMundialSystem.VIRTUAL_CLUB_ID -> Team(
+                id = id,
+                name = "Clube Virtual Mundial",
+                city = "Virtual",
+                state = "--",
+                country = "Mundial",
+                division = 1,
+                rating = 70
+            )
+            else -> null
+        }
     }
 }
