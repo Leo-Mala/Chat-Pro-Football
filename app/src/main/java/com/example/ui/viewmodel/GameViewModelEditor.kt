@@ -24,6 +24,7 @@ import kotlin.math.roundToInt
  */
 private val editorPreparationMutexes = WeakHashMap<GameViewModel, Mutex>()
 private val editorPlayerSaveMutexes = WeakHashMap<GameViewModel, Mutex>()
+private val editorPreparedSessions = WeakHashMap<GameViewModel, SaveSession>()
 private val editorMutexesGuard = Any()
 
 private fun GameViewModel.editorPreparationMutex(): Mutex =
@@ -38,6 +39,37 @@ private fun GameViewModel.editorPlayerSaveMutex(): Mutex =
 
 private fun GameViewModel.isEditorSessionCurrent(session: SaveSession): Boolean =
     activeSaveSession.value === session && currentSaveId.value == session.slotId
+
+private fun GameViewModel.clearPreparedEditorSession() {
+    synchronized(editorMutexesGuard) {
+        editorPreparedSessions.remove(this)
+    }
+}
+
+private fun GameViewModel.markPreparedEditorSession(session: SaveSession) {
+    synchronized(editorMutexesGuard) {
+        editorPreparedSessions[this] = session
+    }
+}
+
+/**
+ * Retorna exclusivamente o repositório cuja sessão concluiu o bootstrap do Editor e continua ativa.
+ * Assim nenhuma ação exposta durante o primeiro frame, nem uma ação atrasada depois de Voltar/trocar
+ * de slot, consegue gravar em um banco que não passou pela preparação atual.
+ */
+private fun GameViewModel.preparedEditorRepositoryOrNull() =
+    synchronized(editorMutexesGuard) {
+        val preparedSession = editorPreparedSessions[this]
+        if (
+            preparedSession != null &&
+            activeSaveSession.value === preparedSession &&
+            currentSaveId.value == preparedSession.slotId
+        ) {
+            preparedSession.repository
+        } else {
+            null
+        }
+    }
 
 private suspend fun notifyEditorReady(onReady: (Boolean) -> Unit, ready: Boolean) {
     withContext(Dispatchers.Main) {
@@ -59,6 +91,7 @@ suspend fun GameViewModel.ensureSaveActiveForEditor(
 ) = withContext(Dispatchers.IO) {
     preparationAttemptCheckpoint()
     editorPreparationMutex().withLock {
+        clearPreparedEditorSession()
         val targetSaveId = _currentSaveId.value ?: "1"
         var editorSession: SaveSession? = null
         try {
@@ -129,10 +162,18 @@ suspend fun GameViewModel.ensureSaveActiveForEditor(
                 currentRepository.savePlayers(allPlayersToSave)
             }
 
-            notifyEditorReady(onReady, isEditorSessionCurrent(session))
+            val ready = isEditorSessionCurrent(session)
+            if (ready) {
+                markPreparedEditorSession(session)
+            } else {
+                clearPreparedEditorSession()
+            }
+            notifyEditorReady(onReady, ready)
         } catch (e: CancellationException) {
+            clearPreparedEditorSession()
             throw e
         } catch (e: SlotRecoveryRequiredException) {
+            clearPreparedEditorSession()
             Log.w(
                 "GameViewModel",
                 "Editor bloqueado para slot $targetSaveId em recuperação: ${e.inspection.failureReason}"
@@ -144,6 +185,7 @@ suspend fun GameViewModel.ensureSaveActiveForEditor(
             }
             notifyEditorReady(onReady, false)
         } catch (e: Exception) {
+            clearPreparedEditorSession()
             Log.e("GameViewModel", "Falha fail-closed ao preparar editor no slot $targetSaveId", e)
             val session = editorSession
             if (session == null || isEditorSessionCurrent(session)) {
@@ -157,7 +199,8 @@ suspend fun GameViewModel.ensureSaveActiveForEditor(
 
 fun GameViewModel.ensureRosterForTeam(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val players = repo.getPlayersByTeam(teamId)
+        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val players = editorRepository.getPlayersByTeam(teamId)
         if (players.isEmpty()) {
             val defaultPlayers = List(18) { idx ->
                 Player(
@@ -170,21 +213,22 @@ fun GameViewModel.ensureRosterForTeam(teamId: Long) {
                     salary = 5000L
                 )
             }
-            repo.savePlayers(defaultPlayers)
+            editorRepository.savePlayers(defaultPlayers)
         }
     }
 }
 
 fun GameViewModel.saveTeamFromEditor(team: Team) {
     viewModelScope.launch(Dispatchers.IO) {
+        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
         val finalTeamId = if (team.id == 0L) System.currentTimeMillis() else team.id
         val teamToSave = team.copy(id = finalTeamId)
-        repo.saveTeams(listOf(teamToSave))
+        editorRepository.saveTeams(listOf(teamToSave))
 
-        val existingPlayers = repo.getPlayersByTeam(finalTeamId)
+        val existingPlayers = editorRepository.getPlayersByTeam(finalTeamId)
         if (existingPlayers.isEmpty()) {
             val roster = DefaultData.generateRosterForTeam(finalTeamId, teamToSave.rating, teamToSave.name, teamToSave.country)
-            repo.savePlayers(roster)
+            editorRepository.savePlayers(roster)
         } else {
             val currentAvg = existingPlayers.map { it.force }.average().toInt()
             val delta = teamToSave.rating - currentAvg
@@ -196,7 +240,7 @@ fun GameViewModel.saveTeamFromEditor(team: Team) {
                         potential = maxOf(p.potential, newForce + 3).coerceIn(35, 99)
                     )
                 }
-                repo.savePlayers(updatedPlayers)
+                editorRepository.savePlayers(updatedPlayers)
             }
         }
     }
@@ -204,11 +248,12 @@ fun GameViewModel.saveTeamFromEditor(team: Team) {
 
 fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int) {
     viewModelScope.launch(Dispatchers.IO) {
+        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
         val newRating = ((attack + mid + def) / 3).coerceIn(15, 99)
-        val team = repo.getTeam(teamId) ?: return@launch
-        repo.updateTeam(team.copy(rating = newRating))
+        val team = editorRepository.getTeam(teamId) ?: return@launch
+        editorRepository.updateTeam(team.copy(rating = newRating))
 
-        val players = repo.getPlayersByTeam(teamId)
+        val players = editorRepository.getPlayersByTeam(teamId)
         val updatedPlayers = players.map { player ->
             val currentAttr = player.getAtributosObject()
             val oldForce = player.force.coerceAtLeast(1)
@@ -236,13 +281,14 @@ fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int
                 defense = scaledAttr.desarme
             )
         }
-        repo.updatePlayers(updatedPlayers)
+        editorRepository.updatePlayers(updatedPlayers)
     }
 }
 
 fun GameViewModel.deleteTeamFromEditor(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        repo.deleteTeam(teamId)
+        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        editorRepository.deleteTeam(teamId)
     }
 }
 
@@ -256,18 +302,28 @@ fun GameViewModel.savePlayerFromEditor(
     onComplete: (Boolean) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
+        val editorRepository = preparedEditorRepositoryOrNull()
+        if (editorRepository == null) {
+            withContext(Dispatchers.Main) { onComplete(false) }
+            return@launch
+        }
+
         val saveMutex = editorPlayerSaveMutex()
         if (!saveMutex.tryLock()) {
             withContext(Dispatchers.Main) { onComplete(false) }
             return@launch
         }
         try {
-            repo.withTransaction {
-                val previous = if (player.id == 0L) null else repo.getPlayer(player.id)
+            if (preparedEditorRepositoryOrNull() !== editorRepository) {
+                withContext(Dispatchers.Main) { onComplete(false) }
+                return@launch
+            }
+            editorRepository.withTransaction {
+                val previous = if (player.id == 0L) null else editorRepository.getPlayer(player.id)
                 if (player.id == 0L) {
-                    repo.savePlayers(listOf(player))
+                    editorRepository.savePlayers(listOf(player))
                 } else {
-                    repo.updatePlayer(player)
+                    editorRepository.updatePlayer(player)
                 }
 
                 val affectedTeamIds = buildSet {
@@ -275,11 +331,11 @@ fun GameViewModel.savePlayerFromEditor(
                     player.teamId?.let(::add)
                 }
                 for (teamId in affectedTeamIds) {
-                    val roster = repo.getPlayersByTeam(teamId)
-                    val team = repo.getTeam(teamId) ?: continue
+                    val roster = editorRepository.getPlayersByTeam(teamId)
+                    val team = editorRepository.getTeam(teamId) ?: continue
                     val calculated = GameEngine.calculateTeamRating(roster)
                     if (team.rating != calculated) {
-                        repo.updateTeam(team.copy(rating = calculated))
+                        editorRepository.updateTeam(team.copy(rating = calculated))
                     }
                 }
             }
@@ -298,14 +354,16 @@ fun GameViewModel.savePlayerFromEditor(
 
 fun GameViewModel.deletePlayerFromEditor(playerId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        repo.deletePlayer(playerId)
+        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        editorRepository.deletePlayer(playerId)
     }
 }
 
 fun GameViewModel.transferPlayerFromEditor(playerId: Long, targetTeamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
-        val player = repo.getPlayer(playerId) ?: return@launch
+        val editorRepository = preparedEditorRepositoryOrNull() ?: return@launch
+        val player = editorRepository.getPlayer(playerId) ?: return@launch
         val updated = player.copy(teamId = targetTeamId, originalTeamId = null, isOnLoan = false, loanWeeksRemaining = 0)
-        repo.updatePlayer(updated)
+        editorRepository.updatePlayer(updated)
     }
 }
