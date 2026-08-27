@@ -212,15 +212,21 @@ object EuropeanNewSaveSeedCoordinator {
     fun consumePlayers(repository: GameRepository, fallback: List<Player>): PlayerSeed =
         consumePlayersForKey(repository, fallback)
 
-    internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed =
-        synchronized(lock) {
+    internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed {
+        val seed = synchronized(lock) {
             // Não materializa a partir de uma requisição crua: somente saveTeams pode fazê-lo.
             // Isso congela a ordem canônica do novo save: prepare -> saveTeams -> savePlayers.
             pendingRequestByRepository.remove(repositoryKey)
             val pending = pendingSeedByRepository.remove(repositoryKey)
-                ?: return@synchronized PlayerSeed(fallback, emptyList(), overridden = false)
-            PlayerSeed(pending.players, pending.loans, overridden = true)
+            if (pending == null) {
+                PlayerSeed(fallback, emptyList(), overridden = false)
+            } else {
+                PlayerSeed(pending.players, pending.loans, overridden = true)
+            }
         }
+        CareerCreationPerformanceMonitor.notePersistedPlayerCount(seed.players.size)
+        return seed
+    }
 
     fun clear(repository: GameRepository) {
         clearForKey(repository)
