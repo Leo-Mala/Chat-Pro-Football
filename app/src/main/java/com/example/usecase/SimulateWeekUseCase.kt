@@ -3,6 +3,7 @@ package com.example.usecase
 import com.example.data.CompetitionRules
 import com.example.data.Fixture
 import com.example.data.GameRepository
+import com.example.data.GlobalFootballSystem
 import com.example.data.Player
 import kotlin.math.max
 import kotlin.random.Random
@@ -93,15 +94,28 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 division = 1,
                 rating = 50
             )
+            val homeRoster = rostersByTeam[fixture.homeTeamId].orEmpty()
+            val awayRoster = rostersByTeam[fixture.awayTeamId].orEmpty()
 
             val isRivalry = homeTeam.rivalTeamId == awayTeam.id
             val seed = season * 1000L + week * 100L + fixture.id
-            val (homeScore, awayScore) = com.example.data.GameEngine.simulateMatchInstant(
+            val (rawHomeScore, rawAwayScore) = com.example.data.GameEngine.simulateMatchInstant(
                 homeTeam = homeTeam,
                 awayTeam = awayTeam,
                 isRivalry = isRivalry,
                 randomSeed = seed
             )
+
+            // Clubes virtuais gerados são participantes estruturais sem atletas persistidos. Eles não
+            // podem produzir gols sem artilheiro correspondente; nesses casos o placar ofensivo do
+            // placeholder é normalizado para zero, preservando a igualdade entre gols de fixtures e
+            // gols atribuídos a jogadores reais sem inventar atletas/dados factuais.
+            val homeScore = if (
+                homeRoster.isEmpty() && GlobalFootballSystem.isGeneratedVirtualTeamId(fixture.homeTeamId)
+            ) 0 else rawHomeScore
+            val awayScore = if (
+                awayRoster.isEmpty() && GlobalFootballSystem.isGeneratedVirtualTeamId(fixture.awayTeamId)
+            ) 0 else rawAwayScore
 
             val (homePenalties, awayPenalties) = CompetitionRules.resolvePenaltiesIfNeeded(
                 fixture = fixture,
@@ -112,14 +126,14 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
             val scorerIds = buildList {
                 addAll(
                     selectScorers(
-                        players = rostersByTeam[fixture.homeTeamId].orEmpty(),
+                        players = homeRoster,
                         goals = homeScore,
                         random = Random(seed xor HOME_SCORER_SALT)
                     )
                 )
                 addAll(
                     selectScorers(
-                        players = rostersByTeam[fixture.awayTeamId].orEmpty(),
+                        players = awayRoster,
                         goals = awayScore,
                         random = Random(seed xor AWAY_SCORER_SALT)
                     )
@@ -152,13 +166,18 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
                 .flatMap { it.scorerIds }
                 .groupingBy { it }
                 .eachCount()
+            val appearanceCounts = committedPlans
+                .flatMap { plan -> plan.scorerIds.distinct() }
+                .groupingBy { it }
+                .eachCount()
 
             if (goalCounts.isNotEmpty()) {
                 val updatedScorers = goalCounts.mapNotNull { (playerId, goals) ->
                     repository.getPlayer(playerId)?.let { persisted ->
                         persisted.copy(
                             gols = persisted.gols + goals,
-                            careerGoals = persisted.careerGoals + goals
+                            careerGoals = persisted.careerGoals + goals,
+                            careerApps = persisted.careerApps + (appearanceCounts[playerId] ?: 0)
                         )
                     }
                 }
