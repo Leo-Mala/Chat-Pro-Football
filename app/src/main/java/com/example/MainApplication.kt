@@ -7,17 +7,10 @@ import com.example.data.EuropeanAuditedLowerTierClubTargetMaterializer2026_27
 import com.example.data.EuropeanFactualAssetRuntime
 import com.example.data.EuropeanFactualClubTargetMaterializer2026_27
 import com.example.data.Fc26FactualAssetRuntime
-import com.example.data.ProductionCareerSeedPrewarm
 import dagger.hilt.android.HiltAndroidApp
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class MainApplication : Application() {
-    private val seedPrewarmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     override fun onCreate() {
         super.onCreate()
         EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
@@ -26,12 +19,10 @@ class MainApplication : Application() {
         Fc26FactualAssetRuntime.initialize(assets)
         EuropeanFactualAssetRuntime.initialize(assets)
 
-        // Faz em background não só a leitura/validação do FC26, mas também o matching de clubes,
-        // mapeamento de jogadores, resolução de empréstimos e fallbacks do universo de produção.
-        // Assim o clique em INICIAR CARREIRA reutiliza um plano já pronto em memória.
-        seedPrewarmScope.launch {
-            runCatching { ProductionCareerSeedPrewarm.prewarm() }
-        }
+        // Não materializa o plano completo de ~60k jogadores no startup. Esse prewarm concorria
+        // com a navegação inicial e, se o usuário tocasse em INICIAR CARREIRA enquanto ainda
+        // executava, o clique disputava CPU/memória e o mesmo lock do Fc26SeedPlanner. A leitura
+        // factual continua inicializada; o plano canônico é construído uma única vez sob demanda.
 
         fixCursorWindowSize()
     }
