@@ -28,301 +28,185 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_once(path_str, old, new):
-              path = Path(path_str)
-              text = path.read_text()
+          def read(path):
+              return Path(path).read_text()
+
+          def write(path, text):
+              Path(path).write_text(text)
+
+          def replace_once(path, old, new):
+              text = read(path)
               count = text.count(old)
               if count != 1:
                   raise SystemExit(f'{path}: expected one match, got {count}: {old[:120]!r}')
-              path.write_text(text.replace(old, new, 1))
+              write(path, text.replace(old, new, 1))
 
-          # 1) Do not compose/render two heavyweight tabs at the same time for 200 ms.
-          replace_once(
+          def replace_between(path, start_marker, end_marker, replacement):
+              text = read(path)
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f'{path}: start marker not found: {start_marker!r}')
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f'{path}: end marker not found: {end_marker!r}')
+              end += len(end_marker)
+              write(path, text[:start] + replacement + text[end:])
+
+          # Dashboard tabs: do not keep outgoing + incoming heavyweight screens alive for 200 ms.
+          replace_between(
               'app/src/main/java/com/example/ui/screens/DashboardScreen.kt',
-              '''                AnimatedContent(
-                      targetState = activeTabIndex,
-                      transitionSpec = {
-                          fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) togetherWith fadeOut(animationSpec = androidx.compose.animation.core.tween(200))
-                      },
-                      label = "tab_transition",
-                      modifier = Modifier.fillMaxSize()
-                  ) { targetIndex ->
-          ''',
-              '''                // Swap tab content in one frame. AnimatedContent kept the outgoing and incoming
-                  // heavyweight tabs composed simultaneously, amplifying Room/list work as visible jank.
-                  key(activeTabIndex) {
-                      val targetIndex = activeTabIndex
-          ''')
+              'AnimatedContent(\n                    targetState = activeTabIndex,',
+              ') { targetIndex ->',
+              'key(activeTabIndex) {\n                    val targetIndex = activeTabIndex'
+          )
 
-          # 2) Same rule for app-level routes (dashboard/match/menu/editor).
-          replace_once(
+          # App routes: same issue for menu/editor/dashboard/live match crossfades.
+          replace_between(
               'app/src/main/java/com/example/ui/screens/GameScreens.kt',
-              '''        AnimatedContent(
-                  targetState = screenKey,
-                  transitionSpec = {
-                      fadeIn(animationSpec = androidx.compose.animation.core.tween(250)) togetherWith fadeOut(animationSpec = androidx.compose.animation.core.tween(250))
-                  },
-                  label = "main_screen_transition",
-                  modifier = Modifier.fillMaxSize()
-              ) { key ->
-          ''',
-              '''        // App-level destinations can contain large Room-backed lists. Keeping both destinations
-              // alive during a crossfade doubles composition/render pressure exactly when the user taps.
-              key(screenKey) {
-                  val key = screenKey
-          ''')
+              'AnimatedContent(\n            targetState = screenKey,',
+              ') { key ->',
+              'key(screenKey) {\n            val key = screenKey'
+          )
 
-          # 3) Query only players that can actually appear in season scoring UIs.
+          # Player DAO: artilharia only needs players with goals, preserving previous stable tie order.
           replace_once(
               'app/src/main/java/com/example/data/daos.kt',
-              '''    @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
-              fun getAllPlayersFlow(): Flow<List<Player>>
+              '    fun getAllPlayersFlow(): Flow<List<Player>>\n',
+              '    fun getAllPlayersFlow(): Flow<List<Player>>\n\n'
+              '    /** UI de artilharia: evita materializar ~60k jogadores sem gols. */\n'
+              '    @Query("SELECT * FROM players WHERE gols > 0 ORDER BY gols DESC, force DESC, name ASC")\n'
+              '    fun getSeasonScorersFlow(): Flow<List<Player>>\n'
+          )
 
-              @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
-              suspend fun getAllPlayers(): List<Player>
-          ''',
-              '''    @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
-              fun getAllPlayersFlow(): Flow<List<Player>>
-
-              /**
-               * UI de artilharia não precisa materializar ~60k jogadores. A ordenação de empate
-               * preserva a ordem anterior: allPlayers era force DESC/name ASC e sortedByDescending(gols)
-               * é estável.
-               */
-              @Query("SELECT * FROM players WHERE gols > 0 ORDER BY gols DESC, force DESC, name ASC")
-              fun getSeasonScorersFlow(): Flow<List<Player>>
-
-              @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
-              suspend fun getAllPlayers(): List<Player>
-          ''')
-
+          # Coach profile only needs played fixtures involving the controlled team.
+          fixture_anchor = (
+              '    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>\n'
+          )
           replace_once(
               'app/src/main/java/com/example/data/daos.kt',
-              '''    @Query("SELECT * FROM fixtures WHERE season = :season AND competitionType = :competitionType AND isPlayed = 1 ORDER BY week ASC, matchSlot ASC, id ASC")
-              fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>
+              fixture_anchor,
+              fixture_anchor +
+              '\n    @Query("SELECT * FROM fixtures WHERE isPlayed = 1 AND (homeTeamId = :teamId OR awayTeamId = :teamId) ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")\n'
+              '    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>>\n'
+          )
 
-              @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
-          ''',
-              '''    @Query("SELECT * FROM fixtures WHERE season = :season AND competitionType = :competitionType AND isPlayed = 1 ORDER BY week ASC, matchSlot ASC, id ASC")
-              fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>
-
-              /** Perfil do técnico só usa partidas já jogadas do clube controlado, não o calendário global. */
-              @Query("SELECT * FROM fixtures WHERE isPlayed = 1 AND (homeTeamId = :teamId OR awayTeamId = :teamId) ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")
-              fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>>
-
-              @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
-          ''')
-
-          # 4) Expose lightweight flows through repository + ViewModel.
+          # Repository lightweight sources.
           replace_once(
               'app/src/main/java/com/example/data/repository.kt',
-              '''    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()
-              val allFixturesFlow: Flow<List<Fixture>> = db.fixtureDao().getFixturesFlow()
-          ''',
-              '''    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()
-              val seasonScorersFlow: Flow<List<Player>> = db.playerDao().getSeasonScorersFlow()
-              val allFixturesFlow: Flow<List<Fixture>> = db.fixtureDao().getFixturesFlow()
-          ''')
-
+              '    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n',
+              '    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n'
+              '    val seasonScorersFlow: Flow<List<Player>> = db.playerDao().getSeasonScorersFlow()\n'
+          )
           replace_once(
               'app/src/main/java/com/example/data/repository.kt',
-              '''    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>> =
-                  db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)
-              fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =
-          ''',
-              '''    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>> =
-                  db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)
-              fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>> =
-                  db.fixtureDao().getPlayedFixturesForTeamFlow(teamId)
-              fun getNextFixtureForTeamFlow(season: Int, week: Int, teamId: Long): Flow<Fixture?> =
-          ''')
+              '        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)\n',
+              '        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)\n'
+              '    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>> =\n'
+              '        db.fixtureDao().getPlayedFixturesForTeamFlow(teamId)\n'
+          )
 
+          # ViewModel lightweight scorer stream.
+          vm = 'app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt'
+          all_players_block = (
+              '    val allPlayers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n'
+              '        r?.allPlayersFlow ?: flowOf(emptyList())\n'
+              '    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n'
+          )
           replace_once(
-              'app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt',
-              '''    val allPlayers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
-                  r?.allPlayersFlow ?: flowOf(emptyList())
-              }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+              vm,
+              all_players_block,
+              all_players_block +
+              '\n    val seasonScorers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n'
+              '        r?.seasonScorersFlow ?: flowOf(emptyList())\n'
+              '    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n'
+          )
 
-              val allFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-          ''',
-              '''    val allPlayers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
-                  r?.allPlayersFlow ?: flowOf(emptyList())
-              }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-              // Lightweight source for Coach/Tables: avoids decoding the complete ~60k Player table.
-              val seasonScorers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
-                  r?.seasonScorersFlow ?: flowOf(emptyList())
-              }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-              val allFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-          ''')
-
+          played_fixture_flow = (
+              '    val playerPlayedFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n'
+              '        if (r == null) {\n'
+              '            flowOf(emptyList())\n'
+              '        } else {\n'
+              '            r.gameSaveFlow.flatMapLatest { save ->\n'
+              '                val teamId = save?.playerTeamId ?: 0L\n'
+              '                if (teamId > 0L) r.getPlayedFixturesForTeamFlow(teamId) else flowOf(emptyList())\n'
+              '            }\n'
+              '        }\n'
+              '    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n'
+          )
           replace_once(
-              'app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt',
-              '''    val playerLeagueFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-                  if (r == null) {
-                      flowOf(emptyList())
-                  } else {
-                      r.gameSaveFlow.flatMapLatest { save ->
-                          val teamId = save?.playerTeamId ?: 0L
-                          if (save == null || teamId <= 0L) {
-                              flowOf(emptyList())
-                          } else {
-                              r.getTeamFlow(teamId).flatMapLatest { team ->
-                                  if (team == null) {
-                                      flowOf(emptyList())
-                                  } else {
-                                      val competitionType = when (team.division) {
-                                          1 -> "SERIE_A"
-                                          2 -> "SERIE_B"
-                                          3 -> "SERIE_C"
-                                          else -> "SERIE_D"
-                                      }
-                                      r.getPlayedFixturesForCompetitionFlow(
-                                          season = save.currentSeason,
-                                          competitionType = competitionType
-                                      )
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+              vm,
+              '    val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n',
+              played_fixture_flow + '    val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n'
+          )
 
-              val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-          ''',
-              '''    val playerLeagueFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-                  if (r == null) {
-                      flowOf(emptyList())
-                  } else {
-                      r.gameSaveFlow.flatMapLatest { save ->
-                          val teamId = save?.playerTeamId ?: 0L
-                          if (save == null || teamId <= 0L) {
-                              flowOf(emptyList())
-                          } else {
-                              r.getTeamFlow(teamId).flatMapLatest { team ->
-                                  if (team == null) {
-                                      flowOf(emptyList())
-                                  } else {
-                                      val competitionType = when (team.division) {
-                                          1 -> "SERIE_A"
-                                          2 -> "SERIE_B"
-                                          3 -> "SERIE_C"
-                                          else -> "SERIE_D"
-                                      }
-                                      r.getPlayedFixturesForCompetitionFlow(
-                                          season = save.currentSeason,
-                                          competitionType = competitionType
-                                      )
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-              val playerPlayedFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-                  if (r == null) {
-                      flowOf(emptyList())
-                  } else {
-                      r.gameSaveFlow.flatMapLatest { save ->
-                          val teamId = save?.playerTeamId ?: 0L
-                          if (teamId > 0L) r.getPlayedFixturesForTeamFlow(teamId) else flowOf(emptyList())
-                      }
-                  }
-              }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-              val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
-          ''')
-
-          # 5) Heavy tabs consume the lightweight sources.
+          # Tables + Coach no longer subscribe to the global 60k Player flow.
           replace_once(
               'app/src/main/java/com/example/ui/screens/StandingsScreen.kt',
-              '''    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
-          ''',
-              '''    val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()
-          ''')
-
+              '    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()\n',
+              '    val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()\n'
+          )
           replace_once(
               'app/src/main/java/com/example/ui/screens/CoachScreen.kt',
-              '''    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
-              val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()
-          ''',
-              '''    val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()
-              val allFixtures by viewModel.playerPlayedFixtures.collectAsStateWithLifecycle()
-          ''')
-
-          # 6) Market filter/sort over ~60k objects must never run on the UI thread.
+              '    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()\n',
+              '    val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()\n'
+          )
           replace_once(
-              'app/src/main/java/com/example/ui/screens/TransfersScreen.kt',
-              '''import com.example.ui.viewmodel.*
-          ''',
-              '''import com.example.ui.viewmodel.*
-              import kotlinx.coroutines.Dispatchers
-              import kotlinx.coroutines.withContext
-          ''')
+              'app/src/main/java/com/example/ui/screens/CoachScreen.kt',
+              '    val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()\n',
+              '    val allFixtures by viewModel.playerPlayedFixtures.collectAsStateWithLifecycle()\n'
+          )
 
+          # Market: filter/sort the global list on Default dispatcher, never during Main composition.
+          transfers = 'app/src/main/java/com/example/ui/screens/TransfersScreen.kt'
           replace_once(
-              'app/src/main/java/com/example/ui/screens/TransfersScreen.kt',
-              '''    val availablePlayers = remember(allPlayers, save?.playerTeamId, searchQuery, searchPos, searchMinForce, searchMaxAge, searchMaxPrice, searchSortBy) {
-                  allPlayers.filter { player ->
-                      player.isTransferMarketCandidateFor(save?.playerTeamId) &&
-                      (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
-                      (searchPos == "TODOS" || player.position == searchPos) &&
-                      player.force >= searchMinForce &&
-                      player.age <= searchMaxAge &&
-                      (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
-                  }.let { filtered ->
-                      when (searchSortBy) {
-                          "FORCA_DESC" -> filtered.sortedByDescending { it.force }
-                          "FORCA_ASC" -> filtered.sortedBy { it.force }
-                          "IDADE_ASC" -> filtered.sortedBy { it.age }
-                          "IDADE_DESC" -> filtered.sortedByDescending { it.age }
-                          "NOME" -> filtered.sortedBy { it.name }
-                          "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
-                          "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
-                          else -> filtered
-                      }
-                  }.take(80)
-              }
-          ''',
-              '''    var availablePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
-              LaunchedEffect(
-                  allPlayers,
-                  save?.playerTeamId,
-                  searchQuery,
-                  searchPos,
-                  searchMinForce,
-                  searchMaxAge,
-                  searchMaxPrice,
-                  searchSortBy
-              ) {
-                  // Room delivers the global list asynchronously, but this filter/sort used to run during
-                  // composition on Main. Keep the exact filtering semantics while doing CPU work off-frame.
-                  availablePlayers = withContext(Dispatchers.Default) {
-                      allPlayers.filter { player ->
-                          player.isTransferMarketCandidateFor(save?.playerTeamId) &&
-                          (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
-                          (searchPos == "TODOS" || player.position == searchPos) &&
-                          player.force >= searchMinForce &&
-                          player.age <= searchMaxAge &&
-                          (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
-                      }.let { filtered ->
-                          when (searchSortBy) {
-                              "FORCA_DESC" -> filtered.sortedByDescending { it.force }
-                              "FORCA_ASC" -> filtered.sortedBy { it.force }
-                              "IDADE_ASC" -> filtered.sortedBy { it.age }
-                              "IDADE_DESC" -> filtered.sortedByDescending { it.age }
-                              "NOME" -> filtered.sortedBy { it.name }
-                              "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
-                              "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
-                              else -> filtered
-                          }
-                      }.take(80)
-                  }
-              }
-          ''')
-
+              transfers,
+              'import com.example.ui.viewmodel.*\n',
+              'import com.example.ui.viewmodel.*\nimport kotlinx.coroutines.Dispatchers\nimport kotlinx.coroutines.withContext\n'
+          )
+          text = read(transfers)
+          start_marker = 'val availablePlayers = remember(allPlayers, save?.playerTeamId, searchQuery, searchPos, searchMinForce, searchMaxAge, searchMaxPrice, searchSortBy) {'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('TransfersScreen.kt: availablePlayers start not found')
+          end_marker = '        }.take(80)\n    }'
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('TransfersScreen.kt: availablePlayers end not found')
+          end += len(end_marker)
+          replacement = '''var availablePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
+    LaunchedEffect(
+        allPlayers,
+        save?.playerTeamId,
+        searchQuery,
+        searchPos,
+        searchMinForce,
+        searchMaxAge,
+        searchMaxPrice,
+        searchSortBy
+    ) {
+        availablePlayers = withContext(Dispatchers.Default) {
+            allPlayers.filter { player ->
+                player.isTransferMarketCandidateFor(save?.playerTeamId) &&
+                (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
+                (searchPos == "TODOS" || player.position == searchPos) &&
+                player.force >= searchMinForce &&
+                player.age <= searchMaxAge &&
+                (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
+            }.let { filtered ->
+                when (searchSortBy) {
+                    "FORCA_DESC" -> filtered.sortedByDescending { it.force }
+                    "FORCA_ASC" -> filtered.sortedBy { it.force }
+                    "IDADE_ASC" -> filtered.sortedBy { it.age }
+                    "IDADE_DESC" -> filtered.sortedByDescending { it.age }
+                    "NOME" -> filtered.sortedBy { it.name }
+                    "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
+                    "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
+                    else -> filtered
+                }
+            }.take(80)
+        }
+    }'''
+          write(transfers, text[:start] + replacement + text[end:])
           PY
 
       - name: Commit production patch and remove temporary workflow
