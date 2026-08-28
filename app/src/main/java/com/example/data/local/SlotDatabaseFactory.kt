@@ -3,6 +3,7 @@ package com.example.data.local
 import android.content.Context
 import androidx.room.Room
 import com.example.data.AppDatabase
+import com.example.data.CareerSeedTemplateContract
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,12 +40,26 @@ class SlotDatabaseFactory @Inject constructor(
         // instance still registered here is the canonical database instance for that slot.
         databases[slotId]?.let { return it }
 
-        val db = Room.databaseBuilder(
-            context.applicationContext,
+        val appContext = context.applicationContext
+        val databaseName = databaseNameForSlot(slotId)
+        val databaseFile = appContext.getDatabasePath(databaseName)
+        val isBrandNewSlot = !databaseFile.exists()
+
+        val builder = Room.databaseBuilder(
+            appContext,
             AppDatabase::class.java,
-            databaseNameForSlot(slotId)
+            databaseName
         )
             .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+
+        // Somente um arquivo fisicamente inexistente recebe a cópia do baseline. Saves reais,
+        // inclusive o banco legado do slot 1, nunca são substituídos nem recriados a partir do asset.
+        // O baseline usa o mesmo schema Room V22 e mantém cada slot totalmente independente.
+        if (isBrandNewSlot) {
+            builder.createFromAsset(CareerSeedTemplateContract.ASSET_PATH)
+        }
+
+        val db = builder
             // Never destroy a save because its schema version is unknown or newer.
             .build()
 
