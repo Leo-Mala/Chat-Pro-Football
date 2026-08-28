@@ -58,7 +58,79 @@ object Fc26SeedPlanner {
         }
     }
 
+    private data class ProductionCacheKey(
+        val assetSha256: String,
+        val teamsFingerprint: Long
+    )
+
+    private data class ProductionCache(
+        val key: ProductionCacheKey,
+        val plan: Plan
+    )
+
+    @Volatile
+    private var productionCache: ProductionCache? = null
+    private val productionCacheLock = Any()
+
+    /**
+     * O universo de produção possui milhares de clubes e é sempre materializado com o mesmo
+     * factory determinístico. Esse plano contém ~60k jogadores e é caro o bastante para nunca ser
+     * recalculado no clique de INICIAR CARREIRA. `isPlayerControlled` é propositalmente ignorado na
+     * chave: ele altera somente Team, não o roster factual/procedural produzido aqui.
+     */
+    fun prewarmProduction(teams: List<Team>, dataset: Fc26Dataset): Plan {
+        require(teams.size >= PRODUCTION_CACHE_MIN_TEAMS) {
+            "Prewarm de produção exige universo completo de clubes."
+        }
+        return build(teams, dataset) { team ->
+            DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+        }
+    }
+
     fun build(
+        teams: List<Team>,
+        dataset: Fc26Dataset,
+        proceduralRosterFactory: (Team) -> List<Player>
+    ): Plan {
+        val cacheKey = productionCacheKeyOrNull(teams, dataset)
+        if (cacheKey != null) {
+            productionCache?.takeIf { it.key == cacheKey }?.let { return it.plan }
+            return synchronized(productionCacheLock) {
+                productionCache?.takeIf { it.key == cacheKey }?.plan
+                    ?: buildUncached(teams, dataset, proceduralRosterFactory).also { plan ->
+                        productionCache = ProductionCache(cacheKey, plan)
+                    }
+            }
+        }
+        return buildUncached(teams, dataset, proceduralRosterFactory)
+    }
+
+    private fun productionCacheKeyOrNull(
+        teams: List<Team>,
+        dataset: Fc26Dataset
+    ): ProductionCacheKey? {
+        if (teams.size < PRODUCTION_CACHE_MIN_TEAMS) return null
+        var fingerprint = 1125899906842597L
+        teams.sortedBy { it.id }.forEach { team ->
+            fingerprint = fingerprint * 31L + team.id
+            fingerprint = fingerprint * 31L + team.name.hashCode().toLong()
+            fingerprint = fingerprint * 31L + team.country.hashCode().toLong()
+            fingerprint = fingerprint * 31L + team.division.toLong()
+            fingerprint = fingerprint * 31L + team.rating.toLong()
+        }
+        return ProductionCacheKey(
+            assetSha256 = dataset.manifest.assetSha256,
+            teamsFingerprint = fingerprint
+        )
+    }
+
+    internal fun clearProductionCacheForTesting() {
+        synchronized(productionCacheLock) {
+            productionCache = null
+        }
+    }
+
+    private fun buildUncached(
         teams: List<Team>,
         dataset: Fc26Dataset,
         proceduralRosterFactory: (Team) -> List<Player>
@@ -72,7 +144,6 @@ object Fc26SeedPlanner {
             .filter { it.status == Fc26ClubMatchStatus.MATCHED }
             .groupBy { requireNotNull(it.targetTeamId) }
 
-        // Dois source clubs nunca podem ser silenciosamente associados ao mesmo Team.
         val conflictingTargets = matchedByTargetId.filterValues { it.size > 1 }
         require(conflictingTargets.isEmpty()) {
             "FC26 club matching associou múltiplos source clubs ao mesmo Team: ${conflictingTargets.keys.sorted()}"
@@ -100,13 +171,9 @@ object Fc26SeedPlanner {
             }
         }
 
-        // Free agents factuais entram uma única vez e preservam o contrato canônico teamId=null.
         val freeAgents = dataset.freeAgents.map { Fc26PlayerMapper.toPlayer(it, null) }
         players += freeAgents
 
-        // Jogadores cujo clube FC26 ainda não possui target seguro também entram no jogo. Eles NÃO
-        // são reclassificados como free agents factuais: teamId=null significa apenas "unassigned"
-        // no universo atual. A identidade do clube de origem continua preservada em atributosJson.
         val unmatchedClubPlayers = dataset.sourceClubs
             .asSequence()
             .filter { matchesBySourceId.getValue(it.sourceClubTeamId).status == Fc26ClubMatchStatus.UNMATCHED }
@@ -122,9 +189,6 @@ object Fc26SeedPlanner {
         val unassignedClubPlayers = unmatchedClubPlayers + ambiguousClubPlayers
         players += unassignedClubPlayers
 
-        // Resolve ownership only after borrower/current-club identities have been canonicalized.
-        // Snapshot dates are unavailable, so resolved relations use the explicit open-ended FC26
-        // sentinel defined by Fc26LoanPolicy and are never given a fabricated duration.
         val loanResolution = Fc26LoanResolver.resolve(dataset, matches)
         val resolutionByPlayerId = loanResolution.audit.resolutions.associateBy { it.playerId }
         val materializedLoansByPlayerId = loanResolution.loans.associateBy { it.playerId }
@@ -139,8 +203,6 @@ object Fc26SeedPlanner {
             player.markFc26LoanResolution(resolution)
         }
 
-        // Preserve historical A1/A2/A3 club-coverage counters so audit reports remain comparable.
-        // bulkImportedFc26Players is the actual number inserted.
         val clubCoverageImportedPlayers = mappedClubPlayerCount + freeAgents.size
         val clubCoverageUnresolvedPlayers = dataset.players.size - clubCoverageImportedPlayers
         val bulkImportedPlayers = clubCoverageImportedPlayers + unassignedClubPlayers.size
@@ -186,4 +248,6 @@ object Fc26SeedPlanner {
         )
         return Plan(players = playersWithLoanState, loans = loanResolution.loans, report = report)
     }
+
+    private const val PRODUCTION_CACHE_MIN_TEAMS = 1_000
 }
