@@ -1745,6 +1745,12 @@ class GameViewModel @Inject constructor(
         )
         CareerCreationPerformanceMonitor.record(performanceSnapshot)
         Log.i("CareerCreationPerformance", performanceSnapshot.toString())
+        CareerCreationPerformanceMonitor.latest?.let { diagnostic ->
+            _toastMessage.emit(
+                "DIAG criação: total=${diagnostic.totalMs}ms | FC26=${diagnostic.factualSeedMaterializationMs}ms | " +
+                    "banco=${diagnostic.persistenceMs}ms | calendário=${diagnostic.competitionCalendarMs}ms"
+            )
+        }
     }
 
     fun startNewGame(selectedTeamId: Long, coachName: String = "Técnico") {
