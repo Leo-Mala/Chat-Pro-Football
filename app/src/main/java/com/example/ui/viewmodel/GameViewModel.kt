@@ -1344,11 +1344,11 @@ class GameViewModel @Inject constructor(
             targetRepo.saveTeams(newTeamsToSeed)
         }
 
-        // Ensure rosters exist for teams in active country
-        val allPlayers = targetRepo.getAllPlayers()
+        // Ensure rosters exist for teams in active country without materializing the global
+        // ~60k Player table. This path runs while choosing a slot/country, before a career exists.
         val activeTeams = targetRepo.getAllTeams().filter { it.country == activeCountry }
         for (team in activeTeams) {
-            val hasPlayers = allPlayers.any { it.teamId == team.id }
+            val hasPlayers = targetRepo.getPlayerCountByTeam(team.id) > 0
             if (!hasPlayers) {
                 val roster = DefaultData.generateRosterForTeam(team.id, team.rating, team.name, activeCountry)
                 newPlayersToSeed.addAll(roster)
@@ -1585,6 +1585,7 @@ class GameViewModel @Inject constructor(
         val generation = session.generation
         val season = 2026
         val totalStartedAtNs = System.nanoTime()
+        CareerCreationPerformanceMonitor.clear()
 
         // 1. Preparação dos dados de times em memória do zero
         val clubSetupStartedAtNs = System.nanoTime()
@@ -1612,6 +1613,11 @@ class GameViewModel @Inject constructor(
         val dbTeams = newTeamsToSeed
         val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
 
+        // Um slot novo pode ter sido criado diretamente do baseline Room empacotado. O marker
+        // só é aceito se schema, SHA FC26, contagens e ausência de GameSave coincidirem.
+        val prebuiltSeedMarker = targetRepo.pristineCareerSeedTemplateOrNull()
+        val usePrebuiltCareerSeed = prebuiltSeedMarker != null
+
         // 2. Cálculo do calendário em memória ANTES da transação do banco.
         // O calendário também registra a intenção do seed factual para este mesmo repositório.
         val competitionCalendarStartedAtNs = System.nanoTime()
@@ -1622,7 +1628,15 @@ class GameViewModel @Inject constructor(
         // Quando FC26 está disponível, savePlayers() consumirá exatamente esse seed; portanto gerar
         // ~60k jogadores procedurais aqui seria trabalho descartado. Sem dataset factual, preservamos
         // o fallback procedural integral e determinístico usado anteriormente.
-        val hasPreparedFactualSeed = EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
+        val hasPreparedFactualSeed = if (usePrebuiltCareerSeed) {
+            // O mesmo seed canônico já está fisicamente no banco copiado. Não materializamos o
+            // planner FC26 novamente e removemos a intenção registrada pelo calendário.
+            EuropeanNewSaveSeedCoordinator.clear(targetRepo)
+            CareerCreationPerformanceMonitor.notePersistedPlayerCount(prebuiltSeedMarker!!.playerCount)
+            true
+        } else {
+            EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
+        }
         val rosterMaterializationStartedAtNs = System.nanoTime()
         val allPlayersToSave = if (hasPreparedFactualSeed) {
             emptyList()
@@ -1636,7 +1650,8 @@ class GameViewModel @Inject constructor(
         val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
         Log.i(
             "CareerCreationPerformance",
-            "PreparedFactualSeed=$hasPreparedFactualSeed proceduralFallbackPlayers=${allPlayersToSave.size}"
+            "PrebuiltSeed=$usePrebuiltCareerSeed preparedFactualSeed=$hasPreparedFactualSeed " +
+                "proceduralFallbackPlayers=${allPlayersToSave.size}"
         )
 
         // 4. Preparação dos metadados do GameSave em memória
@@ -1676,8 +1691,10 @@ class GameViewModel @Inject constructor(
             }
             val databaseBootstrapStartedAtNs = System.nanoTime()
             targetRepo.deleteSave()
-            targetRepo.deleteTeams()
-            targetRepo.deletePlayers()
+            if (!usePrebuiltCareerSeed) {
+                targetRepo.deleteTeams()
+                targetRepo.deletePlayers()
+            }
             targetRepo.deleteFixtures()
             targetRepo.deleteTransactions()
             targetRepo.deleteOrders()
@@ -1686,17 +1703,27 @@ class GameViewModel @Inject constructor(
             targetRepo.deleteOffers()
             targetRepo.deleteAllHistorico()
             targetRepo.deleteInstallments()
-            targetRepo.deleteLoans()
+            if (!usePrebuiltCareerSeed) {
+                targetRepo.deleteLoans()
+            }
             targetRepo.deleteGlobalStandings()
             databaseBootstrapMs = (System.nanoTime() - databaseBootstrapStartedAtNs) / 1_000_000L
 
             val persistenceStartedAtNs = System.nanoTime()
             val teamSeedStartedAtNs = System.nanoTime()
-            targetRepo.saveTeams(dbTeams)
+            if (usePrebuiltCareerSeed) {
+                // O template nasce com todos os clubes não-controlados; só a escolha do usuário
+                // precisa virar delta. Evita regravar 2.524 clubes idênticos.
+                playerSelectedTeam?.let { targetRepo.updateTeam(it) }
+            } else {
+                targetRepo.saveTeams(dbTeams)
+            }
             val teamSeedAndPersistenceMs = (System.nanoTime() - teamSeedStartedAtNs) / 1_000_000L
 
             val playerPersistenceStartedAtNs = System.nanoTime()
-            targetRepo.savePlayers(allPlayersToSave)
+            if (!usePrebuiltCareerSeed) {
+                targetRepo.savePlayers(allPlayersToSave)
+            }
             val playerPersistenceMs = (System.nanoTime() - playerPersistenceStartedAtNs) / 1_000_000L
 
             val fixturePersistenceStartedAtNs = System.nanoTime()
@@ -1705,6 +1732,11 @@ class GameViewModel @Inject constructor(
 
             val saveRowStartedAtNs = System.nanoTime()
             targetRepo.saveGameSave(save)
+            if (usePrebuiltCareerSeed) {
+                // Consome o marker na MESMA transação do GameSave. Qualquer falha reverte ambos,
+                // impedindo que uma carreira parcial seja confundida com baseline reutilizável.
+                targetRepo.consumePristineCareerSeedTemplate()
+            }
             val saveRowPersistenceMs = (System.nanoTime() - saveRowStartedAtNs) / 1_000_000L
             persistenceMs = (System.nanoTime() - persistenceStartedAtNs) / 1_000_000L
             Log.i(
