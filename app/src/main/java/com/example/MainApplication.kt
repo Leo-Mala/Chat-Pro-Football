@@ -7,6 +7,7 @@ import com.example.data.EuropeanAuditedLowerTierClubTargetMaterializer2026_27
 import com.example.data.EuropeanFactualAssetRuntime
 import com.example.data.EuropeanFactualClubTargetMaterializer2026_27
 import com.example.data.Fc26FactualAssetRuntime
+import com.example.data.ProductionCareerSeedPrewarm
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +26,11 @@ class MainApplication : Application() {
         Fc26FactualAssetRuntime.initialize(assets)
         EuropeanFactualAssetRuntime.initialize(assets)
 
-        // O snapshot FC26 é imutável e cacheado. Validar/descompactar o asset em background durante
-        // o uso normal do menu tira esse custo do clique em INICIAR CARREIRA sem alterar nenhum
-        // dado esportivo nem bloquear a thread principal. Se a validação falhar aqui, o fluxo
-        // canônico tentará novamente e continuará falhando fechado como antes.
+        // Faz em background não só a leitura/validação do FC26, mas também o matching de clubes,
+        // mapeamento de jogadores, resolução de empréstimos e fallbacks do universo de produção.
+        // Assim o clique em INICIAR CARREIRA reutiliza um plano já pronto em memória.
         seedPrewarmScope.launch {
-            runCatching { Fc26FactualAssetRuntime.loadValidatedOrNull() }
+            runCatching { ProductionCareerSeedPrewarm.prewarm() }
         }
 
         fixCursorWindowSize()
