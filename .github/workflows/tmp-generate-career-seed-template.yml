@@ -116,4 +116,6 @@ jobs:
           git add app/src/main/assets/databases/career_seed_template.db
           git diff --cached --quiet && { echo 'template unchanged'; exit 0; }
           git commit -m "perf: ship prebuilt career seed database"
+          git fetch origin fix/3.0.1-manual-test-bugs
+          git rebase origin/fix/3.0.1-manual-test-bugs
           git push origin HEAD:fix/3.0.1-manual-test-bugs
