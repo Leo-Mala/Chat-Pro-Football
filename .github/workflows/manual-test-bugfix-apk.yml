@@ -132,3 +132,5 @@ jobs:
           path: manual-test-apk/
           if-no-files-found: error
           retention-days: 7
+
+# This workflow intentionally validates only the focused manual-test bugfix surface.
