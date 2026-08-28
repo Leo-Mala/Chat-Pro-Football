@@ -102,6 +102,7 @@ jobs:
             --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
             --tests com.example.data.PlayerEvolutionRegressionTest \
             --tests com.example.usecase.CareerCreationPerformanceTest \
+            --tests com.example.data.CareerSeedTemplateRuntimeTest \
             --tests com.example.data.Fc26DatasetAssetTest \
             --tests com.example.data.Fc26PlayerMapperTest \
             --tests com.example.data.Fc26SeedPlannerTest \
