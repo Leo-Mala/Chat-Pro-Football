@@ -254,6 +254,17 @@ object EuropeanNewSaveSeedCoordinator {
     internal fun teamsForTesting(repositoryKey: Any, fallback: List<Team>): List<Team> =
         teamsForKey(repositoryKey, fallback)
 
+    /**
+     * Materializa antecipadamente a requisição preparada pelo calendário, sem consumi-la.
+     * O novo save usa isso para descobrir se existe seed factual antes de gastar CPU gerando um
+     * roster procedural global que seria descartado logo depois por savePlayers().
+     */
+    fun materializePreparedSeed(repository: GameRepository): Boolean =
+        materializeRequestedSeed(repository) != null
+
+    internal fun materializePreparedSeedForTesting(repositoryKey: Any): Boolean =
+        materializeRequestedSeed(repositoryKey) != null
+
     fun consumePlayers(repository: GameRepository, fallback: List<Player>): PlayerSeed =
         consumePlayersForKey(repository, fallback)
 
@@ -268,8 +279,8 @@ object EuropeanNewSaveSeedCoordinator {
 
     internal fun consumePlayersForKey(repositoryKey: Any, fallback: List<Player>): PlayerSeed {
         val seed = synchronized(lock) {
-            // Não materializa a partir de uma requisição crua: somente saveTeams pode fazê-lo.
-            // Isso congela a ordem canônica do novo save: prepare -> saveTeams -> savePlayers.
+            // O seed pode ter sido materializado por saveTeams ou antecipadamente pelo Novo Jogo.
+            // Em ambos os casos, savePlayers continua sendo o único consumidor que remove o seed.
             pendingRequestByRepository.remove(repositoryKey)
             val pending = pendingSeedByRepository.remove(repositoryKey)
             val isNewSaveProceduralFallback =
