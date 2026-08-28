@@ -6,7 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.AppDatabase
 import com.example.data.CareerCreationPerformanceMonitor
 import com.example.data.CareerCreationPerformanceSnapshot
+import com.example.data.Fixture
 import com.example.data.GameRepository
+import com.example.data.MatchSlot
 import com.example.data.Player
 import com.example.data.Team
 import kotlinx.coroutines.test.runTest
@@ -75,6 +77,67 @@ class CareerCreationPerformanceTest {
         assertTrue("teamId/position/force index was not restored", "index_players_teamId_position_force" in indexNames)
         assertTrue("teamId/isStarter index was not restored", "index_players_teamId_isStarter" in indexNames)
         assertTrue("originalTeamId index was not restored", "index_players_originalTeamId" in indexNames)
+    }
+
+    @Test
+    fun `fresh fixture persistence restores all schedule indexes`() = runTest {
+        val teams = (1L..50L).map { id ->
+            Team(
+                id = id,
+                name = "Fixture Team $id",
+                city = "City $id",
+                state = "ST",
+                country = "Brasil",
+                division = 1,
+                rating = 70
+            )
+        }
+        repository.saveTeams(teams)
+
+        val fixtures = buildList {
+            for (week in 1..40) {
+                for (pair in 0 until 25) {
+                    val home = pair * 2L + 1L
+                    val away = home + 1L
+                    add(
+                        Fixture(
+                            season = 2026,
+                            week = week,
+                            matchSlot = MatchSlot.WEEKEND,
+                            homeTeamId = if (week % 2 == 1) home else away,
+                            awayTeamId = if (week % 2 == 1) away else home,
+                            competitionType = "PERF_FIXTURE"
+                        )
+                    )
+                }
+            }
+        }
+
+        val started = System.nanoTime()
+        repository.saveFixtures(fixtures)
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000L
+
+        assertEquals(1_000, repository.getFixturesForSeason(2026).size)
+        assertTrue("1k-fixture fresh bulk persistence took ${elapsedMs}ms", elapsedMs < 10_000L)
+
+        val indexNames = db.openHelper.readableDatabase
+            .query("PRAGMA index_list(`fixtures`)")
+            .use { cursor ->
+                val nameColumn = cursor.getColumnIndexOrThrow("name")
+                buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(nameColumn))
+                }
+            }
+        val expectedIndexes = setOf(
+            "index_fixtures_season",
+            "index_fixtures_week",
+            "index_fixtures_homeTeamId",
+            "index_fixtures_awayTeamId",
+            "index_fixtures_competitionType",
+            "index_fixtures_season_week",
+            "index_fixtures_season_week_matchSlot"
+        )
+        assertTrue("fixture indexes were not fully restored: $indexNames", indexNames.containsAll(expectedIndexes))
     }
 
     @Test
