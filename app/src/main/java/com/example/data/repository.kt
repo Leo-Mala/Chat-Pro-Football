@@ -281,19 +281,44 @@ class GameRepository(internal val db: AppDatabase) {
 
     /**
      * Toda criação de fixture passa pela mesma barreira de calendário e, desde V21, pela barreira
-     * relacional. Participantes virtuais conhecidos são materializados em Team antes do insert;
-     * referências desconhecidas são recusadas em vez de persistir corrupção.
+     * relacional. Na primeira população da tabela, não existe calendário persistido para reler e
+     * comparar. Validamos contra conjunto vazio e suspendemos temporariamente os sete índices
+     * secundários durante o bulk insert, recriando-os antes do commit. Em saves existentes o
+     * caminho conservador anterior continua exatamente igual.
      */
     suspend fun saveFixtures(fixtures: List<Fixture>) = db.withTransaction {
         if (fixtures.isEmpty()) return@withTransaction
         ensureFixtureTeamReferences(fixtures)
-        val existing = fixtures
-            .map { it.season }
-            .distinct()
-            .flatMap { db.fixtureDao().getFixturesForSeason(it) }
-        FixtureScheduleValidator.requireCanAdd(existing, fixtures)
 
-        db.fixtureDao().insertFixtures(fixtures)
+        val isFirstPopulation = tableRowCount("fixtures") == 0L
+        if (isFirstPopulation) {
+            FixtureScheduleValidator.requireCanAdd(emptyList(), fixtures)
+            persistFreshFixturesWithoutSecondaryIndexChurn(fixtures)
+        } else {
+            val existing = fixtures
+                .map { it.season }
+                .distinct()
+                .flatMap { db.fixtureDao().getFixturesForSeason(it) }
+            FixtureScheduleValidator.requireCanAdd(existing, fixtures)
+            db.fixtureDao().insertFixtures(fixtures)
+        }
+    }
+
+    private suspend fun persistFreshFixturesWithoutSecondaryIndexChurn(fixtures: List<Fixture>) {
+        val sqlite = db.openHelper.writableDatabase
+        FIXTURE_BULK_INDEX_DROP_SQL.forEach(sqlite::execSQL)
+        try {
+            db.fixtureDao().insertFixtures(fixtures)
+        } finally {
+            FIXTURE_BULK_INDEX_CREATE_SQL.forEach(sqlite::execSQL)
+        }
+    }
+
+    private fun tableRowCount(tableName: String): Long {
+        require(tableName == "fixtures") { "Tabela não autorizada para contagem de bootstrap: $tableName" }
+        return db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM `$tableName`")
+            .use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
     }
 
     /**
@@ -469,6 +494,26 @@ class GameRepository(internal val db: AppDatabase) {
             "CREATE INDEX IF NOT EXISTS `index_players_teamId_position_force` ON `players` (`teamId`, `position`, `force`)",
             "CREATE INDEX IF NOT EXISTS `index_players_teamId_isStarter` ON `players` (`teamId`, `isStarter`)",
             "CREATE INDEX IF NOT EXISTS `index_players_originalTeamId` ON `players` (`originalTeamId`)"
+        )
+
+        val FIXTURE_BULK_INDEX_DROP_SQL = listOf(
+            "DROP INDEX IF EXISTS `index_fixtures_season`",
+            "DROP INDEX IF EXISTS `index_fixtures_week`",
+            "DROP INDEX IF EXISTS `index_fixtures_homeTeamId`",
+            "DROP INDEX IF EXISTS `index_fixtures_awayTeamId`",
+            "DROP INDEX IF EXISTS `index_fixtures_competitionType`",
+            "DROP INDEX IF EXISTS `index_fixtures_season_week`",
+            "DROP INDEX IF EXISTS `index_fixtures_season_week_matchSlot`"
+        )
+
+        val FIXTURE_BULK_INDEX_CREATE_SQL = listOf(
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_season` ON `fixtures` (`season`)",
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_week` ON `fixtures` (`week`)",
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_homeTeamId` ON `fixtures` (`homeTeamId`)",
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_awayTeamId` ON `fixtures` (`awayTeamId`)",
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_competitionType` ON `fixtures` (`competitionType`)",
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_season_week` ON `fixtures` (`season`, `week`)",
+            "CREATE INDEX IF NOT EXISTS `index_fixtures_season_week_matchSlot` ON `fixtures` (`season`, `week`, `matchSlot`)"
         )
     }
 }
