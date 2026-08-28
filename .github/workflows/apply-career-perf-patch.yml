@@ -1,4 +1,4 @@
-name: Apply Career Creation Performance Patch
+name: Apply Career Perf Patch
 
 on:
   push:
@@ -12,7 +12,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: install career perf patch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,68 +21,32 @@ jobs:
           ref: fix/3.0.1-manual-test-bugs
           fetch-depth: 0
 
-      - name: Remove redundant procedural roster materialization
+      - name: Patch exact career creation block
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import base64
           from pathlib import Path
-
           path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           text = path.read_text()
-          old = '''        // 2. Geração limpa de jogadores para todos os times
-        val rosterMaterializationStartedAtNs = System.nanoTime()
-        val allPlayersToSave = mutableListOf<Player>()
-        for (t in dbTeams) {
-            val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
-            allPlayersToSave.addAll(roster)
-        }
-        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
-
-        // 3. Cálculo do calendário em memória ANTES da transação do banco
-        val competitionCalendarStartedAtNs = System.nanoTime()
-        val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)
-        val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L
-'''
-          new = '''        // 2. Cálculo do calendário em memória ANTES da transação do banco.
-        // O calendário também registra a intenção do seed factual para este mesmo repositório.
-        val competitionCalendarStartedAtNs = System.nanoTime()
-        val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)
-        val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L
-
-        // 3. Materializa o seed factual já preparado antes de gerar qualquer roster procedural global.
-        // Quando FC26 está disponível, savePlayers() consumirá exatamente esse seed; portanto gerar
-        // ~60k jogadores procedurais aqui seria trabalho descartado. Sem dataset factual, preservamos
-        // o fallback procedural integral e determinístico usado anteriormente.
-        val hasPreparedFactualSeed = EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
-        val rosterMaterializationStartedAtNs = System.nanoTime()
-        val allPlayersToSave = if (hasPreparedFactualSeed) {
-            emptyList()
-        } else {
-            buildList {
-                for (t in dbTeams) {
-                    addAll(DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country))
-                }
-            }
-        }
-        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
-        Log.i(
-            "CareerCreationPerformance",
-            "PreparedFactualSeed=$hasPreparedFactualSeed proceduralFallbackPlayers=${allPlayersToSave.size}"
-        )
-'''
-          if old not in text:
-              raise SystemExit('Expected GameViewModel career-creation block not found; refusing broad edit.')
-          path.write_text(text.replace(old, new, 1))
+          start_marker = '        // 2. Geração limpa de jogadores para todos os times\n'
+          end_marker = '        val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L\n'
+          if start_marker not in text:
+              raise SystemExit('Expected career creation start marker not found')
+          start = text.index(start_marker)
+          end = text.index(end_marker, start) + len(end_marker)
+          replacement = base64.b64decode('ICAgICAgICAvLyAyLiBDw6FsY3VsbyBkbyBjYWxlbmTDoXJpbyBlbSBtZW3Ds3JpYSBBTlRFUyBkYSB0cmFuc2HDp8OjbyBkbyBiYW5jby4KICAgICAgICAvLyBPIGNhbGVuZMOhcmlvIHRhbWLDqW0gcmVnaXN0cmEgYSBpbnRlbsOnw6NvIGRvIHNlZWQgZmFjdHVhbCBwYXJhIGVzdGUgbWVzbW8gcmVwb3NpdMOzcmlvLgogICAgICAgIHZhbCBjb21wZXRpdGlvbkNhbGVuZGFyU3RhcnRlZEF0TnMgPSBTeXN0ZW0ubmFub1RpbWUoKQogICAgICAgIHZhbCBhbGxHZW5lcmF0ZWRGaXh0dXJlcyA9IGdlbmVyYXRlQ2FsZW5kYXJVc2VDYXNlLmdlbmVyYXRlU2Vhc29uRml4dHVyZXMoc2Vhc29uLCBkYlRlYW1zLCB0ZWFtSWQsIGFjdGl2ZUNvdW50cnkpCiAgICAgICAgdmFsIGNvbXBldGl0aW9uQ2FsZW5kYXJNcyA9IChTeXN0ZW0ubmFub1RpbWUoKSAtIGNvbXBldGl0aW9uQ2FsZW5kYXJTdGFydGVkQXROcykgLyAxXzAwMF8wMDBMCgogICAgICAgIC8vIDMuIE1hdGVyaWFsaXphIG8gc2VlZCBmYWN0dWFsIGrDoSBwcmVwYXJhZG8gYW50ZXMgZGUgZ2VyYXIgcXVhbHF1ZXIgcm9zdGVyIHByb2NlZHVyYWwgZ2xvYmFsLgogICAgICAgIC8vIFF1YW5kbyBGQzI2IGVzdMOhIGRpc3BvbsOtdmVsLCBzYXZlUGxheWVycygpIGNvbnN1bWlyw6EgZXhhdGFtZW50ZSBlc3NlIHNlZWQ7IHBvcnRhbnRvIGdlcmFyCiAgICAgICAgLy8gfjYwayBqb2dhZG9yZXMgcHJvY2VkdXJhaXMgYXF1aSBzZXJpYSB0cmFiYWxobyBkZXNjYXJ0YWRvLiBTZW0gZGF0YXNldCBmYWN0dWFsLCBwcmVzZXJ2YW1vcwogICAgICAgIC8vIG8gZmFsbGJhY2sgcHJvY2VkdXJhbCBpbnRlZ3JhbCBlIGRldGVybWluw61zdGljbyB1c2FkbyBhbnRlcmlvcm1lbnRlLgogICAgICAgIHZhbCBoYXNQcmVwYXJlZEZhY3R1YWxTZWVkID0gRXVyb3BlYW5OZXdTYXZlU2VlZENvb3JkaW5hdG9yLm1hdGVyaWFsaXplUHJlcGFyZWRTZWVkKHRhcmdldFJlcG8pCiAgICAgICAgdmFsIHJvc3Rlck1hdGVyaWFsaXphdGlvblN0YXJ0ZWRBdE5zID0gU3lzdGVtLm5hbm9UaW1lKCkKICAgICAgICB2YWwgYWxsUGxheWVyc1RvU2F2ZSA9IGlmIChoYXNQcmVwYXJlZEZhY3R1YWxTZWVkKSB7CiAgICAgICAgICAgIGVtcHR5TGlzdCgpCiAgICAgICAgfSBlbHNlIHsKICAgICAgICAgICAgYnVpbGRMaXN0IHsKICAgICAgICAgICAgICAgIGZvciAodCBpbiBkYlRlYW1zKSB7CiAgICAgICAgICAgICAgICAgICAgYWRkQWxsKERlZmF1bHREYXRhLmdlbmVyYXRlUm9zdGVyRm9yVGVhbSh0LmlkLCB0LnJhdGluZywgdC5uYW1lLCB0LmNvdW50cnkpKQogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgfQogICAgICAgIHZhbCByb3N0ZXJNYXRlcmlhbGl6YXRpb25NcyA9IChTeXN0ZW0ubmFub1RpbWUoKSAtIHJvc3Rlck1hdGVyaWFsaXphdGlvblN0YXJ0ZWRBdE5zKSAvIDFfMDAwXzAwMEwKICAgICAgICBMb2cuaSgKICAgICAgICAgICAgIkNhcmVlckNyZWF0aW9uUGVyZm9ybWFuY2UiLAogICAgICAgICAgICAiUHJlcGFyZWRGYWN0dWFsU2VlZD0kaGFzUHJlcGFyZWRGYWN0dWFsU2VlZCBwcm9jZWR1cmFsRmFsbGJhY2tQbGF5ZXJzPSR7YWxsUGxheWVyc1RvU2F2ZS5zaXplfSIKICAgICAgICApCg==').decode()
+          path.write_text(text[:start] + replacement + text[end:])
           PY
+          git diff --check
 
-      - name: Commit focused patch
+      - name: Commit patch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
-          git diff --cached --check
           git commit -m 'perf: skip redundant procedural roster seed'
           git push origin HEAD:fix/3.0.1-manual-test-bugs
