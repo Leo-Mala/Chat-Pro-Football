@@ -27,6 +27,14 @@ class Fc26PlayerMapperTest {
         assertEquals("FC26", metadata?.source)
     }
 
+    @Test fun `default attributes use compact lossless Room representation`() {
+        val converter = AtributosConverter()
+        val encoded = converter.fromAtributos(Atributos())
+
+        assertEquals("{}", encoded)
+        assertEquals(Atributos(), converter.toAtributos(encoded))
+    }
+
     @Test fun `position mapping keeps current gameplay codes`() {
         assertEquals("GOL", Fc26PositionMapper.simplified(listOf("GK")))
         assertEquals("ZAG", Fc26PositionMapper.simplified(listOf("CB")))
