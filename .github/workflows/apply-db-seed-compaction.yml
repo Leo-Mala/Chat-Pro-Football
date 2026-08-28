@@ -28,7 +28,6 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # 1) Default Atributos can be stored as {} losslessly: decoder defaults every missing key to 50.
           path = Path('app/src/main/java/com/example/data/PlayerAttributes.kt')
           text = path.read_text()
           marker = '        if (atributos == null) return null\n'
@@ -42,7 +41,6 @@ jobs:
               raise SystemExit('PlayerAttributes target missing or already patched')
           path.write_text(text.replace(marker, addition, 1))
 
-          # 2) FC26 gameplay attributes already live in Player.atributos. Keep only the import envelope here.
           path = Path('app/src/main/java/com/example/data/Fc26DatasetModels.kt')
           text = path.read_text()
           old_comment = (
@@ -68,7 +66,6 @@ jobs:
           text = text[:start] + '        val root = linkedMapOf<String, Any?>(\n' + import_marker + text[imp + len(import_marker):]
           path.write_text(text)
 
-          # 3) Regression: default compaction is exact and round-trips.
           path = Path('app/src/test/java/com/example/data/AtributosConverterSeedPerformanceTest.kt')
           text = path.read_text()
           marker = '    @Test\n    fun `career scale serialization avoids old multi minute allocation profile`() {'
@@ -85,7 +82,6 @@ jobs:
               raise SystemExit('Atributos regression target not found')
           path.write_text(text.replace(marker, insert + marker, 1))
 
-          # 4) Regression: compact FC26 envelope remains readable and no longer duplicates atributos.
           path = Path('app/src/test/java/com/example/data/Fc26PlayerMapperTest.kt')
           text = path.read_text()
           marker = '        assertTrue(mapped.atributosJson.orEmpty().contains("\\\"alternativePositions\\\":[\\\"CM\\\"]"))\n'
@@ -99,20 +95,6 @@ jobs:
           if marker not in text:
               raise SystemExit('FC26 mapper regression target not found')
           path.write_text(text.replace(marker, addition, 1))
-
-          # 5) Keep the focused APK workflow covering this persistence optimization.
-          path = Path('.github/workflows/manual-test-bugfix-apk.yml')
-          text = path.read_text()
-          marker = '            --tests com.example.data.Fc26SeedPlannerTest \\\n'
-          if 'AtributosConverterSeedPerformanceTest' not in text:
-              if marker not in text:
-                  raise SystemExit('Manual-test workflow target not found')
-              text = text.replace(
-                  marker,
-                  marker + '            --tests com.example.data.AtributosConverterSeedPerformanceTest \\\n',
-                  1
-              )
-          path.write_text(text)
           PY
 
           git diff --check
@@ -126,8 +108,7 @@ jobs:
           git add app/src/main/java/com/example/data/PlayerAttributes.kt \
                   app/src/main/java/com/example/data/Fc26DatasetModels.kt \
                   app/src/test/java/com/example/data/AtributosConverterSeedPerformanceTest.kt \
-                  app/src/test/java/com/example/data/Fc26PlayerMapperTest.kt \
-                  .github/workflows/manual-test-bugfix-apk.yml
+                  app/src/test/java/com/example/data/Fc26PlayerMapperTest.kt
           git diff --cached --check
           git commit -m 'perf: compact first career persistence payloads'
           git push origin HEAD:fix/3.0.1-manual-test-bugs
