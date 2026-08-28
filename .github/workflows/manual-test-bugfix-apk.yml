@@ -6,96 +6,14 @@ on:
       - fix/3.0.1-manual-test-bugs
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: manual-test-bugfix-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  patch-career-creation:
-    if: ${{ github.event.head_commit.message == 'chore: apply career perf patch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout branch head
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: fix/3.0.1-manual-test-bugs
-          fetch-depth: 0
-
-      - name: Remove redundant procedural roster materialization
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
-          text = path.read_text()
-          old = "\n".join([
-              "        // 2. Geração limpa de jogadores para todos os times",
-              "        val rosterMaterializationStartedAtNs = System.nanoTime()",
-              "        val allPlayersToSave = mutableListOf<Player>()",
-              "        for (t in dbTeams) {",
-              "            val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)",
-              "            allPlayersToSave.addAll(roster)",
-              "        }",
-              "        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L",
-              "",
-              "        // 3. Cálculo do calendário em memória ANTES da transação do banco",
-              "        val competitionCalendarStartedAtNs = System.nanoTime()",
-              "        val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)",
-              "        val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L",
-              "",
-          ])
-          new = "\n".join([
-              "        // 2. Cálculo do calendário em memória ANTES da transação do banco.",
-              "        // O calendário também registra a intenção do seed factual para este mesmo repositório.",
-              "        val competitionCalendarStartedAtNs = System.nanoTime()",
-              "        val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)",
-              "        val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L",
-              "",
-              "        // 3. Materializa o seed factual já preparado antes de gerar qualquer roster procedural global.",
-              "        // Quando FC26 está disponível, savePlayers() consumirá exatamente esse seed; portanto gerar",
-              "        // ~60k jogadores procedurais aqui seria trabalho descartado. Sem dataset factual, preservamos",
-              "        // o fallback procedural integral e determinístico usado anteriormente.",
-              "        val hasPreparedFactualSeed = EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)",
-              "        val rosterMaterializationStartedAtNs = System.nanoTime()",
-              "        val allPlayersToSave = if (hasPreparedFactualSeed) {",
-              "            emptyList()",
-              "        } else {",
-              "            buildList {",
-              "                for (t in dbTeams) {",
-              "                    addAll(DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country))",
-              "                }",
-              "            }",
-              "        }",
-              "        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L",
-              "        Log.i(",
-              "            \"CareerCreationPerformance\",",
-              "            \"PreparedFactualSeed=$hasPreparedFactualSeed proceduralFallbackPlayers=${allPlayersToSave.size}\"",
-              "        )",
-              "",
-          ])
-          if old not in text:
-              raise SystemExit('Expected GameViewModel career-creation block not found; refusing broad edit.')
-          path.write_text(text.replace(old, new, 1))
-          PY
-
-      - name: Commit focused performance patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
-          git diff --cached --check
-          git commit -m 'perf: skip redundant procedural roster seed'
-          git push origin HEAD:fix/3.0.1-manual-test-bugs
-
   focused-validation-and-apk:
-    if: ${{ github.event.head_commit.message != 'chore: apply career perf patch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -215,4 +133,4 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-# Temporary write-capable patch job will be removed after the focused code edit lands.
+# This workflow intentionally validates only the focused manual-test bugfix surface.
