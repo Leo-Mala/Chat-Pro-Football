@@ -6,6 +6,7 @@ on:
       - fix/3.0.1-manual-test-bugs
     paths:
       - .github/workflows/tmp-generate-career-seed-template.yml
+      - app/src/test/java/com/example/data/CareerSeedTemplateGeneratorTest.kt
 
 permissions:
   contents: write
