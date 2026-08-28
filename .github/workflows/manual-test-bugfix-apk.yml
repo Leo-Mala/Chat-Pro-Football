@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   patch-career-creation:
-    if: github.event.head_commit.message == 'chore: apply career perf patch'
+    if: ${{ github.event.head_commit.message == 'chore: apply career perf patch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -91,7 +91,7 @@ jobs:
           git push origin HEAD:fix/3.0.1-manual-test-bugs
 
   focused-validation-and-apk:
-    if: github.event.head_commit.message != 'chore: apply career perf patch'
+    if: ${{ github.event.head_commit.message != 'chore: apply career perf patch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
