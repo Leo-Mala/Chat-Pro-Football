@@ -1612,19 +1612,32 @@ class GameViewModel @Inject constructor(
         val dbTeams = newTeamsToSeed
         val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
 
-        // 2. Geração limpa de jogadores para todos os times
-        val rosterMaterializationStartedAtNs = System.nanoTime()
-        val allPlayersToSave = mutableListOf<Player>()
-        for (t in dbTeams) {
-            val roster = DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country)
-            allPlayersToSave.addAll(roster)
-        }
-        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
-
-        // 3. Cálculo do calendário em memória ANTES da transação do banco
+        // 2. Cálculo do calendário em memória ANTES da transação do banco.
+        // O calendário também registra a intenção do seed factual para este mesmo repositório.
         val competitionCalendarStartedAtNs = System.nanoTime()
         val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)
         val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L
+
+        // 3. Materializa o seed factual já preparado antes de gerar qualquer roster procedural global.
+        // Quando FC26 está disponível, savePlayers() consumirá exatamente esse seed; portanto gerar
+        // ~60k jogadores procedurais aqui seria trabalho descartado. Sem dataset factual, preservamos
+        // o fallback procedural integral e determinístico usado anteriormente.
+        val hasPreparedFactualSeed = EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
+        val rosterMaterializationStartedAtNs = System.nanoTime()
+        val allPlayersToSave = if (hasPreparedFactualSeed) {
+            emptyList()
+        } else {
+            buildList {
+                for (t in dbTeams) {
+                    addAll(DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country))
+                }
+            }
+        }
+        val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
+        Log.i(
+            "CareerCreationPerformance",
+            "PreparedFactualSeed=$hasPreparedFactualSeed proceduralFallbackPlayers=${allPlayersToSave.size}"
+        )
 
         // 4. Preparação dos metadados do GameSave em memória
         val playerSelectedTeam = dbTeams.find { it.id == teamId }
