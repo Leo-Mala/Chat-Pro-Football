@@ -21,6 +21,10 @@ class Fc26PlayerMapperTest {
         assertTrue(mapped.atributosJson.orEmpty().contains("\"sourcePlayerId\":12345"))
         assertTrue(mapped.atributosJson.orEmpty().contains("\"primaryPosition\":\"CAM\""))
         assertTrue(mapped.atributosJson.orEmpty().contains("\"alternativePositions\":[\"CM\"]"))
+        assertFalse(mapped.atributosJson.orEmpty().contains("\"reflexos\""))
+        val metadata = mapped.sourceMetadataOrNull()
+        assertEquals(12345L, metadata?.sourcePlayerId)
+        assertEquals("FC26", metadata?.source)
     }
 
     @Test fun `position mapping keeps current gameplay codes`() {

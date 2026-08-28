@@ -184,47 +184,11 @@ object Fc26ImportMetadata {
     /**
      * `Player.atributos` continua sendo a source of truth dos 35 atributos de gameplay. O JSON
      * legado é usado como envelope persistido para preservar identidade externa e campos FC26 sem
-     * exigir uma migração Room somente por metadados. Os atributos também ficam no topo do JSON,
-     * mantendo compatibilidade com `AtributosConverter` se algum save legado precisar do fallback.
+     * exigir uma migração Room somente por metadados. Novos seeds não duplicam os 35 atributos aqui:
+     * eles já são persistidos, sem perda, em `Player.atributos`. Saves antigos continuam legíveis.
      */
     fun toJson(player: Fc26NormalizedPlayer): String {
-        val a = player.atributos
         val root = linkedMapOf<String, Any?>(
-            "reflexos" to a.reflexos,
-            "pegada" to a.pegada,
-            "umContraUm" to a.umContraUm,
-            "saidaDeGol" to a.saidaDeGol,
-            "lancamento" to a.lancamento,
-            "desarme" to a.desarme,
-            "marcacao" to a.marcacao,
-            "cabeceio" to a.cabeceio,
-            "passeCurto" to a.passeCurto,
-            "cruzamento" to a.cruzamento,
-            "drible" to a.drible,
-            "passe" to a.passe,
-            "primeiroToque" to a.primeiroToque,
-            "finalizacao" to a.finalizacao,
-            "chuteDeLonge" to a.chuteDeLonge,
-            "controleBola" to a.controleBola,
-            "posicionamento" to a.posicionamento,
-            "concentracao" to a.concentracao,
-            "sangueFrio" to a.sangueFrio,
-            "antecipacao" to a.antecipacao,
-            "bravura" to a.bravura,
-            "trabalhoEquipe" to a.trabalhoEquipe,
-            "decisao" to a.decisao,
-            "semBola" to a.semBola,
-            "visaoJogo" to a.visaoJogo,
-            "criatividade" to a.criatividade,
-            "agressividade" to a.agressividade,
-            "lideranca" to a.lideranca,
-            "regularidade" to a.regularidade,
-            "agilidade" to a.agilidade,
-            "impulsao" to a.impulsao,
-            "forca" to a.forca,
-            "velocidade" to a.velocidade,
-            "aceleracao" to a.aceleracao,
-            "resistencia" to a.resistencia,
             "import" to linkedMapOf(
                 "source" to "FC26",
                 "sourcePlayerId" to player.sourcePlayerId,

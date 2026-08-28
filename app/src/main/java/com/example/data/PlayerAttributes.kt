@@ -75,6 +75,9 @@ class AtributosConverter {
     @TypeConverter
     fun fromAtributos(atributos: Atributos?): String? {
         if (atributos == null) return null
+        // Atributos() representa 35 valores 50. O decoder já usa 50 para chaves ausentes,
+        // então {} evita dezenas de MB no primeiro save sem mudar nenhum atributo.
+        if (atributos == Atributos()) return "{}"
         return """{"reflexos":${atributos.reflexos},"pegada":${atributos.pegada},"umContraUm":${atributos.umContraUm},"saidaDeGol":${atributos.saidaDeGol},"lancamento":${atributos.lancamento},"desarme":${atributos.desarme},"marcacao":${atributos.marcacao},"cabeceio":${atributos.cabeceio},"passeCurto":${atributos.passeCurto},"cruzamento":${atributos.cruzamento},"drible":${atributos.drible},"passe":${atributos.passe},"primeiroToque":${atributos.primeiroToque},"finalizacao":${atributos.finalizacao},"chuteDeLonge":${atributos.chuteDeLonge},"controleBola":${atributos.controleBola},"posicionamento":${atributos.posicionamento},"concentracao":${atributos.concentracao},"sangueFrio":${atributos.sangueFrio},"antecipacao":${atributos.antecipacao},"bravura":${atributos.bravura},"trabalhoEquipe":${atributos.trabalhoEquipe},"decisao":${atributos.decisao},"semBola":${atributos.semBola},"visaoJogo":${atributos.visaoJogo},"criatividade":${atributos.criatividade},"agressividade":${atributos.agressividade},"lideranca":${atributos.lideranca},"regularidade":${atributos.regularidade},"agilidade":${atributos.agilidade},"impulsao":${atributos.impulsao},"forca":${atributos.forca},"velocidade":${atributos.velocidade},"aceleracao":${atributos.aceleracao},"resistencia":${atributos.resistencia}}"""
     }
 

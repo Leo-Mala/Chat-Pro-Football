@@ -56,6 +56,14 @@ class AtributosConverterSeedPerformanceTest {
     }
 
     @Test
+fun `default attributes use compact lossless persistence`() {
+    val converter = AtributosConverter()
+    val encoded = converter.fromAtributos(Atributos())
+    assertEquals("{}", encoded)
+    assertEquals(Atributos(), converter.toAtributos(encoded))
+}
+
+    @Test
     fun `career scale serialization avoids old multi minute allocation profile`() {
         val converter = AtributosConverter()
         val attributes = Atributos()
