@@ -269,14 +269,8 @@ fun GameApp(
             }
         }
 
-        AnimatedContent(
-            targetState = screenKey,
-            transitionSpec = {
-                fadeIn(animationSpec = androidx.compose.animation.core.tween(250)) togetherWith fadeOut(animationSpec = androidx.compose.animation.core.tween(250))
-            },
-            label = "main_screen_transition",
-            modifier = Modifier.fillMaxSize()
-        ) { key ->
+        key(screenKey) {
+            val key = screenKey
             when {
                 key == "LIVE_MATCH" -> {
                     LiveMatchScreen(viewModel)

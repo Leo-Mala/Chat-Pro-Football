@@ -64,8 +64,8 @@ import coil.compose.rememberAsyncImagePainter
 fun CoachTab(viewModel: GameViewModel) {
     val saveState by viewModel.gameSave.collectAsStateWithLifecycle()
     val offers by viewModel.coachOffers.collectAsStateWithLifecycle()
-    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
-    val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()
+    val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()
+    val allFixtures by viewModel.playerPlayedFixtures.collectAsStateWithLifecycle()
     val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()
 
     var showEditorDialog by remember { mutableStateOf(false) }

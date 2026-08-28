@@ -38,7 +38,7 @@ class StandingRow(val teamName: String) {
 @Composable
 fun StandingsTab(viewModel: GameViewModel) {
     val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()
-    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
+    val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()
     val allFixtures by viewModel.allFixtures.collectAsStateWithLifecycle()
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
 

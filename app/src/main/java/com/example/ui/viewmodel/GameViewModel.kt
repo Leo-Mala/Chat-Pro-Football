@@ -114,6 +114,10 @@ class GameViewModel @Inject constructor(
         r?.allPlayersFlow ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val seasonScorers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->
+        r?.seasonScorersFlow ?: flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
         r?.allFixturesFlow ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -291,6 +295,17 @@ class GameViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val playerPlayedFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->
+        if (r == null) {
+            flowOf(emptyList())
+        } else {
+            r.gameSaveFlow.flatMapLatest { save ->
+                val teamId = save?.playerTeamId ?: 0L
+                if (teamId > 0L) r.getPlayedFixturesForTeamFlow(teamId) else flowOf(emptyList())
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

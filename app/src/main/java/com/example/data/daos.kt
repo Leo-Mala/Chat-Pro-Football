@@ -66,6 +66,10 @@ interface PlayerDao {
     @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
     fun getAllPlayersFlow(): Flow<List<Player>>
 
+    /** UI de artilharia: evita materializar ~60k jogadores sem gols. */
+    @Query("SELECT * FROM players WHERE gols > 0 ORDER BY gols DESC, force DESC, name ASC")
+    fun getSeasonScorersFlow(): Flow<List<Player>>
+
     @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
     suspend fun getAllPlayers(): List<Player>
 
@@ -224,6 +228,9 @@ interface FixtureDao {
 
     @Query("SELECT * FROM fixtures WHERE season = :season AND competitionType = :competitionType AND isPlayed = 1 ORDER BY week ASC, matchSlot ASC, id ASC")
     fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>
+
+    @Query("SELECT * FROM fixtures WHERE isPlayed = 1 AND (homeTeamId = :teamId OR awayTeamId = :teamId) ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")
+    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>>
 
     @Query("SELECT * FROM fixtures WHERE season = :season ORDER BY week ASC, matchSlot ASC, id ASC")
     suspend fun getFixturesForSeason(season: Int): List<Fixture>

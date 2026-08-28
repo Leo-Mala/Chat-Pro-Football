@@ -230,14 +230,8 @@ fun CareerDashboardScreen(viewModel: GameViewModel) {
                     .padding(innerPadding)
                     .padding(16.dp)
             ) {
-                AnimatedContent(
-                    targetState = activeTabIndex,
-                    transitionSpec = {
-                        fadeIn(animationSpec = androidx.compose.animation.core.tween(200)) togetherWith fadeOut(animationSpec = androidx.compose.animation.core.tween(200))
-                    },
-                    label = "tab_transition",
-                    modifier = Modifier.fillMaxSize()
-                ) { targetIndex ->
+                key(activeTabIndex) {
+                    val targetIndex = activeTabIndex
                     when (targetIndex) {
                         0 -> DashboardTab(
                             viewModel = viewModel,

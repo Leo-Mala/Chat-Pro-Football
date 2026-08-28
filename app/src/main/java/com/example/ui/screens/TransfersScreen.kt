@@ -29,6 +29,8 @@ import com.example.data.*
 import com.example.ui.components.transfers.PurchaseNegotiationDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MarketTab(viewModel: GameViewModel) {
@@ -51,26 +53,38 @@ fun MarketTab(viewModel: GameViewModel) {
     val isWindowOpen = save?.let { GameCalendar.isTransferWindowOpen(it.currentSeason, it.currentWeek) } ?: false
     val currentDateStr = save?.let { GameCalendar.getLongFormattedDate(it.currentSeason, it.currentWeek) } ?: ""
 
-    val availablePlayers = remember(allPlayers, save?.playerTeamId, searchQuery, searchPos, searchMinForce, searchMaxAge, searchMaxPrice, searchSortBy) {
-        allPlayers.filter { player ->
-            player.isTransferMarketCandidateFor(save?.playerTeamId) &&
-            (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
-            (searchPos == "TODOS" || player.position == searchPos) &&
-            player.force >= searchMinForce &&
-            player.age <= searchMaxAge &&
-            (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
-        }.let { filtered ->
-            when (searchSortBy) {
-                "FORCA_DESC" -> filtered.sortedByDescending { it.force }
-                "FORCA_ASC" -> filtered.sortedBy { it.force }
-                "IDADE_ASC" -> filtered.sortedBy { it.age }
-                "IDADE_DESC" -> filtered.sortedByDescending { it.age }
-                "NOME" -> filtered.sortedBy { it.name }
-                "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
-                "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
-                else -> filtered
-            }
-        }.take(80)
+    var availablePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
+    LaunchedEffect(
+        allPlayers,
+        save?.playerTeamId,
+        searchQuery,
+        searchPos,
+        searchMinForce,
+        searchMaxAge,
+        searchMaxPrice,
+        searchSortBy
+    ) {
+        availablePlayers = withContext(Dispatchers.Default) {
+            allPlayers.filter { player ->
+                player.isTransferMarketCandidateFor(save?.playerTeamId) &&
+                (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
+                (searchPos == "TODOS" || player.position == searchPos) &&
+                player.force >= searchMinForce &&
+                player.age <= searchMaxAge &&
+                (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
+            }.let { filtered ->
+                when (searchSortBy) {
+                    "FORCA_DESC" -> filtered.sortedByDescending { it.force }
+                    "FORCA_ASC" -> filtered.sortedBy { it.force }
+                    "IDADE_ASC" -> filtered.sortedBy { it.age }
+                    "IDADE_DESC" -> filtered.sortedByDescending { it.age }
+                    "NOME" -> filtered.sortedBy { it.name }
+                    "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
+                    "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
+                    else -> filtered
+                }
+            }.take(80)
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
