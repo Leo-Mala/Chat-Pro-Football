@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/3.0.1-manual-test-bugs
+  workflow_dispatch:
 
 permissions:
   contents: read
