@@ -52,7 +52,6 @@ jobs:
               end += len(end_marker)
               write(path, text[:start] + replacement + text[end:])
 
-          # Dashboard tabs: do not keep outgoing + incoming heavyweight screens alive for 200 ms.
           replace_between(
               'app/src/main/java/com/example/ui/screens/DashboardScreen.kt',
               'AnimatedContent(\n                    targetState = activeTabIndex,',
@@ -60,7 +59,6 @@ jobs:
               'key(activeTabIndex) {\n                    val targetIndex = activeTabIndex'
           )
 
-          # App routes: same issue for menu/editor/dashboard/live match crossfades.
           replace_between(
               'app/src/main/java/com/example/ui/screens/GameScreens.kt',
               'AnimatedContent(\n            targetState = screenKey,',
@@ -68,78 +66,45 @@ jobs:
               'key(screenKey) {\n            val key = screenKey'
           )
 
-          # Player DAO: artilharia only needs players with goals, preserving previous stable tie order.
           replace_once(
               'app/src/main/java/com/example/data/daos.kt',
               '    fun getAllPlayersFlow(): Flow<List<Player>>\n',
-              '    fun getAllPlayersFlow(): Flow<List<Player>>\n\n'
-              '    /** UI de artilharia: evita materializar ~60k jogadores sem gols. */\n'
-              '    @Query("SELECT * FROM players WHERE gols > 0 ORDER BY gols DESC, force DESC, name ASC")\n'
-              '    fun getSeasonScorersFlow(): Flow<List<Player>>\n'
+              '    fun getAllPlayersFlow(): Flow<List<Player>>\n\n    /** UI de artilharia: evita materializar ~60k jogadores sem gols. */\n    @Query("SELECT * FROM players WHERE gols > 0 ORDER BY gols DESC, force DESC, name ASC")\n    fun getSeasonScorersFlow(): Flow<List<Player>>\n'
           )
 
-          # Coach profile only needs played fixtures involving the controlled team.
-          fixture_anchor = (
-              '    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>\n'
-          )
+          anchor = '    fun getPlayedFixturesForCompetitionFlow(season: Int, competitionType: String): Flow<List<Fixture>>\n'
           replace_once(
               'app/src/main/java/com/example/data/daos.kt',
-              fixture_anchor,
-              fixture_anchor +
-              '\n    @Query("SELECT * FROM fixtures WHERE isPlayed = 1 AND (homeTeamId = :teamId OR awayTeamId = :teamId) ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")\n'
-              '    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>>\n'
+              anchor,
+              anchor + '\n    @Query("SELECT * FROM fixtures WHERE isPlayed = 1 AND (homeTeamId = :teamId OR awayTeamId = :teamId) ORDER BY season DESC, week ASC, matchSlot ASC, id ASC")\n    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>>\n'
           )
 
-          # Repository lightweight sources.
           replace_once(
               'app/src/main/java/com/example/data/repository.kt',
               '    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n',
-              '    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n'
-              '    val seasonScorersFlow: Flow<List<Player>> = db.playerDao().getSeasonScorersFlow()\n'
+              '    val allPlayersFlow: Flow<List<Player>> = db.playerDao().getAllPlayersFlow()\n    val seasonScorersFlow: Flow<List<Player>> = db.playerDao().getSeasonScorersFlow()\n'
           )
           replace_once(
               'app/src/main/java/com/example/data/repository.kt',
               '        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)\n',
-              '        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)\n'
-              '    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>> =\n'
-              '        db.fixtureDao().getPlayedFixturesForTeamFlow(teamId)\n'
+              '        db.fixtureDao().getPlayedFixturesForCompetitionFlow(season, competitionType)\n    fun getPlayedFixturesForTeamFlow(teamId: Long): Flow<List<Fixture>> =\n        db.fixtureDao().getPlayedFixturesForTeamFlow(teamId)\n'
           )
 
-          # ViewModel lightweight scorer stream.
           vm = 'app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt'
-          all_players_block = (
-              '    val allPlayers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n'
-              '        r?.allPlayersFlow ?: flowOf(emptyList())\n'
-              '    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n'
-          )
+          all_players_block = '    val allPlayers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n        r?.allPlayersFlow ?: flowOf(emptyList())\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n'
           replace_once(
               vm,
               all_players_block,
-              all_players_block +
-              '\n    val seasonScorers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n'
-              '        r?.seasonScorersFlow ?: flowOf(emptyList())\n'
-              '    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n'
+              all_players_block + '\n    val seasonScorers: StateFlow<List<Player>> = activeRepositoryFlow.flatMapLatest { r ->\n        r?.seasonScorersFlow ?: flowOf(emptyList())\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n'
           )
 
-          played_fixture_flow = (
-              '    val playerPlayedFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n'
-              '        if (r == null) {\n'
-              '            flowOf(emptyList())\n'
-              '        } else {\n'
-              '            r.gameSaveFlow.flatMapLatest { save ->\n'
-              '                val teamId = save?.playerTeamId ?: 0L\n'
-              '                if (teamId > 0L) r.getPlayedFixturesForTeamFlow(teamId) else flowOf(emptyList())\n'
-              '            }\n'
-              '        }\n'
-              '    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n'
-          )
+          played_fixture_flow = '    val playerPlayedFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n        if (r == null) {\n            flowOf(emptyList())\n        } else {\n            r.gameSaveFlow.flatMapLatest { save ->\n                val teamId = save?.playerTeamId ?: 0L\n                if (teamId > 0L) r.getPlayedFixturesForTeamFlow(teamId) else flowOf(emptyList())\n            }\n        }\n    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())\n\n'
           replace_once(
               vm,
               '    val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n',
               played_fixture_flow + '    val dashboardSeasonFixtures: StateFlow<List<Fixture>> = activeRepositoryFlow.flatMapLatest { r ->\n'
           )
 
-          # Tables + Coach no longer subscribe to the global 60k Player flow.
           replace_once(
               'app/src/main/java/com/example/ui/screens/StandingsScreen.kt',
               '    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()\n',
@@ -156,7 +121,6 @@ jobs:
               '    val allFixtures by viewModel.playerPlayedFixtures.collectAsStateWithLifecycle()\n'
           )
 
-          # Market: filter/sort the global list on Default dispatcher, never during Main composition.
           transfers = 'app/src/main/java/com/example/ui/screens/TransfersScreen.kt'
           replace_once(
               transfers,
@@ -173,39 +137,42 @@ jobs:
           if end < 0:
               raise SystemExit('TransfersScreen.kt: availablePlayers end not found')
           end += len(end_marker)
-          replacement = '''var availablePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
-    LaunchedEffect(
-        allPlayers,
-        save?.playerTeamId,
-        searchQuery,
-        searchPos,
-        searchMinForce,
-        searchMaxAge,
-        searchMaxPrice,
-        searchSortBy
-    ) {
-        availablePlayers = withContext(Dispatchers.Default) {
-            allPlayers.filter { player ->
-                player.isTransferMarketCandidateFor(save?.playerTeamId) &&
-                (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
-                (searchPos == "TODOS" || player.position == searchPos) &&
-                player.force >= searchMinForce &&
-                player.age <= searchMaxAge &&
-                (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
-            }.let { filtered ->
-                when (searchSortBy) {
-                    "FORCA_DESC" -> filtered.sortedByDescending { it.force }
-                    "FORCA_ASC" -> filtered.sortedBy { it.force }
-                    "IDADE_ASC" -> filtered.sortedBy { it.age }
-                    "IDADE_DESC" -> filtered.sortedByDescending { it.age }
-                    "NOME" -> filtered.sortedBy { it.name }
-                    "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
-                    "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
-                    else -> filtered
-                }
-            }.take(80)
-        }
-    }'''
+          market_lines = [
+              'var availablePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }',
+              '    LaunchedEffect(',
+              '        allPlayers,',
+              '        save?.playerTeamId,',
+              '        searchQuery,',
+              '        searchPos,',
+              '        searchMinForce,',
+              '        searchMaxAge,',
+              '        searchMaxPrice,',
+              '        searchSortBy',
+              '    ) {',
+              '        availablePlayers = withContext(Dispatchers.Default) {',
+              '            allPlayers.filter { player ->',
+              '                player.isTransferMarketCandidateFor(save?.playerTeamId) &&',
+              '                (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&',
+              '                (searchPos == "TODOS" || player.position == searchPos) &&',
+              '                player.force >= searchMinForce &&',
+              '                player.age <= searchMaxAge &&',
+              '                (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)',
+              '            }.let { filtered ->',
+              '                when (searchSortBy) {',
+              '                    "FORCA_DESC" -> filtered.sortedByDescending { it.force }',
+              '                    "FORCA_ASC" -> filtered.sortedBy { it.force }',
+              '                    "IDADE_ASC" -> filtered.sortedBy { it.age }',
+              '                    "IDADE_DESC" -> filtered.sortedByDescending { it.age }',
+              '                    "NOME" -> filtered.sortedBy { it.name }',
+              '                    "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }',
+              '                    "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }',
+              '                    else -> filtered',
+              '                }',
+              '            }.take(80)',
+              '        }',
+              '    }',
+          ]
+          replacement = '\n'.join(market_lines)
           write(transfers, text[:start] + replacement + text[end:])
           PY
 
