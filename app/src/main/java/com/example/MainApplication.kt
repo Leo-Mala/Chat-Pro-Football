@@ -7,6 +7,7 @@ import com.example.data.EuropeanAuditedLowerTierClubTargetMaterializer2026_27
 import com.example.data.EuropeanFactualAssetRuntime
 import com.example.data.EuropeanFactualClubTargetMaterializer2026_27
 import com.example.data.Fc26FactualAssetRuntime
+import com.example.data.ProductionCareerSeedPrewarm
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +26,13 @@ class MainApplication : Application() {
         Fc26FactualAssetRuntime.initialize(assets)
         EuropeanFactualAssetRuntime.initialize(assets)
 
-        // Antecipamos somente a parte imutável/factual do FC26: leitura, validação e templates dos
-        // 18.405 jogadores. Diferente do prewarm antigo, não gera os ~40k fallbacks procedurais,
-        // não calcula calendário e não segura o lock global do plano de ~60k jogadores. Se o
-        // usuário iniciar a carreira cedo, o caminho síncrono reutiliza tudo que já ficou pronto.
+        // Monta em background o mesmo plano FC26 + fallbacks que a Nova Carreira consumirá.
+        // Fc26SeedPlanner é single-flight: se o usuário iniciar a carreira antes de este trabalho
+        // terminar, o clique espera/reutiliza a mesma construção em vez de criar um segundo plano.
+        // Se o prewarm já terminou durante a escolha do slot/país/clube, o clique recebe diretamente
+        // o plano imutável em cache e elimina o custo de materialização FC26 do caminho crítico.
         fc26WarmupScope.launch {
-            runCatching { Fc26FactualAssetRuntime.prewarmRuntimeTemplates() }
+            runCatching { ProductionCareerSeedPrewarm.prewarm() }
         }
 
         fixCursorWindowSize()
