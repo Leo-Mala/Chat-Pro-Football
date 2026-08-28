@@ -42,7 +42,7 @@ class CareerCreationPerformanceTest {
     }
 
     @Test
-    fun `bulk roster persistence does not regress to multi-minute bootstrap`() = runTest {
+    fun `fresh bulk roster persistence avoids upsert and restores all player indexes`() = runTest {
         repository.saveTeams(
             listOf(Team(id = 1L, name = "Performance", city = "A", state = "AA", division = 1, rating = 70))
         )
@@ -62,7 +62,19 @@ class CareerCreationPerformanceTest {
         val elapsedMs = (System.nanoTime() - started) / 1_000_000L
 
         assertEquals(5_000, repository.getPlayerCountByTeam(1L))
-        assertTrue("5k-player bulk persistence took ${elapsedMs}ms", elapsedMs < 30_000L)
+        assertTrue("5k-player fresh bulk persistence took ${elapsedMs}ms", elapsedMs < 10_000L)
+
+        val indexNames = db.openHelper.readableDatabase
+            .query("PRAGMA index_list(`players`)")
+            .use { cursor ->
+                val nameColumn = cursor.getColumnIndexOrThrow("name")
+                buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(nameColumn))
+                }
+            }
+        assertTrue("teamId/position/force index was not restored", "index_players_teamId_position_force" in indexNames)
+        assertTrue("teamId/isStarter index was not restored", "index_players_teamId_isStarter" in indexNames)
+        assertTrue("originalTeamId index was not restored", "index_players_originalTeamId" in indexNames)
     }
 
     @Test

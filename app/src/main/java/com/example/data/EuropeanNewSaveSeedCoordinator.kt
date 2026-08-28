@@ -2,8 +2,6 @@ package com.example.data
 
 import android.content.res.AssetManager
 import java.util.WeakHashMap
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 
 /**
  * Ponte mínima entre os assets canônicos e o fluxo de criação de uma carreira.
@@ -49,33 +47,17 @@ object EuropeanNewSaveSeedCoordinator {
     /**
      * Registra somente uma intenção de seed factual. O asset pesado continua lazy.
      *
-     * Antes de a criação de uma NOVA carreira apagar o banco de preparação do Editor, capturamos
-     * apenas os clubes/elencos que realmente diferem do bootstrap determinístico. O snapshot FC26
-     * permanece imutável e as alterações feitas pelo usuário são reaplicadas depois como overlay.
-     * Em saves já existentes (inclusive restart/virada de temporada) nenhum override é capturado.
+     * A opção de Editor de Clubes/Jogadores foi removida da tela inicial, portanto a criação de
+     * carreira não deve mais materializar toda a tabela Player/Team apenas para procurar overlays
+     * pré-carreira. Isso eliminava uma leitura completa e síncrona imediatamente antes do seed.
+     * As estruturas antigas de overlay continuam isoladas para compatibilidade/testes internos.
      */
     fun prepare(repository: GameRepository, teams: List<Team>) {
-        val preCareerOverrides = runBlocking(Dispatchers.IO) {
-            if (repository.getGameSave() != null) {
-                null
-            } else {
-                detectPreCareerEditorOverrides(
-                    requestedTeams = teams,
-                    persistedTeams = repository.getAllTeams(),
-                    persistedPlayers = repository.getAllPlayers()
-                )
-            }
-        }
-
         synchronized(lock) {
             pendingRequestByRepository[repository] = teams
             pendingSeedByRepository.remove(repository)
             pendingProceduralFallbackByRepository.remove(repository)
-            if (preCareerOverrides == null) {
-                preCareerEditorOverridesByRepository.remove(repository)
-            } else {
-                preCareerEditorOverridesByRepository[repository] = preCareerOverrides
-            }
+            preCareerEditorOverridesByRepository.remove(repository)
         }
     }
 

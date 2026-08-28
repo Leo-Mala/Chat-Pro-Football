@@ -51,6 +51,7 @@ fun MainMenuScreen(
 }
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun MainMenuContent(
     onNewGame: () -> Unit,
     onOpenSaves: () -> Unit,
@@ -205,36 +206,6 @@ fun MainMenuContent(
             Text(
                 text = "ACESSAR SAVES / SLOTS",
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // O editor pré-carreira continua disponível porque é onde o usuário personaliza clubes e
-        // jogadores antes de iniciar o save. Ele não é um editor de técnico/treinador; essa entrada
-        // existe somente dentro da carreira, no painel do Técnico.
-        Button(
-            onClick = onOpenEditor,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .bounceClick()
-                .testTag("open_club_player_editor_button"),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF1E88E5),
-                contentColor = Color.White
-            ),
-            shape = RoundedCornerShape(16.dp),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp, pressedElevation = 1.dp)
-        ) {
-            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(24.dp))
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "EDITOR DE CLUBES E JOGADORES",
-                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.5.sp,
                 textAlign = TextAlign.Center

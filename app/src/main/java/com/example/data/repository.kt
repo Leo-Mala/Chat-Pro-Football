@@ -207,12 +207,38 @@ class GameRepository(internal val db: AppDatabase) {
         val seed = EuropeanNewSaveSeedCoordinator.consumePlayers(this@GameRepository, players)
         val playersToPersist = seed.players
         if (playersToPersist.isNotEmpty()) {
-            db.playerDao().insertPlayersReplace(playersToPersist)
+            val isFirstPopulation = db.playerDao().getTotalPlayerCount() == 0
+            if (isFirstPopulation) {
+                persistFreshPlayersWithoutSecondaryIndexChurn(playersToPersist)
+            } else {
+                db.playerDao().insertPlayersReplace(playersToPersist)
+            }
         }
         if (seed.loans.isNotEmpty()) {
             db.playerLoanDao().insertLoans(seed.loans)
         }
     }
+
+    /**
+     * Uma carreira nova sempre apaga Player antes do seed canônico. Manter os três índices
+     * secundários enquanto ~60k linhas são inseridas força o SQLite a rebalancear três B-trees a
+     * cada jogador. Como toda a operação já está dentro da transação de criação, removemos apenas
+     * esses índices secundários, fazemos INSERT puro e os recriamos antes de qualquer commit.
+     *
+     * Se qualquer linha violar PK/FK, `insertPlayersFresh` usa ABORT e a transação inteira continua
+     * falhando fechada. Os índices também são recriados no finally para não deixar um handle Room
+     * sem o schema esperado durante tratamento de erro.
+     */
+    private suspend fun persistFreshPlayersWithoutSecondaryIndexChurn(players: List<Player>) {
+        val sqlite = db.openHelper.writableDatabase
+        PLAYER_BULK_INDEX_DROP_SQL.forEach(sqlite::execSQL)
+        try {
+            db.playerDao().insertPlayersFresh(players)
+        } finally {
+            PLAYER_BULK_INDEX_CREATE_SQL.forEach(sqlite::execSQL)
+        }
+    }
+
     suspend fun updatePlayer(player: Player) = db.playerDao().updatePlayer(player)
     suspend fun updatePlayers(players: List<Player>) = db.withTransaction {
         if (players.size > 100) {
@@ -432,5 +458,17 @@ class GameRepository(internal val db: AppDatabase) {
 
     private companion object {
         const val SQLITE_SAFE_IN_QUERY_SIZE = 900
+
+        val PLAYER_BULK_INDEX_DROP_SQL = listOf(
+            "DROP INDEX IF EXISTS `index_players_teamId_position_force`",
+            "DROP INDEX IF EXISTS `index_players_teamId_isStarter`",
+            "DROP INDEX IF EXISTS `index_players_originalTeamId`"
+        )
+
+        val PLAYER_BULK_INDEX_CREATE_SQL = listOf(
+            "CREATE INDEX IF NOT EXISTS `index_players_teamId_position_force` ON `players` (`teamId`, `position`, `force`)",
+            "CREATE INDEX IF NOT EXISTS `index_players_teamId_isStarter` ON `players` (`teamId`, `isStarter`)",
+            "CREATE INDEX IF NOT EXISTS `index_players_originalTeamId` ON `players` (`originalTeamId`)"
+        )
     }
 }

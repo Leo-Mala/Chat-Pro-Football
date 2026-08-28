@@ -78,6 +78,9 @@ interface PlayerDao {
     @Query("SELECT COUNT(*) FROM players WHERE teamId = :teamId")
     suspend fun getPlayerCountByTeam(teamId: Long?): Int
 
+    @Query("SELECT COUNT(*) FROM players")
+    suspend fun getTotalPlayerCount(): Int
+
     @Query("SELECT * FROM players WHERE teamId IS NULL ORDER BY position DESC, force DESC, id ASC")
     suspend fun getFreeAgents(): List<Player>
 
@@ -170,6 +173,14 @@ interface PlayerDao {
     @Transaction
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPlayers(players: List<Player>)
+
+    /**
+     * Caminho exclusivo para a primeira população de uma tabela Player vazia. ABORT evita o custo
+     * de detectar conflito/UPDATE de @Upsert em dezenas de milhares de linhas e falha fechado se o
+     * seed novo contiver IDs duplicados.
+     */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertPlayersFresh(players: List<Player>)
 
     @Upsert
     suspend fun insertPlayersReplace(players: List<Player>)

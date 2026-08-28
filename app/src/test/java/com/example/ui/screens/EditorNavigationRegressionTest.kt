@@ -19,7 +19,7 @@ class EditorNavigationRegressionTest {
 
         val openEditorStart = source.indexOf("onOpenEditor = {")
         val openEditorEnd = source.indexOf("}\n                            )", startIndex = openEditorStart)
-        assertTrue("Main menu must expose onOpenEditor", openEditorStart >= 0)
+        assertTrue("Main menu wiring may remain for compatibility", openEditorStart >= 0)
         assertTrue("Could not isolate onOpenEditor block", openEditorEnd > openEditorStart)
         val openEditorBlock = source.substring(openEditorStart, openEditorEnd)
 
@@ -29,7 +29,7 @@ class EditorNavigationRegressionTest {
             openEditorBlock.contains("ensureSaveActiveForEditor")
         )
         assertTrue(
-            "Pre-career route must render through readiness guard",
+            "Legacy pre-career route remains guarded if invoked internally",
             source.contains("PreparedPreCareerEditorScreen(")
         )
     }
@@ -47,13 +47,13 @@ class EditorNavigationRegressionTest {
     }
 
     @Test
-    fun `pre-career menu has club-player editor but no coach editor while career keeps coach editor`() {
+    fun `initial menu exposes no editor while career keeps coach editor`() {
         val mainMenu = readProjectSource("src/main/java/com/example/ui/screens/MainMenuScreen.kt")
         val coach = readProjectSource("src/main/java/com/example/ui/screens/CoachScreen.kt")
 
         assertFalse("Coach editor entry must not exist before career", mainMenu.contains("EDITOR TÉCNICO"))
-        assertTrue(mainMenu.contains("EDITOR DE CLUBES E JOGADORES"))
-        assertTrue(mainMenu.contains("open_club_player_editor_button"))
+        assertFalse("Club-player editor entry must not exist on the initial screen", mainMenu.contains("EDITOR DE CLUBES E JOGADORES"))
+        assertFalse("Initial screen must not expose the club-player editor button", mainMenu.contains("open_club_player_editor_button"))
 
         assertTrue("Career coach editor must remain available", coach.contains("Text(\"Editor Técnico\""))
         assertTrue(coach.contains("Text(\"ABRIR EDITOR TÉCNICO\""))

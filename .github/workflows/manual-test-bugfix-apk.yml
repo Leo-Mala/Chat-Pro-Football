@@ -101,6 +101,7 @@ jobs:
             --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
             --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
             --tests com.example.data.PlayerEvolutionRegressionTest \
+            --tests com.example.usecase.CareerCreationPerformanceTest \
             --stacktrace
 
       - name: Build installable Debug APK
