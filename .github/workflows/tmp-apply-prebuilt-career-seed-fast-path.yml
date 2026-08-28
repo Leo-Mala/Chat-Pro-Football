@@ -1,4 +1,4 @@
-name: Temporary Apply Prebuilt Career Seed Fast Path
+name: Temporary Cleanup Career Seed Workflows
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  patch:
+  cleanup:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Checkout exact branch head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -21,209 +21,14 @@ jobs:
           ref: fix/3.0.1-manual-test-bugs
           fetch-depth: 0
 
-      - name: Patch GameViewModel exact blocks
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
-          text = path.read_text()
-
-          replacements = []
-
-          replacements.append((
-          '''        // Ensure rosters exist for teams in active country
-                  val allPlayers = targetRepo.getAllPlayers()
-                  val activeTeams = targetRepo.getAllTeams().filter { it.country == activeCountry }
-                  for (team in activeTeams) {
-                      val hasPlayers = allPlayers.any { it.teamId == team.id }
-                      if (!hasPlayers) {
-                          val roster = DefaultData.generateRosterForTeam(team.id, team.rating, team.name, activeCountry)
-                          newPlayersToSeed.addAll(roster)
-                      }
-                  }
-          ''',
-          '''        // Ensure rosters exist for teams in active country without materializing the global
-                  // ~60k Player table. This path runs while choosing a slot/country, before a career exists.
-                  val activeTeams = targetRepo.getAllTeams().filter { it.country == activeCountry }
-                  for (team in activeTeams) {
-                      val hasPlayers = targetRepo.getPlayerCountByTeam(team.id) > 0
-                      if (!hasPlayers) {
-                          val roster = DefaultData.generateRosterForTeam(team.id, team.rating, team.name, activeCountry)
-                          newPlayersToSeed.addAll(roster)
-                      }
-                  }
-          '''))
-
-          replacements.append((
-          '''        val dbTeams = newTeamsToSeed
-                  val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
-          ''',
-          '''        val dbTeams = newTeamsToSeed
-                  val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
-
-                  // Um slot novo pode ter sido criado diretamente do baseline Room empacotado. O marker
-                  // só é aceito se schema, SHA FC26, contagens e ausência de GameSave coincidirem.
-                  val prebuiltSeedMarker = targetRepo.pristineCareerSeedTemplateOrNull()
-                  val usePrebuiltCareerSeed = prebuiltSeedMarker != null
-          '''))
-
-          replacements.append((
-          '''        val hasPreparedFactualSeed = EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
-                  val rosterMaterializationStartedAtNs = System.nanoTime()
-                  val allPlayersToSave = if (hasPreparedFactualSeed) {
-                      emptyList()
-                  } else {
-                      buildList {
-                          for (t in dbTeams) {
-                              addAll(DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country))
-                          }
-                      }
-                  }
-                  val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
-                  Log.i(
-                      "CareerCreationPerformance",
-                      "PreparedFactualSeed=$hasPreparedFactualSeed proceduralFallbackPlayers=${allPlayersToSave.size}"
-                  )
-          ''',
-          '''        val hasPreparedFactualSeed = if (usePrebuiltCareerSeed) {
-                      // O mesmo seed canônico já está fisicamente no banco copiado. Não materializamos o
-                      // planner FC26 novamente e removemos a intenção registrada pelo calendário.
-                      EuropeanNewSaveSeedCoordinator.clear(targetRepo)
-                      CareerCreationPerformanceMonitor.notePersistedPlayerCount(prebuiltSeedMarker!!.playerCount)
-                      true
-                  } else {
-                      EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
-                  }
-                  val rosterMaterializationStartedAtNs = System.nanoTime()
-                  val allPlayersToSave = if (hasPreparedFactualSeed) {
-                      emptyList()
-                  } else {
-                      buildList {
-                          for (t in dbTeams) {
-                              addAll(DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country))
-                          }
-                      }
-                  }
-                  val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
-                  Log.i(
-                      "CareerCreationPerformance",
-                      "PrebuiltSeed=$usePrebuiltCareerSeed preparedFactualSeed=$hasPreparedFactualSeed " +
-                          "proceduralFallbackPlayers=${allPlayersToSave.size}"
-                  )
-          '''))
-
-          replacements.append((
-          '''            targetRepo.deleteSave()
-                      targetRepo.deleteTeams()
-                      targetRepo.deletePlayers()
-                      targetRepo.deleteFixtures()
-                      targetRepo.deleteTransactions()
-                      targetRepo.deleteOrders()
-                      targetRepo.deleteLegends()
-                      targetRepo.deleteRecords()
-                      targetRepo.deleteOffers()
-                      targetRepo.deleteAllHistorico()
-                      targetRepo.deleteInstallments()
-                      targetRepo.deleteLoans()
-                      targetRepo.deleteGlobalStandings()
-                      databaseBootstrapMs = (System.nanoTime() - databaseBootstrapStartedAtNs) / 1_000_000L
-
-                      val persistenceStartedAtNs = System.nanoTime()
-                      val teamSeedStartedAtNs = System.nanoTime()
-                      targetRepo.saveTeams(dbTeams)
-                      val teamSeedAndPersistenceMs = (System.nanoTime() - teamSeedStartedAtNs) / 1_000_000L
-
-                      val playerPersistenceStartedAtNs = System.nanoTime()
-                      targetRepo.savePlayers(allPlayersToSave)
-                      val playerPersistenceMs = (System.nanoTime() - playerPersistenceStartedAtNs) / 1_000_000L
-
-                      val fixturePersistenceStartedAtNs = System.nanoTime()
-                      targetRepo.saveFixtures(allGeneratedFixtures)
-                      val fixturePersistenceMs = (System.nanoTime() - fixturePersistenceStartedAtNs) / 1_000_000L
-
-                      val saveRowStartedAtNs = System.nanoTime()
-                      targetRepo.saveGameSave(save)
-                      val saveRowPersistenceMs = (System.nanoTime() - saveRowStartedAtNs) / 1_000_000L
-          ''',
-          '''            targetRepo.deleteSave()
-                      if (!usePrebuiltCareerSeed) {
-                          targetRepo.deleteTeams()
-                          targetRepo.deletePlayers()
-                      }
-                      targetRepo.deleteFixtures()
-                      targetRepo.deleteTransactions()
-                      targetRepo.deleteOrders()
-                      targetRepo.deleteLegends()
-                      targetRepo.deleteRecords()
-                      targetRepo.deleteOffers()
-                      targetRepo.deleteAllHistorico()
-                      targetRepo.deleteInstallments()
-                      if (!usePrebuiltCareerSeed) {
-                          targetRepo.deleteLoans()
-                      }
-                      targetRepo.deleteGlobalStandings()
-                      databaseBootstrapMs = (System.nanoTime() - databaseBootstrapStartedAtNs) / 1_000_000L
-
-                      val persistenceStartedAtNs = System.nanoTime()
-                      val teamSeedStartedAtNs = System.nanoTime()
-                      if (usePrebuiltCareerSeed) {
-                          // O template nasce com todos os clubes não-controlados; só a escolha do usuário
-                          // precisa virar delta. Evita regravar 2.524 clubes idênticos.
-                          playerSelectedTeam?.let { targetRepo.updateTeam(it) }
-                      } else {
-                          targetRepo.saveTeams(dbTeams)
-                      }
-                      val teamSeedAndPersistenceMs = (System.nanoTime() - teamSeedStartedAtNs) / 1_000_000L
-
-                      val playerPersistenceStartedAtNs = System.nanoTime()
-                      if (!usePrebuiltCareerSeed) {
-                          targetRepo.savePlayers(allPlayersToSave)
-                      }
-                      val playerPersistenceMs = (System.nanoTime() - playerPersistenceStartedAtNs) / 1_000_000L
-
-                      val fixturePersistenceStartedAtNs = System.nanoTime()
-                      targetRepo.saveFixtures(allGeneratedFixtures)
-                      val fixturePersistenceMs = (System.nanoTime() - fixturePersistenceStartedAtNs) / 1_000_000L
-
-                      val saveRowStartedAtNs = System.nanoTime()
-                      targetRepo.saveGameSave(save)
-                      if (usePrebuiltCareerSeed) {
-                          // Consome o marker na MESMA transação do GameSave. Qualquer falha reverte ambos,
-                          // impedindo que uma carreira parcial seja confundida com baseline reutilizável.
-                          targetRepo.consumePristineCareerSeedTemplate()
-                      }
-                      val saveRowPersistenceMs = (System.nanoTime() - saveRowStartedAtNs) / 1_000_000L
-          '''))
-
-          replacements.append((
-          '''        val season = 2026
-                  val totalStartedAtNs = System.nanoTime()
-          ''',
-          '''        val season = 2026
-                  val totalStartedAtNs = System.nanoTime()
-                  CareerCreationPerformanceMonitor.clear()
-          '''))
-
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'expected exactly one match, got {count}: {old[:80]!r}')
-              text = text.replace(old, new, 1)
-
-          path.write_text(text)
-          PY
-
-      - name: Commit exact production patch
+      - name: Remove temporary workflows and commit
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
-          git diff --cached --check
-          git diff --cached --quiet && { echo 'no patch needed'; exit 0; }
-          git commit -m "perf: use prebuilt career seed on fresh slots"
+          git rm -f \
+            .github/workflows/tmp-apply-prebuilt-career-seed-fast-path.yml \
+            .github/workflows/tmp-generate-career-seed-template.yml
+          git commit -m "chore: remove temporary career seed workflows"
           git push origin HEAD:fix/3.0.1-manual-test-bugs
