@@ -83,7 +83,7 @@ object Fc26SeedPlanner {
             "Prewarm de produção exige universo completo de clubes."
         }
         return build(teams, dataset) { team ->
-            DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            DefaultData.generateFc26FallbackRosterForTeam(team.id, team.rating, team.name, team.country)
         }
     }
 

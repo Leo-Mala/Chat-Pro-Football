@@ -325,8 +325,26 @@ object DefaultData {
         return nextInt(min, max + 1)
     }
 
-    fun generateRosterForTeam(teamId: Long, teamRating: Int, teamName: String, country: String): List<Player> {
+    fun generateRosterForTeam(teamId: Long, teamRating: Int, teamName: String, country: String): List<Player> =
+        generateRosterForTeamInternal(teamId, teamRating, teamName, country, retainFc26FallbackOnly = false)
+
+    internal fun generateFc26FallbackRosterForTeam(
+        teamId: Long,
+        teamRating: Int,
+        teamName: String,
+        country: String
+    ): List<Player> =
+        generateRosterForTeamInternal(teamId, teamRating, teamName, country, retainFc26FallbackOnly = true)
+
+    private fun generateRosterForTeamInternal(
+        teamId: Long,
+        teamRating: Int,
+        teamName: String,
+        country: String,
+        retainFc26FallbackOnly: Boolean
+    ): List<Player> {
         val list = mutableListOf<Player>()
+        val generatedNames = mutableListOf<String>()
         val rand = Random(teamId + teamRating * 17L)
 
         val positions = listOf(
@@ -349,7 +367,7 @@ object DefaultData {
 
         for (i in positions.indices) {
             val pos = positions[i]
-            val matchedStar = realStars.find { it.position == pos && list.none { p -> p.name == it.name } }
+            val matchedStar = realStars.find { it.position == pos && generatedNames.none { generated -> generated == it.name } }
             
             val name = if (matchedStar != null) {
                 matchedStar.name
@@ -358,6 +376,8 @@ object DefaultData {
                 val lastName = lastNames[rand.nextInt(lastNames.size)]
                 "$firstName $lastName"
             }
+
+            generatedNames.add(name)
 
             val force = if (matchedStar != null) {
                 matchedStar.force.coerceIn(15, 99)
@@ -425,6 +445,14 @@ object DefaultData {
             }.coerceIn(10, 99)
 
             val playerId = if (teamId > 0) (teamId * 1000L + (i + 1L)) else 0L
+            val moral = rand.safeNextInt(75, 94)
+            val careerApps = rand.safeNextInt(0, 150)
+            val careerGoals = if (pos == "ATA" || pos == "MEI") rand.safeNextInt(0, 55) else rand.safeNextInt(0, 8)
+
+            // Consumimos acima exatamente os mesmos sorteios do elenco canônico. Para FC26, os
+            // dez índices que a política descartaria param aqui, antes das alocações/cálculos caros.
+            if (retainFc26FallbackOnly && !fc26FallbackRetainsCanonicalIndex(i)) continue
+
             val basePlayer = Player(
                 id = playerId,
                 teamId = teamId,
@@ -434,13 +462,13 @@ object DefaultData {
                 position = pos,
                 force = force,
                 energy = 100,
-                moral = rand.safeNextInt(75, 94),
+                moral = moral,
                 salary = 0L,
                 contractDurationWeeks = contractWeeks,
                 isFromAcademy = false,
                 isStarter = isStarter,
-                careerApps = rand.safeNextInt(0, 150),
-                careerGoals = if (pos == "ATA" || pos == "MEI") rand.safeNextInt(0, 55) else rand.safeNextInt(0, 8),
+                careerApps = careerApps,
+                careerGoals = careerGoals,
                 demand_level = demand,
                 finishing = finishingAttr,
                 passing = passingAttr,
@@ -464,6 +492,11 @@ object DefaultData {
             list.add(finalPlayer)
         }
         return list
+    }
+
+    private fun fc26FallbackRetainsCanonicalIndex(index: Int): Boolean = when (index) {
+        0, 1, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14, 17, 18, 19, 20, 21, 22, 23, 24 -> true
+        else -> false
     }
 
     private data class StarTemplate(val name: String, val position: String, val force: Int, val age: Int)

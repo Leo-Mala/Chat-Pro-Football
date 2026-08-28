@@ -8,6 +8,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Fc26SeedPlannerTest {
+    @Test fun `optimized FC26 fallback exactly matches canonical selection for production universe`() {
+        val teams = ProductionCareerSeedPrewarm.buildProductionTeamUniverse()
+        assertTrue(teams.size >= 1_000)
+        teams.forEach { team ->
+            val expected = Fc26FallbackRosterPolicy.select(
+                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+            )
+            val optimized = DefaultData.generateFc26FallbackRosterForTeam(
+                team.id, team.rating, team.name, team.country
+            )
+            assertEquals("${team.country}/${team.name}", expected, optimized)
+        }
+    }
+
     @Test fun `planner imports matched squad and factual free agent while keeping procedural fallback`() {
         val arsenal = team(2L, "Arsenal FC")
         val fallback = team(88L, "Fallback Town")

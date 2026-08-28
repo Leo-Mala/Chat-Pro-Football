@@ -68,7 +68,7 @@ object EuropeanNewSaveSeedCoordinator {
                 teams = teams,
                 dataset = fc26,
                 proceduralRosterFactory = { team ->
-                    DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+                    DefaultData.generateFc26FallbackRosterForTeam(team.id, team.rating, team.name, team.country)
                 }
             )
             return PendingSeed(teams = teams, players = plan.players, loans = plan.loans)
@@ -187,7 +187,7 @@ object EuropeanNewSaveSeedCoordinator {
             teams = teams,
             dataset = dataset,
             proceduralRosterFactory = { team ->
-                DefaultData.generateRosterForTeam(team.id, team.rating, team.name, team.country)
+                DefaultData.generateFc26FallbackRosterForTeam(team.id, team.rating, team.name, team.country)
             }
         )
         synchronized(lock) {
