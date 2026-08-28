@@ -1,0 +1,119 @@
+name: Temporary Career Seed Template Generator
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/tmp-generate-career-seed-template.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-career-seed-template-generator
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Generate production Room template from canonical runtime seed
+        shell: bash
+        env:
+          CAREER_SEED_TEMPLATE_OUTPUT: ${{ github.workspace }}/app/src/main/assets/databases/career_seed_template.db
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          rm -f "$CAREER_SEED_TEMPLATE_OUTPUT"
+          ./gradlew testDebugUnitTest \
+            --tests com.example.data.CareerSeedTemplateGeneratorTest \
+            -PexcludeStressTests=true \
+            --stacktrace
+          test -s "$CAREER_SEED_TEMPLATE_OUTPUT"
+
+      - name: Validate generated SQLite template
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          path = Path('app/src/main/assets/databases/career_seed_template.db')
+          assert path.is_file() and path.stat().st_size > 0
+          con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+          try:
+              version = con.execute('PRAGMA user_version').fetchone()[0]
+              assert version == 22, version
+              marker = con.execute(
+                  'SELECT schemaVersion, assetSha256, teamCount, playerCount '
+                  'FROM career_seed_template_marker WHERE id = 1'
+              ).fetchone()
+              assert marker is not None
+              team_count = con.execute('SELECT COUNT(*) FROM teams').fetchone()[0]
+              player_count = con.execute('SELECT COUNT(*) FROM players').fetchone()[0]
+              assert marker[0] == 22
+              assert marker[2] == team_count and team_count >= 1000
+              assert marker[3] == player_count and player_count >= 18405
+              assert con.execute('SELECT COUNT(*) FROM game_save').fetchone()[0] == 0
+              assert con.execute('PRAGMA quick_check').fetchone()[0].lower() == 'ok'
+              print(f'template={path.stat().st_size} bytes teams={team_count} players={player_count}')
+          finally:
+              con.close()
+          PY
+
+      - name: Commit generated template only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/databases/career_seed_template.db
+          git diff --cached --quiet && { echo 'template unchanged'; exit 0; }
+          git commit -m "perf: ship prebuilt career seed database"
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
