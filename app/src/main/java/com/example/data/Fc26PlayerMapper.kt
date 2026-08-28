@@ -1,9 +1,55 @@
 package com.example.data
 
+import java.util.concurrent.ConcurrentHashMap
+
 object Fc26PlayerMapper {
     private const val WEEKS_PER_CONTRACT_YEAR = 48
 
+    private data class RuntimeTemplateEntry(
+        val source: Fc26NormalizedPlayer,
+        val player: Player
+    )
+
+    /**
+     * O mapeamento factual cria um envelope JSON relativamente grande para cada jogador. Como o
+     * snapshot FC26 é imutável durante o processo, esse Player-base também é imutável: somente
+     * teamId muda conforme o matching do clube. Cacheá-lo elimina a repetição de conversão de
+     * posição/data/moeda e, principalmente, serialização Gson durante o clique em Nova Carreira.
+     *
+     * A referência do source faz o cache continuar seguro em testes/reloads que reutilizem o mesmo
+     * stableId com outro objeto factual. No dataset de produção os stableIds já são únicos.
+     */
+    private val runtimeTemplateCache = ConcurrentHashMap<Long, RuntimeTemplateEntry>()
+
     fun toPlayer(source: Fc26NormalizedPlayer, teamId: Long?): Player {
+        val template = runtimeTemplate(source)
+        return if (teamId == null) template else template.copy(teamId = teamId)
+    }
+
+    internal fun prewarmRuntimeTemplates(players: List<Fc26NormalizedPlayer>) {
+        players.forEach { runtimeTemplate(it) }
+    }
+
+    internal fun clearRuntimeTemplateCache() {
+        runtimeTemplateCache.clear()
+    }
+
+    private fun runtimeTemplate(source: Fc26NormalizedPlayer): Player {
+        runtimeTemplateCache[source.stableId]?.takeIf { it.source === source }?.let { return it.player }
+
+        val built = buildRuntimeTemplate(source)
+        val candidate = RuntimeTemplateEntry(source, built)
+        val existing = runtimeTemplateCache.putIfAbsent(source.stableId, candidate)
+        if (existing == null) return built
+        if (existing.source === source) return existing.player
+
+        // Só é alcançado por reload/teste com outro objeto usando o mesmo stableId. A base oficial
+        // rejeita colisões antes do planner, portanto substituir aqui não mascara dados de produção.
+        runtimeTemplateCache[source.stableId] = candidate
+        return built
+    }
+
+    private fun buildRuntimeTemplate(source: Fc26NormalizedPlayer): Player {
         val simplifiedPosition = Fc26PositionMapper.simplified(source.positions)
         val age = ageAt2026SeasonStart(source.birthDateIso)
         val marketValue = Fc26MoneyPolicy.eurToGameCurrency(source.valueEur)
@@ -13,7 +59,7 @@ object Fc26PlayerMapper {
 
         return Player(
             id = source.stableId,
-            teamId = teamId,
+            teamId = null,
             name = source.fullName,
             age = age,
             nationality = source.nationality,

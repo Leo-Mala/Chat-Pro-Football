@@ -3,6 +3,7 @@ package com.example.data
 import android.content.res.AssetManager
 import com.google.gson.Gson
 import java.io.FileNotFoundException
+import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 
@@ -62,14 +63,21 @@ object Fc26NormalizedDatasetLoader {
         Fc26MoneyPolicy.requireCompatible(manifest)
 
         val assetPath = "$basePath/${manifest.assetFile}"
-        val actualSha = assets.open(assetPath).use(::sha256Hex)
+
+        // O asset comprimido era aberto duas vezes: uma leitura inteira só para SHA-256 e outra para
+        // descompactar/parsear. DigestInputStream permite validar exatamente os mesmos bytes
+        // comprimidos enquanto o GZIPInputStream os consome, cortando uma passagem completa pelo
+        // arquivo sem enfraquecer a verificação fail-closed.
+        val digest = MessageDigest.getInstance("SHA-256")
+        val players = assets.open(assetPath).use { raw ->
+            val digesting = DigestInputStream(raw, digest)
+            GZIPInputStream(digesting).bufferedReader(Charsets.UTF_8).use(::parsePlayers)
+        }
+        val actualSha = digest.digest().joinToString("") { "%02x".format(it) }
         require(actualSha.equals(manifest.assetSha256, ignoreCase = true)) {
             "FC26 asset SHA-256 divergente: manifest=${manifest.assetSha256}, actual=$actualSha"
         }
 
-        val players = assets.open(assetPath).use { raw ->
-            GZIPInputStream(raw).bufferedReader(Charsets.UTF_8).use(::parsePlayers)
-        }
         return Fc26Dataset(manifest, players)
     }
 
@@ -177,17 +185,6 @@ object Fc26NormalizedDatasetLoader {
         }
         return result
     }
-
-    private fun sha256Hex(input: java.io.InputStream): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            if (read > 0) digest.update(buffer, 0, read)
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
 }
 
 /**
@@ -213,6 +210,7 @@ object Fc26FactualAssetRuntime {
             if (assetManager !== assets) {
                 cachedDataset = null
                 cacheResolved = false
+                Fc26PlayerMapper.clearRuntimeTemplateCache()
             }
             assetManager = assets
         }
@@ -230,11 +228,26 @@ object Fc26FactualAssetRuntime {
         }
     }
 
+    /**
+     * Prepara em background apenas estruturas imutáveis que o Novo Jogo necessariamente reutiliza.
+     * Não gera clubes procedurais nem o plano completo de carreira. Isso permite começar a pagar o
+     * custo do FC26 durante a escolha de país/clube sem reintroduzir o prewarm pesado de ~60k.
+     */
+    fun prewarmRuntimeTemplates(): Fc26Dataset? {
+        val dataset = loadValidatedOrNull() ?: return null
+        // Força as duas projeções lazy uma única vez antes de um possível acesso concorrente.
+        dataset.sourceClubs.size
+        dataset.freeAgents.size
+        Fc26PlayerMapper.prewarmRuntimeTemplates(dataset.players)
+        return dataset
+    }
+
     internal fun clearForTesting() {
         synchronized(cacheLock) {
             assetManager = null
             cachedDataset = null
             cacheResolved = false
+            Fc26PlayerMapper.clearRuntimeTemplateCache()
         }
     }
 }
