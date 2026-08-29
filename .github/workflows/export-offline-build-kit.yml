@@ -6,6 +6,7 @@ on:
       - fix/3.0.1-manual-test-bugs
     paths:
       - .github/workflows/export-offline-build-kit.yml
+      - app/src/test/java/com/example/SaveSlotIsolationTest.kt
   workflow_dispatch:
 
 permissions:
