@@ -12,20 +12,18 @@ class BrasfootRealClubIdentityTest {
 
     @Test
     fun realClubKeepsLegacySlotAliasAndOriginalPngPath() {
-        BrasfootRealClubIdentity.install(
-            listOf(
-                BrasfootRealClubIdentity.Replacement(
-                    legacyTeamId = 4242L,
-                    country = "Brasil",
-                    division = 2,
-                    legacySlotName = "Belo Horizonte FC 2",
-                    realClubName = "Clube Real de Teste",
-                    crestFileName = "clube_real_teste.png"
-                )
-            )
+        val replacement = BrasfootRealClubIdentity.Replacement(
+            legacyTeamId = 4242L,
+            country = "Brasil",
+            division = 2,
+            legacySlotName = "Belo Horizonte FC 2",
+            realClubName = "Clube Real de Teste",
+            crestFileName = "clube_real_teste.png"
         )
+        BrasfootRealClubIdentity.install(listOf(replacement))
 
         assertEquals(4242L, BrasfootRealClubIdentity.legacyTeamIdFor("Brasil", "Clube Real de Teste"))
+        assertEquals(replacement, BrasfootRealClubIdentity.replacementForLegacyTeamId(4242L))
         assertEquals(
             "Belo Horizonte FC 2",
             BrasfootRealClubIdentity.legacySlotNameFor("brásil", "CLUBE REAL DE TESTE")
@@ -38,9 +36,10 @@ class BrasfootRealClubIdentityTest {
     }
 
     @Test
-    fun unknownClubDoesNotInventAliasOrCrest() {
+    fun unknownClubOrLegacyIdDoesNotInventIdentity() {
         assertNull(BrasfootRealClubIdentity.legacySlotNameFor("Brasil", "Desconhecido"))
         assertNull(BrasfootRealClubIdentity.crestAssetUriFor("Brasil", "Desconhecido"))
+        assertNull(BrasfootRealClubIdentity.replacementForLegacyTeamId(999_999L))
     }
 
     @Test
