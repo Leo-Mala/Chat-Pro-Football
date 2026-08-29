@@ -14,7 +14,7 @@ permissions:
 jobs:
   export:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout exact current head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -36,13 +36,20 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug, O=Android, C=US"
           cp debug.keystore "$HOME/.android/debug.keystore"
-      - name: Prime Gradle and Android dependencies
+      - name: Prime focused Gradle and Android dependencies
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon help
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.data.BrasfootRealClubIdentityTest \
+            --tests com.example.data.ProceduralRosterOnlyTest \
+            --tests com.example.migrations.MigrationSafetyTest \
+            --tests com.example.migrations.MigrationCompatibilityTest \
+            --tests com.example.migrations.Migration20To21RelationalIntegrityTest
+          ./gradlew --no-daemon assembleDebug -PexcludeStressTests=true
       - name: Build minimal offline kit
         shell: bash
         run: |
@@ -66,7 +73,7 @@ jobs:
           cp -a "$ANDROID_HOME/build-tools/$BT" "$KIT/android-sdk/build-tools/$BT"
           printf '%s\n' "$BT" > "$KIT/BUILD_TOOLS_VERSION.txt"
           printf '%s\n' "${{ github.sha }}" > "$KIT/SOURCE_HEAD.txt"
-          tar -C "$RUNNER_TEMP" -I 'zstd -T0 -8' -cf "$ARCHIVE" offline-kit
+          tar -C "$RUNNER_TEMP" -I 'zstd -T0 -6' -cf "$ARCHIVE" offline-kit
           test -s "$ARCHIVE"
           ls -lh "$ARCHIVE"
       - name: Upload offline kit
