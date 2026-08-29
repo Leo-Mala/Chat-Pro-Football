@@ -1,4 +1,4 @@
-name: Temporary Qatar Crest Audit
+name: Temporary Exact Qatar Crest Audit
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - name: Checkout exact audit head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -20,25 +20,27 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Collect Qatar supplemental crests
+      - name: Download exact Qatar club assets
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p qatar-audit/assets
+          mkdir -p qatar-exact/assets
           python3 - <<'PY'
           from __future__ import annotations
           import csv, hashlib, html, re, struct, time, urllib.parse, urllib.request
           from pathlib import Path
 
-          OUT=Path('qatar-audit'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
-          UA={'User-Agent':'Mozilla/5.0 crest-audit/1.6'}
-          targets={
-            'Al Rayyan':('direct','https://www.qfa.qa/en/sports-club/al-rayyan-sc',['https://www.escudosdefutbolyequipaciones.com/images_esc3/AFC/QATAR/escudos/ESC_AL-RAYYAN%20S.C..png']),
-            'Al Waab':('football-logos','https://football-logos.cc/qatar/al-waab/',[]),
-            'Lusail':('football-logos','https://football-logos.cc/qatar/lusail/',[]),
-            'Leabaib FC':('qfa','https://www.qfa.qa/en/sports-club/leabaib-fc',[]),
-            'Doha':('qfa','https://www.qfa.qa/en/sports-club/doha',[]),
-            'Al Thumama':('qfa','https://www.qfa.qa/en/sports-club/althumama-club',[]),
+          OUT=Path('qatar-exact'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 crest-audit/1.7'}
+          direct={
+            'Leabaib FC':('qfa','https://www.qfa.qa/en/sports-club/leabaib-fc','https://www.qfa.qa/storage/21004/68efcb92be4e1_JiybWQ_.jpg'),
+            'Doha':('qfa','https://www.qfa.qa/en/sports-club/doha','https://www.qfa.qa/storage/20995/68ef5ceccb963_GOx25h_2.jpeg'),
+            'Al Thumama':('qfa','https://www.qfa.qa/en/sports-club/althumama-club','https://www.qfa.qa/storage/21436/6929e2cf1b20f_Y7MSw3_.jpeg'),
+            'Lusail':('football-logos','https://football-logos.cc/qatar/lusail/','https://assets.football-logos.cc/logos/qatar/1500x1500/lusail.86ac9512.png'),
+          }
+          discover={
+            'Al Rayyan':('football-logos','https://football-logos.cc/qatar/al-rayyan/','al-rayyan'),
+            'Al Waab':('football-logos','https://football-logos.cc/qatar/al-waab/','al-waab'),
           }
           def fetch(url):
             last=None
@@ -48,57 +50,62 @@ jobs:
                 with urllib.request.urlopen(req,timeout=25) as r:return r.read(),r.headers.get('Content-Type',''),r.geturl()
               except Exception as e:last=e;time.sleep(1+i)
             raise last
-          def valid(data,ctype):
+          def classify(data):
             if data.startswith(b'\x89PNG\r\n\x1a\n') and len(data)>=33 and data[12:16]==b'IHDR':
-              w,h,bit,color=struct.unpack('>IIBB',data[16:26]); alpha=color in (4,6) or (color==3 and b'tRNS' in data)
-              if alpha:return '.png',w,h
+              w,h,bit,color=struct.unpack('>IIBB',data[16:26]);alpha=color in (4,6) or (color==3 and b'tRNS' in data)
+              return '.png',w,h,color,alpha
+            if data[:2]==b'\xff\xd8' and data[-2:]==b'\xff\xd9':
+              return '.jpg',0,0,-1,False
             low=data.lower().lstrip()
-            if b'<svg' in low[:4096] and b'<script' not in low and b'javascript:' not in low and b'<!entity' not in low and b'<!doctype' not in low:
-              return '.svg',0,0
+            if b'<svg' in low[:4096] and b'<script' not in low and b'javascript:' not in low and b'<!doctype' not in low and b'<!entity' not in low:
+              return '.svg',0,0,-1,True
             return None
-          rows=[]; errors=[]; seen=set()
-          for club,(kind,identity,seeds) in targets.items():
-            candidates=list(seeds)
+          rows=[];errors=[];seen=set()
+          targets=dict(direct)
+          for club,(kind,identity,slug) in discover.items():
             try:
-              page,_,finalpage=fetch(identity); text=page.decode('utf-8',errors='replace')
-              # Discover image links from page. QFA and football-logos pages use img/src or href assets.
-              for attr in re.findall(r'(?:src|href)=[\"\']([^\"\']+)[\"\']',text,re.I):
-                u=urllib.parse.urljoin(finalpage,html.unescape(attr))
+              raw,_,final=fetch(identity);text=raw.decode('utf-8',errors='replace')
+              urls=[]
+              for m in re.findall(r'https?://[^\"\'<> ]+',text):
+                u=html.unescape(m).replace('\\/','/')
                 lu=u.casefold()
-                if any(x in lu for x in ('.png','.svg','logo','crest','badge','club')): candidates.append(u)
-            except Exception as e:errors.append((club,identity,'page:'+repr(e)))
-            accepted=None
-            # prefer SVG/PNG and larger assets, but stop on first valid candidate after de-dup preserving source order
-            uniq=[]
-            for u in candidates:
-              if u not in uniq:uniq.append(u)
-            valid_opts=[]
-            for u in uniq[:120]:
-              try:
-                data,ctype,final=fetch(u); meta=valid(data,ctype)
-                if not meta:continue
-                ext,w,h=meta; digest=hashlib.sha256(data).hexdigest()
-                if digest in seen:continue
-                score=(1 if ext=='.svg' else 0, w*h, len(data))
-                valid_opts.append((score,u,final,ctype,data,ext,w,h,digest))
-              except Exception:pass
-            if valid_opts:
-              valid_opts.sort(reverse=True,key=lambda x:x[0]); _,u,final,ctype,data,ext,w,h,digest=valid_opts[0]
-              seen.add(digest); local=digest+ext;(ASSETS/local).write_bytes(data)
-              rows.append((club,kind,'2026-08-29T17:45Z-audited',identity,u,final,ctype,len(data),w,h,digest,'assets/'+local))
-            else:errors.append((club,identity,'NO_VALID_TRANSPARENT_ASSET'))
-          with (OUT/'qatar-six.csv').open('w',encoding='utf-8',newline='') as f:
-            w=csv.writer(f);w.writerow(['clubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','width','height','sha256','artifactFile']);w.writerows(rows)
+                if 'assets.football-logos.cc/logos/qatar/' in lu and slug in lu and ('.png' in lu or '.svg' in lu):urls.append(u)
+              # Also accept relative/static src attributes that resolve to the same asset host.
+              for attr in re.findall(r'(?:src|href)=[\"\']([^\"\']+)[\"\']',text,re.I):
+                u=urllib.parse.urljoin(final,html.unescape(attr));lu=u.casefold()
+                if 'assets.football-logos.cc/logos/qatar/' in lu and slug in lu and ('.png' in lu or '.svg' in lu):urls.append(u)
+              # Prefer 1500x1500 transparent PNG, then any PNG, then SVG.
+              uniq=[]
+              for u in urls:
+                if u not in uniq:uniq.append(u)
+              uniq.sort(key=lambda u:(0 if '/1500x1500/' in u and '.png' in u else 1 if '.png' in u else 2,len(u)))
+              if not uniq:raise RuntimeError('exact slug asset not found')
+              targets[club]=(kind,identity,uniq[0])
+            except Exception as e:
+              errors.append((club,identity,'DISCOVERY:'+repr(e)))
+          for club,(kind,identity,url) in targets.items():
+            try:
+              data,ctype,final=fetch(url);meta=classify(data)
+              if not meta:
+                errors.append((club,url,f'INVALID_ASSET:{ctype}:{len(data)}'));continue
+              ext,w,h,color,alpha=meta;digest=hashlib.sha256(data).hexdigest()
+              if digest in seen:
+                errors.append((club,url,'DUPLICATE_SHA'));continue
+              seen.add(digest);local=digest+ext;(ASSETS/local).write_bytes(data)
+              rows.append((club,kind,'2026-08-29T18:00Z-audited',identity,url,final,ctype,len(data),ext,w,h,color,str(alpha).lower(),digest,'assets/'+local))
+            except Exception as e:errors.append((club,url,repr(e)))
+          with (OUT/'qatar-exact.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f);w.writerow(['clubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','extension','width','height','colorType','hasAlpha','sha256','artifactFile']);w.writerows(rows)
           with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
             w=csv.writer(f);w.writerow(['clubName','source','error']);w.writerows(errors)
           (OUT/'summary.txt').write_text(f'accepted={len(rows)}/6\nunique_hashes={len(seen)}\nerrors={len(errors)}\n',encoding='utf-8')
           print((OUT/'summary.txt').read_text())
           PY
 
-      - name: Upload Qatar audit
+      - name: Upload exact Qatar audit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: qatar-six-${{ github.sha }}
-          path: qatar-audit/
+          name: qatar-exact-${{ github.sha }}
+          path: qatar-exact/
           if-no-files-found: error
           retention-days: 2
