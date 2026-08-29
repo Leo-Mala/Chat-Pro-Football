@@ -14,7 +14,7 @@ permissions:
 jobs:
   export:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout exact current head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -26,31 +26,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Prepare debug signing
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.android"
-          keytool -genkey -v -keystore debug.keystore \
-            -storepass android -alias androiddebugkey -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug, O=Android, C=US"
-          cp debug.keystore "$HOME/.android/debug.keystore"
-      - name: Prime focused Gradle and Android dependencies
+      - name: Restore trusted Gradle cache
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: true
+      - name: Verify restored Gradle cache offline
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon help
-          ./gradlew --no-daemon testDebugUnitTest \
-            -PexcludeStressTests=true \
-            --tests com.example.data.BrasfootRealClubIdentityTest \
-            --tests com.example.data.ProceduralRosterOnlyTest \
-            --tests com.example.migrations.MigrationSafetyTest \
-            --tests com.example.migrations.MigrationCompatibilityTest \
-            --tests com.example.migrations.Migration20To21RelationalIntegrityTest
-          ./gradlew --no-daemon assembleDebug -PexcludeStressTests=true
-      - name: Build minimal offline kit
+          ./gradlew --offline --no-daemon help
+      - name: Build offline kit
         shell: bash
         run: |
           set -euo pipefail
@@ -61,7 +47,6 @@ jobs:
           test -d "$HOME/.gradle/caches"
           cp -a "$HOME/.gradle/wrapper" "$KIT/gradle/"
           cp -a "$HOME/.gradle/caches" "$KIT/gradle/"
-          rm -rf "$KIT/gradle/caches"/*/fileHashes "$KIT/gradle/caches"/*/fileContent 2>/dev/null || true
           for d in licenses platforms/android-35 platform-tools; do
             test -e "$ANDROID_HOME/$d"
             mkdir -p "$KIT/android-sdk/$(dirname "$d")"
