@@ -33,27 +33,39 @@ object BrasfootRealClubIdentity {
         val crests = LinkedHashMap<String, String>(replacements.size)
         val legacyIds = HashSet<Long>(replacements.size)
         val legacyKeys = HashSet<String>(replacements.size)
+        val realKeys = HashSet<String>(replacements.size)
         val crestNames = HashSet<String>(replacements.size)
+
+        // Primeiro congelamos os dois namespaces de nomes. Um nome real não pode coincidir com o
+        // slot legado de OUTRO replacement no mesmo país: essa colisão tornaria a resolução
+        // real->legacy ambígua e poderia fazer um save antigo apontar para a identidade errada.
+        replacements.forEach { replacement ->
+            require(replacement.country.isNotBlank()) { "País vazio no plano de clubes reais." }
+            require(replacement.legacySlotName.isNotBlank()) { "Slot legado vazio para ${replacement.realClubName}." }
+            require(replacement.realClubName.isNotBlank()) { "Nome real vazio para ${replacement.legacySlotName}." }
+            val legacyKey = key(replacement.country, replacement.legacySlotName)
+            val realKey = key(replacement.country, replacement.realClubName)
+            require(legacyKeys.add(legacyKey)) {
+                "Slot procedural reutilizado mais de uma vez: ${replacement.country} / ${replacement.legacySlotName}"
+            }
+            require(realKeys.add(realKey)) {
+                "Clube real duplicado no plano: ${replacement.country} / ${replacement.realClubName}"
+            }
+        }
+        val crossNamespaceCollisions = realKeys.intersect(legacyKeys)
+        require(crossNamespaceCollisions.isEmpty()) {
+            "Nome real colide com namespace de slot legado; plano inseguro para compatibilidade de saves."
+        }
 
         replacements.forEach { replacement ->
             require(replacement.legacyTeamId > 0L) { "ID legado inválido para ${replacement.realClubName}." }
             require(legacyIds.add(replacement.legacyTeamId)) { "ID legado reutilizado: ${replacement.legacyTeamId}" }
-            require(replacement.country.isNotBlank()) { "País vazio no plano de clubes reais." }
             require(replacement.division > 0) { "Divisão inválida para ${replacement.realClubName}." }
-            require(replacement.legacySlotName.isNotBlank()) { "Slot legado vazio para ${replacement.realClubName}." }
-            require(replacement.realClubName.isNotBlank()) { "Nome real vazio para ${replacement.legacySlotName}." }
             require(replacement.crestFileName.endsWith(".png", ignoreCase = true)) {
                 "Escudo deve preservar o PNG original do patch: ${replacement.crestFileName}"
             }
 
             val realKey = key(replacement.country, replacement.realClubName)
-            require(realKey !in aliases) { "Clube real duplicado no plano: ${replacement.country} / ${replacement.realClubName}" }
-
-            val legacyKey = key(replacement.country, replacement.legacySlotName)
-            require(legacyKeys.add(legacyKey)) {
-                "Slot procedural reutilizado mais de uma vez: ${replacement.country} / ${replacement.legacySlotName}"
-            }
-
             val crestKey = replacement.crestFileName.lowercase(Locale.ROOT)
             require(crestNames.add(crestKey)) { "Escudo reutilizado por mais de um clube: ${replacement.crestFileName}" }
 
