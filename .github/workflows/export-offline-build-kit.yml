@@ -36,13 +36,14 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --offline --no-daemon help
-      - name: Build offline kit
+      - name: Build and split offline kit
         shell: bash
         run: |
           set -euo pipefail
           KIT="$RUNNER_TEMP/offline-kit"
           ARCHIVE="$RUNNER_TEMP/offline-build-kit.tar.zst"
-          mkdir -p "$KIT/gradle" "$KIT/android-sdk"
+          PARTS="$RUNNER_TEMP/offline-parts"
+          mkdir -p "$KIT/gradle" "$KIT/android-sdk" "$PARTS"
           test -d "$HOME/.gradle/wrapper"
           test -d "$HOME/.gradle/caches"
           cp -a "$HOME/.gradle/wrapper" "$KIT/gradle/"
@@ -60,12 +61,46 @@ jobs:
           printf '%s\n' "${{ github.sha }}" > "$KIT/SOURCE_HEAD.txt"
           tar -C "$RUNNER_TEMP" -I 'zstd -T0 -6' -cf "$ARCHIVE" offline-kit
           test -s "$ARCHIVE"
-          ls -lh "$ARCHIVE"
-      - name: Upload offline kit
+          sha256sum "$ARCHIVE" > "$PARTS/offline-build-kit.sha256"
+          split -b 400M -d -a 2 "$ARCHIVE" "$PARTS/part-"
+          ls -lh "$ARCHIVE" "$PARTS"/part-* "$PARTS/offline-build-kit.sha256"
+      - name: Upload kit part 00
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: offline-build-kit-${{ github.sha }}
-          path: ${{ runner.temp }}/offline-build-kit.tar.zst
+          name: offline-kit-part-00-${{ github.sha }}
+          path: ${{ runner.temp }}/offline-parts/part-00
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Upload kit part 01
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-kit-part-01-${{ github.sha }}
+          path: ${{ runner.temp }}/offline-parts/part-01
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Upload kit part 02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-kit-part-02-${{ github.sha }}
+          path: ${{ runner.temp }}/offline-parts/part-02
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Upload kit part 03 if present
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-kit-part-03-${{ github.sha }}
+          path: ${{ runner.temp }}/offline-parts/part-03
+          if-no-files-found: ignore
+          retention-days: 1
+          compression-level: 0
+      - name: Upload kit checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-kit-checksum-${{ github.sha }}
+          path: ${{ runner.temp }}/offline-parts/offline-build-kit.sha256
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
