@@ -1,0 +1,113 @@
+name: Audit final replacement crests v2
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/audit-final-replacement-crests-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Audit four replacement crest assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-replacements-v2/assets
+          python3 - <<'PY'
+          import csv, hashlib, struct, time, urllib.request, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          OUT=Path('final-replacements-v2')
+          ASSETS=OUT/'assets'
+          ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/3.1'}
+          targets=[
+            ('Croácia','NK Zagora','github-svg','JoseArroyave/football-logos@1b8e57c3ea3658001cafba18c4a6db730b420ad6','https://github.com/JoseArroyave/football-logos/blob/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/croatia/NK_Zagora.svg','https://raw.githubusercontent.com/JoseArroyave/football-logos/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/croatia/NK_Zagora.svg'),
+            ('Croácia','NK Sesvete','seeklogo-png','seeklogo-349528-audit-2026-08-29','https://seeklogo.com/vector-logo/349528/nk-sesvete','https://images.seeklogo.com/logo-png/34/1/nk-sesvete-logo-png_seeklogo-349528.png'),
+            ('México','Dorados de Sinaloa','seeklogo-png','seeklogo-534931-audit-2026-08-29','https://seeklogo.com/vector-logo/534931/dorados-de-sinaloa','https://images.seeklogo.com/logo-png/53/1/dorados-de-sinaloa-logo-png_seeklogo-534931.png'),
+            ('México','Irapuato','seeklogo-png','seeklogo-196306-audit-2026-08-29','https://seeklogo.com/vector-logo/196306/irapuato-fc','https://images.seeklogo.com/logo-png/19/1/irapuato-fc-logo-png_seeklogo-196306.png'),
+          ]
+
+          def fetch(url):
+              last=None
+              for attempt in range(4):
+                  try:
+                      req=urllib.request.Request(url,headers=UA)
+                      with urllib.request.urlopen(req,timeout=30) as response:
+                          return response.read(),response.headers.get('Content-Type',''),response.geturl()
+                  except Exception as exc:
+                      last=exc
+                      time.sleep(1+attempt)
+              raise last
+
+          def validate(data,url):
+              stripped=data.lstrip()
+              if len(data)>=33 and data.startswith(b'\x89PNG\r\n\x1a\n') and data[12:16]==b'IHDR':
+                  width,height,bit_depth,color_type=struct.unpack('>IIBB',data[16:26])
+                  if width<=0 or height<=0:
+                      raise ValueError(f'invalid PNG dimensions: {url}')
+                  has_alpha=color_type in (4,6) or (color_type==3 and b'tRNS' in data)
+                  if not has_alpha:
+                      raise ValueError(f'PNG lacks transparency: {url}')
+                  return '.png',width,height,color_type
+              low=stripped.lower()
+              if b'<svg' in low[:8192]:
+                  for forbidden in (b'<!doctype',b'<!entity',b'<script',b'javascript:'):
+                      if forbidden in low:
+                          raise ValueError(f'unsafe SVG {forbidden!r}: {url}')
+                  root=ET.fromstring(data)
+                  if root.tag.rsplit('}',1)[-1].lower()!='svg':
+                      raise ValueError(f'invalid SVG root: {url}')
+                  if not root.get('viewBox') and not (root.get('width') and root.get('height')):
+                      raise ValueError(f'SVG lacks geometry: {url}')
+                  return '.svg','','',''
+              raise ValueError(f'unsupported/non-image response: {url}')
+
+          rows=[]; errors=[]; seen=set()
+          for country,club,kind,revision,identity,url in targets:
+              try:
+                  data,ctype,final=fetch(url)
+                  ext,w,h,ct=validate(data,url)
+                  sha=hashlib.sha256(data).hexdigest()
+                  if sha in seen:
+                      raise ValueError(f'duplicate SHA: {sha}')
+                  seen.add(sha)
+                  local=sha+ext
+                  (ASSETS/local).write_bytes(data)
+                  rows.append([country,club,kind,revision,identity,url,final,ctype,len(data),w,h,ct,sha,'assets/'+local])
+              except Exception as exc:
+                  errors.append([country,club,url,repr(exc)])
+          with (OUT/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f); w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','width','height','colorType','sourceCrestSha256','artifactFile']); w.writerows(rows)
+          with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f); w.writerow(['country','realClubName','source','error']); w.writerows(errors)
+          (OUT/'summary.txt').write_text(f'targets=4\naccepted={len(rows)}\nunique_hashes={len(seen)}\nerrors={len(errors)}\n',encoding='utf-8')
+          print((OUT/'summary.txt').read_text())
+          if errors:
+              print((OUT/'errors.csv').read_text())
+          if len(rows)!=4 or len(seen)!=4:
+              raise SystemExit('expected exactly 4 validated replacement crests')
+          PY
+
+      - name: Upload replacement crest audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-replacement-crests-v2-${{ github.sha }}
+          path: final-replacements-v2/
+          if-no-files-found: error
+          retention-days: 2
