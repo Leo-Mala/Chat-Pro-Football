@@ -3,8 +3,8 @@
 
 The APK gate must not trust file counts alone. This verifier cross-checks the frozen
 1,907-slot baseline, generated Kotlin replacement data, bundled PNG/SVG assets and
-the SHA-256 manifest. An incomplete bundle is reported as not ready; a superficially
-complete but inconsistent bundle raises an error and fails CI.
+the SHA-256/provenance manifest. An incomplete bundle is reported as not ready; a
+superficially complete but inconsistent bundle raises an error and fails CI.
 """
 
 from __future__ import annotations
@@ -27,6 +27,21 @@ REPLACEMENT_RE = re.compile(
     r"division = (?P<division>\d+), legacySlotName = \"(?P<slot>(?:\\.|[^\"])*)\", "
     r"realClubName = \"(?P<club>(?:\\.|[^\"])*)\", crestFileName = \"(?P<crest>(?:\\.|[^\"])*)\"\),"
 )
+
+MANIFEST_REQUIRED = {
+    "legacyTeamId",
+    "country",
+    "division",
+    "realClubName",
+    "canonicalClubKey",
+    "crestFileName",
+    "sourceKind",
+    "sourceRevision",
+    "sourceIdentityPath",
+    "sourceCrestPath",
+    "sourceCrestSha256",
+    "sha256",
+}
 
 
 @dataclass(frozen=True)
@@ -108,15 +123,14 @@ def validate_asset(path: Path) -> None:
 def read_manifest(path: Path) -> dict[int, dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    required = {"legacyTeamId", "country", "division", "realClubName", "canonicalClubKey", "crestFileName", "sha256"}
-    if rows and not required.issubset(rows[0]):
-        raise ValueError(f"digest manifest missing columns: {sorted(required - set(rows[0]))}")
+    if rows and not MANIFEST_REQUIRED.issubset(rows[0]):
+        raise ValueError(f"digest manifest missing columns: {sorted(MANIFEST_REQUIRED - set(rows[0]))}")
     result: dict[int, dict[str, str]] = {}
     for row in rows:
         team_id = int(row["legacyTeamId"])
         if team_id in result:
             raise ValueError(f"digest manifest duplicate legacyTeamId: {team_id}")
-        result[team_id] = {key: row[key].strip() for key in required}
+        result[team_id] = {key: row[key].strip() for key in MANIFEST_REQUIRED}
     return result
 
 
@@ -178,7 +192,8 @@ def verify_complete_bundle(
             raise ValueError(f"duplicate real club: {row.country} / {row.real_club_name}")
         real_keys.add(real_key)
 
-        canonical_name = manifest[row.legacy_team_id]["canonicalClubKey"].strip()
+        digest_row = manifest[row.legacy_team_id]
+        canonical_name = digest_row["canonicalClubKey"].strip()
         if not canonical_name:
             raise ValueError(f"empty canonicalClubKey for legacyTeamId {row.legacy_team_id}")
         canonical_key = (row.country.casefold(), canonical_name.casefold())
@@ -189,6 +204,10 @@ def verify_complete_bundle(
             )
         canonical_keys.add(canonical_key)
 
+        for field in ("sourceKind", "sourceRevision", "sourceIdentityPath", "sourceCrestPath"):
+            if not digest_row[field]:
+                raise ValueError(f"empty provenance field {field} for legacyTeamId {row.legacy_team_id}")
+
         crest_key = row.crest_file_name.casefold()
         if crest_key in crest_names:
             raise ValueError(f"crest reused by more than one club: {row.crest_file_name}")
@@ -198,7 +217,6 @@ def verify_complete_bundle(
             raise ValueError(f"missing crest asset: {row.crest_file_name}")
         validate_asset(asset)
 
-        digest_row = manifest[row.legacy_team_id]
         expected_fields = {
             "country": row.country,
             "division": str(row.division),
@@ -208,9 +226,15 @@ def verify_complete_bundle(
         for field, expected in expected_fields.items():
             if digest_row[field] != expected:
                 raise ValueError(f"manifest {field} mismatch for legacyTeamId {row.legacy_team_id}")
+
         declared_digest = digest_row["sha256"].lower()
+        source_digest = digest_row["sourceCrestSha256"].lower()
         if not re.fullmatch(r"[0-9a-f]{64}", declared_digest):
             raise ValueError(f"invalid sha256 syntax for legacyTeamId {row.legacy_team_id}")
+        if not re.fullmatch(r"[0-9a-f]{64}", source_digest):
+            raise ValueError(f"invalid sourceCrestSha256 syntax for legacyTeamId {row.legacy_team_id}")
+        if source_digest != declared_digest:
+            raise ValueError(f"source crest digest differs from bundled manifest digest for legacyTeamId {row.legacy_team_id}")
         actual_digest = sha256(asset)
         if declared_digest != actual_digest:
             raise ValueError(f"sha256 mismatch for {row.crest_file_name}")

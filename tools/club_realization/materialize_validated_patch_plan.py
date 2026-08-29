@@ -5,7 +5,7 @@ Este utilitário deliberadamente não faz fuzzy matching nem descobre clubes por
 própria. Ele aceita apenas um plano explícito 1:1 contra os 1.907 slots procedurais
 congelados, valida PNG/SVG e copia os bytes originais sem redimensionar/reencodar.
 Assim, escudos vindos do patch Brasfoot ou de uma fonte externa já auditada mantêm
-seu formato original.
+seu formato original e sua proveniência fica registrada no manifesto final.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import re
 import shutil
 import struct
 import xml.etree.ElementTree as ET
@@ -41,6 +42,11 @@ class PlanRow:
     real_club_name: str
     canonical_club_key: str
     crest_file_name: str
+    source_kind: str
+    source_revision: str
+    source_identity_path: str
+    source_crest_path: str
+    source_crest_sha256: str
 
 
 def load_slots(path: Path) -> dict[int, Slot]:
@@ -73,6 +79,11 @@ def load_plan(path: Path) -> list[PlanRow]:
         "realClubName",
         "canonicalClubKey",
         "crestFileName",
+        "sourceKind",
+        "sourceRevision",
+        "sourceIdentityPath",
+        "sourceCrestPath",
+        "sourceCrestSha256",
     }
     if rows:
         missing = required - set(rows[0])
@@ -87,6 +98,11 @@ def load_plan(path: Path) -> list[PlanRow]:
             real_club_name=row["realClubName"].strip(),
             canonical_club_key=row["canonicalClubKey"].strip(),
             crest_file_name=row["crestFileName"].strip(),
+            source_kind=row["sourceKind"].strip(),
+            source_revision=row["sourceRevision"].strip(),
+            source_identity_path=row["sourceIdentityPath"].strip(),
+            source_crest_path=row["sourceCrestPath"].strip(),
+            source_crest_sha256=row["sourceCrestSha256"].strip().lower(),
         )
         for row in rows
     ]
@@ -175,6 +191,19 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
             raise ValueError(f"Clube real vazio no slot {row.legacy_team_id}")
         if not row.canonical_club_key:
             raise ValueError(f"Chave canônica vazia no slot {row.legacy_team_id}")
+
+        provenance_fields = {
+            "sourceKind": row.source_kind,
+            "sourceRevision": row.source_revision,
+            "sourceIdentityPath": row.source_identity_path,
+            "sourceCrestPath": row.source_crest_path,
+        }
+        for field, value in provenance_fields.items():
+            if not value:
+                raise ValueError(f"Proveniência {field} vazia no slot {row.legacy_team_id}")
+        if not re.fullmatch(r"[0-9a-f]{64}", row.source_crest_sha256):
+            raise ValueError(f"sourceCrestSha256 inválido no slot {row.legacy_team_id}")
+
         if Path(row.crest_file_name).name != row.crest_file_name:
             raise ValueError(f"Nome de escudo deve ser basename puro: {row.crest_file_name}")
         if Path(row.crest_file_name).suffix.casefold() not in SUPPORTED_CREST_EXTENSIONS:
@@ -202,6 +231,11 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
         if not crest_path.is_file():
             raise FileNotFoundError(f"Escudo não encontrado: {crest_path}")
         digest = validate_crest(crest_path)
+        if digest != row.source_crest_sha256:
+            raise ValueError(
+                f"Escudo local não corresponde ao SHA-256 auditado da fonte no slot {row.legacy_team_id}: "
+                f"expected={row.source_crest_sha256} actual={digest}"
+            )
         checked.append((row, digest))
 
     return checked
@@ -257,7 +291,20 @@ def write_digest_manifest(checked: list[tuple[PlanRow, str]], output: Path) -> N
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["legacyTeamId", "country", "division", "realClubName", "canonicalClubKey", "crestFileName", "sha256"])
+        writer.writerow([
+            "legacyTeamId",
+            "country",
+            "division",
+            "realClubName",
+            "canonicalClubKey",
+            "crestFileName",
+            "sourceKind",
+            "sourceRevision",
+            "sourceIdentityPath",
+            "sourceCrestPath",
+            "sourceCrestSha256",
+            "sha256",
+        ])
         for row, digest in checked:
             writer.writerow([
                 row.legacy_team_id,
@@ -266,6 +313,11 @@ def write_digest_manifest(checked: list[tuple[PlanRow, str]], output: Path) -> N
                 row.real_club_name,
                 row.canonical_club_key,
                 row.crest_file_name,
+                row.source_kind,
+                row.source_revision,
+                row.source_identity_path,
+                row.source_crest_path,
+                row.source_crest_sha256,
                 digest,
             ])
 
