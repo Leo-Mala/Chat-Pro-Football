@@ -68,4 +68,17 @@ class BrasfootRealClubIdentityTest {
             BrasfootRealClubIdentity.install(duplicateId)
         }
     }
+
+    @Test
+    fun rejectsRealNameThatCollidesWithAnotherLegacySlotAfterNormalization() {
+        val ambiguousPlan = listOf(
+            BrasfootRealClubIdentity.Replacement(1001L, "Brasil", 2, "São Paulo FC 2", "Real A", "a.png"),
+            BrasfootRealClubIdentity.Replacement(1002L, "Brasil", 2, "Slot B", "Sao-Paulo FC 2", "b.png")
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            BrasfootRealClubIdentity.install(ambiguousPlan)
+        }
+        assertEquals(0, BrasfootRealClubIdentity.installedReplacementCount())
+    }
 }
