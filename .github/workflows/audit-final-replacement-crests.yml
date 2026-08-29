@@ -1,0 +1,129 @@
+name: Audit final replacement crests
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/audit-final-replacement-crests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Audit four replacement crest assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-replacements/assets
+          python3 - <<'PY'
+          import csv, hashlib, struct, time, urllib.request, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          OUT=Path('final-replacements')
+          ASSETS=OUT/'assets'
+          ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/3.0'}
+          targets=[
+            {
+              'country':'Croácia','club':'NK Zagora','kind':'github-svg',
+              'revision':'JoseArroyave/football-logos@1b8e57c3ea3658001cafba18c4a6db730b420ad6',
+              'identity':'https://github.com/JoseArroyave/football-logos/blob/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/croatia/NK_Zagora.svg',
+              'url':'https://raw.githubusercontent.com/JoseArroyave/football-logos/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/croatia/NK_Zagora.svg'
+            },
+            {
+              'country':'Croácia','club':'NK Sesvete','kind':'seeklogo-png',
+              'revision':'seeklogo-349528-audit-2026-08-29',
+              'identity':'https://seeklogo.com/vector-logo/349528/nk-sesvete',
+              'url':'https://images.seeklogo.com/logo-png/34/1/nk-sesvete-logo-png_seeklogo-349528.png'
+            },
+            {
+              'country':'México','club':'Dorados de Sinaloa','kind':'seeklogo-png',
+              'revision':'seeklogo-534931-audit-2026-08-29',
+              'identity':'https://seeklogo.com/vector-logo/534931/dorados-de-sinaloa',
+              'url':'https://images.seeklogo.com/logo-png/53/1/dorados-de-sinaloa-logo-png_seeklogo-534931.png'
+            },
+            {
+              'country':'México','club':'Irapuato','kind':'freebiesupply-png',
+              'revision':'freebiesupply-irapuato-audit-2026-08-29',
+              'identity':'https://freebiesupply.com/logos/irapuato-logo/',
+              'url':'https://cdn.freebiesupply.com/logos/large/2x/irapuato-logo-png-transparent.png'
+            },
+          ]
+
+          def fetch(url):
+              err=None
+              for attempt in range(4):
+                  try:
+                      req=urllib.request.Request(url,headers=UA)
+                      with urllib.request.urlopen(req,timeout=30) as r:
+                          return r.read(), r.headers.get('Content-Type',''), r.geturl()
+                  except Exception as exc:
+                      err=exc; time.sleep(1+attempt)
+              raise err
+
+          def validate(data,url):
+              stripped=data.lstrip()
+              if len(data)>=33 and data.startswith(b'\x89PNG\r\n\x1a\n') and data[12:16]==b'IHDR':
+                  width,height,bit_depth,color_type=struct.unpack('>IIBB',data[16:26])
+                  if width<=0 or height<=0:
+                      raise ValueError(f'invalid PNG dimensions: {url}')
+                  has_alpha=color_type in (4,6) or (color_type==3 and b'tRNS' in data)
+                  if not has_alpha:
+                      raise ValueError(f'PNG lacks transparency: {url}')
+                  return '.png',width,height,color_type
+              low=stripped.lower()
+              if b'<svg' in low[:8192]:
+                  for forbidden in (b'<!doctype',b'<!entity',b'<script',b'javascript:'):
+                      if forbidden in low:
+                          raise ValueError(f'unsafe SVG {forbidden!r}: {url}')
+                  root=ET.fromstring(data)
+                  if root.tag.rsplit('}',1)[-1].lower()!='svg':
+                      raise ValueError(f'invalid SVG root: {url}')
+                  if not root.get('viewBox') and not (root.get('width') and root.get('height')):
+                      raise ValueError(f'SVG lacks geometry: {url}')
+                  return '.svg','','',''
+              raise ValueError(f'unsupported/non-image response: {url}')
+
+          rows=[]; seen=set()
+          for t in targets:
+              data,ctype,final=fetch(t['url'])
+              ext,w,h,ct=validate(data,t['url'])
+              sha=hashlib.sha256(data).hexdigest()
+              if sha in seen:
+                  raise SystemExit(f'duplicate SHA among replacement crests: {sha}')
+              seen.add(sha)
+              local=sha+ext
+              (ASSETS/local).write_bytes(data)
+              rows.append([
+                  t['country'],t['club'],t['kind'],t['revision'],t['identity'],t['url'],final,
+                  ctype,len(data),w,h,ct,sha,'assets/'+local
+              ])
+          with (OUT/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f)
+              w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','width','height','colorType','sourceCrestSha256','artifactFile'])
+              w.writerows(rows)
+          (OUT/'summary.txt').write_text(f'targets=4\naccepted={len(rows)}\nunique_hashes={len(seen)}\n',encoding='utf-8')
+          print((OUT/'summary.txt').read_text())
+          if len(rows)!=4 or len(seen)!=4:
+              raise SystemExit('expected exactly 4 validated replacement crests')
+          PY
+
+      - name: Upload replacement crest audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-replacement-crests-${{ github.sha }}
+          path: final-replacements/
+          if-no-files-found: error
+          retention-days: 2
