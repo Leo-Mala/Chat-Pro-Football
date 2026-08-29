@@ -1,166 +1,136 @@
-name: Manual Test Bugfix APK
+name: Temporary External Crest Audit
 
 on:
   push:
     branches:
-      - fix/3.0.1-manual-test-bugs
+      - tmp/external-crest-audit
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: manual-test-bugfix-apk-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  focused-validation-and-apk:
+  collect:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout exact bugfix head
+      - name: Checkout exact audit head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Record exact build SHA
+      - name: Collect individual crest indexes and assets
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          echo "MANUAL_TEST_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          mkdir -p external-crest-audit/assets
+          python3 - <<'PY'
+          from __future__ import annotations
+          import csv, hashlib, html, re, time, urllib.parse, urllib.request
+          from pathlib import Path
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
-
-      - name: Setup validation google-services.json
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat << 'GOOGLE_EOF' > app/google-services.json
-          {
-            "project_info": {
-              "project_number": "1234567890",
-              "project_id": "dummy-project",
-              "storage_bucket": "dummy-project.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
-                  "android_client_info": {
-                    "package_name": "com.aistudio.brasfutretro.djuxzt"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
-                "services": { "appinvite_service": { "status": 1 } }
-              }
-            ],
-            "configuration_version": "1"
+          ROOT = 'https://www.escudosdefutbolyequipaciones.com/images_esc3'
+          OUT = Path('external-crest-audit')
+          ASSETS = OUT / 'assets'
+          ASSETS.mkdir(parents=True, exist_ok=True)
+          candidates = {
+              'Jamaica': ['CONC/JAMAICA'],
+              'Guatemala': ['CONC/GUATEMALA'],
+              'México': ['CONC/MEXICO', 'CONC/MÉXICO'],
+              'Costa Rica': ['CONC/COSTA RICA'],
+              'Colômbia': ['CONM/COLOMBIA'],
+              'Uruguai': ['CONM/URUGUAY'],
+              'Paraguai': ['CONM/PARAGUAY'],
+              'Chile': ['CONM/CHILE'],
+              'China': ['AFC/CHINA'],
+              'Irã': ['AFC/IRAN'],
+              'Arábia Saudita': ['AFC/ARABIA SAUDITA', 'AFC/ARABIA SAUDÍ', 'AFC/SAUDI ARABIA'],
+              'Tchéquia': ['UEFA/REPUBLICA CHECA', 'UEFA/REPÚBLICA CHECA', 'UEFA/CZECH REPUBLIC', 'UEFA/CZECHIA', 'UEFA/CHEQUIA'],
           }
-          GOOGLE_EOF
+          banned = ('selecci', 'national', 'bandera', 'flag', 'mapa', 'federaci', 'federation', 'liga', 'league', 'association', 'confeder', 'femen', 'women', 'sub-', 'u17', 'u19', 'u20', 'u21', 'juvenil')
+          href_re = re.compile(r'href=[\"\']([^\"\']+)[\"\']', re.I)
+          ext_re = re.compile(r'\.(?:png|jpe?g)$', re.I)
+          rows, errors, seen_urls = [], [], set()
 
-      - name: Setup Debug Keystore
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.android
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug, O=Android, C=US"
-          fi
-          cp debug.keystore ~/.android/debug.keystore
+          def fetch(url, attempts=4):
+              last = None
+              for attempt in range(attempts):
+                  try:
+                      req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 crest-audit/1.0'})
+                      with urllib.request.urlopen(req, timeout=30) as r:
+                          return r.read(), r.headers.get('Content-Type', '')
+                  except Exception as exc:
+                      last = exc
+                      time.sleep(1.5 * (attempt + 1))
+              raise last
 
-      - name: Validate club realization Python tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile \
-            tools/club_realization/materialize_validated_patch_plan.py \
-            tools/club_realization/verify_materialized_bundle.py
+          for country, paths in candidates.items():
+              found = False
+              for logical_path in paths:
+                  encoded = urllib.parse.quote(logical_path, safe='/')
+                  for folder in ('escudos', 'escudos_jpg'):
+                      index_url = f'{ROOT}/{encoded}/{folder}/'
+                      try:
+                          raw, _ = fetch(index_url)
+                          text = raw.decode('utf-8', errors='replace')
+                      except Exception as exc:
+                          errors.append((country, logical_path, folder, index_url, repr(exc)))
+                          continue
+                      hrefs = []
+                      for href in href_re.findall(text):
+                          decoded = urllib.parse.unquote(html.unescape(href))
+                          if not ext_re.search(decoded):
+                              continue
+                          low = decoded.casefold()
+                          if any(token in low for token in banned):
+                              continue
+                          hrefs.append(href)
+                      if not hrefs:
+                          continue
+                      found = True
+                      for href in sorted(set(hrefs)):
+                          url = urllib.parse.urljoin(index_url, href)
+                          if url in seen_urls:
+                              continue
+                          seen_urls.add(url)
+                          decoded_name = urllib.parse.unquote(html.unescape(href)).split('/')[-1]
+                          try:
+                              data, ctype = fetch(url)
+                          except Exception as exc:
+                              errors.append((country, logical_path, folder, url, repr(exc)))
+                              continue
+                          if len(data) < 128:
+                              errors.append((country, logical_path, folder, url, f'too-small:{len(data)}'))
+                              continue
+                          digest = hashlib.sha256(data).hexdigest()
+                          suffix = Path(decoded_name).suffix.lower() or '.bin'
+                          artifact_name = f'{digest}{suffix}'
+                          target = ASSETS / artifact_name
+                          if not target.exists():
+                              target.write_bytes(data)
+                          rows.append((country, logical_path, folder, decoded_name, url, ctype, len(data), digest, f'assets/{artifact_name}'))
+              if not found:
+                  errors.append((country, '', '', '', 'NO_WORKING_DIRECTORY_WITH_IMAGES'))
 
-      - name: Run focused manual-test regression suite
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew
-          ./gradlew testDebugUnitTest \
-            -PexcludeStressTests=true \
-            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
-            --tests com.example.data.PreCareerEditorOverridesTest \
-            --tests com.example.ui.screens.EditorNavigationRegressionTest \
-            --tests com.example.usecase.RestartSeasonPersistenceTest \
-            --tests com.example.usecase.MarketPurchaseRefreshTest \
-            --tests com.example.usecase.MarketPurchasePersistenceTest \
-            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
-            --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
-            --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
-            --tests com.example.data.PlayerEvolutionRegressionTest \
-            --tests com.example.usecase.CareerCreationPerformanceTest \
-            --tests com.example.data.CareerSeedTemplateRuntimeTest \
-            --tests com.example.data.ProceduralRosterOnlyTest \
-            --tests com.example.data.BrasfootRealClubIdentityTest \
-            --tests com.example.data.BrasfootPatchCrestsTest \
-            --stacktrace
+          with (OUT/'index.csv').open('w', encoding='utf-8', newline='') as f:
+              w=csv.writer(f); w.writerow(['country','logicalPath','folder','sourceFileName','sourceUrl','contentType','size','sha256','artifactFile']); w.writerows(rows)
+          with (OUT/'errors.csv').open('w', encoding='utf-8', newline='') as f:
+              w=csv.writer(f); w.writerow(['country','logicalPath','folder','url','error']); w.writerows(errors)
+          summary = {}
+          for row in rows:
+              summary.setdefault(row[0], set()).add(row[7])
+          with (OUT/'summary.txt').open('w', encoding='utf-8') as f:
+              for country in candidates:
+                  f.write(f'{country}: unique_assets={len(summary.get(country,set()))}\n')
+              f.write(f'total_rows={len(rows)}\nunique_assets={len({r[7] for r in rows})}\nerrors={len(errors)}\n')
+          print((OUT/'summary.txt').read_text())
+          PY
 
-      - name: Verify complete real-club bundle end to end
-        id: real_club_bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/club_realization/verify_materialized_bundle.py --github-output "$GITHUB_OUTPUT"
-
-      - name: Build installable Debug APK
-        if: steps.real_club_bundle.outputs.ready == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew assembleDebug --stacktrace
-          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
-          test -n "$apk"
-          mkdir -p manual-test-apk
-          cp "$apk" "manual-test-apk/Pro-Football-manual-test-${GITHUB_SHA}.apk"
-          sha256sum "manual-test-apk/Pro-Football-manual-test-${GITHUB_SHA}.apk" | tee manual-test-apk/SHA256SUMS.txt
-          printf 'commit=%s\nbranch=%s\n' "$GITHUB_SHA" "$GITHUB_REF_NAME" > manual-test-apk/BUILD_INFO.txt
-
-      - name: Record intentionally deferred APK
-        if: steps.real_club_bundle.outputs.ready != 'true'
-        shell: bash
-        run: |
-          printf 'APK intentionally deferred: real-club bundle is not complete (%s).\n' \
-            '${{ steps.real_club_bundle.outputs.reason }}'
-
-      - name: Upload focused test report on failure
-        if: failure()
+      - name: Upload audit corpus
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: manual-test-bugfix-failure-${{ github.sha }}
-          path: app/build/reports/tests/testDebugUnitTest/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload exact manual-test APK
-        if: steps.real_club_bundle.outputs.ready == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: manual-test-apk-${{ github.sha }}
-          path: manual-test-apk/
+          name: external-crest-audit-${{ github.sha }}
+          path: external-crest-audit/
           if-no-files-found: error
-          retention-days: 7
-
-# Focused manual-test certification for current bugfix/procedural-player head.
-# APK generation is intentionally gated until all 1,907 real-club replacements and original PNGs are materialized and cross-verified.
+          retention-days: 2
