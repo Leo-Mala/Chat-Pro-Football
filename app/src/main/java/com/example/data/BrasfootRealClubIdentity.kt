@@ -21,11 +21,13 @@ object BrasfootRealClubIdentity {
     )
 
     private val lock = Any()
+    private var replacementByLegacyTeamId: Map<Long, Replacement> = emptyMap()
     private var legacyTeamIdByRealKey: Map<String, Long> = emptyMap()
     private var legacySlotByRealKey: Map<String, String> = emptyMap()
     private var crestByRealKey: Map<String, String> = emptyMap()
 
     fun install(replacements: Collection<Replacement>) {
+        val byLegacyId = LinkedHashMap<Long, Replacement>(replacements.size)
         val ids = LinkedHashMap<String, Long>(replacements.size)
         val aliases = LinkedHashMap<String, String>(replacements.size)
         val crests = LinkedHashMap<String, String>(replacements.size)
@@ -55,17 +57,29 @@ object BrasfootRealClubIdentity {
             val crestKey = replacement.crestFileName.lowercase(Locale.ROOT)
             require(crestNames.add(crestKey)) { "Escudo reutilizado por mais de um clube: ${replacement.crestFileName}" }
 
+            byLegacyId[replacement.legacyTeamId] = replacement
             ids[realKey] = replacement.legacyTeamId
             aliases[realKey] = replacement.legacySlotName
             crests[realKey] = replacement.crestFileName
         }
 
         synchronized(lock) {
+            replacementByLegacyTeamId = byLegacyId.toMap()
             legacyTeamIdByRealKey = ids.toMap()
             legacySlotByRealKey = aliases.toMap()
             crestByRealKey = crests.toMap()
         }
     }
+
+    /**
+     * Resolve a identidade real diretamente pelo ID persistido no save antigo.
+     *
+     * Esta é a direção mais segura para migração/reconciliação de saves: o ID numérico já é a
+     * referência usada por jogadores, fixtures e demais tabelas, então o processo não precisa
+     * confiar que o nome procedural legado ainda esteja disponível ou idêntico.
+     */
+    fun replacementForLegacyTeamId(legacyTeamId: Long): Replacement? =
+        synchronized(lock) { replacementByLegacyTeamId[legacyTeamId] }
 
     fun legacyTeamIdFor(country: String, realClubName: String): Long? =
         synchronized(lock) { legacyTeamIdByRealKey[key(country, realClubName)] }
@@ -81,6 +95,7 @@ object BrasfootRealClubIdentity {
 
     internal fun resetForTests() {
         synchronized(lock) {
+            replacementByLegacyTeamId = emptyMap()
             legacyTeamIdByRealKey = emptyMap()
             legacySlotByRealKey = emptyMap()
             crestByRealKey = emptyMap()
