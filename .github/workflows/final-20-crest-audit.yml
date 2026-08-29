@@ -1,0 +1,150 @@
+name: Final 20 Crest Audit
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/final-20-crest-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Audit final 20 individual club crests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-20/assets
+          python3 - <<'PY'
+          from __future__ import annotations
+          import csv, hashlib, html, re, struct, time, urllib.parse, urllib.request
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          OUT=Path('final-20'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/2.0'}
+          REV='2026-08-29-final20-audit'
+
+          targets = [
+            dict(country='Tchéquia', club='Slavia Karlovy Vary', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12787&nombreEscudo=F.C.+SLAVIA+KARLOVY+VARY&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12787&nombreEscudo=F.C.+SLAVIA+KARLOVY+VARY&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Tchéquia', club='Slovan Velvary', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12797&nombreEscudo=F.C.+SLOVAN+VELVARY&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12797&nombreEscudo=F.C.+SLOVAN+VELVARY&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Tchéquia', club='Strani', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12818&nombreEscudo=F.C.+STRANI&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12818&nombreEscudo=F.C.+STRANI&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Tchéquia', club='Viktoria Otrokovice', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12820&nombreEscudo=F.C.+VIKTORIA+OTROKOVICE&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12820&nombreEscudo=F.C.+VIKTORIA+OTROKOVICE&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Tchéquia', club='Vratimov', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12821&nombreEscudo=F.C.+VRATIMOV&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=12821&nombreEscudo=F.C.+VRATIMOV&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Croácia', club='HNK Orijent 1919', kind='escudosdefutbol-directory', identity='https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_HNK%20ORIJENT%201919.png', direct=['https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_HNK%20ORIJENT%201919.png']),
+            dict(country='Croácia', club='HNK Vukovar 1991', kind='escudosdefutbol-directory', identity='https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_HNK%20VUKOVAR%201991.png', direct=['https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_HNK%20VUKOVAR%201991.png']),
+            dict(country='Croácia', club='NK Jadran Luka Ploce', kind='escudosdefutbol-directory', identity='https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_NK%20JADRAN%20LUKA%20PLOCE.png', direct=['https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_NK%20JADRAN%20LUKA%20PLOCE.png']),
+            dict(country='Croácia', club='NK Jarun', kind='escudosdefutbol-directory', identity='https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_NK%20JARUN.png', direct=['https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_NK%20JARUN.png']),
+            dict(country='Equador', club='Emelec', kind='github-svg', identity='https://github.com/JoseArroyave/football-logos/blob/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/ecuador/Emelec.svg', direct=['https://raw.githubusercontent.com/JoseArroyave/football-logos/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/ecuador/Emelec.svg']),
+            dict(country='Honduras', club='CD Marathón', kind='footystats+wikimedia', identity='https://footystats.org/clubs/cd-marathon-6435', direct=['https://cdn.footystats.org/img/teams/honduras-cd-marathon.png','https://commons.wikimedia.org/wiki/Special:Redirect/file/CD%20Marath%C3%B3n%20logo%20100%20Aniversario.png'], pages=['https://footystats.org/clubs/cd-marathon-6435']),
+            dict(country='Honduras', club='Lobos UPNFM', kind='official+footystats', identity='https://lobosupnfc.com/', direct=['https://cdn.footystats.org/img/teams/honduras-lobos-upnfm.png','https://cdn.footystats.org/img/teams/honduras-cd-lobos-upnfm.png'], pages=['https://lobosupnfc.com/']),
+            dict(country='Honduras', club='Tela FC', kind='official', identity='https://telafc.com/', direct=['https://cdn.footystats.org/img/teams/honduras-tela-fc.png'], pages=['https://telafc.com/']),
+            dict(country='Coreia do Sul', club='Daejeon Korail', kind='footystats', identity='https://footystats.org/clubs/daejeon-korail-fc-3949', direct=['https://cdn.footystats.org/img/teams/south-korea-daejeon-korail-fc.png'], pages=['https://footystats.org/clubs/daejeon-korail-fc-3949']),
+            dict(country='Emirados Árabes Unidos', club='Sharjah FC', kind='uaelogos+footystats', identity='https://uaelogos.ae/en/logos/sharjah-fc', direct=['https://cdn.footystats.org/img/teams/united-arab-emirates-sharjah-fc.png','https://cdn.footystats.org/img/teams/uae-sharjah-fc.png'], pages=['https://uaelogos.ae/en/logos/sharjah-fc']),
+            dict(country='Emirados Árabes Unidos', club='Dibba Al-Hisn', kind='official+footystats', identity='https://dhclub.ae/en/', direct=['https://cdn.footystats.org/img/teams/united-arab-emirates-dibba-al-hisn-sc.png','https://cdn.footystats.org/img/teams/united-arab-emirates-dibba-al-hisn.png'], pages=['https://dhclub.ae/en/']),
+            dict(country='Emirados Árabes Unidos', club='Masfout Club', kind='uaefa+footystats', identity='https://www.uaefa.ae/en?site=2', direct=['https://cdn.footystats.org/img/teams/united-arab-emirates-masfout-club.png','https://cdn.footystats.org/img/teams/united-arab-emirates-masfout.png','https://cdn.footystats.org/img/teams/uae-masfout-club.png'], pages=['https://www.uaefa.ae/en?site=2'], strict_page_match=True),
+            dict(country='Irã', club='Sanat Mes Kerman', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=17923&nombreEscudo=SANAT+MES+KERMAN+F.C.&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=17923&nombreEscudo=SANAT+MES+KERMAN+F.C.&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Irã', club='Shahr Khodro', kind='escudosdefutbol-id', identity='https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=22960&nombreEscudo=SHAHR+KHODRO+F.C.&dominio=escudosdefutbolyequipaciones.com', direct=['https://escudosdefutbolyequipaciones.com/descargar.php?sub=&tipo=esc&idEscudo=22960&nombreEscudo=SHAHR+KHODRO+F.C.&dominio=escudosdefutbolyequipaciones.com']),
+            dict(country='Tunísia', club='US Tataouine', kind='footystats', identity='https://footystats.org/clubs/us-tataouine-4063', direct=['https://cdn.footystats.org/img/teams/tunisia-us-tataouine.png'], pages=['https://footystats.org/clubs/us-tataouine-4063']),
+          ]
+
+          def fetch(url):
+            last=None
+            for i in range(3):
+              try:
+                req=urllib.request.Request(url,headers=UA)
+                with urllib.request.urlopen(req,timeout=30) as r:
+                  return r.read(),r.headers.get('Content-Type',''),r.geturl()
+              except Exception as e:
+                last=e; time.sleep(1+i)
+            raise last
+
+          def validate(data):
+            low=data.lstrip().lower()
+            if len(data)>=33 and data.startswith(b'\x89PNG\r\n\x1a\n') and data[12:16]==b'IHDR':
+              w,h,bd,ct=struct.unpack('>IIBB',data[16:26])
+              if w<=0 or h<=0: return None
+              if not (ct in (4,6) or (ct==3 and b'tRNS' in data)): return None
+              return '.png'
+            if b'<svg' in low[:8192]:
+              if any(x in low for x in (b'<!doctype',b'<!entity',b'<script',b'javascript:')): return None
+              if not (b'viewbox=' in low or (b'width=' in low and b'height=' in low)): return None
+              return '.svg'
+            return None
+
+          class P(HTMLParser):
+            def __init__(self): super().__init__(); self.links=[]
+            def handle_starttag(self,tag,attrs):
+              d=dict(attrs); tag=tag.lower()
+              if tag=='img':
+                u=d.get('src') or d.get('data-src') or d.get('data-lazy-src') or d.get('data-original')
+                label=' '.join([d.get('alt',''),d.get('title',''),u or ''])
+                if u:self.links.append((label,u))
+              elif tag=='a':
+                u=d.get('href'); label=' '.join([d.get('title',''),u or ''])
+                if u:self.links.append((label,u))
+
+          def token_needles(club):
+            s=re.sub(r'[^a-z0-9 ]+',' ',club.casefold())
+            toks=[t for t in s.split() if len(t)>=4 and t not in {'club','united'}]
+            return toks or [club.casefold()]
+
+          accepted=[]; errors=[]; seen=set()
+          for t in targets:
+            choices=[]
+            for u in t.get('direct',[]): choices.append(('direct',u))
+            for page in t.get('pages',[]):
+              try:
+                raw,ctype,final=fetch(page); p=P(); p.feed(raw.decode('utf-8',errors='replace'))
+                needles=token_needles(t['club'])
+                strict=t.get('strict_page_match',False)
+                for label,u in p.links:
+                  full=urllib.parse.urljoin(final,html.unescape(u)); flabel=label.casefold(); furl=full.casefold()
+                  match=any(n in flabel or n in furl for n in needles)
+                  logoish=any(x in flabel or x in furl for x in ('logo','crest','badge','emblem'))
+                  if match or (not strict and logoish): choices.append(('page:'+page,full))
+              except Exception as e: errors.append((t['country'],t['club'],page,'PAGE_SCAN:'+repr(e)))
+            ok=None; tried=set()
+            for origin,u in choices:
+              if u in tried: continue
+              tried.add(u)
+              try:
+                data,ctype,final=fetch(u); ext=validate(data)
+                if not ext: continue
+                sha=hashlib.sha256(data).hexdigest()
+                if sha in seen: continue
+                seen.add(sha); local=sha+ext; (ASSETS/local).write_bytes(data)
+                accepted.append((t['country'],t['club'],t['kind'],REV,t['identity'],u,final,ctype,len(data),ext,sha,'assets/'+local,origin))
+                ok=True; break
+              except Exception as e: errors.append((t['country'],t['club'],u,repr(e)))
+            if not ok: errors.append((t['country'],t['club'],t['identity'],'NO_VALID_PNG_OR_SVG'))
+
+          with (OUT/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','extension','sourceCrestSha256','artifactFile','resolutionOrigin']); w.writerows(accepted)
+          with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','realClubName','source','error']); w.writerows(errors)
+          (OUT/'summary.txt').write_text(f'targets={len(targets)}\naccepted={len(accepted)}\nunique_hashes={len(seen)}\nerrors={len(errors)}\n',encoding='utf-8')
+          print((OUT/'summary.txt').read_text())
+          if len(accepted) != len(targets):
+            print((OUT/'errors.csv').read_text())
+          PY
+
+      - name: Upload final 20 audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-20-crest-audit-${{ github.sha }}
+          path: final-20/
+          if-no-files-found: error
+          retention-days: 2
