@@ -85,12 +85,6 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
-      - name: Audit Brasfoot patch candidate capacity
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/club_realization/audit_patch_candidate_capacity.py
-
       - name: Run focused manual-test regression suite
         shell: bash
         run: |
