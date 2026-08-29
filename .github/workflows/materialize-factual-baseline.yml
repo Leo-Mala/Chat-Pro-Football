@@ -1,0 +1,88 @@
+name: Materialize factual club baseline
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/materialize-factual-baseline.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  materialize-baseline:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Recover audited 617-club runtime baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9717127081/zip" \
+            --output factual-club-runtime.zip
+          echo "ab64792590cc7c8e16c63eb4a29939c0983ec36ab1ed94b974903fa62bec4594  factual-club-runtime.zip" | sha256sum --check --strict
+          rm -rf .factual-runtime
+          mkdir .factual-runtime
+          unzip -q factual-club-runtime.zip -d .factual-runtime
+          python - <<'PY'
+          import csv
+          import re
+          import unicodedata
+          from pathlib import Path
+
+          source = Path('.factual-runtime/preserved-factual-clubs.csv')
+          output = Path('docs/club-realization/preserved-factual-clubs.csv')
+          generic = {'fc', 'cf', 'sc', 'ac', 'afc', 'cd', 'ca', 'fk', 'nk', 'hnk', 'gnk', 'sk', 'bk', 'club', 'clube'}
+
+          def canonical(value: str) -> str:
+              folded = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode().casefold()
+              tokens = [token for token in re.findall(r'[a-z0-9]+', folded) if token not in generic]
+              return ''.join(tokens)
+
+          with source.open(encoding='utf-8-sig', newline='') as handle:
+              rows = list(csv.DictReader(handle))
+          if len(rows) != 617:
+              raise SystemExit(f'expected 617 factual clubs, got {len(rows)}')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          with output.open('w', encoding='utf-8', newline='') as handle:
+              writer = csv.DictWriter(handle, fieldnames=['globalId', 'country', 'division', 'clubName', 'canonicalClubKey'], lineterminator='\n')
+              writer.writeheader()
+              for row in rows:
+                  writer.writerow({
+                      'globalId': row['globalId'].strip(),
+                      'country': row['country'].strip(),
+                      'division': row['division'].strip(),
+                      'clubName': row['clubName'].strip(),
+                      'canonicalClubKey': canonical(row['clubName']),
+                  })
+          PY
+          test "$(($(wc -l < docs/club-realization/preserved-factual-clubs.csv) - 1))" -eq 617
+
+      - name: Commit recovered baseline to working branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/club-realization/preserved-factual-clubs.csv
+          if git diff --cached --quiet; then
+            echo "Baseline already versioned."
+            exit 0
+          fi
+          git commit -m "data: freeze preserved factual club baseline"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
