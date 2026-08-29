@@ -26,11 +26,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Prepare debug signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          keytool -genkey -v -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
+          cp debug.keystore "$HOME/.android/debug.keystore"
       - name: Prime Gradle and Android dependencies
         shell: bash
-        continue-on-error: true
         run: |
-          set -uo pipefail
+          set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon help
           ./gradlew --no-daemon testDebugUnitTest assembleDebug
@@ -39,6 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           KIT="$RUNNER_TEMP/offline-kit"
+          ARCHIVE="$RUNNER_TEMP/offline-build-kit.tar.zst"
           mkdir -p "$KIT/gradle" "$KIT/android-sdk"
           test -d "$HOME/.gradle/wrapper"
           test -d "$HOME/.gradle/caches"
@@ -56,8 +66,9 @@ jobs:
           cp -a "$ANDROID_HOME/build-tools/$BT" "$KIT/android-sdk/build-tools/$BT"
           printf '%s\n' "$BT" > "$KIT/BUILD_TOOLS_VERSION.txt"
           printf '%s\n' "${{ github.sha }}" > "$KIT/SOURCE_HEAD.txt"
-          tar -C "$RUNNER_TEMP" -I 'zstd -T0 -8' -cf offline-build-kit.tar.zst offline-kit
-          ls -lh "$RUNNER_TEMP/offline-build-kit.tar.zst"
+          tar -C "$RUNNER_TEMP" -I 'zstd -T0 -8' -cf "$ARCHIVE" offline-kit
+          test -s "$ARCHIVE"
+          ls -lh "$ARCHIVE"
       - name: Upload offline kit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
