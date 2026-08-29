@@ -25,7 +25,7 @@ class EuropeanStableTeamIdentityTest {
 
     @Test
     fun `audited 9_11A2 lower-tier clubs have unique stable ids in existing country windows`() {
-        val targets = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets
+        val targets = AuditedLowerTierClubCoverage2026_27.lowerTierFactualTargets
         val ids = targets.map { target ->
             val id = StableTeamIdentityRegistry.idFor(target.country, target.canonicalName)
             assertNotNull("Sem teamId estável para ${target.country}/${target.canonicalName}", id)

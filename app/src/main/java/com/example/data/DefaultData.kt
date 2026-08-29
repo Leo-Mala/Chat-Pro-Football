@@ -326,22 +326,13 @@ object DefaultData {
     }
 
     fun generateRosterForTeam(teamId: Long, teamRating: Int, teamName: String, country: String): List<Player> =
-        generateRosterForTeamInternal(teamId, teamRating, teamName, country, retainFc26FallbackOnly = false)
-
-    internal fun generateFc26FallbackRosterForTeam(
-        teamId: Long,
-        teamRating: Int,
-        teamName: String,
-        country: String
-    ): List<Player> =
-        generateRosterForTeamInternal(teamId, teamRating, teamName, country, retainFc26FallbackOnly = true)
+        generateRosterForTeamInternal(teamId, teamRating, teamName, country)
 
     private fun generateRosterForTeamInternal(
         teamId: Long,
         teamRating: Int,
         teamName: String,
-        country: String,
-        retainFc26FallbackOnly: Boolean
+        country: String
     ): List<Player> {
         val list = mutableListOf<Player>()
         val generatedNames = mutableListOf<String>()
@@ -360,39 +351,21 @@ object DefaultData {
         val firstNames = countryData.firstNames
         val lastNames = countryData.lastNames
 
-        val realStars = getRealStarsForTeam(teamName)
-
         val starterLimits = mapOf("GOL" to 1, "ZAG" to 2, "LAT" to 2, "VOL" to 2, "MEI" to 2, "ATA" to 2)
         val currentPosCounts = mutableMapOf<String, Int>()
 
         for (i in positions.indices) {
             val pos = positions[i]
-            val matchedStar = realStars.find { it.position == pos && generatedNames.none { generated -> generated == it.name } }
-            
-            val name = if (matchedStar != null) {
-                matchedStar.name
-            } else {
-                val firstName = firstNames[rand.nextInt(firstNames.size)]
-                val lastName = lastNames[rand.nextInt(lastNames.size)]
-                "$firstName $lastName"
-            }
-
+            val firstName = firstNames[rand.nextInt(firstNames.size)]
+            val lastName = lastNames[rand.nextInt(lastNames.size)]
+            val name = "$firstName $lastName"
             generatedNames.add(name)
 
-            val force = if (matchedStar != null) {
-                matchedStar.force.coerceIn(15, 99)
-            } else {
-                (teamRating + rand.safeNextInt(-5, 5)).coerceIn(15, 99)
-            }
-
-            val age = if (matchedStar != null) {
-                matchedStar.age.coerceIn(17, 38)
-            } else {
-                when (rand.nextDouble()) {
-                    in 0.0..0.2 -> rand.safeNextInt(17, 20)
-                    in 0.2..0.7 -> rand.safeNextInt(21, 28)
-                    else -> rand.safeNextInt(29, 38)
-                }
+            val force = (teamRating + rand.safeNextInt(-5, 5)).coerceIn(15, 99)
+            val age = when (rand.nextDouble()) {
+                in 0.0..0.2 -> rand.safeNextInt(17, 20)
+                in 0.2..0.7 -> rand.safeNextInt(21, 28)
+                else -> rand.safeNextInt(29, 38)
             }
 
             val contractWeeks = rand.safeNextInt(26, 155)
@@ -449,10 +422,6 @@ object DefaultData {
             val careerApps = rand.safeNextInt(0, 150)
             val careerGoals = if (pos == "ATA" || pos == "MEI") rand.safeNextInt(0, 55) else rand.safeNextInt(0, 8)
 
-            // Consumimos acima exatamente os mesmos sorteios do elenco canônico. Para FC26, os
-            // dez índices que a política descartaria param aqui, antes das alocações/cálculos caros.
-            if (retainFc26FallbackOnly && !fc26FallbackRetainsCanonicalIndex(i)) continue
-
             val basePlayer = Player(
                 id = playerId,
                 teamId = teamId,
@@ -492,137 +461,6 @@ object DefaultData {
             list.add(finalPlayer)
         }
         return list
-    }
-
-    private fun fc26FallbackRetainsCanonicalIndex(index: Int): Boolean = when (index) {
-        0, 1, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14, 17, 18, 19, 20, 21, 22, 23, 24 -> true
-        else -> false
-    }
-
-    private data class StarTemplate(val name: String, val position: String, val force: Int, val age: Int)
-
-    private fun getRealStarsForTeam(teamName: String): List<StarTemplate> {
-        return when (teamName) {
-            "Real Madrid" -> listOf(
-                StarTemplate("Kylian Mbappé", "ATA", 95, 27),
-                StarTemplate("Vinícius Júnior", "ATA", 95, 25),
-                StarTemplate("Jude Bellingham", "MEI", 93, 22),
-                StarTemplate("Rodrygo Goes", "ATA", 88, 25),
-                StarTemplate("Federico Valverde", "MEI", 89, 27),
-                StarTemplate("Éder Militão", "ZAG", 87, 28),
-                StarTemplate("Antonio Rüdiger", "ZAG", 88, 33),
-                StarTemplate("Dani Carvajal", "LAT", 86, 34),
-                StarTemplate("Thibaut Courtois", "GOL", 91, 34)
-            )
-            "Manchester City" -> listOf(
-                StarTemplate("Erling Haaland", "ATA", 95, 25),
-                StarTemplate("Kevin De Bruyne", "MEI", 93, 34),
-                StarTemplate("Phil Foden", "MEI", 91, 26),
-                StarTemplate("Rodri", "VOL", 94, 29),
-                StarTemplate("Bernardo Silva", "MEI", 88, 31),
-                StarTemplate("Rúben Dias", "ZAG", 89, 29),
-                StarTemplate("John Stones", "ZAG", 86, 32),
-                StarTemplate("Josko Gvardiol", "LAT", 86, 24),
-                StarTemplate("Ederson Moraes", "GOL", 89, 32)
-            )
-            "FC Barcelona", "Barcelona" -> listOf(
-                StarTemplate("Robert Lewandowski", "ATA", 90, 37),
-                StarTemplate("Lamine Yamal", "ATA", 91, 18),
-                StarTemplate("Raphinha", "MEI", 89, 29),
-                StarTemplate("Pedri", "MEI", 88, 23),
-                StarTemplate("Gavi", "VOL", 86, 21),
-                StarTemplate("Ronald Araújo", "ZAG", 88, 27),
-                StarTemplate("Jules Koundé", "LAT", 86, 27),
-                StarTemplate("Marc-André ter Stegen", "GOL", 88, 34)
-            )
-            "Inter Miami CF" -> listOf(
-                StarTemplate("Lionel Messi", "ATA", 94, 39),
-                StarTemplate("Luis Suárez", "ATA", 86, 39),
-                StarTemplate("Sergio Busquets", "VOL", 83, 37),
-                StarTemplate("Jordi Alba", "LAT", 82, 37),
-                StarTemplate("Drake Callender", "GOL", 74, 28)
-            )
-            "Al Nassr FC" -> listOf(
-                StarTemplate("Cristiano Ronaldo", "ATA", 92, 41),
-                StarTemplate("Sadio Mané", "ATA", 85, 34),
-                StarTemplate("Anderson Talisca", "MEI", 81, 32),
-                StarTemplate("Otávio", "MEI", 82, 31),
-                StarTemplate("Marcelo Brozović", "VOL", 84, 33),
-                StarTemplate("Aymeric Laporte", "ZAG", 84, 32),
-                StarTemplate("Bento Krepski", "GOL", 81, 27)
-            )
-            "Al Hilal SFC" -> listOf(
-                StarTemplate("Neymar Jr", "ATA", 89, 34),
-                StarTemplate("Aleksandar Mitrović", "ATA", 85, 31),
-                StarTemplate("Malcom", "MEI", 82, 29),
-                StarTemplate("Rúben Neves", "VOL", 83, 29),
-                StarTemplate("S. Milinković-Savić", "MEI", 84, 31),
-                StarTemplate("Kalidou Koulibaly", "ZAG", 83, 35),
-                StarTemplate("Yassine Bounou", "GOL", 85, 35)
-            )
-            "Flamengo" -> listOf(
-                StarTemplate("Pedro", "ATA", 84, 29),
-                StarTemplate("Gabriel Barbosa", "ATA", 79, 29),
-                StarTemplate("Arrascaeta", "MEI", 83, 32),
-                StarTemplate("Nicolás de la Cruz", "MEI", 82, 29),
-                StarTemplate("Gerson Santos", "VOL", 81, 29),
-                StarTemplate("Bruno Henrique", "ATA", 78, 35),
-                StarTemplate("Ayrton Lucas", "LAT", 78, 29),
-                StarTemplate("Agustín Rossi", "GOL", 80, 30)
-            )
-            "Palmeiras" -> listOf(
-                StarTemplate("Estêvão Willian", "ATA", 85, 19),
-                StarTemplate("Raphael Veiga", "MEI", 82, 31),
-                StarTemplate("Felipe Anderson", "MEI", 80, 33),
-                StarTemplate("Flaco López", "ATA", 79, 25),
-                StarTemplate("Aníbal Moreno", "VOL", 79, 27),
-                StarTemplate("Richard Ríos", "VOL", 78, 26),
-                StarTemplate("Weverton", "GOL", 80, 38)
-            )
-            "Liverpool FC" -> listOf(
-                StarTemplate("Mohamed Salah", "ATA", 92, 34),
-                StarTemplate("Virgil van Dijk", "ZAG", 91, 34),
-                StarTemplate("Luis Díaz", "ATA", 87, 29),
-                StarTemplate("Alexis Mac Allister", "MEI", 87, 27),
-                StarTemplate("Alisson Becker", "GOL", 90, 33)
-            )
-            "Arsenal FC" -> listOf(
-                StarTemplate("Bukayo Saka", "ATA", 91, 24),
-                StarTemplate("Martin Ødegaard", "MEI", 90, 27),
-                StarTemplate("Declan Rice", "VOL", 89, 27),
-                StarTemplate("William Saliba", "ZAG", 89, 25),
-                StarTemplate("David Raya", "GOL", 85, 30)
-            )
-            "River Plate" -> listOf(
-                StarTemplate("Miguel Borja", "ATA", 80, 33),
-                StarTemplate("Manuel Lanzini", "MEI", 78, 33),
-                StarTemplate("Franco Armani", "GOL", 79, 39),
-                StarTemplate("Marcos Acuña", "LAT", 81, 34),
-                StarTemplate("Germán Pezzella", "ZAG", 80, 35)
-            )
-            "Boca Juniors" -> listOf(
-                StarTemplate("Edinson Cavani", "ATA", 81, 39),
-                StarTemplate("Miguel Merentiel", "ATA", 79, 30),
-                StarTemplate("Kevin Zenón", "MEI", 78, 24),
-                StarTemplate("Luis Advíncula", "LAT", 77, 36),
-                StarTemplate("Sergio Romero", "GOL", 78, 39)
-            )
-            "Al Ahly SC" -> listOf(
-                StarTemplate("Wessam Abou Ali", "ATA", 76, 27),
-                StarTemplate("Percy Tau", "ATA", 75, 32),
-                StarTemplate("Emam Ashour", "MEI", 77, 28),
-                StarTemplate("Mohamed El Shenawy", "GOL", 78, 37),
-                StarTemplate("Y. Attiyat Allah", "LAT", 74, 31)
-            )
-            "Sydney FC" -> listOf(
-                StarTemplate("Douglas Costa", "ATA", 78, 35),
-                StarTemplate("Joe Lolley", "MEI", 74, 33),
-                StarTemplate("Leo Sena", "MEI", 73, 30),
-                StarTemplate("Rhyan Grant", "LAT", 71, 35),
-                StarTemplate("Andrew Redmayne", "GOL", 70, 37)
-            )
-            else -> emptyList()
-        }
     }
 
     fun getLogoForTeam(name: String, country: String): String {

@@ -51,7 +51,7 @@ object EuropeanAuditedFactualBaselinesA3Materializer2026_27 {
             val origins = linkedMapOf<MetadataOrigin, Int>().apply {
                 MetadataOrigin.entries.forEach { put(it, 0) }
             }
-            val countries = Fc26RemainingFactualBaselinesA3_2026_27.factualTargets
+            val countries = AuditedFactualBaselinesA3_2026_27.factualTargets
                 .map { it.country }
                 .distinct()
 
@@ -70,7 +70,7 @@ object EuropeanAuditedFactualBaselinesA3Materializer2026_27 {
 
             val report = InstallationReport(
                 countries = countries.size,
-                factualClubs = Fc26RemainingFactualBaselinesA3_2026_27.factualTargets.size,
+                factualClubs = AuditedFactualBaselinesA3_2026_27.factualTargets.size,
                 targetTeamsBefore = totalBefore,
                 targetTeamsAfter = mutableCatalog.values.sumOf { it.teams.size },
                 metadataOrigins = origins.toMap()
@@ -89,7 +89,7 @@ object EuropeanAuditedFactualBaselinesA3Materializer2026_27 {
     fun currentInstallationReport(): InstallationReport? = installationReport
 
     fun contains(country: String, teamName: String): Boolean =
-        installed && Fc26RemainingFactualBaselinesA3_2026_27.factualTargets.any { target ->
+        installed && AuditedFactualBaselinesA3_2026_27.factualTargets.any { target ->
             target.country == country && target.canonicalName.equals(teamName, ignoreCase = true)
         }
 
@@ -100,7 +100,7 @@ object EuropeanAuditedFactualBaselinesA3Materializer2026_27 {
         country: String,
         currentTeams: List<DefaultData.TeamTemplate>
     ): List<MaterializedTarget> {
-        val audited = Fc26RemainingFactualBaselinesA3_2026_27.forCountry(country)
+        val audited = AuditedFactualBaselinesA3_2026_27.forCountry(country)
         if (audited.isEmpty()) return emptyList()
 
         val mutableView = currentTeams.toMutableList()
@@ -167,7 +167,7 @@ object EuropeanAuditedFactualBaselinesA3Materializer2026_27 {
         }
     }
 
-    private fun Fc26RemainingFactualBaselinesA3_2026_27.FactualTarget.toMaterialized(
+    private fun AuditedFactualBaselinesA3_2026_27.FactualTarget.toMaterialized(
         stableId: Long,
         slotIndex: Int,
         template: DefaultData.TeamTemplate,

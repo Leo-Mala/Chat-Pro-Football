@@ -1,7 +1,6 @@
 package com.example.usecase
 
 import com.example.data.DefaultData
-import com.example.data.Fc26LoanPolicy
 import com.example.data.GameRepository
 import com.example.data.Player
 import com.example.data.Team
@@ -12,7 +11,6 @@ import com.example.data.getMaxPersistedPlayerId
 import com.example.data.getWeeklyLoanRenewalCandidates
 import com.example.data.getWeeklyRenewalCandidates
 import com.example.data.getWeeklyRosterAggregates
-import com.example.data.isFc26UnassignedSourceClub
 import kotlin.math.abs
 
 /**
@@ -155,7 +153,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         val freeAgents = if (unhealthyTeamIds.isNotEmpty()) {
             repository.getFreeAgents()
                 .asSequence()
-                .filter { !it.isOnLoan && !it.isFc26UnassignedSourceClub() }
+                .filter { !it.isOnLoan }
                 .sortedBy { it.id }
                 .toMutableList()
         } else {
@@ -331,7 +329,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         var invalidLoanRows = 0
         for (loan in activeLoans) {
             val player = repository.getPlayer(loan.playerId)
-            val invalidTemporalState = loan.remainingWeeks <= 0 && !Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)
+            val invalidTemporalState = loan.remainingWeeks <= 0
             if (player == null ||
                 !player.isOnLoan ||
                 player.teamId != loan.borrowerTeamId ||

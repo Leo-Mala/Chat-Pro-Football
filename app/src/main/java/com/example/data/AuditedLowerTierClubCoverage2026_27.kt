@@ -1,15 +1,15 @@
 package com.example.data
 
 /**
- * Audited Phase 9.11A2 identities for the FC26 2025-09-19 snapshot.
+ * Audited Phase 9.11A2 identities for the audited club source 2025-09-19 snapshot.
  *
- * Every entry is keyed by the immutable FC26 `club_team_id`. Text similarity is not evidence and
+ * Every entry is keyed by the immutable audited club source `club_team_id`. Text similarity is not evidence and
  * is never consulted here. Existing-target variants point only to already-materialized stable
  * identities. Lower-tier targets are included only after 2026/27 membership was verified from the
  * competition organizer/federation source documented in [verificationBasis].
  */
-object Fc26RemainingClubCoverage2026_27 {
-    const val FC26_DATASET_VERSION = "2025-09-19"
+object AuditedLowerTierClubCoverage2026_27 {
+    const val AUDITED_SOURCE_VERSION = "2025-09-19"
     const val VERIFIED_AS_OF = "2026-08-19"
 
     data class ExistingTargetNameVariant(
@@ -102,7 +102,7 @@ object Fc26RemainingClubCoverage2026_27 {
         lower(487L, "VfL Osnabrück", "Alemanha", 2, "2. Bundesliga", DFL_2_BUNDESLIGA_2026_27),
         lower(175L, "VfL Wolfsburg", "Alemanha", 2, "2. Bundesliga", DFL_2_BUNDESLIGA_2026_27),
 
-        // Germany — 3. Liga, 2026/27. Only FC26 clubs present in the official 20-club field.
+        // Germany — 3. Liga, 2026/27. Only audited club source clubs present in the official 20-club field.
         lower(523L, "1. FC Saarbrücken", "Alemanha", 3, "3. Liga", DFB_3_LIGA_2026_27),
         lower(1826L, "Alemannia Aachen", "Alemanha", 3, "3. Liga", DFB_3_LIGA_2026_27),
         lower(27L, "FC Hansa Rostock", "Alemanha", 3, "3. Liga", DFB_3_LIGA_2026_27),
@@ -120,7 +120,7 @@ object Fc26RemainingClubCoverage2026_27 {
         lower(110697L, "VfB Stuttgart II", "Alemanha", 3, "3. Liga", DFB_3_LIGA_2026_27),
         lower(110645L, "Viktoria Köln", "Alemanha", 3, "3. Liga", DFB_3_LIGA_2026_27),
 
-        // Italy — Serie BKT, 2026/27. Only FC26 clubs present in Lega B's official 20-club field.
+        // Italy — Serie BKT, 2026/27. Only audited club source clubs present in Lega B's official 20-club field.
         lower(2038L, "Avellino", "Itália", 2, "Serie BKT", LEGA_B_2026_27),
         lower(112493L, "Carrarese", "Itália", 2, "Serie BKT", LEGA_B_2026_27),
         lower(110908L, "Catanzaro", "Itália", 2, "Serie BKT", LEGA_B_2026_27),
@@ -139,7 +139,7 @@ object Fc26RemainingClubCoverage2026_27 {
     init {
         val ids = existingTargetNameVariants.map { it.sourceClubTeamId } +
             lowerTierFactualTargets.map { it.sourceClubTeamId }
-        require(ids.size == ids.distinct().size) { "Phase 9.11A2 contains duplicate FC26 club_team_id entries." }
+        require(ids.size == ids.distinct().size) { "Phase 9.11A2 contains duplicate audited club source club_team_id entries." }
         require(existingTargetNameVariants.size == 42)
         require(lowerTierFactualTargets.size == 47)
         require(lowerTierFactualTargets.all { it.division > 1 })

@@ -3,7 +3,7 @@ package com.example.data
 /**
  * Snapshot only of pre-career state that differs from the deterministic editor bootstrap.
  *
- * The factual FC26 dataset remains immutable. User edits are applied as a runtime/save overlay when
+ * The factual fonte factual removida dataset remains immutable. User edits are applied as a runtime/save overlay when
  * a new career is materialized, so opening the editor and doing nothing never rewrites factual data.
  */
 internal data class PreCareerEditorOverrides(

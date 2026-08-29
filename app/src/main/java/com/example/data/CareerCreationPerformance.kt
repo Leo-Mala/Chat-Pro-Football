@@ -16,7 +16,7 @@ data class CareerCreationPerformanceSnapshot(
     val fixtureCount: Int,
     /**
      * Tempo factual gasto no seed lazy que realmente substituiu o roster procedural antes do Room.
-     * Campo separado evita atribuir Fc26SeedPlanner/asset load apenas à persistência do banco.
+     * Campo separado evita atribuir external player-seed materialization apenas à persistência do banco.
      */
     val factualSeedMaterializationMs: Long = 0L
 )
@@ -34,7 +34,7 @@ object CareerCreationPerformanceMonitor {
 
     /**
      * Chamado no ponto em que o seed de jogadores efetivamente usado por Room é conhecido.
-     * Isso evita associar a medição ao roster procedural que pode ter sido substituído pelo FC26.
+     * Isso evita associar a medição ao roster procedural que pode ter sido substituído por uma fonte factual.
      */
     fun notePersistedPlayerCount(count: Int) {
         require(count >= 0)

@@ -38,9 +38,9 @@ class CareerSeedTemplateRuntimeTest {
             assertNotNull(marker)
             marker!!
             assertEquals(APP_DATABASE_SCHEMA_VERSION, marker.schemaVersion)
-            assertEquals(CareerSeedTemplateContract.EXPECTED_FC26_ASSET_SHA256, marker.assetSha256)
+            assertEquals(CareerSeedTemplateContract.EXPECTED_PROCEDURAL_SEED_ID, marker.seedId)
             assertEquals(2_524, marker.teamCount)
-            assertEquals(60_885, marker.playerCount)
+            assertEquals(75_720, marker.playerCount)
             assertEquals(marker.playerCount, firstDb.playerDao().getTotalPlayerCount())
             assertEquals(marker.teamCount, firstRepo.getAllTeams().size)
             assertNull(firstRepo.getGameSave())
@@ -57,7 +57,7 @@ class CareerSeedTemplateRuntimeTest {
             val reopenedDb = factory.getDatabaseForSlot(slotId)
             val reopenedRepo = GameRepository(reopenedDb)
             assertNull(reopenedRepo.pristineCareerSeedTemplateOrNull())
-            assertEquals(60_885, reopenedDb.playerDao().getTotalPlayerCount())
+            assertEquals(75_720, reopenedDb.playerDao().getTotalPlayerCount())
             assertEquals(2_524, reopenedRepo.getAllTeams().size)
         } finally {
             factory.closeAllDatabases()

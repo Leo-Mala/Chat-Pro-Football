@@ -161,7 +161,7 @@ object StableTeamIdentityRegistry {
      * identities are appended; the deterministic hash and explicit collision policy stay unchanged.
      */
     private val auditedLowerTierIdentities: List<StableTeamIdentity> =
-        Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets.map { target ->
+        AuditedLowerTierClubCoverage2026_27.lowerTierFactualTargets.map { target ->
             val windowStart = requireNotNull(baselineCountryWindows[target.country]) {
                 "Lower-tier factual target has no stable country window: ${target.country}/${target.canonicalName}"
             }
@@ -174,7 +174,7 @@ object StableTeamIdentityRegistry {
 
     /** Phase 9.11A3 extends the same frozen country windows; no legacy identity is moved. */
     private val auditedA3Identities: List<StableTeamIdentity> =
-        Fc26RemainingFactualBaselinesA3_2026_27.factualTargets.map { target ->
+        AuditedFactualBaselinesA3_2026_27.factualTargets.map { target ->
             val windowStart = requireNotNull(baselineCountryWindows[target.country]) {
                 "Phase 9.11A3 target has no stable country window: ${target.country}/${target.canonicalName}"
             }

@@ -1629,7 +1629,7 @@ class GameViewModel @Inject constructor(
         val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
 
         // Um slot novo pode ter sido criado diretamente do baseline Room empacotado. O marker
-        // só é aceito se schema, SHA FC26, contagens e ausência de GameSave coincidirem.
+        // só é aceito se schema, SHA fonte factual removida, contagens e ausência de GameSave coincidirem.
         val prebuiltSeedMarker = targetRepo.pristineCareerSeedTemplateOrNull()
         val usePrebuiltCareerSeed = prebuiltSeedMarker != null
 
@@ -1639,34 +1639,22 @@ class GameViewModel @Inject constructor(
         val allGeneratedFixtures = generateCalendarUseCase.generateSeasonFixtures(season, dbTeams, teamId, activeCountry)
         val competitionCalendarMs = (System.nanoTime() - competitionCalendarStartedAtNs) / 1_000_000L
 
-        // 3. Materializa o seed factual já preparado antes de gerar qualquer roster procedural global.
-        // Quando FC26 está disponível, savePlayers() consumirá exatamente esse seed; portanto gerar
-        // ~60k jogadores procedurais aqui seria trabalho descartado. Sem dataset factual, preservamos
-        // o fallback procedural integral e determinístico usado anteriormente.
-        val hasPreparedFactualSeed = if (usePrebuiltCareerSeed) {
-            // O mesmo seed canônico já está fisicamente no banco copiado. Não materializamos o
-            // planner FC26 novamente e removemos a intenção registrada pelo calendário.
-            EuropeanNewSaveSeedCoordinator.clear(targetRepo)
-            CareerCreationPerformanceMonitor.notePersistedPlayerCount(prebuiltSeedMarker!!.playerCount)
-            true
-        } else {
-            EuropeanNewSaveSeedCoordinator.materializePreparedSeed(targetRepo)
-        }
+        // 3. Jogadores: banco-base procedural para slot novo; geração determinística como fallback.
         val rosterMaterializationStartedAtNs = System.nanoTime()
-        val allPlayersToSave = if (hasPreparedFactualSeed) {
+        val allPlayersToSave = if (usePrebuiltCareerSeed) {
+            CareerCreationPerformanceMonitor.notePersistedPlayerCount(prebuiltSeedMarker!!.playerCount)
             emptyList()
         } else {
             buildList {
                 for (t in dbTeams) {
                     addAll(DefaultData.generateRosterForTeam(t.id, t.rating, t.name, t.country))
                 }
-            }
+            }.also { CareerCreationPerformanceMonitor.notePersistedPlayerCount(it.size) }
         }
         val rosterMaterializationMs = (System.nanoTime() - rosterMaterializationStartedAtNs) / 1_000_000L
         Log.i(
             "CareerCreationPerformance",
-            "PrebuiltSeed=$usePrebuiltCareerSeed preparedFactualSeed=$hasPreparedFactualSeed " +
-                "proceduralFallbackPlayers=${allPlayersToSave.size}"
+            "PrebuiltProceduralSeed=$usePrebuiltCareerSeed proceduralPlayers=${allPlayersToSave.size}"
         )
 
         // 4. Preparação dos metadados do GameSave em memória
@@ -1794,7 +1782,7 @@ class GameViewModel @Inject constructor(
         Log.i("CareerCreationPerformance", performanceSnapshot.toString())
         CareerCreationPerformanceMonitor.latest?.let { diagnostic ->
             _toastMessage.emit(
-                "DIAG criação: total=${diagnostic.totalMs}ms | FC26=${diagnostic.factualSeedMaterializationMs}ms | " +
+                "DIAG criação: total=${diagnostic.totalMs}ms | jogadores=${diagnostic.rosterMaterializationMs}ms | " +
                     "banco=${diagnostic.persistenceMs}ms | calendário=${diagnostic.competitionCalendarMs}ms"
             )
         }

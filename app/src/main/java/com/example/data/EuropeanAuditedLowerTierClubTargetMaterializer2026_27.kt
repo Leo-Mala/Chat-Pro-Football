@@ -2,7 +2,7 @@ package com.example.data
 
 /**
  * Materializes only the Phase 9.11A2 lower-tier identities whose 2026/27 competition membership is
- * backed by the official DFL/DFB/Lega B field recorded in [Fc26RemainingClubCoverage2026_27].
+ * backed by the official DFL/DFB/Lega B field recorded in [AuditedLowerTierClubCoverage2026_27].
  *
  * The operation replaces deterministic procedural slots in-place inside the same division. This is
  * deliberate: factual identity/name/division become explicit, while city/stadium/rating remain the
@@ -55,7 +55,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
                 MetadataOrigin.entries.forEach { put(it, 0) }
             }
 
-            val countries = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets
+            val countries = AuditedLowerTierClubCoverage2026_27.lowerTierFactualTargets
                 .map { it.country }
                 .distinct()
 
@@ -74,7 +74,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
 
             val report = InstallationReport(
                 countries = countries.size,
-                factualLowerTierClubs = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets.size,
+                factualLowerTierClubs = AuditedLowerTierClubCoverage2026_27.lowerTierFactualTargets.size,
                 targetTeamsBefore = totalBefore,
                 targetTeamsAfter = mutableCatalog.values.sumOf { it.teams.size },
                 metadataOrigins = origins.toMap()
@@ -93,7 +93,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
     fun currentInstallationReport(): InstallationReport? = installationReport
 
     fun contains(country: String, teamName: String): Boolean =
-        installed && Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets.any { target ->
+        installed && AuditedLowerTierClubCoverage2026_27.lowerTierFactualTargets.any { target ->
             target.country == country && target.canonicalName.equals(teamName, ignoreCase = true)
         }
 
@@ -115,7 +115,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
         country: String,
         currentTeams: List<DefaultData.TeamTemplate>
     ): List<MaterializedTarget> {
-        val audited = Fc26RemainingClubCoverage2026_27.lowerTierForCountry(country)
+        val audited = AuditedLowerTierClubCoverage2026_27.lowerTierForCountry(country)
         if (audited.isEmpty()) return emptyList()
 
         val mutableView = currentTeams.toMutableList()
@@ -190,7 +190,7 @@ object EuropeanAuditedLowerTierClubTargetMaterializer2026_27 {
         }
     }
 
-    private fun Fc26RemainingClubCoverage2026_27.LowerTierFactualTarget.toMaterialized(
+    private fun AuditedLowerTierClubCoverage2026_27.LowerTierFactualTarget.toMaterialized(
         stableId: Long,
         slotIndex: Int,
         template: DefaultData.TeamTemplate,

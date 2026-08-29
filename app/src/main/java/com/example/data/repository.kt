@@ -17,14 +17,7 @@ class ExistingCareerOverwriteBlockedException(
 )
 
 class GameRepository(internal val db: AppDatabase) {
-    suspend fun <R> withTransaction(block: suspend () -> R): R =
-        try {
-            db.withTransaction(block)
-        } finally {
-            // Um plano factual de novo save é estritamente efêmero e nunca pode vazar para
-            // reparos, carregamentos ou transações posteriores do mesmo slot.
-            EuropeanNewSaveSeedCoordinator.clear(this)
-        }
+    suspend fun <R> withTransaction(block: suspend () -> R): R = db.withTransaction(block)
 
     suspend fun <R> runInTransaction(block: suspend () -> R): R = db.withTransaction(block)
     val gameSaveFlow: Flow<GameSave?> = db.gameSaveDao().getGameSaveFlow()
@@ -173,10 +166,7 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun getAllTeams(): List<Team> = db.teamDao().getAllTeams()
     suspend fun getTeam(id: Long): Team? = db.teamDao().getTeam(id)
     suspend fun saveTeams(teams: List<Team>) = db.withTransaction {
-        val teamsToPersist = EuropeanNewSaveSeedCoordinator.teamsFor(this@GameRepository, teams)
-        if (teamsToPersist.isNotEmpty()) {
-            db.teamDao().insertTeams(teamsToPersist)
-        }
+        if (teams.isNotEmpty()) db.teamDao().insertTeams(teams)
     }
     suspend fun updateTeam(team: Team) = db.teamDao().updateTeam(team)
     suspend fun deleteTeam(id: Long) = db.teamDao().deleteTeam(id)
@@ -207,24 +197,19 @@ class GameRepository(internal val db: AppDatabase) {
         }
     }
     suspend fun savePlayers(players: List<Player>) = db.withTransaction {
-        val seed = EuropeanNewSaveSeedCoordinator.consumePlayers(this@GameRepository, players)
-        val playersToPersist = seed.players
-        if (playersToPersist.isNotEmpty()) {
+        if (players.isNotEmpty()) {
             val isFirstPopulation = db.playerDao().getTotalPlayerCount() == 0
             if (isFirstPopulation) {
-                persistFreshPlayersWithoutSecondaryIndexChurn(playersToPersist)
+                persistFreshPlayersWithoutSecondaryIndexChurn(players)
             } else {
-                db.playerDao().insertPlayersReplace(playersToPersist)
+                db.playerDao().insertPlayersReplace(players)
             }
-        }
-        if (seed.loans.isNotEmpty()) {
-            db.playerLoanDao().insertLoans(seed.loans)
         }
     }
 
     /**
-     * Uma carreira nova sempre apaga Player antes do seed canônico. Manter os três índices
-     * secundários enquanto ~60k linhas são inseridas força o SQLite a rebalancear três B-trees a
+     * Uma carreira nova sempre apaga Player antes do seed procedural. Manter os três índices
+     * secundários enquanto o universo global de jogadores é inserido força o SQLite a rebalancear três B-trees a
      * cada jogador. Como toda a operação já está dentro da transação de criação, removemos apenas
      * esses índices secundários, fazemos INSERT puro e os recriamos antes de qualquer commit.
      *

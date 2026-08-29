@@ -30,7 +30,7 @@ class EuropeanAuditedLowerTierClubTargetMaterializerTest {
         assertEquals(47, report.factualLowerTierClubs)
         assertEquals(report.targetTeamsBefore, report.targetTeamsAfter)
 
-        val targets = Fc26RemainingClubCoverage2026_27.lowerTierFactualTargets
+        val targets = AuditedLowerTierClubCoverage2026_27.lowerTierFactualTargets
         assertEquals(34, targets.count { it.country == "Alemanha" })
         assertEquals(13, targets.count { it.country == "Itália" })
 

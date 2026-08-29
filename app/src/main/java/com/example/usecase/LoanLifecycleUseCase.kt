@@ -5,10 +5,7 @@ import com.example.data.Player
 import com.example.data.PlayerLoan
 
 /**
- * Owns explicit player-loan return transitions for both gameplay loans and FC26 snapshot loans.
- *
- * FC26 loans may have no trustworthy end date. Those rows remain ACTIVE until an explicit career
- * event closes them; this class never invents a duration. The return is save-slot scoped by
+ * Owns explicit player-loan return transitions for gameplay loans. The return is save-slot scoped by
  * [GameRepository] and executes inside one Room transaction. Permanent market transfers keep their
  * close operation in ProcessTransfersUseCase so finances, contract, roster and loan share one commit.
  */

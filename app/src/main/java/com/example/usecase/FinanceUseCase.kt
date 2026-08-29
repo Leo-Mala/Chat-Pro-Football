@@ -1,6 +1,5 @@
 package com.example.usecase
 
-import com.example.data.Fc26LoanPolicy
 import com.example.data.GameCalendar
 import com.example.data.GameRepository
 import com.example.data.GameSave
@@ -143,49 +142,6 @@ class FinanceUseCase(private val repository: GameRepository) {
         for (loan in activeLoans) {
             val rosterPlayer = borrowerRostersByPlayerId[loan.playerId]
             val player = rosterPlayer ?: repository.getPlayer(loan.playerId)
-
-            if (Fc26LoanPolicy.isUnknownEndSnapshotLoan(loan)) {
-                // Weekly finances run before the canonical contract tick. A snapshot loanee with
-                // one contract week left therefore has to be closed now; otherwise the following
-                // tick would reduce the main contract to zero while leaving PlayerLoan ACTIVE for
-                // one extra week. Salary for the closing week has already been accounted above.
-                if (player == null || !player.isOnLoan || player.contractDurationWeeks <= 1) {
-                    updatedLoans += loan.copy(remainingWeeks = 0, status = "COMPLETED")
-                    if (player != null && player.isOnLoan) {
-                        repository.updatePlayer(
-                            player.copy(
-                                teamId = null,
-                                originalTeamId = null,
-                                contractDurationWeeks = 0,
-                                isOnLoan = false,
-                                loanWeeksRemaining = 0,
-                                isStarter = false,
-                                salary = 0L
-                            )
-                        )
-                    }
-                } else if (
-                    player.teamId != loan.borrowerTeamId ||
-                    player.originalTeamId != loan.ownerTeamId
-                ) {
-                    // A diverging row cannot promote the current roster to permanent owner. Keep
-                    // the main-contract facts intact, invalidate the relationship and quarantine
-                    // ownership with no runtime club until an explicit, trusted career/editor event
-                    // repairs it. `isOnLoan=true` + owner null makes all market/contract gates fail
-                    // closed once this PlayerLoan leaves the ACTIVE set.
-                    updatedLoans += loan.copy(remainingWeeks = 0, status = "INVALID")
-                    repository.updatePlayer(
-                        player.copy(
-                            teamId = null,
-                            originalTeamId = null,
-                            isOnLoan = true,
-                            loanWeeksRemaining = 0,
-                            isStarter = false
-                        )
-                    )
-                }
-                continue
-            }
 
             if (loan.borrowerTeamId == currentSave.playerTeamId) {
                 loanFeesPaid += loan.weeklyFee
