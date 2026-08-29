@@ -17,6 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout exact project head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: project
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify and package project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C project rev-parse HEAD)" = "${GITHUB_SHA}"
+          tar --exclude='project/.git' -czf project-source.tar.gz project
+          sha256sum project-source.tar.gz > PROJECT_SHA256SUMS.txt
+          printf '%s\n' "${GITHUB_SHA}" > PROJECT_COMMIT.txt
+
       - name: Checkout exact rardecode source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -55,6 +72,9 @@ jobs:
         with:
           name: club-audit-dependencies
           path: |
+            project-source.tar.gz
+            PROJECT_COMMIT.txt
+            PROJECT_SHA256SUMS.txt
             rardecode-source.tar.gz
             SOURCE_COMMIT.txt
             RARDECODE_SHA256SUMS.txt
