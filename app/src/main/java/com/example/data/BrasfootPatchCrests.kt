@@ -5,6 +5,8 @@ import java.util.Locale
 
 /** Catálogo dos PNGs originais de escudos fornecidos pelo patch Brasfoot. */
 object BrasfootPatchCrests {
+    private const val ASSET_URI_PREFIX = "file:///android_asset/club_crests/"
+
     data class Entry(
         val country: String,
         val clubName: String,
@@ -36,7 +38,10 @@ object BrasfootPatchCrests {
 
     fun assetUriFor(country: String, clubName: String): String? =
         synchronized(lock) { crestByClubKey[key(country, clubName)] }
-            ?.let { "file:///android_asset/club_crests/$it" }
+            ?.let { ASSET_URI_PREFIX + it }
+
+    fun isBundledAssetUri(url: String?): Boolean =
+        !url.isNullOrBlank() && url.startsWith(ASSET_URI_PREFIX, ignoreCase = false)
 
     fun installedCount(): Int = synchronized(lock) { crestByClubKey.size }
 
