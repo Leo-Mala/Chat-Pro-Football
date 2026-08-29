@@ -1,0 +1,75 @@
+name: Harden crest digest uniqueness
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/harden-crest-digest-uniqueness.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require globally unique crest bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def once(text, old, new, label):
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {text.count(old)}')
+              return text.replace(old, new, 1)
+
+          p = Path('tools/club_realization/materialize_validated_patch_plan.py')
+          s = p.read_text(encoding='utf-8')
+          s = once(s, '    crest_keys: set[str] = set()\n    checked:', '    crest_keys: set[str] = set()\n    crest_digests: set[str] = set()\n    checked:', 'materializer digest set')
+          s = once(
+              s,
+              '        if not re.fullmatch(r"[0-9a-f]{64}", row.source_crest_sha256):\n            raise ValueError(f"sourceCrestSha256 inválido no slot {row.legacy_team_id}")\n',
+              '        if not re.fullmatch(r"[0-9a-f]{64}", row.source_crest_sha256):\n            raise ValueError(f"sourceCrestSha256 inválido no slot {row.legacy_team_id}")\n        if row.source_crest_sha256 in crest_digests:\n            raise ValueError(\n                f"Bytes de escudo reutilizados por mais de um clube: sha256={row.source_crest_sha256}"\n            )\n        crest_digests.add(row.source_crest_sha256)\n',
+              'materializer digest rejection',
+          )
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('tools/club_realization/verify_materialized_bundle.py')
+          s = p.read_text(encoding='utf-8')
+          s = once(s, '    crest_names: set[str] = set()\n    actual_asset_names', '    crest_names: set[str] = set()\n    crest_digests: set[str] = set()\n    actual_asset_names', 'verifier digest set')
+          s = once(
+              s,
+              '        if not re.fullmatch(r"[0-9a-f]{64}", source_digest):\n            raise ValueError(f"invalid sourceCrestSha256 syntax for legacyTeamId {row.legacy_team_id}")\n        if source_digest != declared_digest:',
+              '        if not re.fullmatch(r"[0-9a-f]{64}", source_digest):\n            raise ValueError(f"invalid sourceCrestSha256 syntax for legacyTeamId {row.legacy_team_id}")\n        if source_digest in crest_digests:\n            raise ValueError(f"crest bytes reused by more than one club: sha256={source_digest}")\n        crest_digests.add(source_digest)\n        if source_digest != declared_digest:',
+              'verifier digest rejection',
+          )
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validate patched tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/club_realization/materialize_validated_patch_plan.py tools/club_realization/verify_materialized_bundle.py
+          git diff --check
+
+      - name: Commit digest protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/club_realization/materialize_validated_patch_plan.py tools/club_realization/verify_materialized_bundle.py
+          git commit -m "fix: reject reused crest bytes"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
