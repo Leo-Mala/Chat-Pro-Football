@@ -1,0 +1,77 @@
+name: Audit final Czech SVG crests
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/audit-final-czech-svg-crests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Audit Czech club SVGs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-czech-svg/assets
+          python3 - <<'PY'
+          import csv,hashlib,time,urllib.request,xml.etree.ElementTree as ET
+          from pathlib import Path
+          OUT=Path('final-czech-svg'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/3.3'}
+          targets=[
+            ('Tchéquia','FK Arsenal Česká Lípa','iconape-svg','iconape-308497-audit-2026-08-29','https://iconape.com/fk-arsenal-ceska-lipa-logo-logo-icon-svg-png.html','https://iconape.com/wp-content/files/zt/308497/svg/308497.svg'),
+            ('Tchéquia','SK Český Brod','iconape-svg','iconape-309207-audit-2026-08-29','https://iconape.com/sk-cesky-brod-logo-logo-icon-svg-png.html','https://iconape.com/wp-content/files/wp/309207/svg/309207.svg'),
+          ]
+          def fetch(url):
+              last=None
+              for n in range(4):
+                  try:
+                      req=urllib.request.Request(url,headers=UA)
+                      with urllib.request.urlopen(req,timeout=30) as r:return r.read(),r.headers.get('Content-Type',''),r.geturl()
+                  except Exception as exc:last=exc;time.sleep(1+n)
+              raise last
+          def validate(data,url):
+              low=data.lower()
+              for forbidden in (b'<!doctype',b'<!entity',b'<script',b'javascript:'):
+                  if forbidden in low: raise ValueError(f'unsafe SVG {forbidden!r}: {url}')
+              root=ET.fromstring(data)
+              if root.tag.rsplit('}',1)[-1].lower()!='svg': raise ValueError(f'not svg: {url}')
+              if not root.get('viewBox') and not (root.get('width') and root.get('height')): raise ValueError(f'no geometry: {url}')
+          rows=[];errors=[];seen=set()
+          for country,club,kind,revision,identity,url in targets:
+              try:
+                  data,ctype,final=fetch(url);validate(data,url);sha=hashlib.sha256(data).hexdigest()
+                  if sha in seen:raise ValueError(f'duplicate SHA {sha}')
+                  seen.add(sha);local=sha+'.svg';(ASSETS/local).write_bytes(data)
+                  rows.append([country,club,kind,revision,identity,url,final,ctype,len(data),sha,'assets/'+local])
+              except Exception as exc:errors.append([country,club,url,repr(exc)])
+          with (OUT/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f);w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','sourceCrestSha256','artifactFile']);w.writerows(rows)
+          with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f);w.writerow(['country','realClubName','source','error']);w.writerows(errors)
+          (OUT/'summary.txt').write_text(f'targets=2\naccepted={len(rows)}\nunique_hashes={len(seen)}\nerrors={len(errors)}\n',encoding='utf-8')
+          print((OUT/'summary.txt').read_text())
+          if errors:print((OUT/'errors.csv').read_text())
+          if len(rows)!=2 or len(seen)!=2:raise SystemExit('expected 2 safe Czech SVGs')
+          PY
+      - name: Upload Czech audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-czech-svg-${{ github.sha }}
+          path: final-czech-svg/
+          if-no-files-found: error
+          retention-days: 2
