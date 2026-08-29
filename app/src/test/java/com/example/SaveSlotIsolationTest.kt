@@ -10,6 +10,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -81,6 +82,8 @@ class SaveSlotIsolationTest {
         val slot1 = saveRepository.getRepositoryForSlot("1")
         val slot1Again = saveRepository.getRepositoryForSlot("1")
         val slot2 = saveRepository.getRepositoryForSlot("2")
+        val slot1TeamId = 9_900_101L
+        val slot2TeamId = 9_900_202L
 
         assertSame(slot1, slot1Again)
         assertNotSame(slot1, slot2)
@@ -88,14 +91,14 @@ class SaveSlotIsolationTest {
         slot1.saveGameSave(
             GameSave(
                 coachName = "Técnico Slot 1",
-                playerTeamId = 101L,
+                playerTeamId = slot1TeamId,
                 bankBalance = 1_000_000L
             )
         )
         slot1.saveTeams(
             listOf(
                 Team(
-                    id = 101L,
+                    id = slot1TeamId,
                     name = "Time Slot 1",
                     city = "Belo Horizonte",
                     state = "MG",
@@ -109,14 +112,14 @@ class SaveSlotIsolationTest {
         slot2.saveGameSave(
             GameSave(
                 coachName = "Técnico Slot 2",
-                playerTeamId = 202L,
+                playerTeamId = slot2TeamId,
                 bankBalance = 2_000_000L
             )
         )
         slot2.saveTeams(
             listOf(
                 Team(
-                    id = 202L,
+                    id = slot2TeamId,
                     name = "Time Slot 2",
                     city = "São Paulo",
                     state = "SP",
@@ -129,8 +132,10 @@ class SaveSlotIsolationTest {
 
         assertEquals("Técnico Slot 1", slot1.getGameSave()?.coachName)
         assertEquals("Técnico Slot 2", slot2.getGameSave()?.coachName)
-        assertEquals(listOf("Time Slot 1"), slot1.getAllTeams().map { it.name })
-        assertEquals(listOf("Time Slot 2"), slot2.getAllTeams().map { it.name })
+        assertEquals("Time Slot 1", slot1.getTeam(slot1TeamId)?.name)
+        assertEquals("Time Slot 2", slot2.getTeam(slot2TeamId)?.name)
+        assertNull(slot1.getTeam(slot2TeamId))
+        assertNull(slot2.getTeam(slot1TeamId))
         assertTrue(factory.getDatabaseForSlot("1").isOpen)
         assertTrue(factory.getDatabaseForSlot("2").isOpen)
     }
