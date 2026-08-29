@@ -1,0 +1,84 @@
+name: Audit fixed GitHub SVG corpus
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/audit-fixed-github-svg-corpus.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact audit branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Fetch immutable football-logos corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init football-logos
+          git -C football-logos remote add origin https://github.com/JoseArroyave/football-logos.git
+          git -C football-logos fetch --depth 1 origin 1b8e57c3ea3658001cafba18c4a6db730b420ad6
+          git -C football-logos checkout --detach FETCH_HEAD
+          test "$(git -C football-logos rev-parse HEAD)" = "1b8e57c3ea3658001cafba18c4a6db730b420ad6"
+
+      - name: Audit relevant SVG directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv, hashlib, shutil, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          revision='1b8e57c3ea3658001cafba18c4a6db730b420ad6'
+          dirs=['chile','china','colombia','costa-rica','czech-republic','egypt','iran','mexico','paraguay','qatar','saudi-arabia','south-korea','uruguay']
+          src=Path('football-logos/logos')
+          out=Path('fixed-github-svg-corpus')
+          assets=out/'assets'; assets.mkdir(parents=True,exist_ok=True)
+          rows=[]; rejected=[]; seen={}
+          for dirname in dirs:
+              d=src/dirname
+              if not d.is_dir(): raise SystemExit(f'missing source directory: {d}')
+              for p in sorted(d.glob('*.svg')):
+                  data=p.read_bytes(); low=data.lower()
+                  try:
+                      for forbidden in (b'<!doctype',b'<!entity',b'<script',b'javascript:'):
+                          if forbidden in low: raise ValueError(f'unsafe token {forbidden!r}')
+                      root=ET.fromstring(data)
+                      if root.tag.rsplit('}',1)[-1].lower()!='svg': raise ValueError('root is not svg')
+                      if not root.get('viewBox') and not (root.get('width') and root.get('height')): raise ValueError('missing geometry')
+                      sha=hashlib.sha256(data).hexdigest()
+                      if sha in seen:
+                          rejected.append([dirname,p.name,'duplicate-sha',sha,seen[sha]])
+                          continue
+                      seen[sha]=f'{dirname}/{p.name}'
+                      local=sha+'.svg'; (assets/local).write_bytes(data)
+                      raw=f'https://raw.githubusercontent.com/JoseArroyave/football-logos/{revision}/logos/{dirname}/{p.name}'
+                      rows.append([dirname,p.name,revision,raw,len(data),sha,'assets/'+local])
+                  except Exception as exc:
+                      rejected.append([dirname,p.name,'invalid',repr(exc),''])
+          with (out/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f); w.writerow(['directory','fileName','sourceRevision','sourceCrestPath','bytes','sourceCrestSha256','artifactFile']); w.writerows(rows)
+          with (out/'rejected.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f); w.writerow(['directory','fileName','reason','detail','other']); w.writerows(rejected)
+          (out/'summary.txt').write_text(f'revision={revision}\ndirectories={len(dirs)}\naccepted={len(rows)}\nrejected={len(rejected)}\nunique_hashes={len(seen)}\n',encoding='utf-8')
+          print((out/'summary.txt').read_text())
+          PY
+
+      - name: Upload audited immutable corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixed-github-svg-corpus-${{ github.sha }}
+          path: fixed-github-svg-corpus/
+          if-no-files-found: error
+          retention-days: 2
