@@ -1,4 +1,4 @@
-name: Export offline build kit
+name: Export Android Build Tools 34
 
 on:
   push:
@@ -12,95 +12,32 @@ permissions:
   contents: read
 
 jobs:
-  export:
+  export-build-tools-34:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Checkout exact current head
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-      - name: Set up Java 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Restore trusted Gradle cache
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
-        with:
-          cache-read-only: true
-      - name: Verify restored Gradle cache offline
+      - name: Verify Android Build Tools 34.0.0
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x gradlew
-          ./gradlew --offline --no-daemon help
-      - name: Build and split offline kit
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls -1 "$ANDROID_HOME/build-tools"
+          test -d "$ANDROID_HOME/build-tools/34.0.0"
+      - name: Package exact Build Tools 34.0.0
         shell: bash
         run: |
           set -euo pipefail
-          KIT="$RUNNER_TEMP/offline-kit"
-          ARCHIVE="$RUNNER_TEMP/offline-build-kit.tar.zst"
-          PARTS="$RUNNER_TEMP/offline-parts"
-          mkdir -p "$KIT/gradle" "$KIT/android-sdk" "$PARTS"
-          test -d "$HOME/.gradle/wrapper"
-          test -d "$HOME/.gradle/caches"
-          cp -a "$HOME/.gradle/wrapper" "$KIT/gradle/"
-          cp -a "$HOME/.gradle/caches" "$KIT/gradle/"
-          for d in licenses platforms/android-35 platform-tools; do
-            test -e "$ANDROID_HOME/$d"
-            mkdir -p "$KIT/android-sdk/$(dirname "$d")"
-            cp -a "$ANDROID_HOME/$d" "$KIT/android-sdk/$d"
-          done
-          mkdir -p "$KIT/android-sdk/build-tools"
-          BT="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
-          test -n "$BT"
-          cp -a "$ANDROID_HOME/build-tools/$BT" "$KIT/android-sdk/build-tools/$BT"
-          printf '%s\n' "$BT" > "$KIT/BUILD_TOOLS_VERSION.txt"
-          printf '%s\n' "${{ github.sha }}" > "$KIT/SOURCE_HEAD.txt"
-          tar -C "$RUNNER_TEMP" -I 'zstd -T0 -6' -cf "$ARCHIVE" offline-kit
-          test -s "$ARCHIVE"
-          sha256sum "$ARCHIVE" > "$PARTS/offline-build-kit.sha256"
-          split -b 400M -d -a 2 "$ARCHIVE" "$PARTS/part-"
-          ls -lh "$ARCHIVE" "$PARTS"/part-* "$PARTS/offline-build-kit.sha256"
-      - name: Upload kit part 00
+          OUT="$RUNNER_TEMP/android-build-tools-34.0.0.tar.zst"
+          tar -C "$ANDROID_HOME/build-tools" -I 'zstd -T0 -6' -cf "$OUT" 34.0.0
+          sha256sum "$OUT" > "$RUNNER_TEMP/android-build-tools-34.0.0.sha256"
+          ls -lh "$OUT" "$RUNNER_TEMP/android-build-tools-34.0.0.sha256"
+      - name: Upload Build Tools 34.0.0
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: offline-kit-part-00-${{ github.sha }}
-          path: ${{ runner.temp }}/offline-parts/part-00
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-      - name: Upload kit part 01
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: offline-kit-part-01-${{ github.sha }}
-          path: ${{ runner.temp }}/offline-parts/part-01
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-      - name: Upload kit part 02
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: offline-kit-part-02-${{ github.sha }}
-          path: ${{ runner.temp }}/offline-parts/part-02
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-      - name: Upload kit part 03 if present
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: offline-kit-part-03-${{ github.sha }}
-          path: ${{ runner.temp }}/offline-parts/part-03
-          if-no-files-found: ignore
-          retention-days: 1
-          compression-level: 0
-      - name: Upload kit checksum
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: offline-kit-checksum-${{ github.sha }}
-          path: ${{ runner.temp }}/offline-parts/offline-build-kit.sha256
+          name: android-build-tools-34.0.0-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/android-build-tools-34.0.0.tar.zst
+            ${{ runner.temp }}/android-build-tools-34.0.0.sha256
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
