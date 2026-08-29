@@ -36,6 +36,41 @@ class BrasfootRealClubIdentityTest {
     }
 
     @Test
+    fun auditedSvgCrestKeepsLegacyIdentityAndAssetPath() {
+        val replacement = BrasfootRealClubIdentity.Replacement(
+            legacyTeamId = 5151L,
+            country = "México",
+            division = 2,
+            legacySlotName = "Slot México",
+            realClubName = "Clube SVG de Teste",
+            crestFileName = "clube_svg.svg"
+        )
+
+        BrasfootRealClubIdentity.install(listOf(replacement))
+
+        assertEquals(5151L, BrasfootRealClubIdentity.legacyTeamIdFor("México", "Clube SVG de Teste"))
+        assertEquals(replacement, BrasfootRealClubIdentity.replacementForLegacyTeamId(5151L))
+        assertEquals(
+            "file:///android_asset/club_crests/clube_svg.svg",
+            BrasfootRealClubIdentity.crestAssetUriFor("México", "Clube SVG de Teste")
+        )
+    }
+
+    @Test
+    fun rejectsUnsupportedOrNestedCrestPath() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BrasfootRealClubIdentity.install(
+                listOf(BrasfootRealClubIdentity.Replacement(7001L, "Brasil", 2, "Slot A", "Real A", "a.webp"))
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            BrasfootRealClubIdentity.install(
+                listOf(BrasfootRealClubIdentity.Replacement(7002L, "Brasil", 2, "Slot B", "Real B", "nested/b.svg"))
+            )
+        }
+    }
+
+    @Test
     fun unknownClubOrLegacyIdDoesNotInventIdentity() {
         assertNull(BrasfootRealClubIdentity.legacySlotNameFor("Brasil", "Desconhecido"))
         assertNull(BrasfootRealClubIdentity.crestAssetUriFor("Brasil", "Desconhecido"))
