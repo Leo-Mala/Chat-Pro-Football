@@ -41,6 +41,8 @@ jobs:
           }
           EOF
       - name: Run focused save and migration certification
+        id: save_tests
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +57,7 @@ jobs:
             --tests com.example.migrations.Migration20To21RelationalIntegrityTest \
             --stacktrace
       - name: Package Robolectric runtime cache
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -64,13 +67,20 @@ jobs:
           OUT="$RUNNER_TEMP/robolectric-android14-cache.tar.zst"
           tar -C "$HOME/.m2/repository" -I 'zstd -T0 -6' -cf "$OUT" org/robolectric/android-all-instrumented/14-robolectric-10818077-i7
           sha256sum "$OUT" > "$RUNNER_TEMP/robolectric-android14-cache.sha256"
-      - name: Upload Robolectric runtime cache
+      - name: Upload Robolectric runtime cache and test evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: robolectric-android14-cache-${{ github.sha }}
+          name: save-certification-evidence-${{ github.sha }}
           path: |
             ${{ runner.temp }}/robolectric-android14-cache.tar.zst
             ${{ runner.temp }}/robolectric-android14-cache.sha256
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+      - name: Preserve failing gate
+        if: steps.save_tests.outcome != 'success'
+        shell: bash
+        run: exit 1
