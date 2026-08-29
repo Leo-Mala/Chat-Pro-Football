@@ -1,0 +1,110 @@
+name: Harden club aliases v2
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/harden-club-aliases-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Harden canonical alias and non-club validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('tools/club_realization/materialize_validated_patch_plan.py'),
+              Path('tools/club_realization/verify_materialized_bundle.py'),
+          ]
+          old_const = 'GENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}'
+          new_const = '''FROZEN_GENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}\nALIAS_GENERIC_CLUB_TOKENS = FROZEN_GENERIC_CLUB_TOKENS | {"ad", "acd", "mfk", "csk", "bsk", "sa", "ccd", "csd", "fbc", "sd", "ud"}\nALIAS_CONNECTOR_TOKENS = {"de", "del", "da", "do", "dos", "das", "the"}'''
+          old_func = '''def canonical_identity_key(value: str) -> str:\n    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()\n    return "".join(token for token in re.findall(r"[a-z0-9]+", folded) if token not in GENERIC_CLUB_TOKENS)\n'''
+          new_func = '''def frozen_canonical_identity_key(value: str) -> str:\n    """Canonicalização histórica usada para validar as chaves já congeladas."""\n    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()\n    return "".join(\n        token for token in re.findall(r"[a-z0-9]+", folded)\n        if token not in FROZEN_GENERIC_CLUB_TOKENS\n    )\n\n\ndef canonical_identity_key(value: str) -> str:\n    """Alias conservador forte para bloquear o mesmo clube escrito de formas diferentes."""\n    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()\n    folded = folded.replace("&", " and ")\n    folded = re.sub(\n        r"\\b(?:[a-z]\\.){2,}[a-z]?\\.?",\n        lambda match: match.group(0).replace(".", ""),\n        folded,\n    )\n    tokens = re.findall(r"[a-z0-9]+", folded)\n    normalized: list[str] = []\n    for token in tokens:\n        if token in ALIAS_GENERIC_CLUB_TOKENS or token in ALIAS_CONNECTOR_TOKENS:\n            continue\n        if re.fullmatch(r"(?:18|19|20)\\d{2}", token):\n            continue\n        normalized.append(token)\n    while normalized and normalized[-1] in {"1", "2", "ii", "b"}:\n        normalized.pop()\n    return "".join(normalized)\n\n\ndef looks_like_non_club_entity(value: str) -> bool:\n    """Rejeita logos de competição/seleção sem bloquear nomes legítimos de clubes."""\n    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()\n    folded = " ".join(re.findall(r"[a-z0-9]+", folded))\n    if "national team" in folded or "football association" in folded or "football federation" in folded:\n        return True\n    if folded.startswith(("copa ", "cup ")):\n        return True\n    if folded.startswith("liga ") and not folded.startswith("liga deportiva "):\n        return True\n    if folded.endswith((" liga", " league")):\n        return True\n    return False\n'''
+
+          for path in paths:
+              text = path.read_text(encoding='utf-8')
+              if old_const not in text or old_func not in text:
+                  raise SystemExit(f'unexpected baseline in {path}')
+              text = text.replace(old_const, new_const, 1).replace(old_func, new_func, 1)
+              text = text.replace('expected = canonical_identity_key(club_name)', 'expected = frozen_canonical_identity_key(club_name)', 1)
+              if path.name == 'materialize_validated_patch_plan.py':
+                  old = '''        result.add((country.casefold(), canonical))\n    return result\n'''
+                  new = '''        result.add((country.casefold(), canonical))\n        alias = canonical_identity_key(club_name)\n        if not alias:\n            raise ValueError(f"Baseline factual não produz alias utilizável: {country} / {club_name}")\n        result.add((country.casefold(), alias))\n    return result\n'''
+                  if old not in text:
+                      raise SystemExit('materializer factual hook not found')
+                  text = text.replace(old, new, 1)
+                  old = '''        if not row.canonical_club_key:\n            raise ValueError(f"Chave canônica vazia no slot {row.legacy_team_id}")\n\n        provenance_fields = {\n'''
+                  new = '''        if not row.canonical_club_key:\n            raise ValueError(f"Chave canônica vazia no slot {row.legacy_team_id}")\n        expected_canonical = frozen_canonical_identity_key(row.real_club_name)\n        if row.canonical_club_key.casefold() != expected_canonical:\n            raise ValueError(\n                f"canonicalClubKey inconsistente no slot {row.legacy_team_id}: "\n                f"expected={expected_canonical!r} actual={row.canonical_club_key!r}"\n            )\n        if looks_like_non_club_entity(row.real_club_name):\n            raise ValueError(\n                f"Identidade não representa clube masculino principal: {row.country} / {row.real_club_name}"\n            )\n\n        provenance_fields = {\n'''
+                  if old not in text:
+                      raise SystemExit('materializer plan hook not found')
+                  text = text.replace(old, new, 1)
+              else:
+                  old = '''        result.add((country.casefold(), canonical))\n    return result\n'''
+                  new = '''        result.add((country.casefold(), canonical))\n        alias = canonical_identity_key(club_name)\n        if not alias:\n            raise ValueError(f"factual club does not yield a canonical alias: {country} / {club_name}")\n        result.add((country.casefold(), alias))\n    return result\n'''
+                  if old not in text:
+                      raise SystemExit('verifier factual hook not found')
+                  text = text.replace(old, new, 1)
+                  old = '''        if not canonical_name:\n            raise ValueError(f"empty canonicalClubKey for legacyTeamId {row.legacy_team_id}")\n        canonical_key = (row.country.casefold(), canonical_name.casefold())\n'''
+                  new = '''        if not canonical_name:\n            raise ValueError(f"empty canonicalClubKey for legacyTeamId {row.legacy_team_id}")\n        expected_canonical = frozen_canonical_identity_key(row.real_club_name)\n        if canonical_name.casefold() != expected_canonical:\n            raise ValueError(\n                f"inconsistent canonicalClubKey for legacyTeamId {row.legacy_team_id}: "\n                f"expected={expected_canonical!r} actual={canonical_name!r}"\n            )\n        if looks_like_non_club_entity(row.real_club_name):\n            raise ValueError(\n                f"replacement identity is not a senior men's club: {row.country} / {row.real_club_name}"\n            )\n        canonical_key = (row.country.casefold(), canonical_name.casefold())\n'''
+                  if old not in text:
+                      raise SystemExit('verifier plan hook not found')
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate hardening behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tools/club_realization/materialize_validated_patch_plan.py \
+            tools/club_realization/verify_materialized_bundle.py
+          python3 - <<'PY'
+          import runpy
+          ns = runpy.run_path('tools/club_realization/materialize_validated_patch_plan.py')
+          alias = ns['canonical_identity_key']
+          nonclub = ns['looks_like_non_club_entity']
+          pairs = [
+              ('AL-AHLI SAUDI F.C.', 'AL-AHLI SAUDI F.C.-1'),
+              ('Ayr United', 'Ayr United 2'),
+              ('HNK Vukovar 1991', 'Vukovar'),
+              ('Alianza Petrolera', 'ALIANZA PETROLERA F.C.-1'),
+          ]
+          for left, right in pairs:
+              if alias(left) != alias(right):
+                  raise SystemExit(f'alias hardening failed: {left!r} != {right!r}')
+          for value in ('Liga MX', 'Chance Liga', 'Liga AUF Uruguaya', 'Copa MX', 'Copa de Primera'):
+              if not nonclub(value):
+                  raise SystemExit(f'non-club detector failed: {value}')
+          if nonclub('Liga Deportiva Alajuelense'):
+              raise SystemExit('legitimate club incorrectly rejected')
+          print('alias/non-club hardening probes: PASS')
+          PY
+
+      - name: Commit hardened validators
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/club_realization/materialize_validated_patch_plan.py tools/club_realization/verify_materialized_bundle.py
+          git diff --cached --check
+          git commit -m 'fix: harden real club alias validation'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
