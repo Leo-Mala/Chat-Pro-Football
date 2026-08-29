@@ -1,4 +1,4 @@
-name: Temporary rardecode source export
+name: Temporary audit dependency export
 
 on:
   push:
@@ -9,11 +9,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: temporary-rardecode-source-${{ github.ref }}
+  group: temporary-audit-dependency-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  export-source:
+  export-dependencies:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify source commit and package
+      - name: Verify rardecode source and package
         shell: bash
         run: |
           set -euo pipefail
@@ -35,15 +35,29 @@ jobs:
             '4e5b2a5cc5359c6a0547de170f8518d1103cb296' \
             'nwaples/rardecode' > SOURCE_COMMIT.txt
           tar --exclude='rardecode/.git' -czf rardecode-source.tar.gz rardecode SOURCE_COMMIT.txt
-          sha256sum rardecode-source.tar.gz > SHA256SUMS.txt
+          sha256sum rardecode-source.tar.gz > RARDECODE_SHA256SUMS.txt
 
-      - name: Upload source package
+      - name: Download and verify javaobj-py3 wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip download \
+            --disable-pip-version-check \
+            --no-deps \
+            --only-binary=:all: \
+            --dest . \
+            'javaobj-py3==0.6.1'
+          test -f javaobj_py3-0.6.1-py2.py3-none-any.whl
+          echo 'da97c61cb050bad37cca00523b1a617cc26ed2b698b6322cbc118820a4f52b30  javaobj_py3-0.6.1-py2.py3-none-any.whl' | sha256sum -c -
+
+      - name: Upload audit dependencies
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: rardecode-source-4e5b2a5
+          name: club-audit-dependencies
           path: |
             rardecode-source.tar.gz
             SOURCE_COMMIT.txt
-            SHA256SUMS.txt
+            RARDECODE_SHA256SUMS.txt
+            javaobj_py3-0.6.1-py2.py3-none-any.whl
           if-no-files-found: error
           retention-days: 1
