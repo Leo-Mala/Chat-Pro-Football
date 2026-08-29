@@ -85,6 +85,14 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
+      - name: Validate club realization Python tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tools/club_realization/materialize_validated_patch_plan.py \
+            tools/club_realization/verify_materialized_bundle.py
+
       - name: Run focused manual-test regression suite
         shell: bash
         run: |
