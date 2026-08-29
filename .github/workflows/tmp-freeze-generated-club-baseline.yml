@@ -1,0 +1,90 @@
+name: Temporary Freeze Generated Club Baseline
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/tmp-freeze-generated-club-baseline.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  freeze-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+      - name: Download audited classified catalog
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9708177072/zip" \
+            -o /tmp/classified.zip
+          mkdir -p /tmp/classified
+          unzip -q /tmp/classified.zip -d /tmp/classified
+      - name: Freeze exact generated filler slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/club-realization
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+
+          source = next(Path('/tmp/classified').rglob('clubs-classified.csv'))
+          with source.open(encoding='utf-8', newline='') as f:
+              rows = list(csv.DictReader(f))
+          fillers = [r for r in rows if r['provenance'] == 'GENERATED_FILLER']
+          factual = [r for r in rows if r['provenance'] == 'FACTUAL_OR_EXPLICIT']
+          assert len(rows) == 2524, len(rows)
+          assert len(fillers) == 1907, len(fillers)
+          assert len(factual) == 617, len(factual)
+
+          target = Path('docs/club-realization/generated-filler-slots.csv')
+          with target.open('w', encoding='utf-8', newline='') as f:
+              writer = csv.writer(f)
+              writer.writerow(['legacyTeamId', 'country', 'division', 'legacySlotName'])
+              for r in fillers:
+                  writer.writerow([r['id'], r['country'], r['division'], r['name']])
+
+          by_country = {}
+          for r in fillers:
+              by_country[r['country']] = by_country.get(r['country'], 0) + 1
+          report = Path('docs/club-realization/README.md')
+          report.write_text(
+              '# Real club replacement baseline\n\n'
+              'Audited source catalog: 2524 clubs.\n\n'
+              '- factual/explicit clubs preserved: 617\n'
+              '- generated filler slots to replace: 1907\n'
+              '- replacement policy: one real Brasfoot patch club per filler slot\n'
+              '- ID policy: the real club inherits the legacy numeric slot ID\n'
+              '- crest policy: original PNG from the Brasfoot patch, no generic reshaping\n\n'
+              'The CSV is the immutable compatibility baseline used to build the one-to-one replacement plan.\n'
+              'It intentionally contains no external sporting data and does not alter players.\n',
+              encoding='utf-8'
+          )
+          print('countries_with_fillers=', len(by_country))
+          print('largest=', sorted(by_country.items(), key=lambda x: (-x[1], x[0]))[:10])
+          PY
+      - name: Commit baseline and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/tmp-freeze-generated-club-baseline.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/club-realization .github/workflows/tmp-freeze-generated-club-baseline.yml
+          git commit -m 'docs: freeze 1907 generated club replacement slots'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
