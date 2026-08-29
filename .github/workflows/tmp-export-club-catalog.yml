@@ -14,35 +14,90 @@ permissions:
 jobs:
   export:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout exact branch head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: fix/3.0.1-manual-test-bugs
-      - name: Export club catalog from canonical seed
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Setup validation google-services.json
         shell: bash
         run: |
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+      - name: Create temporary catalog classifier test
+        shell: bash
+        run: |
+          mkdir -p app/src/test/java/com/example/data club-catalog
+          cat > app/src/test/java/com/example/data/CrestCatalogExportTest.kt <<'KOTLIN'
+          package com.example.data
+
+          import android.content.Context
+          import androidx.test.core.app.ApplicationProvider
+          import java.io.File
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import org.robolectric.RobolectricTestRunner
+          import org.robolectric.annotation.Config
+
+          @RunWith(RobolectricTestRunner::class)
+          @Config(sdk = [35])
+          class CrestCatalogExportTest {
+              @Test
+              fun exportCatalogWithProvenance() {
+                  val out = System.getenv("CREST_CATALOG_OUTPUT")?.takeIf { it.isNotBlank() }
+                      ?: error("CREST_CATALOG_OUTPUT missing")
+                  EuropeanFactualClubTargetMaterializer2026_27.installIntoDefaultData()
+                  EuropeanAuditedLowerTierClubTargetMaterializer2026_27.installIntoDefaultData()
+                  EuropeanAuditedFactualBaselinesA3Materializer2026_27.installIntoDefaultData()
+
+                  fun csv(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
+                  val lines = mutableListOf("id,name,country,division,city,state,provenance")
+                  var factual = 0
+                  var generated = 0
+                  for (country in GlobalFootballSystem.keys) {
+                      val explicit = DefaultData.originalMap[country]?.teams.orEmpty()
+                      for (team in DefaultData.getTeamsForCountry(country)) {
+                          val isExplicit = explicit.any { it.name.equals(team.name, ignoreCase = true) }
+                          val isMaterialized = EuropeanFactualClubTargetMaterializer2026_27.contains(country, team.name)
+                          val provenance = if (isExplicit || isMaterialized) "FACTUAL_OR_EXPLICIT" else "GENERATED_FILLER"
+                          if (provenance == "GENERATED_FILLER") generated++ else factual++
+                          val id = GlobalFootballSystem.getGlobalId(country, team.name)
+                          lines += listOf(
+                              id.toString(), csv(team.name), csv(country), team.division.toString(),
+                              csv(team.city), csv(team.state), provenance
+                          ).joinToString(",")
+                      }
+                  }
+                  File(out).apply {
+                      parentFile?.mkdirs()
+                      writeText(lines.joinToString("\n") + "\n")
+                  }
+                  println("factual_or_explicit=$factual generated_filler=$generated total=${factual + generated}")
+              }
+          }
+          KOTLIN
+      - name: Export classified catalog
+        shell: bash
+        env:
+          CREST_CATALOG_OUTPUT: ${{ github.workspace }}/club-catalog/clubs-classified.csv
+        run: |
           set -euo pipefail
-          mkdir -p club-catalog
-          python3 - <<'PY'
-          import csv, sqlite3
-          db='app/src/main/assets/databases/career_seed_template.db'
-          con=sqlite3.connect(db)
-          cols=[r[1] for r in con.execute('PRAGMA table_info(teams)')]
-          print('team columns:', cols)
-          wanted=['id','name','country','division','city','state']
-          selected=[c for c in wanted if c in cols]
-          rows=con.execute('SELECT '+','.join(selected)+' FROM teams ORDER BY country,name,id').fetchall()
-          with open('club-catalog/clubs.csv','w',newline='',encoding='utf-8') as f:
-              w=csv.writer(f)
-              w.writerow(selected)
-              w.writerows(rows)
-          print('clubs=',len(rows))
-          con.close()
-          PY
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true --tests com.example.data.CrestCatalogExportTest --stacktrace
+          test -s club-catalog/clubs-classified.csv
+          wc -l club-catalog/clubs-classified.csv
       - name: Upload catalog
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: club-catalog-${{ github.sha }}
-          path: club-catalog/clubs.csv
+          name: club-catalog-classified-${{ github.sha }}
+          path: club-catalog/clubs-classified.csv
           retention-days: 2
