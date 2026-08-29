@@ -125,7 +125,8 @@ object GlobalFootballSystem {
                 ?: DefaultData.countriesMap[country]?.teams
             if (teams != null) {
                 val nonStableTeams = teams.filter { legacyExplicitStableSeedIdFor(country, it.name) == null }
-                val teamIndex = nonStableTeams.indexOfFirst { it.name.equals(teamName, ignoreCase = true) }
+                val allocationName = BrasfootRealClubIdentity.legacySlotNameFor(country, teamName) ?: teamName
+                val teamIndex = nonStableTeams.indexOfFirst { it.name.equals(allocationName, ignoreCase = true) }
                 if (teamIndex != -1) {
                     val blockStart = countryIndex * TEAM_IDS_PER_COUNTRY + 1L
                     val blockEndInclusive = blockStart + TEAM_IDS_PER_COUNTRY - 1L

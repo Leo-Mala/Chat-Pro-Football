@@ -464,6 +464,8 @@ object DefaultData {
     }
 
     fun getLogoForTeam(name: String, country: String): String {
+        BrasfootRealClubIdentity.crestAssetUriFor(country, name)?.let { return it }
+
         val mappedLogo = when (name) {
             "Flamengo" -> "https://upload.wikimedia.org/wikipedia/commons/2/2e/Flamengo_brazil_logo.svg"
             "Palmeiras" -> "https://upload.wikimedia.org/wikipedia/commons/1/10/Palmeiras_logo.svg"
