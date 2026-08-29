@@ -1,0 +1,151 @@
+name: Harden factual club exclusion
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/harden-factual-club-exclusion.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Patch materializer and verifier fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {text.count(old)}')
+              return text.replace(old, new, 1)
+
+          materializer = Path('tools/club_realization/materialize_validated_patch_plan.py')
+          s = materializer.read_text(encoding='utf-8')
+          s = replace_once(s, 'import struct\nimport xml.etree.ElementTree as ET', 'import struct\nimport unicodedata\nimport xml.etree.ElementTree as ET', 'materializer imports')
+          s = replace_once(
+              s,
+              'EXPECTED_REPLACEMENTS = 1907\nSUPPORTED_CREST_EXTENSIONS',
+              'EXPECTED_REPLACEMENTS = 1907\nEXPECTED_FACTUAL_CLUBS = 617\nGENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}\nSUPPORTED_CREST_EXTENSIONS',
+              'materializer constants',
+          )
+          s = replace_once(
+              s,
+              '\ndef load_plan(path: Path) -> list[PlanRow]:',
+              '''\n\ndef canonical_identity_key(value: str) -> str:\n    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()\n    return "".join(token for token in re.findall(r"[a-z0-9]+", folded) if token not in GENERIC_CLUB_TOKENS)\n\n\ndef load_factual_keys(path: Path) -> set[tuple[str, str]]:\n    with path.open(encoding="utf-8-sig", newline="") as handle:\n        rows = list(csv.DictReader(handle))\n    required = {"country", "clubName", "canonicalClubKey"}\n    if rows:\n        missing = required - set(rows[0])\n        if missing:\n            raise ValueError(f"Baseline factual sem colunas obrigatórias: {sorted(missing)}")\n    if len(rows) != EXPECTED_FACTUAL_CLUBS:\n        raise ValueError(f"Baseline factual deveria ter {EXPECTED_FACTUAL_CLUBS} clubes; recebeu {len(rows)}")\n\n    result: set[tuple[str, str]] = set()\n    for row in rows:\n        country = row["country"].strip()\n        club_name = row["clubName"].strip()\n        canonical = row["canonicalClubKey"].strip().casefold()\n        expected = canonical_identity_key(club_name)\n        if not country or not club_name or not canonical:\n            raise ValueError("Baseline factual contém país, nome ou chave canônica vazios")\n        if canonical != expected:\n            raise ValueError(\n                f"Baseline factual possui canonicalClubKey inconsistente para {country} / {club_name}: "\n                f"expected={expected!r} actual={canonical!r}"\n            )\n        # A baseline factual congela clubes, não chaves únicas. Se dois factuais\n        # colapsarem sob a regra conservadora de alias, a chave continua proibida.\n        result.add((country.casefold(), canonical))\n    return result\n\n\ndef load_plan(path: Path) -> list[PlanRow]:''',
+              'materializer factual loader',
+          )
+          s = replace_once(
+              s,
+              'def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path) -> list[tuple[PlanRow, str]]:',
+              'def validate_plan(\n    slots: dict[int, Slot],\n    plan: list[PlanRow],\n    crests_dir: Path,\n    factual_keys: set[tuple[str, str]],\n) -> list[tuple[PlanRow, str]]:',
+              'materializer validate signature',
+          )
+          s = replace_once(s, '    canonical_keys: set[tuple[str, str]] = set()\n    crest_keys:', '    canonical_keys: set[tuple[str, str]] = set()\n    alias_keys: set[tuple[str, str]] = set()\n    crest_keys:', 'materializer alias set')
+          s = replace_once(
+              s,
+              '''        canonical_keys.add(canonical_key)\n\n        crest_key = row.crest_file_name.casefold()''',
+              '''        canonical_keys.add(canonical_key)\n\n        alias_name = canonical_identity_key(row.real_club_name)\n        if not alias_name:\n            raise ValueError(f"Nome real não produz identidade canônica utilizável no slot {row.legacy_team_id}")\n        alias_key = (row.country.casefold(), alias_name)\n        if alias_key in alias_keys:\n            raise ValueError(\n                f"Alias de clube reutilizado por mais de uma substituição: {row.country} / {row.real_club_name}"\n            )\n        alias_keys.add(alias_key)\n        if canonical_key in factual_keys or alias_key in factual_keys:\n            raise ValueError(\n                f"Substituição reutiliza um dos {EXPECTED_FACTUAL_CLUBS} clubes factuais preservados: "\n                f"{row.country} / {row.real_club_name}"\n            )\n\n        crest_key = row.crest_file_name.casefold()''',
+              'materializer factual rejection',
+          )
+          s = replace_once(
+              s,
+              '    parser.add_argument("--plan", type=Path, required=True)',
+              '    parser.add_argument(\n        "--factual-baseline",\n        type=Path,\n        default=Path("docs/club-realization/preserved-factual-clubs.csv"),\n    )\n    parser.add_argument("--plan", type=Path, required=True)',
+              'materializer factual arg',
+          )
+          s = replace_once(
+              s,
+              '    slots = load_slots(args.baseline)\n    plan = load_plan(args.plan)\n    checked = validate_plan(slots, plan, args.crests_dir)',
+              '    slots = load_slots(args.baseline)\n    factual_keys = load_factual_keys(args.factual_baseline)\n    plan = load_plan(args.plan)\n    checked = validate_plan(slots, plan, args.crests_dir, factual_keys)',
+              'materializer factual invocation',
+          )
+          materializer.write_text(s, encoding='utf-8')
+
+          verifier = Path('tools/club_realization/verify_materialized_bundle.py')
+          s = verifier.read_text(encoding='utf-8')
+          s = replace_once(s, 'import re\nimport xml.etree.ElementTree as ET', 'import re\nimport unicodedata\nimport xml.etree.ElementTree as ET', 'verifier imports')
+          s = replace_once(
+              s,
+              'EXPECTED_REPLACEMENTS = 1907\nPNG_SIGNATURE',
+              'EXPECTED_REPLACEMENTS = 1907\nEXPECTED_FACTUAL_CLUBS = 617\nGENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}\nPNG_SIGNATURE',
+              'verifier constants',
+          )
+          s = replace_once(
+              s,
+              '\ndef read_replacements(path: Path) -> list[Replacement]:',
+              '''\n\ndef canonical_identity_key(value: str) -> str:\n    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()\n    return "".join(token for token in re.findall(r"[a-z0-9]+", folded) if token not in GENERIC_CLUB_TOKENS)\n\n\ndef read_factual_keys(path: Path) -> set[tuple[str, str]]:\n    with path.open(encoding="utf-8-sig", newline="") as handle:\n        rows = list(csv.DictReader(handle))\n    required = {"country", "clubName", "canonicalClubKey"}\n    if rows:\n        missing = required - set(rows[0])\n        if missing:\n            raise ValueError(f"factual baseline missing columns: {sorted(missing)}")\n    if len(rows) != EXPECTED_FACTUAL_CLUBS:\n        raise ValueError(f"factual baseline count {len(rows)} != {EXPECTED_FACTUAL_CLUBS}")\n    result: set[tuple[str, str]] = set()\n    for row in rows:\n        country = row["country"].strip()\n        club_name = row["clubName"].strip()\n        canonical = row["canonicalClubKey"].strip().casefold()\n        expected = canonical_identity_key(club_name)\n        if not country or not club_name or not canonical:\n            raise ValueError("empty factual club identity field")\n        if canonical != expected:\n            raise ValueError(\n                f"inconsistent factual canonical key for {country} / {club_name}: "\n                f"expected={expected!r} actual={canonical!r}"\n            )\n        result.add((country.casefold(), canonical))\n    return result\n\n\ndef read_replacements(path: Path) -> list[Replacement]:''',
+              'verifier factual loader',
+          )
+          s = replace_once(
+              s,
+              '''def verify_complete_bundle(\n    baseline_path: Path,\n    kotlin_path: Path,\n    crest_dir: Path,\n    manifest_path: Path,\n) -> dict[str, str]:\n    baseline = read_baseline(baseline_path)''',
+              '''def verify_complete_bundle(\n    baseline_path: Path,\n    factual_baseline_path: Path,\n    kotlin_path: Path,\n    crest_dir: Path,\n    manifest_path: Path,\n) -> dict[str, str]:\n    baseline = read_baseline(baseline_path)\n    factual_keys = read_factual_keys(factual_baseline_path)''',
+              'verifier signature',
+          )
+          s = replace_once(s, '    canonical_keys: set[tuple[str, str]] = set()\n    crest_names:', '    canonical_keys: set[tuple[str, str]] = set()\n    alias_keys: set[tuple[str, str]] = set()\n    crest_names:', 'verifier alias set')
+          s = replace_once(
+              s,
+              '''        canonical_keys.add(canonical_key)\n\n        for field in ("sourceKind", "sourceRevision", "sourceIdentityPath", "sourceCrestPath"):\n''',
+              '''        canonical_keys.add(canonical_key)\n\n        alias_name = canonical_identity_key(row.real_club_name)\n        if not alias_name:\n            raise ValueError(f"real club does not yield a canonical alias for legacyTeamId {row.legacy_team_id}")\n        alias_key = (row.country.casefold(), alias_name)\n        if alias_key in alias_keys:\n            raise ValueError(f"club alias reused by more than one replacement: {row.country} / {row.real_club_name}")\n        alias_keys.add(alias_key)\n        if canonical_key in factual_keys or alias_key in factual_keys:\n            raise ValueError(\n                f"replacement reuses one of the {EXPECTED_FACTUAL_CLUBS} preserved factual clubs: "\n                f"{row.country} / {row.real_club_name}"\n            )\n\n        for field in ("sourceKind", "sourceRevision", "sourceIdentityPath", "sourceCrestPath"):\n''',
+              'verifier factual rejection',
+          )
+          s = replace_once(
+              s,
+              '    return verify_complete_bundle(args.baseline, args.kotlin_file, args.crest_dir, args.digest_file)',
+              '    return verify_complete_bundle(\n        args.baseline, args.factual_baseline, args.kotlin_file, args.crest_dir, args.digest_file\n    )',
+              'verifier invocation',
+          )
+          s = replace_once(
+              s,
+              '    parser.add_argument("--kotlin-file", type=Path, default=Path("app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt"))',
+              '    parser.add_argument(\n        "--factual-baseline",\n        type=Path,\n        default=Path("docs/club-realization/preserved-factual-clubs.csv"),\n    )\n    parser.add_argument("--kotlin-file", type=Path, default=Path("app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt"))',
+              'verifier factual arg',
+          )
+          verifier.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validate patched tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tools/club_realization/materialize_validated_patch_plan.py \
+            tools/club_realization/verify_materialized_bundle.py
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          baseline = Path('docs/club-realization/preserved-factual-clubs.csv')
+          with baseline.open(encoding='utf-8-sig', newline='') as f:
+              rows = list(csv.DictReader(f))
+          if len(rows) != 617:
+              raise SystemExit(f'expected 617 factual rows, got {len(rows)}')
+          if not any(r['country'] == 'Inglaterra' and r['canonicalClubKey'] == 'manchestercity' for r in rows):
+              raise SystemExit('factual baseline sanity key missing')
+          print('factual_rows=617')
+          PY
+
+      - name: Commit hardened tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/club_realization/materialize_validated_patch_plan.py tools/club_realization/verify_materialized_bundle.py
+          git diff --cached --check
+          git commit -m "fix: reject preserved factual club identities"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
