@@ -1,4 +1,4 @@
-name: Temporary audit dependency export
+name: Temporary external club source export
 
 on:
   push:
@@ -9,75 +9,77 @@ permissions:
   contents: read
 
 concurrency:
-  group: temporary-audit-dependency-${{ github.ref }}
+  group: temporary-external-club-source-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  export-dependencies:
+  export-sources:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Checkout exact project head
+      - name: Checkout exact structured team dataset
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ github.sha }}
-          path: project
+          repository: hixcoder/football-teams-flags
+          ref: c7cc76cd99ca073e939f3a893583ec7aa89a8527
+          path: teams
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify and package project source
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git -C project rev-parse HEAD)" = "${GITHUB_SHA}"
-          tar --exclude='project/.git' -czf project-source.tar.gz project
-          sha256sum project-source.tar.gz > PROJECT_SHA256SUMS.txt
-          printf '%s\n' "${GITHUB_SHA}" > PROJECT_COMMIT.txt
-
-      - name: Checkout exact rardecode source
+      - name: Checkout independent logo repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          repository: nwaples/rardecode
-          ref: 4e5b2a5cc5359c6a0547de170f8518d1103cb296
-          path: rardecode
+          repository: Leo4815162342/football-logos
+          ref: 32e43168524e17d4b599d1ae9069623267b23ea0
+          path: logos
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify rardecode source and package
+      - name: Verify exact source commits and filter target countries
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C rardecode rev-parse HEAD)" = "4e5b2a5cc5359c6a0547de170f8518d1103cb296"
-          printf '%s  %s\n' \
-            '4e5b2a5cc5359c6a0547de170f8518d1103cb296' \
-            'nwaples/rardecode' > SOURCE_COMMIT.txt
-          tar --exclude='rardecode/.git' -czf rardecode-source.tar.gz rardecode SOURCE_COMMIT.txt
-          sha256sum rardecode-source.tar.gz > RARDECODE_SHA256SUMS.txt
+          test "$(git -C teams rev-parse HEAD)" = "c7cc76cd99ca073e939f3a893583ec7aa89a8527"
+          test "$(git -C logos rev-parse HEAD)" = "32e43168524e17d4b599d1ae9069623267b23ea0"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
 
-      - name: Download and verify javaobj-py3 wheel
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m pip download \
-            --disable-pip-version-check \
-            --no-deps \
-            --only-binary=:all: \
-            --dest . \
-            'javaobj-py3==0.6.1'
-          test -f javaobj_py3-0.6.1-py2.py3-none-any.whl
-          echo 'da97c61cb050bad37cca00523b1a617cc26ed2b698b6322cbc118820a4f52b30  javaobj_py3-0.6.1-py2.py3-none-any.whl' | sha256sum -c -
+          wanted = {
+              'Saudi Arabia', 'Qatar', 'Chile', 'China', 'Colombia', 'South Korea',
+              'Costa Rica', 'Egypt', 'El Salvador', 'Guatemala', 'Iran', 'Jamaica',
+              'Mexico', 'Paraguay', 'Czech Republic', 'Uruguay'
+          }
+          data = json.loads(Path('teams/football_teams.json').read_text(encoding='utf-8'))
+          selected = [
+              row for row in data
+              if row.get('country') in wanted
+              and 'national team' not in row.get('name', '').casefold()
+          ]
+          selected.sort(key=lambda row: (row['country'], row['name'].casefold()))
+          Path('external_teams.json').write_text(
+              json.dumps(selected, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print('selected structured candidates:', len(selected))
+          for country in sorted(wanted):
+              print(country, sum(1 for row in selected if row['country'] == country))
+          PY
+          find logos -type f \( -iname '*.png' -o -iname '*.svg' -o -iname '*.webp' \) \
+            -printf '%P\n' | sort > independent_logo_index.txt
+          printf '%s\n' \
+            'hixcoder/football-teams-flags@c7cc76cd99ca073e939f3a893583ec7aa89a8527' \
+            'Leo4815162342/football-logos@32e43168524e17d4b599d1ae9069623267b23ea0' \
+            > SOURCE_COMMITS.txt
+          sha256sum external_teams.json independent_logo_index.txt SOURCE_COMMITS.txt > SHA256SUMS.txt
 
-      - name: Upload audit dependencies
+      - name: Upload external club audit sources
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: club-audit-dependencies
+          name: external-club-audit-sources-${{ github.sha }}
           path: |
-            project-source.tar.gz
-            PROJECT_COMMIT.txt
-            PROJECT_SHA256SUMS.txt
-            rardecode-source.tar.gz
-            SOURCE_COMMIT.txt
-            RARDECODE_SHA256SUMS.txt
-            javaobj_py3-0.6.1-py2.py3-none-any.whl
+            external_teams.json
+            independent_logo_index.txt
+            SOURCE_COMMITS.txt
+            SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 1
