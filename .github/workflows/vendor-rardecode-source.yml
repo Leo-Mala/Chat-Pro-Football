@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Checkout exact structured team dataset
+      - name: Checkout exact structured PNG dataset
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: hixcoder/football-teams-flags
@@ -26,59 +26,94 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Checkout independent logo repository
+      - name: Checkout independent club logo repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          repository: Leo4815162342/football-logos
-          ref: 32e43168524e17d4b599d1ae9069623267b23ea0
+          repository: JoseArroyave/football-logos
+          ref: 1b8e57c3ea3658001cafba18c4a6db730b420ad6
           path: logos
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact source commits and filter target countries
+      - name: Verify exact source commits and export target countries
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C teams rev-parse HEAD)" = "c7cc76cd99ca073e939f3a893583ec7aa89a8527"
-          test "$(git -C logos rev-parse HEAD)" = "32e43168524e17d4b599d1ae9069623267b23ea0"
+          test "$(git -C logos rev-parse HEAD)" = "1b8e57c3ea3658001cafba18c4a6db730b420ad6"
           python3 - <<'PY'
+          import hashlib
           import json
           from pathlib import Path
 
-          wanted = {
+          structured_countries = {
               'Saudi Arabia', 'Qatar', 'Chile', 'China', 'Colombia', 'South Korea',
               'Costa Rica', 'Egypt', 'El Salvador', 'Guatemala', 'Iran', 'Jamaica',
               'Mexico', 'Paraguay', 'Czech Republic', 'Uruguay'
           }
+          folder_to_country = {
+              'saudi-arabia': 'Saudi Arabia', 'qatar': 'Qatar', 'chile': 'Chile',
+              'china': 'China', 'colombia': 'Colombia', 'south-korea': 'South Korea',
+              'costa-rica': 'Costa Rica', 'egypt': 'Egypt', 'el-salvador': 'El Salvador',
+              'guatemala': 'Guatemala', 'iran': 'Iran', 'jamaica': 'Jamaica',
+              'mexico': 'Mexico', 'paraguay': 'Paraguay', 'czech-republic': 'Czech Republic',
+              'uruguay': 'Uruguay'
+          }
+
           data = json.loads(Path('teams/football_teams.json').read_text(encoding='utf-8'))
-          selected = [
+          structured = [
               row for row in data
-              if row.get('country') in wanted
+              if row.get('country') in structured_countries
               and 'national team' not in row.get('name', '').casefold()
           ]
-          selected.sort(key=lambda row: (row['country'], row['name'].casefold()))
-          Path('external_teams.json').write_text(
-              json.dumps(selected, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          structured.sort(key=lambda row: (row['country'], row['name'].casefold()))
+          Path('external_png_teams.json').write_text(
+              json.dumps(structured, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
           )
-          print('selected structured candidates:', len(selected))
-          for country in sorted(wanted):
-              print(country, sum(1 for row in selected if row['country'] == country))
+
+          independent = []
+          for folder, country in folder_to_country.items():
+              root = Path('logos/logos') / folder
+              if not root.is_dir():
+                  raise SystemExit(f'missing expected country folder: {root}')
+              for path in sorted(root.glob('*.svg'), key=lambda p: p.name.casefold()):
+                  if 'national_team' in path.stem.casefold():
+                      continue
+                  raw = path.read_bytes()
+                  independent.append({
+                      'country': country,
+                      'nameFromFile': path.stem.replace('_', ' '),
+                      'relativePath': path.as_posix().removeprefix('logos/'),
+                      'sha256': hashlib.sha256(raw).hexdigest(),
+                      'bytes': len(raw),
+                  })
+          independent.sort(key=lambda row: (row['country'], row['nameFromFile'].casefold()))
+          Path('independent_svg_clubs.json').write_text(
+              json.dumps(independent, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+
+          print('structured PNG candidates:', len(structured))
+          print('independent SVG club candidates:', len(independent))
+          for country in sorted(structured_countries):
+              print(
+                  country,
+                  'png=', sum(1 for row in structured if row['country'] == country),
+                  'svg=', sum(1 for row in independent if row['country'] == country),
+              )
           PY
-          find logos -type f \( -iname '*.png' -o -iname '*.svg' -o -iname '*.webp' \) \
-            -printf '%P\n' | sort > independent_logo_index.txt
           printf '%s\n' \
             'hixcoder/football-teams-flags@c7cc76cd99ca073e939f3a893583ec7aa89a8527' \
-            'Leo4815162342/football-logos@32e43168524e17d4b599d1ae9069623267b23ea0' \
+            'JoseArroyave/football-logos@1b8e57c3ea3658001cafba18c4a6db730b420ad6' \
             > SOURCE_COMMITS.txt
-          sha256sum external_teams.json independent_logo_index.txt SOURCE_COMMITS.txt > SHA256SUMS.txt
+          sha256sum external_png_teams.json independent_svg_clubs.json SOURCE_COMMITS.txt > SHA256SUMS.txt
 
       - name: Upload external club audit sources
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: external-club-audit-sources-${{ github.sha }}
           path: |
-            external_teams.json
-            independent_logo_index.txt
+            external_png_teams.json
+            independent_svg_clubs.json
             SOURCE_COMMITS.txt
             SHA256SUMS.txt
           if-no-files-found: error
