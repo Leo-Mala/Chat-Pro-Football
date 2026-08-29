@@ -26,14 +26,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/tmp_procedural_purge.py
-          mapfile -t fc26_files < <(git ls-files | grep -Ei '(^|/)[^/]*fc26[^/]*$' || true)
+          python3 .github/scripts/tmp_procedural_cleanup.py
+          python3 .github/scripts/tmp_procedural_cleanup_fix.py
+          mapfile -t fc26_files < <(git ls-files | grep -i 'fc26' || true)
           if [ "${#fc26_files[@]}" -gt 0 ]; then
-            git rm -- "${fc26_files[@]}"
+            git rm --ignore-unmatch -- "${fc26_files[@]}"
           fi
-          git rm -f app/src/main/java/com/example/data/EuropeanNewSaveSeedCoordinator.kt
-          git rm -f app/src/main/java/com/example/data/ProductionCareerSeedPrewarm.kt
-          echo "Residual FC26 references in active source/tools:"
-          git grep -n -i fc26 -- app/src/main app/src/test .github tools || true
+          git rm -f --ignore-unmatch app/src/main/java/com/example/data/EuropeanNewSaveSeedCoordinator.kt
+          git rm -f --ignore-unmatch app/src/main/java/com/example/data/ProductionCareerSeedPrewarm.kt
+          echo "Residual FC26 references in active runtime source:"
+          git grep -n -i fc26 -- app/src/main/java || true
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
@@ -89,7 +91,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/tmp-procedural-player-purge.yml .github/scripts/tmp_procedural_purge.py
+          git rm .github/workflows/tmp-procedural-player-purge.yml \
+            .github/scripts/tmp_procedural_purge.py \
+            .github/scripts/tmp_procedural_cleanup.py \
+            .github/scripts/tmp_procedural_cleanup_fix.py
           git add -A
           git diff --cached --check
           git commit -m "refactor: use procedural players only"
