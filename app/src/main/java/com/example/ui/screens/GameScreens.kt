@@ -151,9 +151,15 @@ fun TeamBadge(
 ) {
     val badgeColor = getTeamColor(teamName, colorHex)
     var isSuccess by remember(logoUrl) { mutableStateOf(false) }
+    val resolvedUrl = remember(logoUrl) { resolveLogoUrl(logoUrl) }
+    val isBundledPatchCrest = remember(resolvedUrl) {
+        BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
+    }
 
-    Box(
-        modifier = modifier
+    val containerModifier = if (isBundledPatchCrest) {
+        modifier.size(size)
+    } else {
+        modifier
             .size(size)
             .background(
                 brush = androidx.compose.ui.graphics.Brush.verticalGradient(
@@ -164,19 +170,21 @@ fun TeamBadge(
                 ),
                 shape = CircleShape
             )
-            .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape),
+            .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape)
+    }
+
+    Box(
+        modifier = containerModifier,
         contentAlignment = Alignment.Center
     ) {
         val abbrev = teamName.take(2).uppercase()
-
-        val resolvedUrl = remember(logoUrl) { resolveLogoUrl(logoUrl) }
         val context = androidx.compose.ui.platform.LocalContext.current
 
         if (!resolvedUrl.isNullOrEmpty()) {
             val imageRequest = remember(resolvedUrl) {
                 coil.request.ImageRequest.Builder(context)
                     .data(resolvedUrl)
-                    .crossfade(true)
+                    .crossfade(!isBundledPatchCrest)
                     .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                     .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                     .build()
@@ -190,9 +198,14 @@ fun TeamBadge(
             Image(
                 painter = painter,
                 contentDescription = teamName,
-                modifier = Modifier
-                    .size(size * 0.8f)
-                    .clip(CircleShape)
+                contentScale = ContentScale.Fit,
+                modifier = if (isBundledPatchCrest) {
+                    Modifier.size(size)
+                } else {
+                    Modifier
+                        .size(size * 0.8f)
+                        .clip(CircleShape)
+                }
             )
         }
 
