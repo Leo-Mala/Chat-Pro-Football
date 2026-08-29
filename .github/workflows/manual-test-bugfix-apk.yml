@@ -1,4 +1,4 @@
-name: Temporary Targeted Crest Audit
+name: Temporary Supplemental Crest Index
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - name: Checkout exact audit head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -20,89 +20,114 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Collect indexes and targeted Jamaica assets
+      - name: Collect supplemental indexes
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p targeted-audit/assets
+          mkdir -p supplemental-audit/assets
           python3 - <<'PY'
           from __future__ import annotations
           import csv, hashlib, html, re, time, urllib.parse, urllib.request, unicodedata
           from pathlib import Path
 
-          ROOT='https://www.escudosdefutbolyequipaciones.com/images_esc3'
-          OUT=Path('targeted-audit'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True, exist_ok=True)
-          paths={
-            'Jamaica':['CONC/JAMAICA'], 'Guatemala':['CONC/GUATEMALA'],
-            'México':['CONC/MEXICO','CONC/MÉXICO'], 'Costa Rica':['CONC/COSTA RICA'],
-            'Colômbia':['CONM/COLOMBIA'], 'Uruguai':['CONM/URUGUAY'],
-            'Paraguai':['CONM/PARAGUAY'], 'Chile':['CONM/CHILE'], 'China':['AFC/CHINA'],
-            'Irã':['AFC/IRAN'], 'Arábia Saudita':['AFC/ARABIA SAUDITA','AFC/ARABIA SAUDÍ','AFC/SAUDI ARABIA'],
-            'Tchéquia':['UEFA/REPUBLICA CHECA','UEFA/REPÚBLICA CHECA','UEFA/CZECH REPUBLIC','UEFA/CZECHIA','UEFA/CHEQUIA']}
-          jamaica_targets=["Brown's Town","Chapelton Maroons","Falmouth United","Liguanea United","Meadhaven United","New Kingston","Olympic Gardens","Racing United","Shortwood United","Treasure Beach"]
-          href_re=re.compile(r'href=[\"\']([^\"\']+)[\"\']',re.I); ext_re=re.compile(r'\.(?:png|jpe?g)$',re.I)
+          ROOT='https://www.escudosdefutbolyequipaciones.com'
+          OUT=Path('supplemental-audit'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True, exist_ok=True)
+          href_re=re.compile(r'href=[\"\']([^\"\']+)[\"\']',re.I)
+          ext_re=re.compile(r'\.(?:png|jpe?g)$',re.I)
           banned=('selecci','national','bandera','flag','mapa','federaci','federation','liga','league','association','confeder','femen','women','sub-','u17','u19','u20','u21','juvenil')
-          index_rows=[]; download_rows=[]; errors=[]
+
           def norm(s):
             s=unicodedata.normalize('NFKD',s).encode('ascii','ignore').decode().casefold()
+            s=re.sub(r'^(?:esc_|escudo-|logo-)','',s)
+            s=re.sub(r'\.(?:png|jpe?g)$','',s)
             s=re.sub(r'\b(?:escudo|logo|f\.?c\.?|fc|football club)\b',' ',s)
             return re.sub(r'[^a-z0-9]','',s)
-          def fetch(url, attempts=2):
+
+          def fetch(url, attempts=3):
             last=None
             for i in range(attempts):
               try:
-                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 crest-audit/1.1'})
-                with urllib.request.urlopen(req,timeout=20) as r: return r.read(),r.headers.get('Content-Type','')
+                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 crest-audit/1.2'})
+                with urllib.request.urlopen(req,timeout=25) as r: return r.read(),r.headers.get('Content-Type','')
               except Exception as e: last=e; time.sleep(1+i)
             raise last
-          for country, logical_paths in paths.items():
+
+          directory_paths={
+            'Jamaica':['CONC/JAMAICA'],
+            'El Salvador':['CONC/EL SALVADOR'],
+            'Catar':['AFC/QATAR','AFC/CATAR'],
+            'Egito':['CAF/EGIPTO','CAF/EGYPT'],
+          }
+          dir_rows=[]; errors=[]; jamaica=[]
+          for country, logicals in directory_paths.items():
             working=[]
-            for logical in logical_paths:
+            for logical in logicals:
               encoded=urllib.parse.quote(logical,safe='/')
               for folder in ('escudos','escudos_jpg'):
-                base=f'{ROOT}/{encoded}/{folder}/'
+                base=f'{ROOT}/images_esc3/{encoded}/{folder}/'
                 try: raw,_=fetch(base); text=raw.decode('utf-8',errors='replace')
                 except Exception as e: errors.append((country,logical,folder,base,repr(e))); continue
                 files=[]
                 for href in href_re.findall(text):
-                  decoded=urllib.parse.unquote(html.unescape(href)).split('/')[-1]
-                  if not ext_re.search(decoded) or any(x in decoded.casefold() for x in banned): continue
-                  url=urllib.parse.urljoin(base,href); files.append((decoded,url))
-                  index_rows.append((country,logical,folder,decoded,url,norm(decoded)))
+                  name=urllib.parse.unquote(html.unescape(href)).split('/')[-1]
+                  if not ext_re.search(name) or any(x in name.casefold() for x in banned): continue
+                  url=urllib.parse.urljoin(base,href); files.append((name,url))
+                  dir_rows.append((country,logical,folder,name,url,norm(name)))
                 if files: working.append((logical,folder,files))
             if country=='Jamaica':
-              for target in jamaica_targets:
-                nt=norm(target); matches=[]
-                for logical,folder,files in working:
-                  for name,url in files:
-                    nn=norm(name)
-                    if nt and (nt==nn or nt in nn or nn in nt): matches.append((0 if folder=='escudos' else 1,len(nn),logical,folder,name,url))
-                if not matches:
-                  errors.append((country,target,'','','TARGET_NOT_FOUND')); continue
+              target='Constant Spring'; nt=norm(target); matches=[]
+              for logical,folder,files in working:
+                for name,url in files:
+                  nn=norm(name)
+                  if nt==nn or nt in nn or nn in nt:
+                    matches.append((0 if folder=='escudos' else 1,len(nn),logical,folder,name,url))
+              if matches:
                 matches.sort(); _,_,logical,folder,name,url=matches[0]
-                try: data,ctype=fetch(url)
-                except Exception as e: errors.append((country,target,folder,url,repr(e))); continue
-                digest=hashlib.sha256(data).hexdigest(); suffix=Path(name).suffix.lower(); local=f'{digest}{suffix}'
+                data,ctype=fetch(url); digest=hashlib.sha256(data).hexdigest(); suffix=Path(name).suffix.lower(); local=f'{digest}{suffix}'
                 (ASSETS/local).write_bytes(data)
-                download_rows.append((target,logical,folder,name,url,ctype,len(data),digest,f'assets/{local}'))
-          with (OUT/'index.csv').open('w',encoding='utf-8',newline='') as f:
-            w=csv.writer(f); w.writerow(['country','logicalPath','folder','sourceFileName','sourceUrl','normalizedFileName']); w.writerows(index_rows)
-          with (OUT/'jamaica-targets.csv').open('w',encoding='utf-8',newline='') as f:
-            w=csv.writer(f); w.writerow(['targetClub','logicalPath','folder','sourceFileName','sourceUrl','contentType','size','sha256','artifactFile']); w.writerows(download_rows)
+                jamaica.append((target,logical,folder,name,url,ctype,len(data),digest,f'assets/{local}'))
+              else: errors.append((country,target,'','','TARGET_NOT_FOUND'))
+
+          page_urls={
+            'México': f'{ROOT}/ESCUDOS%2BM%C3%89XICO',
+            'Irã': f'{ROOT}/ESCUDOS%2BIR%C3%81N',
+            'Tchéquia': f'{ROOT}/ESCUDOS%2BREP%C3%9ABLICA%20CHECA',
+          }
+          page_rows=[]
+          for country,url in page_urls.items():
+            try: raw,_=fetch(url); text=raw.decode('utf-8',errors='replace')
+            except Exception as e: errors.append((country,'PAGE','',url,repr(e))); continue
+            for href in href_re.findall(text):
+              full=urllib.parse.urljoin(ROOT+'/',html.unescape(href))
+              if 'descargar.php' not in full or 'tipo=esc' not in full: continue
+              qs=urllib.parse.parse_qs(urllib.parse.urlsplit(full).query)
+              name=(qs.get('nombreEscudo') or [''])[0].strip()
+              ident=(qs.get('idEscudo') or [''])[0].strip()
+              if not name or not ident or any(x in name.casefold() for x in banned): continue
+              page_rows.append((country,ident,name,full,norm(name)))
+
+          with (OUT/'directory-index.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','logicalPath','folder','sourceFileName','sourceUrl','normalizedName']); w.writerows(dir_rows)
+          with (OUT/'page-download-index.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','idEscudo','realClubName','downloadUrl','normalizedName']); w.writerows(page_rows)
+          with (OUT/'constant-spring.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['targetClub','logicalPath','folder','sourceFileName','sourceUrl','contentType','size','sha256','artifactFile']); w.writerows(jamaica)
           with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
             w=csv.writer(f); w.writerow(['country','item','folder','url','error']); w.writerows(errors)
-          counts={}
-          for r in index_rows: counts.setdefault(r[0],set()).add(r[5])
+          dc={}; pc={}
+          for r in dir_rows: dc.setdefault(r[0],set()).add(r[5])
+          for r in page_rows: pc.setdefault(r[0],set()).add(r[4])
           with (OUT/'summary.txt').open('w',encoding='utf-8') as f:
-            for c in paths: f.write(f'{c}: indexed_names={len(counts.get(c,set()))}\n')
-            f.write(f'jamaica_targets_downloaded={len(download_rows)}/10\nerrors={len(errors)}\n')
+            for c in directory_paths: f.write(f'{c}: directory_names={len(dc.get(c,set()))}\n')
+            for c in page_urls: f.write(f'{c}: page_names={len(pc.get(c,set()))}\n')
+            f.write(f'constant_spring_downloaded={len(jamaica)}/1\nerrors={len(errors)}\n')
           print((OUT/'summary.txt').read_text())
           PY
 
-      - name: Upload targeted audit
+      - name: Upload supplemental audit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: targeted-crest-audit-${{ github.sha }}
-          path: targeted-audit/
+          name: supplemental-crest-audit-${{ github.sha }}
+          path: supplemental-audit/
           if-no-files-found: error
           retention-days: 2
