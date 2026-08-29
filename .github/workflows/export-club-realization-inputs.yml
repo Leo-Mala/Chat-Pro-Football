@@ -1,0 +1,42 @@
+name: Export club realization inputs
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-club-realization-inputs.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate frozen inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs/club-realization/generated-filler-slots.csv
+          test -f docs/club-realization/preserved-factual-clubs.csv
+          test "$(($(wc -l < docs/club-realization/generated-filler-slots.csv) - 1))" -eq 1907
+          test "$(($(wc -l < docs/club-realization/preserved-factual-clubs.csv) - 1))" -eq 617
+
+      - name: Upload club realization inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: club-realization-inputs-${{ github.sha }}
+          path: |
+            docs/club-realization/generated-filler-slots.csv
+            docs/club-realization/preserved-factual-clubs.csv
+            tools/club_realization/
+          if-no-files-found: error
+          retention-days: 2
