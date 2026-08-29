@@ -30,7 +30,7 @@ jobs:
           python3 .github/scripts/tmp_procedural_cleanup_fix.py
           mapfile -t fc26_files < <(git ls-files | grep -i 'fc26' || true)
           if [ "${#fc26_files[@]}" -gt 0 ]; then
-            git rm --ignore-unmatch -- "${fc26_files[@]}"
+            git rm -f --ignore-unmatch -- "${fc26_files[@]}"
           fi
           git rm -f --ignore-unmatch app/src/main/java/com/example/data/EuropeanNewSaveSeedCoordinator.kt
           git rm -f --ignore-unmatch app/src/main/java/com/example/data/ProductionCareerSeedPrewarm.kt
