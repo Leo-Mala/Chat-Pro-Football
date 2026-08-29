@@ -218,6 +218,7 @@ def validate_plan(
     canonical_keys: set[tuple[str, str]] = set()
     alias_keys: set[tuple[str, str]] = set()
     crest_keys: set[str] = set()
+    crest_digests: set[str] = set()
     checked: list[tuple[PlanRow, str]] = []
 
     for row in plan:
@@ -248,6 +249,11 @@ def validate_plan(
                 raise ValueError(f"Proveniência {field} vazia no slot {row.legacy_team_id}")
         if not re.fullmatch(r"[0-9a-f]{64}", row.source_crest_sha256):
             raise ValueError(f"sourceCrestSha256 inválido no slot {row.legacy_team_id}")
+        if row.source_crest_sha256 in crest_digests:
+            raise ValueError(
+                f"Bytes de escudo reutilizados por mais de um clube: sha256={row.source_crest_sha256}"
+            )
+        crest_digests.add(row.source_crest_sha256)
 
         if Path(row.crest_file_name).name != row.crest_file_name:
             raise ValueError(f"Nome de escudo deve ser basename puro: {row.crest_file_name}")

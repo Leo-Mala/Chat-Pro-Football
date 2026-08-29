@@ -217,6 +217,7 @@ def verify_complete_bundle(
     canonical_keys: set[tuple[str, str]] = set()
     alias_keys: set[tuple[str, str]] = set()
     crest_names: set[str] = set()
+    crest_digests: set[str] = set()
     actual_asset_names = {path.name.casefold(): path for path in assets}
     if len(actual_asset_names) != len(assets):
         raise ValueError("case-insensitive duplicate crest names in asset bundle")
@@ -285,6 +286,9 @@ def verify_complete_bundle(
             raise ValueError(f"invalid sha256 syntax for legacyTeamId {row.legacy_team_id}")
         if not re.fullmatch(r"[0-9a-f]{64}", source_digest):
             raise ValueError(f"invalid sourceCrestSha256 syntax for legacyTeamId {row.legacy_team_id}")
+        if source_digest in crest_digests:
+            raise ValueError(f"crest bytes reused by more than one club: sha256={source_digest}")
+        crest_digests.add(source_digest)
         if source_digest != declared_digest:
             raise ValueError(f"source crest digest differs from bundled manifest digest for legacyTeamId {row.legacy_team_id}")
         actual_digest = sha256(asset)
