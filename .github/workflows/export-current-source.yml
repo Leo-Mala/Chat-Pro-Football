@@ -1,0 +1,35 @@
+name: Export current source
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-current-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Pack source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git -czf "$RUNNER_TEMP/chat-pro-football-source.tar.gz" .
+          sha256sum "$RUNNER_TEMP/chat-pro-football-source.tar.gz"
+      - name: Upload source tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: chat-pro-football-source-${{ github.sha }}
+          path: ${{ runner.temp }}/chat-pro-football-source.tar.gz
+          if-no-files-found: error
+          retention-days: 2
