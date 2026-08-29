@@ -100,4 +100,4 @@ jobs:
           git commit -m "refactor: use procedural players only"
           git push origin HEAD:fix/3.0.1-manual-test-bugs
 
-# retry after removing obsolete factual-seed unit fixtures
+# retry generator with explicit Unit return
