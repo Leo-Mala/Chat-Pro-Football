@@ -1,0 +1,101 @@
+name: Final Two Crest Correction Audit
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/final-two-correction-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30dcc455b5382be2fdbfb
+        continue-on-error: true
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Ensure checkout if pinned probe unavailable
+        if: failure()
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Audit exact Sharjah and Honduras replacement
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-two/assets
+          python3 - <<'PY'
+          import csv, hashlib, struct, time, urllib.request
+          from pathlib import Path
+          OUT=Path('final-two'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/2.1'}
+          targets=[
+            {
+              'country':'Emirados Árabes Unidos','club':'Sharjah FC','kind':'uaelogos',
+              'identity':'https://uaelogos.ae/en/logos/sharjah-fc',
+              'urls':['https://uaelogos.ae/storage/173/conversions/sharjah-fc-thumb.png']
+            },
+            {
+              'country':'Honduras','club':'Olancho FC','kind':'footystats',
+              'identity':'https://www.lnphn.com/team/olancho-f-c/',
+              'urls':['https://cdn.footystats.org/img/teams/honduras-olancho-fc.png','https://cdn.footystats.org/img/teams/honduras-olancho.png','https://cdn.footystats.org/img/teams/olancho-fc.png']
+            },
+          ]
+          def fetch(url):
+            err=None
+            for i in range(3):
+              try:
+                req=urllib.request.Request(url,headers=UA)
+                with urllib.request.urlopen(req,timeout=30) as r:return r.read(),r.headers.get('Content-Type',''),r.geturl()
+              except Exception as e: err=e; time.sleep(1+i)
+            raise err
+          def validate(data):
+            low=data.lstrip().lower()
+            if len(data)>=33 and data.startswith(b'\x89PNG\r\n\x1a\n') and data[12:16]==b'IHDR':
+              w,h,bd,ct=struct.unpack('>IIBB',data[16:26])
+              if w<=0 or h<=0:return None
+              if not (ct in (4,6) or (ct==3 and b'tRNS' in data)):return None
+              return '.png'
+            if b'<svg' in low[:8192] and not any(x in low for x in (b'<!doctype',b'<!entity',b'<script',b'javascript:')):
+              if b'viewbox=' in low or (b'width=' in low and b'height=' in low): return '.svg'
+            return None
+          rows=[]; errors=[]; seen=set()
+          for t in targets:
+            ok=False
+            for u in t['urls']:
+              try:
+                data,ctype,final=fetch(u); ext=validate(data)
+                if not ext: errors.append((t['country'],t['club'],u,'INVALID_OR_NO_TRANSPARENCY')); continue
+                sha=hashlib.sha256(data).hexdigest()
+                if sha in seen: errors.append((t['country'],t['club'],u,'DUPLICATE_SHA')); continue
+                seen.add(sha); local=sha+ext; (ASSETS/local).write_bytes(data)
+                rows.append((t['country'],t['club'],t['kind'],'2026-08-29-final-two-audit',t['identity'],u,final,ctype,len(data),ext,sha,'assets/'+local))
+                ok=True; break
+              except Exception as e: errors.append((t['country'],t['club'],u,repr(e)))
+            if not ok: errors.append((t['country'],t['club'],t['identity'],'NO_VALID_ASSET'))
+          with (OUT/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','extension','sourceCrestSha256','artifactFile']); w.writerows(rows)
+          with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','realClubName','source','error']); w.writerows(errors)
+          (OUT/'summary.txt').write_text(f'targets=2\naccepted={len(rows)}\nunique_hashes={len(seen)}\nerrors={len(errors)}\n',encoding='utf-8')
+          print((OUT/'summary.txt').read_text())
+          if len(rows)!=2: print((OUT/'errors.csv').read_text())
+          PY
+
+      - name: Upload correction audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-two-correction-${{ github.sha }}
+          path: final-two/
+          if-no-files-found: error
+          retention-days: 2
