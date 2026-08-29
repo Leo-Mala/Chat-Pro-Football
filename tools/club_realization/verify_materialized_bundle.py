@@ -20,7 +20,9 @@ from pathlib import Path
 
 EXPECTED_REPLACEMENTS = 1907
 EXPECTED_FACTUAL_CLUBS = 617
-GENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}
+FROZEN_GENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}
+ALIAS_GENERIC_CLUB_TOKENS = FROZEN_GENERIC_CLUB_TOKENS | {"ad", "acd", "mfk", "csk", "bsk", "sa", "ccd", "csd", "fbc", "sd", "ud"}
+ALIAS_CONNECTOR_TOKENS = {"de", "del", "da", "do", "dos", "das", "the"}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 SUPPORTED_CREST_EXTENSIONS = {".png", ".svg"}
 
@@ -77,9 +79,50 @@ def read_baseline(path: Path) -> dict[int, tuple[str, int, str]]:
 
 
 
-def canonical_identity_key(value: str) -> str:
+def frozen_canonical_identity_key(value: str) -> str:
+    """Canonicalização histórica usada para validar as chaves já congeladas."""
     folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
-    return "".join(token for token in re.findall(r"[a-z0-9]+", folded) if token not in GENERIC_CLUB_TOKENS)
+    return "".join(
+        token for token in re.findall(r"[a-z0-9]+", folded)
+        if token not in FROZEN_GENERIC_CLUB_TOKENS
+    )
+
+
+def canonical_identity_key(value: str) -> str:
+    """Alias conservador forte para bloquear o mesmo clube escrito de formas diferentes."""
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
+    folded = folded.replace("&", " and ")
+    folded = re.sub(
+        r"\b(?:[a-z]\.){2,}[a-z]?\.?",
+        lambda match: match.group(0).replace(".", ""),
+        folded,
+    )
+    tokens = re.findall(r"[a-z0-9]+", folded)
+    normalized: list[str] = []
+    for token in tokens:
+        if token in ALIAS_GENERIC_CLUB_TOKENS or token in ALIAS_CONNECTOR_TOKENS:
+            continue
+        if re.fullmatch(r"(?:18|19|20)\d{2}", token):
+            continue
+        normalized.append(token)
+    while normalized and normalized[-1] in {"1", "2", "ii", "b"}:
+        normalized.pop()
+    return "".join(normalized)
+
+
+def looks_like_non_club_entity(value: str) -> bool:
+    """Rejeita logos de competição/seleção sem bloquear nomes legítimos de clubes."""
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
+    folded = " ".join(re.findall(r"[a-z0-9]+", folded))
+    if "national team" in folded or "football association" in folded or "football federation" in folded:
+        return True
+    if folded.startswith(("copa ", "cup ")):
+        return True
+    if folded.startswith("liga ") and not folded.startswith("liga deportiva "):
+        return True
+    if folded.endswith((" liga", " league")):
+        return True
+    return False
 
 
 def read_factual_keys(path: Path) -> set[tuple[str, str]]:
@@ -97,7 +140,7 @@ def read_factual_keys(path: Path) -> set[tuple[str, str]]:
         country = row["country"].strip()
         club_name = row["clubName"].strip()
         canonical = row["canonicalClubKey"].strip().casefold()
-        expected = canonical_identity_key(club_name)
+        expected = frozen_canonical_identity_key(club_name)
         if not country or not club_name or not canonical:
             raise ValueError("empty factual club identity field")
         if canonical != expected:
@@ -106,6 +149,10 @@ def read_factual_keys(path: Path) -> set[tuple[str, str]]:
                 f"expected={expected!r} actual={canonical!r}"
             )
         result.add((country.casefold(), canonical))
+        alias = canonical_identity_key(club_name)
+        if not alias:
+            raise ValueError(f"factual club does not yield a canonical alias: {country} / {club_name}")
+        result.add((country.casefold(), alias))
     return result
 
 
@@ -236,6 +283,16 @@ def verify_complete_bundle(
         canonical_name = digest_row["canonicalClubKey"].strip()
         if not canonical_name:
             raise ValueError(f"empty canonicalClubKey for legacyTeamId {row.legacy_team_id}")
+        expected_canonical = frozen_canonical_identity_key(row.real_club_name)
+        if canonical_name.casefold() != expected_canonical:
+            raise ValueError(
+                f"inconsistent canonicalClubKey for legacyTeamId {row.legacy_team_id}: "
+                f"expected={expected_canonical!r} actual={canonical_name!r}"
+            )
+        if looks_like_non_club_entity(row.real_club_name):
+            raise ValueError(
+                f"replacement identity is not a senior men's club: {row.country} / {row.real_club_name}"
+            )
         canonical_key = (row.country.casefold(), canonical_name.casefold())
         if canonical_key in canonical_keys:
             raise ValueError(
