@@ -22,51 +22,48 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import csv
           import hashlib
           import json
-          import time
           import urllib.parse
           import urllib.request
           from pathlib import Path
 
-          countries = {
-              'Czech Republic': 'Q213',
-              'Colombia': 'Q739',
-              'Mexico': 'Q96',
-              'Costa Rica': 'Q800',
-              'Guatemala': 'Q774',
-              'El Salvador': 'Q792',
-              'Jamaica': 'Q766',
-              'Saudi Arabia': 'Q851',
-              'Iran': 'Q794',
+          country_names = {
+              'Q213': 'Czech Republic',
+              'Q739': 'Colombia',
+              'Q96': 'Mexico',
+              'Q800': 'Costa Rica',
+              'Q774': 'Guatemala',
+              'Q792': 'El Salvador',
+              'Q766': 'Jamaica',
+              'Q851': 'Saudi Arabia',
+              'Q794': 'Iran',
           }
+          values = ' '.join(f'(wd:{qid} "{name}")' for qid, name in country_names.items())
+          query = f'''SELECT DISTINCT ?countryName ?club ?clubLabel ?logo WHERE {{
+            VALUES (?countryEntity ?countryName) {{ {values} }}
+            ?club wdt:P31/wdt:P279* wd:Q476028 ;
+                  wdt:P17 ?countryEntity ;
+                  wdt:P154 ?logo .
+            SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en,es,cs,ar,fa". }}
+          }} ORDER BY ?countryName ?clubLabel'''
           endpoint = 'https://query.wikidata.org/sparql'
-          rows = []
-          for country, qid in countries.items():
-              query = f'''SELECT DISTINCT ?club ?clubLabel ?logo WHERE {{
-                ?club wdt:P31/wdt:P279* wd:Q476028 ;
-                      wdt:P17 wd:{qid} ;
-                      wdt:P154 ?logo .
-                SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en,es,cs,ar,fa". }}
-              }} ORDER BY ?clubLabel'''
-              url = endpoint + '?' + urllib.parse.urlencode({'query': query, 'format': 'json'})
-              req = urllib.request.Request(
-                  url,
-                  headers={'User-Agent': 'Chat-Pro-Football club identity audit/3.0.1 (GitHub Actions)'}
-              )
-              with urllib.request.urlopen(req, timeout=60) as response:
-                  payload = json.load(response)
-              for binding in payload['results']['bindings']:
-                  rows.append({
-                      'country': country,
-                      'wikidataId': binding['club']['value'].rsplit('/', 1)[-1],
-                      'name': binding['clubLabel']['value'],
-                      'logoUrl': binding['logo']['value'],
-                  })
-              print(country, len(payload['results']['bindings']))
-              time.sleep(0.2)
+          url = endpoint + '?' + urllib.parse.urlencode({'query': query, 'format': 'json'})
+          req = urllib.request.Request(
+              url,
+              headers={'User-Agent': 'Chat-Pro-Football club identity audit/3.0.1 (GitHub Actions)'}
+          )
+          with urllib.request.urlopen(req, timeout=120) as response:
+              payload = json.load(response)
 
+          rows = []
+          for binding in payload['results']['bindings']:
+              rows.append({
+                  'country': binding['countryName']['value'],
+                  'wikidataId': binding['club']['value'].rsplit('/', 1)[-1],
+                  'name': binding['clubLabel']['value'],
+                  'logoUrl': binding['logo']['value'],
+              })
           rows.sort(key=lambda row: (row['country'], row['name'].casefold(), row['wikidataId']))
           Path('wikidata_clubs_with_logos.json').write_text(
               json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
@@ -76,6 +73,8 @@ jobs:
               'constraint=P31/P279* Q476028 association football club; P17 exact country; P154 logo\n',
               encoding='utf-8'
           )
+          for country in sorted(set(row['country'] for row in rows)):
+              print(country, sum(1 for row in rows if row['country'] == country))
           sha = hashlib.sha256(Path('wikidata_clubs_with_logos.json').read_bytes()).hexdigest()
           print('total', len(rows), 'sha256', sha)
           PY
