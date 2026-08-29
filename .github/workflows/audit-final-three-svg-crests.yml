@@ -1,0 +1,87 @@
+name: Audit final three SVG crests
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/audit-final-three-svg-crests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Audit exact SVGs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-three-svg/assets
+          python3 - <<'PY'
+          import csv, hashlib, time, urllib.request, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          OUT=Path('final-three-svg'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/3.2'}
+          targets=[
+            ('Croácia','NK Vinogradar','iconape-svg','iconape-324106-audit-2026-08-29','https://iconape.com/nk-vinogradar-lokosin-dol-logo-logo-icon-svg-png.html','https://iconape.com/wp-content/files/hg/324106/svg/324106.svg'),
+            ('México','Dorados de Sinaloa','iconape-svg','iconape-322323-audit-2026-08-29','https://iconape.com/dorados-de-sinaloa-logo-logo-icon-svg-png.html','https://iconape.com/wp-content/files/tr/322323/svg/322323.svg'),
+            ('México','Irapuato FC','iconape-svg','iconape-324805-audit-2026-08-29','https://iconape.com/irapuato-fc-logo-logo-icon-svg-png.html','https://iconape.com/wp-content/files/ow/324805/svg/324805.svg'),
+          ]
+          def fetch(url):
+              last=None
+              for attempt in range(4):
+                  try:
+                      req=urllib.request.Request(url,headers=UA)
+                      with urllib.request.urlopen(req,timeout=30) as r:
+                          return r.read(),r.headers.get('Content-Type',''),r.geturl()
+                  except Exception as exc:
+                      last=exc; time.sleep(1+attempt)
+              raise last
+          def validate_svg(data,url):
+              if not data.strip(): raise ValueError(f'empty SVG: {url}')
+              low=data.lower()
+              for forbidden in (b'<!doctype',b'<!entity',b'<script',b'javascript:'):
+                  if forbidden in low: raise ValueError(f'unsafe SVG {forbidden!r}: {url}')
+              root=ET.fromstring(data)
+              if root.tag.rsplit('}',1)[-1].lower()!='svg': raise ValueError(f'not an SVG root: {url}')
+              if not root.get('viewBox') and not (root.get('width') and root.get('height')):
+                  raise ValueError(f'SVG lacks geometry: {url}')
+          rows=[]; errors=[]; seen=set()
+          for country,club,kind,revision,identity,url in targets:
+              try:
+                  data,ctype,final=fetch(url); validate_svg(data,url)
+                  sha=hashlib.sha256(data).hexdigest()
+                  if sha in seen: raise ValueError(f'duplicate SHA: {sha}')
+                  seen.add(sha); local=sha+'.svg'; (ASSETS/local).write_bytes(data)
+                  rows.append([country,club,kind,revision,identity,url,final,ctype,len(data),sha,'assets/'+local])
+              except Exception as exc:
+                  errors.append([country,club,url,repr(exc)])
+          with (OUT/'accepted.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f); w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','finalUrl','contentType','bytes','sourceCrestSha256','artifactFile']); w.writerows(rows)
+          with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f); w.writerow(['country','realClubName','source','error']); w.writerows(errors)
+          (OUT/'summary.txt').write_text(f'targets=3\naccepted={len(rows)}\nunique_hashes={len(seen)}\nerrors={len(errors)}\n',encoding='utf-8')
+          print((OUT/'summary.txt').read_text())
+          if errors: print((OUT/'errors.csv').read_text())
+          if len(rows)!=3 or len(seen)!=3: raise SystemExit('expected exactly 3 validated SVGs')
+          PY
+
+      - name: Upload final SVG audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-three-svg-${{ github.sha }}
+          path: final-three-svg/
+          if-no-files-found: error
+          retention-days: 2
