@@ -1,0 +1,99 @@
+name: Final external catalog crest audit
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/final-external-batch-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Download and validate selected crest batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-external-batch/assets
+          python3 - <<'PY'
+          from __future__ import annotations
+          import base64, csv, gzip, hashlib, io, re, struct, time, urllib.request
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from pathlib import Path
+
+          ENCODED = "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"
+          rows = list(csv.DictReader(io.StringIO(gzip.decompress(base64.b64decode(ENCODED)).decode('utf-8'))))
+          if len(rows) != 81:
+              raise SystemExit(f'expected 81 selected candidates, got {len(rows)}')
+
+          UA = {'User-Agent': 'Mozilla/5.0 final-club-crest-audit/2.0'}
+          def download(row):
+              url = row['sourceCrestPath']
+              last = None
+              for attempt in range(3):
+                  try:
+                      req = urllib.request.Request(url, headers=UA)
+                      with urllib.request.urlopen(req, timeout=45) as resp:
+                          return row, resp.read(), resp.headers.get('Content-Type',''), resp.geturl(), ''
+                  except Exception as exc:
+                      last = exc
+                      time.sleep(0.75 * (attempt + 1))
+              return row, b'', '', url, repr(last)
+
+          def png_meta(data):
+              if len(data) < 33 or not data.startswith(b'\x89PNG\r\n\x1a\n') or data[12:16] != b'IHDR':
+                  return None
+              width, height, _bd, color_type = struct.unpack('>IIBB', data[16:26])
+              has_alpha = color_type in (4,6) or (color_type == 3 and b'tRNS' in data)
+              return width, height, color_type, has_alpha
+
+          accepted=[]; rejected=[]; seen=set(); out=Path('final-external-batch/assets')
+          with ThreadPoolExecutor(max_workers=8) as pool:
+              futures=[pool.submit(download,row) for row in rows]
+              for fut in as_completed(futures):
+                  row,data,ctype,final_url,error=fut.result()
+                  if error:
+                      rejected.append([row['country'],row['realClubName'],row['sourceCrestPath'],error]); continue
+                  meta=png_meta(data)
+                  if meta is None:
+                      rejected.append([row['country'],row['realClubName'],final_url,'NOT_PNG']); continue
+                  width,height,color_type,has_alpha=meta
+                  if not has_alpha:
+                      rejected.append([row['country'],row['realClubName'],final_url,f'PNG_NO_ALPHA_COLOR_TYPE_{color_type}']); continue
+                  digest=hashlib.sha256(data).hexdigest()
+                  if digest in seen:
+                      rejected.append([row['country'],row['realClubName'],final_url,f'DUPLICATE_SHA256_{digest}']); continue
+                  seen.add(digest); name=digest+'.png'; (out/name).write_bytes(data)
+                  accepted.append({**row,'finalUrl':final_url,'contentType':ctype,'bytes':len(data),'width':width,'height':height,'colorType':color_type,'sourceCrestSha256':digest,'artifactFile':'assets/'+name})
+          accepted.sort(key=lambda r:(r['country'],r['realClubName'].casefold()))
+          with open('final-external-batch/accepted.csv','w',encoding='utf-8',newline='') as f:
+              fields=list(accepted[0]) if accepted else list(rows[0])+['finalUrl','contentType','bytes','width','height','colorType','sourceCrestSha256','artifactFile']
+              w=csv.DictWriter(f,fieldnames=fields);w.writeheader();w.writerows(accepted)
+          with open('final-external-batch/rejected.csv','w',encoding='utf-8',newline='') as f:
+              w=csv.writer(f);w.writerow(['country','realClubName','source','reason']);w.writerows(sorted(rejected))
+          from collections import Counter
+          counts=Counter(r['country'] for r in accepted); rejects=Counter(r[0] for r in rejected)
+          summary='selected=81\naccepted=%d\nrejected=%d\nunique_hashes=%d\n' % (len(accepted),len(rejected),len(seen))
+          for c in sorted(set(counts)|set(rejects)): summary += f'{c}: accepted={counts[c]} rejected={rejects[c]}\n'
+          Path('final-external-batch/summary.txt').write_text(summary,encoding='utf-8')
+          print(summary)
+          PY
+
+      - name: Upload audited selected crest batch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-external-batch-${{ github.sha }}
+          path: final-external-batch/
+          if-no-files-found: error
+          retention-days: 2
