@@ -22,7 +22,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
       - name: Set up Java 17
-        uses: actions/setup-java@7a445ee88d4e23b52b3a0f06be9c2d5c7d7d3a0b
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: '17'
