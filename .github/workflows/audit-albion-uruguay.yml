@@ -1,0 +1,52 @@
+name: Audit Albion Uruguay crest
+
+on:
+  push:
+    branches:
+      - tmp/external-crest-audit
+    paths:
+      - .github/workflows/audit-albion-uruguay.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Audit immutable Albion FC SVG
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p albion/assets
+          python3 - <<'PY'
+          import csv, hashlib, urllib.parse, urllib.request
+          from pathlib import Path
+          url='https://raw.githubusercontent.com/JoseArroyave/football-logos/1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/uruguay/Albion_FC.svg'
+          request=urllib.request.Request(urllib.parse.quote(url,safe=':/?&=%-._~'),headers={'User-Agent':'Chat-Pro-Football-crest-audit/2.3'})
+          with urllib.request.urlopen(request,timeout=45) as r:data=r.read()
+          low=data.lower()
+          assert b'<svg' in low[:8192]
+          assert not any(x in low for x in (b'<!doctype',b'<!entity',b'<script',b'javascript:'))
+          assert b'viewbox=' in low or (b'width=' in low and b'height=' in low)
+          sha=hashlib.sha256(data).hexdigest()
+          p=Path('albion/assets')/(sha+'.svg');p.write_bytes(data)
+          with Path('albion/accepted.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f);w.writerow(['country','realClubName','sourceKind','sourceRevision','sourceIdentityPath','sourceCrestPath','sourceCrestSha256','artifactFile'])
+            w.writerow(['Uruguai','Albion FC','github-svg','1b8e57c3ea3658001cafba18c4a6db730b420ad6','JoseArroyave/football-logos@1b8e57c3ea3658001cafba18c4a6db730b420ad6/logos/uruguay/Albion_FC.svg',url,sha,'assets/'+p.name])
+          print('accepted=1')
+          print('sha256='+sha)
+          PY
+      - name: Upload Albion audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: albion-uruguay-${{ github.sha }}
+          path: albion/
+          if-no-files-found: error
+          retention-days: 2
