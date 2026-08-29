@@ -116,7 +116,9 @@ def looks_like_non_club_entity(value: str) -> bool:
     folded = " ".join(re.findall(r"[a-z0-9]+", folded))
     if "national team" in folded or "football association" in folded or "football federation" in folded:
         return True
-    if folded.startswith(("copa ", "cup ")):
+    if folded.startswith(("copa ", "cup ", "categoria primera ")):
+        return True
+    if re.fullmatch(r"(?:primera|segunda|tercera) division(?: [a-z0-9]+)?", folded):
         return True
     if folded.startswith("liga ") and not folded.startswith("liga deportiva "):
         return True
