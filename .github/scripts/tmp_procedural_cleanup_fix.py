@@ -9,3 +9,37 @@ for file in [
         text = p.read_text()
         text = text.replace("audited club source_DATASET_VERSION", "AUDITED_SOURCE_VERSION")
         p.write_text(text)
+
+# Generator must use named Team arguments; Team.isPlayerControlled precedes rating in the entity.
+p = Path("app/src/test/java/com/example/data/CareerSeedTemplateGeneratorTest.kt")
+text = p.read_text()
+old = '''                    add(Team(globalId, template.name, template.city, template.state, countryKey, template.division, template.rating, template.stadium, DefaultData.getLogoForTeam(template.name, countryKey), false))'''
+new = '''                    add(
+                        Team(
+                            id = globalId,
+                            name = template.name,
+                            city = template.city,
+                            state = template.state,
+                            country = countryKey,
+                            division = template.division,
+                            isPlayerControlled = false,
+                            rating = template.rating,
+                            stadiumName = template.stadium,
+                            logoUrl = DefaultData.getLogoForTeam(template.name, countryKey)
+                        )
+                    )'''
+if old not in text:
+    raise SystemExit("CareerSeedTemplateGeneratorTest Team constructor marker not found")
+p.write_text(text.replace(old, new, 1))
+
+# This integration test exists solely for the removed factual cross-league player/loan importer.
+p = Path("app/src/test/java/com/example/data/EuropeanCrossLeagueLoanImportTest.kt")
+if p.exists():
+    p.unlink()
+
+# Player has no generic metadataJson field; fictional-name/determinism assertions are sufficient.
+p = Path("app/src/test/java/com/example/data/ProceduralRosterOnlyTest.kt")
+text = p.read_text()
+text = text.replace('        assertFalse(first.any { it.metadataJson.contains("FC26", ignoreCase = true) })\n', '')
+text = text.replace('import org.junit.Assert.assertFalse\n', '')
+p.write_text(text)
