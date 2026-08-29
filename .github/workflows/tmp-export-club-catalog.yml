@@ -1,0 +1,48 @@
+name: Temporary Export Club Catalog
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/tmp-export-club-catalog.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+      - name: Export club catalog from canonical seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p club-catalog
+          python3 - <<'PY'
+          import csv, sqlite3
+          db='app/src/main/assets/databases/career_seed_template.db'
+          con=sqlite3.connect(db)
+          cols=[r[1] for r in con.execute('PRAGMA table_info(teams)')]
+          print('team columns:', cols)
+          wanted=['id','name','country','division','city','state']
+          selected=[c for c in wanted if c in cols]
+          rows=con.execute('SELECT '+','.join(selected)+' FROM teams ORDER BY country,name,id').fetchall()
+          with open('club-catalog/clubs.csv','w',newline='',encoding='utf-8') as f:
+              w=csv.writer(f)
+              w.writerow(selected)
+              w.writerows(rows)
+          print('clubs=',len(rows))
+          con.close()
+          PY
+      - name: Upload catalog
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: club-catalog-${{ github.sha }}
+          path: club-catalog/clubs.csv
+          retention-days: 2
