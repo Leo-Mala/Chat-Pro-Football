@@ -108,7 +108,7 @@ def validate_asset(path: Path) -> None:
 def read_manifest(path: Path) -> dict[int, dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    required = {"legacyTeamId", "country", "division", "realClubName", "crestFileName", "sha256"}
+    required = {"legacyTeamId", "country", "division", "realClubName", "canonicalClubKey", "crestFileName", "sha256"}
     if rows and not required.issubset(rows[0]):
         raise ValueError(f"digest manifest missing columns: {sorted(required - set(rows[0]))}")
     result: dict[int, dict[str, str]] = {}
@@ -162,6 +162,7 @@ def verify_complete_bundle(
         raise ValueError("digest manifest does not cover exactly the frozen 1,907-slot baseline")
 
     real_keys: set[tuple[str, str]] = set()
+    canonical_keys: set[tuple[str, str]] = set()
     crest_names: set[str] = set()
     actual_asset_names = {path.name.casefold(): path for path in assets}
     if len(actual_asset_names) != len(assets):
@@ -176,6 +177,17 @@ def verify_complete_bundle(
         if real_key in real_keys:
             raise ValueError(f"duplicate real club: {row.country} / {row.real_club_name}")
         real_keys.add(real_key)
+
+        canonical_name = manifest[row.legacy_team_id]["canonicalClubKey"].strip()
+        if not canonical_name:
+            raise ValueError(f"empty canonicalClubKey for legacyTeamId {row.legacy_team_id}")
+        canonical_key = (row.country.casefold(), canonical_name.casefold())
+        if canonical_key in canonical_keys:
+            raise ValueError(
+                f"canonical club identity reused by more than one replacement: "
+                f"{row.country} / {canonical_name}"
+            )
+        canonical_keys.add(canonical_key)
 
         crest_key = row.crest_file_name.casefold()
         if crest_key in crest_names:

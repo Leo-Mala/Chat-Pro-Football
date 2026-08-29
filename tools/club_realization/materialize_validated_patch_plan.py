@@ -39,6 +39,7 @@ class PlanRow:
     division: int
     legacy_slot_name: str
     real_club_name: str
+    canonical_club_key: str
     crest_file_name: str
 
 
@@ -70,6 +71,7 @@ def load_plan(path: Path) -> list[PlanRow]:
         "division",
         "legacySlotName",
         "realClubName",
+        "canonicalClubKey",
         "crestFileName",
     }
     if rows:
@@ -83,6 +85,7 @@ def load_plan(path: Path) -> list[PlanRow]:
             division=int(row["division"]),
             legacy_slot_name=row["legacySlotName"].strip(),
             real_club_name=row["realClubName"].strip(),
+            canonical_club_key=row["canonicalClubKey"].strip(),
             crest_file_name=row["crestFileName"].strip(),
         )
         for row in rows
@@ -152,6 +155,7 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
         raise ValueError(f"Plano não cobre exatamente o baseline. missing={missing} extra={extra}")
 
     real_keys: set[tuple[str, str]] = set()
+    canonical_keys: set[tuple[str, str]] = set()
     crest_keys: set[str] = set()
     checked: list[tuple[PlanRow, str]] = []
 
@@ -169,6 +173,8 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
             )
         if not row.real_club_name:
             raise ValueError(f"Clube real vazio no slot {row.legacy_team_id}")
+        if not row.canonical_club_key:
+            raise ValueError(f"Chave canônica vazia no slot {row.legacy_team_id}")
         if Path(row.crest_file_name).name != row.crest_file_name:
             raise ValueError(f"Nome de escudo deve ser basename puro: {row.crest_file_name}")
         if Path(row.crest_file_name).suffix.casefold() not in SUPPORTED_CREST_EXTENSIONS:
@@ -178,6 +184,14 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
         if real_key in real_keys:
             raise ValueError(f"Clube real repetido: {row.country} / {row.real_club_name}")
         real_keys.add(real_key)
+
+        canonical_key = (row.country.casefold(), row.canonical_club_key.casefold())
+        if canonical_key in canonical_keys:
+            raise ValueError(
+                f"Identidade canônica reutilizada por mais de um clube: "
+                f"{row.country} / {row.canonical_club_key}"
+            )
+        canonical_keys.add(canonical_key)
 
         crest_key = row.crest_file_name.casefold()
         if crest_key in crest_keys:
@@ -243,13 +257,14 @@ def write_digest_manifest(checked: list[tuple[PlanRow, str]], output: Path) -> N
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["legacyTeamId", "country", "division", "realClubName", "crestFileName", "sha256"])
+        writer.writerow(["legacyTeamId", "country", "division", "realClubName", "canonicalClubKey", "crestFileName", "sha256"])
         for row, digest in checked:
             writer.writerow([
                 row.legacy_team_id,
                 row.country,
                 row.division,
                 row.real_club_name,
+                row.canonical_club_key,
                 row.crest_file_name,
                 digest,
             ])
