@@ -1,0 +1,62 @@
+name: Harden non-club competition detection
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/harden-nonclub-competition-detection.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Expand competition entity detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          files=[Path('tools/club_realization/materialize_validated_patch_plan.py'),Path('tools/club_realization/verify_materialized_bundle.py')]
+          old='''    if folded.startswith(("copa ", "cup ")):\n        return True\n    if folded.startswith("liga ") and not folded.startswith("liga deportiva "):\n        return True\n    if folded.endswith((" liga", " league")):\n        return True\n    return False\n'''
+          new='''    if folded.startswith(("copa ", "cup ", "categoria primera ")):\n        return True\n    if re.fullmatch(r"(?:primera|segunda|tercera) division(?: [a-z0-9]+)?", folded):\n        return True\n    if folded.startswith("liga ") and not folded.startswith("liga deportiva "):\n        return True\n    if folded.endswith((" liga", " league")):\n        return True\n    return False\n'''
+          for path in files:
+              text=path.read_text(encoding='utf-8')
+              if old not in text: raise SystemExit(f'expected detector block not found in {path}')
+              path.write_text(text.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Validate detector
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/club_realization/materialize_validated_patch_plan.py tools/club_realization/verify_materialized_bundle.py
+          python3 - <<'PY'
+          import runpy
+          ns=runpy.run_path('tools/club_realization/materialize_validated_patch_plan.py')
+          f=ns['looks_like_non_club_entity']
+          for x in ('Categoria Primera A','Primera División','Segunda Division','Liga MX','Copa MX'):
+              if not f(x): raise SystemExit(f'competition detector missed {x!r}')
+          for x in ('Liga Deportiva Alajuelense','National Bank of Egypt SC','Association Sportive Djerba'):
+              if f(x): raise SystemExit(f'legitimate club rejected {x!r}')
+          print('competition detector probes: PASS')
+          PY
+      - name: Commit detector hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/club_realization/materialize_validated_patch_plan.py tools/club_realization/verify_materialized_bundle.py
+          git diff --cached --check
+          git commit -m 'fix: reject hidden competition logos'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
