@@ -1,4 +1,4 @@
-name: Export Temurin JDK 17
+name: Certify saves and export Robolectric cache
 
 on:
   push:
@@ -12,35 +12,65 @@ permissions:
   contents: read
 
 jobs:
-  export-jdk17:
+  certify-saves:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
       - name: Set up Java 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: '17'
-      - name: Package exact JDK 17 bytes
+      - name: Restore trusted Gradle cache
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: true
+      - name: Set up validation google-services
+        shell: bash
+        run: |
+          cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          EOF
+      - name: Run focused save and migration certification
         shell: bash
         run: |
           set -euo pipefail
-          java -version
-          REAL_JAVA_HOME="$(readlink -f "$JAVA_HOME")"
-          test -x "$REAL_JAVA_HOME/bin/java"
-          OUT="$RUNNER_TEMP/temurin-jdk17.tar.zst"
-          tar -C "$(dirname "$REAL_JAVA_HOME")" -I 'zstd -T0 -6' -cf "$OUT" "$(basename "$REAL_JAVA_HOME")"
-          sha256sum "$OUT" > "$RUNNER_TEMP/temurin-jdk17.sha256"
-          printf '%s\n' "$REAL_JAVA_HOME" > "$RUNNER_TEMP/JAVA_HOME.txt"
-          ls -lh "$OUT" "$RUNNER_TEMP/temurin-jdk17.sha256" "$RUNNER_TEMP/JAVA_HOME.txt"
-      - name: Upload JDK 17
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.SaveSlotIsolationTest \
+            --tests com.example.Phase106SaveRecoverySafetyTest \
+            --tests com.example.data.SaveAtomicityRegressionTest \
+            --tests com.example.migrations.MigrationSafetyTest \
+            --tests com.example.migrations.MigrationCompatibilityTest \
+            --tests com.example.migrations.Migration20To21RelationalIntegrityTest \
+            --stacktrace
+      - name: Package Robolectric runtime cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$HOME/.m2/repository/org/robolectric/android-all-instrumented/14-robolectric-10818077-i7"
+          test -d "$ROOT"
+          find "$ROOT" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          OUT="$RUNNER_TEMP/robolectric-android14-cache.tar.zst"
+          tar -C "$HOME/.m2/repository" -I 'zstd -T0 -6' -cf "$OUT" org/robolectric/android-all-instrumented/14-robolectric-10818077-i7
+          sha256sum "$OUT" > "$RUNNER_TEMP/robolectric-android14-cache.sha256"
+      - name: Upload Robolectric runtime cache
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: temurin-jdk17-${{ github.sha }}
+          name: robolectric-android14-cache-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/temurin-jdk17.tar.zst
-            ${{ runner.temp }}/temurin-jdk17.sha256
-            ${{ runner.temp }}/JAVA_HOME.txt
+            ${{ runner.temp }}/robolectric-android14-cache.tar.zst
+            ${{ runner.temp }}/robolectric-android14-cache.sha256
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
