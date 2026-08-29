@@ -2,8 +2,10 @@ package com.example.data
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrasfootPatchCrestsTest {
@@ -15,10 +17,11 @@ class BrasfootPatchCrestsTest {
         BrasfootPatchCrests.install(
             listOf(BrasfootPatchCrests.Entry("Brasil", "Cruzeiro", "cruzeiro_bra.png"))
         )
-        assertEquals(
-            "file:///android_asset/club_crests/cruzeiro_bra.png",
-            BrasfootPatchCrests.assetUriFor("brásil", "CRUZEIRO")
-        )
+        val uri = BrasfootPatchCrests.assetUriFor("brásil", "CRUZEIRO")
+        assertEquals("file:///android_asset/club_crests/cruzeiro_bra.png", uri)
+        assertTrue(BrasfootPatchCrests.isBundledAssetUri(uri))
+        assertFalse(BrasfootPatchCrests.isBundledAssetUri("https://example.invalid/crest.png"))
+        assertFalse(BrasfootPatchCrests.isBundledAssetUri(null))
         assertEquals(1, BrasfootPatchCrests.installedCount())
     }
 
