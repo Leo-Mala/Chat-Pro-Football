@@ -105,9 +105,66 @@ jobs:
             --tests com.example.usecase.CareerCreationPerformanceTest \
             --tests com.example.data.CareerSeedTemplateRuntimeTest \
             --tests com.example.data.ProceduralRosterOnlyTest \
+            --tests com.example.data.BrasfootRealClubIdentityTest \
+            --tests com.example.data.BrasfootPatchCrestsTest \
             --stacktrace
 
+      - name: Check complete real-club bundle readiness
+        id: real_club_bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=1907
+          kotlin_file='app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt'
+          crest_dir='app/src/main/assets/club_crests'
+          digest_file='docs/club-realization/crest-sha256.csv'
+
+          ready=true
+          reason='complete'
+
+          if [ ! -f "$kotlin_file" ]; then
+            ready=false
+            reason='replacement-data-missing'
+          fi
+
+          crest_count=0
+          if [ -d "$crest_dir" ]; then
+            crest_count=$(find "$crest_dir" -maxdepth 1 -type f -iname '*.png' | wc -l | tr -d ' ')
+          fi
+          if [ "$crest_count" -ne "$expected" ]; then
+            ready=false
+            reason="crest-count-${crest_count}-of-${expected}"
+          fi
+
+          digest_rows=0
+          if [ -f "$digest_file" ]; then
+            digest_rows=$(( $(wc -l < "$digest_file") - 1 ))
+          fi
+          if [ "$digest_rows" -ne "$expected" ]; then
+            ready=false
+            reason="digest-count-${digest_rows}-of-${expected}"
+          fi
+
+          if [ -f "$kotlin_file" ]; then
+            replacement_rows=$(grep -c 'BrasfootRealClubIdentity.Replacement(' "$kotlin_file" || true)
+          else
+            replacement_rows=0
+          fi
+          if [ "$replacement_rows" -ne "$expected" ]; then
+            ready=false
+            reason="replacement-count-${replacement_rows}-of-${expected}"
+          fi
+
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "crest_count=$crest_count" >> "$GITHUB_OUTPUT"
+          echo "digest_rows=$digest_rows" >> "$GITHUB_OUTPUT"
+          echo "replacement_rows=$replacement_rows" >> "$GITHUB_OUTPUT"
+          printf 'real_club_bundle_ready=%s reason=%s replacements=%s crests=%s digests=%s\n' \
+            "$ready" "$reason" "$replacement_rows" "$crest_count" "$digest_rows"
+
       - name: Build installable Debug APK
+        if: steps.real_club_bundle.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -119,6 +176,13 @@ jobs:
           sha256sum "manual-test-apk/Pro-Football-manual-test-${GITHUB_SHA}.apk" | tee manual-test-apk/SHA256SUMS.txt
           printf 'commit=%s\nbranch=%s\n' "$GITHUB_SHA" "$GITHUB_REF_NAME" > manual-test-apk/BUILD_INFO.txt
 
+      - name: Record intentionally deferred APK
+        if: steps.real_club_bundle.outputs.ready != 'true'
+        shell: bash
+        run: |
+          printf 'APK intentionally deferred: real-club bundle is not complete (%s).\n' \
+            '${{ steps.real_club_bundle.outputs.reason }}'
+
       - name: Upload focused test report on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -129,6 +193,7 @@ jobs:
           retention-days: 7
 
       - name: Upload exact manual-test APK
+        if: steps.real_club_bundle.outputs.ready == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: manual-test-apk-${{ github.sha }}
@@ -137,3 +202,4 @@ jobs:
           retention-days: 7
 
 # Focused manual-test certification for current bugfix/procedural-player head.
+# APK generation is intentionally gated until all 1,907 real-club replacements and original PNGs are materialized.
