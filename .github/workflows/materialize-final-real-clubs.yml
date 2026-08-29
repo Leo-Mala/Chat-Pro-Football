@@ -1,0 +1,132 @@
+name: Materialize final real clubs
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .club-realization-input/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-final-real-clubs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Reassemble audited materialization input
+        shell: bash
+        env:
+          EXPECTED_ARCHIVE_SHA256: 1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/club-realization-input"
+          shopt -s nullglob
+          parts=(.club-realization-input/final-club-realization-input.tar.gz.part*)
+          test "${#parts[@]}" -gt 0
+          cat "${parts[@]}" > "$RUNNER_TEMP/final-club-realization-input.tar.gz"
+          echo "${EXPECTED_ARCHIVE_SHA256}  $RUNNER_TEMP/final-club-realization-input.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/final-club-realization-input.tar.gz" -C "$RUNNER_TEMP/club-realization-input"
+          test "$(($(wc -l < "$RUNNER_TEMP/club-realization-input/plan.csv") - 1))" -eq 1907
+          test -f "$RUNNER_TEMP/club-realization-input/metadata.json"
+
+      - name: Restore the 106 immutable external SVGs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import csv, hashlib, pathlib, time, urllib.parse, urllib.request
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+
+          root = pathlib.Path('/tmp')
+          input_dir = pathlib.Path(__import__('os').environ['RUNNER_TEMP']) / 'club-realization-input'
+          plan_path = input_dir / 'plan.csv'
+          crest_dir = input_dir / 'source-crests'
+          crest_dir.mkdir(parents=True, exist_ok=True)
+          with plan_path.open(encoding='utf-8', newline='') as handle:
+              rows = list(csv.DictReader(handle))
+          missing = [row for row in rows if not (crest_dir / row['crestFileName']).is_file()]
+          if len(missing) != 106:
+              raise SystemExit(f'expected exactly 106 network crests, found {len(missing)}')
+          if any(row['sourceKind'] != 'github-svg' for row in missing):
+              raise SystemExit('network restoration is restricted to immutable github-svg rows')
+
+          def fetch_one(row):
+              raw_url = row['sourceCrestPath']
+              url = urllib.parse.quote(raw_url, safe=':/?&=%-._~')
+              last = None
+              for attempt in range(4):
+                  try:
+                      request = urllib.request.Request(url, headers={'User-Agent':'Chat-Pro-Football-materializer/1.0'})
+                      with urllib.request.urlopen(request, timeout=45) as response:
+                          data = response.read()
+                      actual = hashlib.sha256(data).hexdigest()
+                      expected = row['sourceCrestSha256'].lower()
+                      if actual != expected:
+                          raise ValueError(f"sha mismatch for {row['realClubName']}: expected={expected} actual={actual}")
+                      folded = data.lower()
+                      if b'<svg' not in folded[:8192]:
+                          raise ValueError(f"source is not SVG for {row['realClubName']}")
+                      if any(token in folded for token in (b'<!doctype', b'<!entity', b'<script', b'javascript:')):
+                          raise ValueError(f"unsafe SVG for {row['realClubName']}")
+                      (crest_dir / row['crestFileName']).write_bytes(data)
+                      return row['legacyTeamId']
+                  except Exception as exc:
+                      last = exc
+                      time.sleep(1 + attempt)
+              raise RuntimeError(f"failed {row['realClubName']} from {raw_url}: {last}")
+
+          with ThreadPoolExecutor(max_workers=8) as executor:
+              futures = [executor.submit(fetch_one, row) for row in missing]
+              for future in as_completed(futures):
+                  future.result()
+          count = sum(1 for path in crest_dir.iterdir() if path.is_file() and path.suffix.lower() in {'.png','.svg'})
+          if count != 1907:
+              raise SystemExit(f'source crest count {count} != 1907')
+          print('source_crests=1907')
+          PY
+
+      - name: Materialize and independently verify 1907 replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/club_realization/*.py
+          python3 tools/club_realization/materialize_validated_patch_plan.py \
+            --plan "$RUNNER_TEMP/club-realization-input/plan.csv" \
+            --crests-dir "$RUNNER_TEMP/club-realization-input/source-crests"
+          python3 tools/club_realization/verify_materialized_bundle.py
+          cp "$RUNNER_TEMP/club-realization-input/plan.csv" docs/club-realization/validated-replacement-plan.csv
+          test "$(($(wc -l < docs/club-realization/validated-replacement-plan.csv) - 1))" -eq 1907
+          test "$(find app/src/main/assets/club_crests -maxdepth 1 -type f \( -name '*.png' -o -name '*.svg' \) | wc -l)" -eq 1907
+          test "$(($(wc -l < docs/club-realization/crest-sha256.csv) - 1))" -eq 1907
+
+      - name: Commit verified materialization to working branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .club-realization-input
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- \
+            .club-realization-input \
+            app/src/main/assets/club_crests \
+            app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt \
+            docs/club-realization/crest-sha256.csv \
+            docs/club-realization/validated-replacement-plan.csv
+          git diff --cached --check
+          git commit -m 'data: materialize 1907 audited real clubs'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
