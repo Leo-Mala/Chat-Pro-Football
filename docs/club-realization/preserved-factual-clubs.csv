@@ -1,0 +1,618 @@
+globalId,country,division,clubName,canonicalClubKey
+1,Inglaterra,1,Manchester City,manchestercity
+2,Inglaterra,1,Arsenal FC,arsenal
+3,Inglaterra,1,Liverpool FC,liverpool
+4,Inglaterra,1,Chelsea FC,chelsea
+5,Inglaterra,1,Manchester United,manchesterunited
+6,Inglaterra,1,Tottenham Hotspur,tottenhamhotspur
+7,Inglaterra,1,Aston Villa,astonvilla
+8,Inglaterra,1,Newcastle United,newcastleunited
+9,Inglaterra,2,West Ham United,westhamunited
+10,Inglaterra,1,Everton FC,everton
+11,Inglaterra,1,AFC Bournemouth,bournemouth
+12,Inglaterra,1,Brentford FC,brentford
+13,Inglaterra,1,Brighton & Hove Albion,brightonhovealbion
+14,Inglaterra,1,Crystal Palace,crystalpalace
+15,Inglaterra,1,Fulham FC,fulham
+16,Inglaterra,1,Nottingham Forest,nottinghamforest
+17,Inglaterra,2,Burnley,burnley
+18,Inglaterra,2,Wolverhampton Wanderers,wolverhamptonwanderers
+21,Inglaterra,2,Leicester City,leicestercity
+22,Inglaterra,1,Leeds United,leedsunited
+23,Inglaterra,2,Southampton FC,southampton
+24,Inglaterra,1,Ipswich Town,ipswichtown
+25,Inglaterra,2,West Bromwich Albion,westbromwichalbion
+26,Inglaterra,2,Norwich City,norwichcity
+27,Inglaterra,1,Coventry City,coventrycity
+28,Inglaterra,2,Middlesbrough,middlesbrough
+29,Inglaterra,1,Hull City,hullcity
+30,Inglaterra,1,Sunderland AFC,sunderland
+45,Inglaterra,3,Derby County,derbycounty
+46,Inglaterra,3,Portsmouth FC,portsmouth
+47,Inglaterra,3,Bolton Wanderers,boltonwanderers
+48,Inglaterra,3,Peterborough Utd,peterboroughutd
+49,Inglaterra,3,Barnsley FC,barnsley
+50,Inglaterra,3,Oxford United,oxfordunited
+51,Inglaterra,3,Lincoln City,lincolncity
+52,Inglaterra,3,Blackpool FC,blackpool
+53,Inglaterra,3,Reading FC,reading
+54,Inglaterra,3,Wigan Athletic,wiganathletic
+201,Espanha,1,Real Madrid,realmadrid
+202,Espanha,1,FC Barcelona,barcelona
+203,Espanha,1,Atlético de Madrid,atleticodemadrid
+204,Espanha,2,Girona FC,girona
+205,Espanha,1,Real Sociedad,realsociedad
+206,Espanha,1,Athletic Club,athletic
+207,Espanha,1,Real Betis,realbetis
+208,Espanha,1,Villarreal CF,villarreal
+209,Espanha,1,Sevilla FC,sevilla
+210,Espanha,1,Valencia CF,valencia
+211,Espanha,1,CA Osasuna,osasuna
+212,Espanha,1,Celta de Vigo,celtadevigo
+213,Espanha,1,Deportivo Alavés,deportivoalaves
+214,Espanha,1,Getafe CF,getafe
+215,Espanha,1,Racing Santander,racingsantander
+216,Espanha,1,Rayo Vallecano,rayovallecano
+221,Espanha,1,RCD Espanyol de Barcelona,rcdespanyoldebarcelona
+222,Espanha,2,Real Zaragoza,realzaragoza
+223,Espanha,2,Real Valladolid,realvalladolid
+224,Espanha,2,SD Eibar,sdeibar
+225,Espanha,2,CD Leganés,leganes
+226,Espanha,2,Sporting de Gijón,sportingdegijon
+227,Espanha,1,Levante UD,levanteud
+228,Espanha,1,Elche CF,elche
+229,Espanha,2,CD Tenerife,tenerife
+230,Espanha,2,Real Oviedo,realoviedo
+241,Espanha,3,Castellón,castellon
+242,Espanha,3,Ibiza,ibiza
+243,Espanha,1,RC Deportivo,rcdeportivo
+244,Espanha,1,Málaga CF,malaga
+245,Espanha,3,Córdoba CF,cordoba
+246,Espanha,3,Recreativo Huelva,recreativohuelva
+247,Espanha,3,Real Murcia,realmurcia
+248,Espanha,3,Ponferradina,ponferradina
+249,Espanha,3,Algeciras CF,algeciras
+250,Espanha,3,AD Ceuta,adceuta
+4001,Brasil,1,Athletico-PR,athleticopr
+4002,Brasil,1,Atlético-MG,atleticomg
+4003,Brasil,1,Bahia,bahia
+4004,Brasil,1,Botafogo,botafogo
+4005,Brasil,1,Chapecoense,chapecoense
+4006,Brasil,1,Corinthians,corinthians
+4007,Brasil,1,Coritiba,coritiba
+4008,Brasil,1,Cruzeiro,cruzeiro
+4009,Brasil,1,Flamengo,flamengo
+4010,Brasil,1,Fluminense,fluminense
+4011,Brasil,1,Grêmio,gremio
+4012,Brasil,1,Internacional,internacional
+4013,Brasil,1,Mirassol,mirassol
+4014,Brasil,1,Palmeiras,palmeiras
+4015,Brasil,1,Bragantino,bragantino
+4016,Brasil,1,Remo,remo
+4017,Brasil,1,Santos,santos
+4018,Brasil,1,São Paulo,saopaulo
+4019,Brasil,1,Vasco,vasco
+4020,Brasil,1,Vitória,vitoria
+4021,Brasil,2,América-MG,americamg
+4022,Brasil,2,Athletic Club,athletic
+4023,Brasil,2,Atlético-GO,atleticogo
+4024,Brasil,2,Avaí,avai
+4025,Brasil,2,Botafogo-SP,botafogosp
+4026,Brasil,2,Ceará,ceara
+4027,Brasil,2,CRB,crb
+4028,Brasil,2,Criciúma,criciuma
+4029,Brasil,2,Cuiabá,cuiaba
+4030,Brasil,2,Fortaleza,fortaleza
+4031,Brasil,2,Goiás,goias
+4032,Brasil,2,Juventude,juventude
+4033,Brasil,2,Londrina,londrina
+4034,Brasil,2,Náutico,nautico
+4035,Brasil,2,Novorizontino,novorizontino
+4036,Brasil,2,Operário-PR,operariopr
+4037,Brasil,2,Ponte Preta,pontepreta
+4038,Brasil,2,São Bernardo,saobernardo
+4039,Brasil,2,Sport,sport
+4040,Brasil,2,Vila Nova,vilanova
+4041,Brasil,3,Amazonas,amazonas
+4042,Brasil,3,Anápolis,anapolis
+4043,Brasil,3,Barra-SC,barra
+4044,Brasil,3,Botafogo-PB,botafogopb
+4045,Brasil,3,Brusque,brusque
+4046,Brasil,3,Caxias,caxias
+4047,Brasil,3,Confiança,confianca
+4048,Brasil,3,Ferroviária,ferroviaria
+4049,Brasil,3,Figueirense,figueirense
+4050,Brasil,3,Floresta,floresta
+4051,Brasil,3,Guarani,guarani
+4052,Brasil,3,Inter de Limeira,interdelimeira
+4053,Brasil,3,Itabaiana,itabaiana
+4054,Brasil,3,Ituano,ituano
+4055,Brasil,3,Maranhão,maranhao
+4056,Brasil,3,Maringá,maringa
+4057,Brasil,3,Paysandu,paysandu
+4058,Brasil,3,Santa Cruz,santacruz
+4059,Brasil,3,Volta Redonda,voltaredonda
+4060,Brasil,3,Ypiranga-RS,ypirangars
+4061,Brasil,4,Independência,independencia
+4062,Brasil,4,Humaitá,humaita
+4063,Brasil,4,Galvez,galvez
+4064,Brasil,4,CSA,csa
+4065,Brasil,4,ASA,asa
+4066,Brasil,4,CSE,cse
+4067,Brasil,4,Trem,trem
+4068,Brasil,4,Oratório,oratorio
+4069,Brasil,4,Nacional,nacional
+4070,Brasil,4,Manaus,manaus
+4071,Brasil,4,Atlético-BA,atleticoba
+4072,Brasil,4,Jacuipense,jacuipense
+4073,Brasil,4,Juazeirense,juazeirense
+4074,Brasil,4,Porto,porto
+4075,Brasil,4,Tirol,tirol
+4076,Brasil,4,Ferroviário,ferroviario
+4077,Brasil,4,Maracanã,maracana
+4078,Brasil,4,Iguatu,iguatu
+4079,Brasil,4,Atlético-CE,atleticoce
+4080,Brasil,4,Capital,capital
+4081,Brasil,4,Gama,gama
+4082,Brasil,4,Ceilândia,ceilandia
+4083,Brasil,4,Brasiliense,brasiliense
+4084,Brasil,4,Rio Branco-ES,riobrancoes
+4085,Brasil,4,Vitória-ES,vitoriaes
+4086,Brasil,4,Real Noroeste,realnoroeste
+4087,Brasil,4,Aparecidense,aparecidense
+4088,Brasil,4,Goiatuba,goiatuba
+4089,Brasil,4,CRAC,crac
+4090,Brasil,4,ABECAT,abecat
+4091,Brasil,4,Inhumas,inhumas
+4092,Brasil,4,Sampaio Corrêa,sampaiocorrea
+4093,Brasil,4,Imperatriz,imperatriz
+4094,Brasil,4,Moto Club,moto
+4095,Brasil,4,Iape,iape
+4096,Brasil,4,Luverdense,luverdense
+4097,Brasil,4,Primavera,primavera
+4098,Brasil,4,Operário VG,operariovg
+4099,Brasil,4,União Rondonópolis,uniaorondonopolis
+4100,Brasil,4,Mixto,mixto
+4101,Brasil,4,Operário-MS,operarioms
+4102,Brasil,4,Ivinhema,ivinhema
+4103,Brasil,4,Tombense,tombense
+4104,Brasil,4,Betim,betim
+4105,Brasil,4,Democrata GV,democratagv
+4106,Brasil,4,Pouso Alegre,pousoalegre
+4107,Brasil,4,Uberlândia,uberlandia
+4108,Brasil,4,Tuna Luso,tunaluso
+4109,Brasil,4,Águia de Marabá,aguiademaraba
+4110,Brasil,4,Sousa,sousa
+4111,Brasil,4,Treze,treze
+4112,Brasil,4,Serra Branca,serrabranca
+4113,Brasil,4,FC Cascavel,cascavel
+4114,Brasil,4,Azuriz,azuriz
+4115,Brasil,4,São Joseense,saojoseense
+4116,Brasil,4,Cianorte,cianorte
+4117,Brasil,4,Paraná,parana
+4118,Brasil,4,Retrô,retro
+4119,Brasil,4,Central,central
+4120,Brasil,4,Maguary,maguary
+4121,Brasil,4,Decisão,decisao
+4122,Brasil,4,Altos,altos
+4123,Brasil,4,Piauí,piaui
+4124,Brasil,4,Parnahyba,parnahyba
+4125,Brasil,4,Fluminense-PI,fluminensepi
+4126,Brasil,4,Maricá,marica
+4127,Brasil,4,Madureira,madureira
+4128,Brasil,4,Nova Iguaçu,novaiguacu
+4129,Brasil,4,América,america
+4130,Brasil,4,Sampaio Corrêa-RJ,sampaiocorrearj
+4131,Brasil,4,Portuguesa-RJ,portuguesarj
+4132,Brasil,4,ABC,abc
+4133,Brasil,4,Laguna,laguna
+4134,Brasil,4,América-RN,americarn
+4135,Brasil,4,São José,saojose
+4136,Brasil,4,Brasil de Pelotas,brasildepelotas
+4137,Brasil,4,São Luiz,saoluiz
+4138,Brasil,4,Guarany de Bagé,guaranydebage
+4139,Brasil,4,Porto Velho,portovelho
+4140,Brasil,4,Guaporé,guapore
+4141,Brasil,4,GAS,gas
+4142,Brasil,4,São Raimundo,saoraimundo
+4143,Brasil,4,Monte Roraima,monteroraima
+4144,Brasil,4,Marcílio Dias,marciliodias
+4145,Brasil,4,Joinville,joinville
+4146,Brasil,4,Santa Catarina,santacatarina
+4147,Brasil,4,Blumenau,blumenau
+4148,Brasil,4,Água Santa,aguasanta
+4149,Brasil,4,Portuguesa,portuguesa
+4150,Brasil,4,Velo Clube,velo
+4151,Brasil,4,Noroeste,noroeste
+4152,Brasil,4,XV de Piracicaba,xvdepiracicaba
+4153,Brasil,4,Lagarto,lagarto
+4154,Brasil,4,Sergipe,sergipe
+4155,Brasil,4,Araguaína,araguaina
+4156,Brasil,4,Tocantinópolis,tocantinopolis
+4157,Brasil,5,Vasco-AC,vasco
+4158,Brasil,5,Penedense,penedense
+4159,Brasil,5,Independente,independente
+4160,Brasil,5,Manauara,manauara
+4161,Brasil,5,Desportiva Ferroviária,desportivaferroviaria
+4162,Brasil,5,Porto Vitória,portovitoria
+4163,Brasil,5,Pantanal,pantanal
+4164,Brasil,5,Bragantino-PA,bragantinopa
+4165,Brasil,5,Castanhal,castanhal
+4166,Brasil,5,Boavista,boavista
+4167,Brasil,5,Ji-Paraná,jiparana
+4168,Brasil,5,Baré,bare
+4169,Brasil,5,Primavera-SP,primaverasp
+4170,Brasil,5,América de Propriá,americadepropria
+4171,Brasil,5,Gurupi,gurupi
+4201,Argentina,1,River Plate,riverplate
+4202,Argentina,1,Boca Juniors,bocajuniors
+4203,Argentina,1,Racing Club,racing
+4204,Argentina,1,Independiente,independiente
+4205,Argentina,1,San Lorenzo,sanlorenzo
+4206,Argentina,1,Estudiantes LP,estudianteslp
+4207,Argentina,1,Vélez Sarsfield,velezsarsfield
+4208,Argentina,1,Lanús,lanus
+4209,Argentina,1,Talleres Córdoba,tallerescordoba
+4210,Argentina,1,Newell's Old Boys,newellsoldboys
+4231,Argentina,2,Rosario Central,rosariocentral
+4232,Argentina,2,Huracán,huracan
+4233,Argentina,2,Argentinos Juniors,argentinosjuniors
+4234,Argentina,2,Belgrano,belgrano
+4235,Argentina,2,Defensa y Justicia,defensayjusticia
+4236,Argentina,2,Banfield,banfield
+4237,Argentina,2,Gimnasia LP,gimnasialp
+4238,Argentina,2,Unión Santa Fe,unionsantafe
+4239,Argentina,2,Atlético Tucumán,atleticotucuman
+4240,Argentina,2,Godoy Cruz,godoycruz
+4267,Argentina,3,Colón de Santa Fe,colondesantafe
+4268,Argentina,3,Quilmes,quilmes
+4269,Argentina,3,Platense,platense
+4270,Argentina,3,Tigre,tigre
+4271,Argentina,3,Instituto ACC,institutoacc
+4272,Argentina,3,Barracas Central,barracascentral
+4273,Argentina,3,Central Córdoba,centralcordoba
+4274,Argentina,3,Sarmiento Junín,sarmientojunin
+4275,Argentina,3,Deportivo Riestra,deportivoriestra
+4276,Argentina,3,Independiente Riv.,independienteriv
+100106,Itália,1,Sassuolo,sassuolo
+100244,Itália,1,Udinese,udinese
+100254,Itália,2,Pisa,pisa
+100515,Itália,1,Bologna,bologna
+100796,Itália,2,Hellas Verona FC,hellasverona
+100971,Itália,2,Südtirol,sudtirol
+101081,Itália,2,Cremonese,cremonese
+101101,Itália,1,Parma,parma
+101121,Itália,2,Catanzaro,catanzaro
+101240,Itália,2,Virtus Entella,virtusentella
+101400,Itália,1,Inter,inter
+101705,Itália,1,Como,como
+102323,Itália,2,Mantova,mantova
+102477,Itália,1,Lecce,lecce
+102566,Itália,1,Napoli,napoli
+102649,Itália,1,Fiorentina,fiorentina
+102843,Itália,1,AC Milan,milan
+102950,Itália,1,Frosinone,frosinone
+103061,Itália,2,Carrarese,carrarese
+103382,Itália,1,Torino,torino
+103413,Itália,2,Avellino,avellino
+103434,Itália,2,Sampdoria,sampdoria
+103474,Itália,1,Atalanta,atalanta
+104056,Itália,1,Lazio,lazio
+104075,Itália,2,Cesena FC,cesena
+104077,Itália,1,Venezia,venezia
+104198,Itália,1,Genoa,genoa
+104365,Itália,1,Monza,monza
+104386,Itália,1,Cagliari,cagliari
+104401,Itália,1,Roma,roma
+104501,Itália,2,Modena,modena
+104570,Itália,2,SS Juve Stabia,ssjuvestabia
+104730,Itália,1,Juventus,juventus
+105115,Alemanha,1,FC Bayern München,bayernmunchen
+105143,Alemanha,1,Borussia Dortmund,borussiadortmund
+105144,Alemanha,3,MSV Duisburg,msvduisburg
+105347,Alemanha,2,Hertha BSC,herthabsc
+105436,Alemanha,3,Viktoria Köln,viktoriakoln
+105485,Alemanha,2,Eintracht Braunschweig,eintrachtbraunschweig
+105545,Alemanha,3,Rot-Weiss Essen,rotweissessen
+105671,Alemanha,3,SC Verl,verl
+105706,Alemanha,2,Holstein Kiel,holsteinkiel
+105783,Alemanha,1,VfB Stuttgart,vfbstuttgart
+105871,Alemanha,1,Hamburger SV,hamburgersv
+105909,Alemanha,1,Borussia Mönchengladbach,borussiamonchengladbach
+106017,Alemanha,1,SC Paderborn 07,paderborn07
+106022,Alemanha,3,TSG 1899 Hoffenheim II,tsg1899hoffenheimii
+106030,Alemanha,1,SC Freiburg,freiburg
+106179,Alemanha,2,Dynamo Dresden,dynamodresden
+106310,Alemanha,1,SV Elversberg,svelversberg
+106336,Alemanha,2,1. FC Magdeburg,1magdeburg
+106348,Alemanha,2,Hannover 96,hannover96
+106406,Alemanha,1,FC Augsburg,augsburg
+106473,Alemanha,3,VfB Stuttgart II,vfbstuttgartii
+106560,Alemanha,1,SV Werder Bremen,svwerderbremen
+106786,Alemanha,1,RB Leipzig,rbleipzig
+107145,Alemanha,1,1. FC Union Berlin,1unionberlin
+107147,Alemanha,1,Eintracht Frankfurt,eintrachtfrankfurt
+107489,Alemanha,2,FC St. Pauli,stpauli
+107580,Alemanha,3,SV Wehen Wiesbaden,svwehenwiesbaden
+107625,Alemanha,3,Fortuna Düsseldorf,fortunadusseldorf
+107715,Alemanha,2,Karlsruher SC,karlsruher
+107946,Alemanha,2,1. FC Heidenheim 1846,1heidenheim1846
+108126,Alemanha,1,FC Schalke 04,schalke04
+108133,Alemanha,3,Alemannia Aachen,alemanniaaachen
+108376,Alemanha,2,VfL Osnabrück,vflosnabruck
+108621,Alemanha,3,FC Ingolstadt 04,ingolstadt04
+108658,Alemanha,2,FC Energie Cottbus,energiecottbus
+108824,Alemanha,2,VfL Bochum 1848,vflbochum1848
+108882,Alemanha,2,SV Darmstadt 98,svdarmstadt98
+108899,Alemanha,2,SpVgg Greuther Fürth,spvgggreutherfurth
+108961,Alemanha,3,TSV Havelse,tsvhavelse
+108962,Alemanha,3,SSV Jahn Regensburg,ssvjahnregensburg
+109066,Alemanha,2,1. FC Kaiserslautern,1kaiserslautern
+109159,Alemanha,1,TSG Hoffenheim,tsghoffenheim
+109240,Alemanha,2,DSC Arminia Bielefeld,dscarminiabielefeld
+109241,Alemanha,3,SV Waldhof Mannheim,svwaldhofmannheim
+109372,Alemanha,2,VfL Wolfsburg,vflwolfsburg
+109417,Alemanha,3,FC Hansa Rostock,hansarostock
+109429,Alemanha,2,1. FC Nürnberg,1nurnberg
+109465,Alemanha,1,1. FSV Mainz 05,1fsvmainz05
+109481,Alemanha,3,1. FC Saarbrücken,1saarbrucken
+109505,Alemanha,3,SC Preußen Münster,preuenmunster
+109694,Alemanha,1,1. FC Köln,1koln
+109922,Alemanha,1,Bayer 04 Leverkusen,bayer04leverkusen
+110196,França,1,RC Strasbourg Alsace,rcstrasbourgalsace
+110427,França,2,Pau FC,pau
+110617,França,1,LOSC,losc
+110714,França,2,Stade de Reims,stadedereims
+110739,França,1,Toulouse FC,toulouse
+111134,França,2,US Boulogne CO,usboulogneco
+111252,França,2,Rodez AF,rodezaf
+111290,França,1,Olympique de Marseille,olympiquedemarseille
+111390,França,1,Stade Rennais FC,staderennais
+111643,França,1,AJ Auxerre,ajauxerre
+111812,França,1,Angers SCO,angerssco
+111970,França,2,AS Nancy Lorraine,asnancylorraine
+112075,França,2,FC Nantes,nantes
+112495,França,1,FC Lorient,lorient
+112535,França,1,ESTAC Troyes,estactroyes
+112538,França,2,Stade Lavallois,stadelavallois
+112594,França,2,USL Dunkerque,usldunkerque
+112715,França,1,Le Havre AC,lehavre
+112743,França,2,FC Metz,metz
+112771,França,1,Stade Brestois 29,stadebrestois29
+113175,França,1,AS Monaco,asmonaco
+113242,França,2,Red Star FC,redstar
+113249,França,2,Clermont Foot 63,clermontfoot63
+113399,França,1,OGC Nice,ogcnice
+113527,França,2,FC Annecy,annecy
+113864,França,1,RC Lens,rclens
+113984,França,1,Le Mans FC,lemans
+114035,França,1,Paris FC,paris
+114053,França,1,Olympique Lyonnais,olympiquelyonnais
+114059,França,2,Montpellier HSC,montpellierhsc
+114097,França,2,AS Saint-Étienne,assaintetienne
+114352,França,2,En Avant Guingamp,enavantguingamp
+114977,França,1,Paris Saint-Germain,parissaintgermain
+115090,Portugal,1,SL Benfica,slbenfica
+115408,Portugal,1,FC Alverca,alverca
+115416,Portugal,1,Estoril Praia,estorilpraia
+115630,Portugal,1,CD Nacional,nacional
+116026,Portugal,1,Santa Clara,santaclara
+116243,Portugal,1,Gil Vicente FC,gilvicente
+116433,Portugal,1,Moreirense FC,moreirense
+116785,Portugal,1,Estrela Amadora,estrelaamadora
+116900,Portugal,1,Marítimo M.,maritimom
+117426,Portugal,1,Casa Pia AC,casapia
+117552,Portugal,1,FC Porto,porto
+117652,Portugal,1,FC Arouca,arouca
+118079,Portugal,1,FC Famalicão,famalicao
+118130,Portugal,1,Académico,academico
+118887,Portugal,1,Rio Ave FC,rioave
+119084,Portugal,1,SC Braga,braga
+119614,Portugal,1,Sporting CP,sportingcp
+119999,Portugal,1,Vitória SC,vitoria
+120315,Países Baixos,1,sc Heerenveen,heerenveen
+120327,Países Baixos,1,FC Utrecht,utrecht
+121607,Países Baixos,1,AZ,az
+121798,Países Baixos,1,SC Cambuur,cambuur
+122151,Países Baixos,1,Ajax,ajax
+122152,Países Baixos,1,Go Ahead Eagles,goaheadeagles
+122562,Países Baixos,1,FC Twente,twente
+122693,Países Baixos,1,PSV,psv
+122903,Países Baixos,1,Feyenoord,feyenoord
+122945,Países Baixos,1,FC Groningen,groningen
+123317,Países Baixos,1,PEC Zwolle,peczwolle
+123338,Países Baixos,1,Telstar,telstar
+123522,Países Baixos,1,Fortuna Sittard,fortunasittard
+124257,Países Baixos,1,Sparta Rotterdam,spartarotterdam
+124287,Países Baixos,1,N.E.C. Nijmegen,necnijmegen
+124510,Países Baixos,1,Willem II,willemii
+124898,Países Baixos,1,Excelsior Rotterdam,excelsiorrotterdam
+124975,Países Baixos,1,ADO Den Haag,adodenhaag
+125175,Bélgica,1,STVV,stvv
+125386,Bélgica,1,Club Brugge,brugge
+125415,Bélgica,1,KVC Westerlo,kvcwesterlo
+125573,Bélgica,1,KAA Gent,kaagent
+125962,Bélgica,1,Sporting Charleroi,sportingcharleroi
+126961,Bélgica,1,OH Leuven,ohleuven
+127154,Bélgica,1,RAAL La Louvière,raallalouviere
+127818,Bélgica,1,Royal Antwerp FC,royalantwerp
+127924,Bélgica,1,SV Zulte Waregem,svzultewaregem
+128443,Bélgica,1,Lommel SK,lommel
+128684,Bélgica,1,KV Kortrijk,kvkortrijk
+128967,Bélgica,1,KRC Genk,krcgenk
+129028,Bélgica,1,Standard de Liège,standarddeliege
+129565,Bélgica,1,RSC Anderlecht,rscanderlecht
+129618,Bélgica,1,Cercle Brugge,cerclebrugge
+129711,Bélgica,1,SK Beveren,beveren
+129911,Bélgica,1,Royale Union Saint-Gilloise,royaleunionsaintgilloise
+129979,Bélgica,1,KV Mechelen,kvmechelen
+130395,Turquia,1,Trabzonspor,trabzonspor
+130467,Turquia,1,Çaykur Rizespor,caykurrizespor
+131132,Turquia,1,Çorum FK,corum
+131397,Turquia,1,Konyaspor,konyaspor
+131585,Turquia,1,Kocaelispor,kocaelispor
+131924,Turquia,1,Göztepe,goztepe
+132619,Turquia,1,Erzurumspor FK,erzurumspor
+132691,Turquia,1,Gaziantep FK,gaziantep
+133136,Turquia,1,Samsunspor,samsunspor
+133151,Turquia,1,Fenerbahçe,fenerbahce
+133360,Turquia,1,Beşiktaş,besiktas
+133379,Turquia,1,Alanyaspor,alanyaspor
+133729,Turquia,1,Galatasaray,galatasaray
+133808,Turquia,1,Gençlerbirliği,genclerbirligi
+133903,Turquia,1,İstanbul Başakşehir FK,istanbulbasaksehir
+134329,Turquia,1,Amed Sportif Faaliyetler,amedsportiffaaliyetler
+134708,Turquia,1,Eyüpspor,eyupspor
+134751,Turquia,1,Kasımpaşa,kasmpasa
+135277,Escócia,1,St Mirren,stmirren
+135560,Escócia,1,Falkirk,falkirk
+136246,Escócia,1,Motherwell,motherwell
+136523,Escócia,1,St Johnstone,stjohnstone
+137115,Escócia,1,Dundee,dundee
+138120,Escócia,1,Celtic,celtic
+138128,Escócia,1,Kilmarnock,kilmarnock
+138324,Escócia,1,Aberdeen,aberdeen
+138358,Escócia,1,Rangers,rangers
+138407,Escócia,1,Heart of Midlothian,heartofmidlothian
+138425,Escócia,1,Hibernian,hibernian
+138785,Escócia,1,Dundee United,dundeeunited
+140300,Áustria,1,LASK,lask
+140821,Áustria,1,SCR Altach,scraltach
+140960,Áustria,1,Grazer AK 1902,grazerak1902
+141208,Áustria,1,TSV Hartberg,tsvhartberg
+141299,Áustria,1,Wolfsberger AC,wolfsberger
+142312,Áustria,1,FK Austria Wien,austriawien
+142341,Áustria,1,WSG Tirol,wsgtirol
+142359,Áustria,1,SK Rapid Wien,rapidwien
+143030,Áustria,1,FC Red Bull Salzburg,redbullsalzburg
+143836,Áustria,1,SV Ried,svried
+144571,Áustria,1,SC Austria Lustenau,austrialustenau
+144622,Áustria,1,SK Sturm Graz,sturmgraz
+145024,Suíça,1,FC Luzern,luzern
+145146,Suíça,1,FC Lausanne-Sport,lausannesport
+145619,Suíça,1,FC Basel 1893,basel1893
+145908,Suíça,1,FC Lugano,lugano
+145950,Suíça,1,FC Thun,thun
+146167,Suíça,1,Servette FC,servette
+146790,Suíça,1,FC Zürich,zurich
+147074,Suíça,1,Grasshopper Club Zürich,grasshopperzurich
+148260,Suíça,1,BSC Young Boys,bscyoungboys
+148815,Suíça,1,FC Sion,sion
+149496,Suíça,1,FC St.Gallen 1879,stgallen1879
+149515,Suíça,1,FC Vaduz,vaduz
+150081,Dinamarca,1,FC Nordsjælland,nordsjlland
+150133,Dinamarca,1,FC København,kbenhavn
+150490,Dinamarca,1,Lyngby BK,lyngby
+151623,Dinamarca,1,Sønderjyske Fodbold,snderjyskefodbold
+152029,Dinamarca,1,FC Midtjylland,midtjylland
+152058,Dinamarca,1,OB,ob
+153818,Dinamarca,1,AGF,agf
+153961,Dinamarca,1,AC Horsens,horsens
+154437,Dinamarca,1,Brøndby IF,brndbyif
+154487,Dinamarca,1,Silkeborg IF,silkeborgif
+154670,Dinamarca,1,Viborg FF,viborgff
+154814,Dinamarca,1,Randers FC,randers
+155197,Noruega,1,Lillestrøm,lillestrm
+155363,Noruega,1,HamKam,hamkam
+155493,Noruega,1,KFUM,kfum
+155648,Noruega,1,Vålerenga,valerenga
+155816,Noruega,1,Fredrikstad,fredrikstad
+156701,Noruega,1,Aalesund,aalesund
+157083,Noruega,1,Rosenborg,rosenborg
+157255,Noruega,1,Tromsø,troms
+157447,Noruega,1,Sarpsborg 08,sarpsborg08
+158076,Noruega,1,Viking,viking
+158357,Noruega,1,Sandefjord Fotball,sandefjordfotball
+158587,Noruega,1,Start,start
+158592,Noruega,1,Kristiansund,kristiansund
+158664,Noruega,1,Brann,brann
+159335,Noruega,1,Molde,molde
+159807,Noruega,1,Bodø/Glimt,bodglimt
+160217,Suécia,1,Kalmar FF,kalmarff
+160427,Suécia,1,Degerfors IF,degerforsif
+160477,Suécia,1,Hammarby,hammarby
+160847,Suécia,1,Västerås SK,vasteras
+161029,Suécia,1,Halmstads BK,halmstads
+161219,Suécia,1,IK Sirius,iksirius
+161499,Suécia,1,Mjällby AIF,mjallbyaif
+161666,Suécia,1,IFK Göteborg,ifkgoteborg
+162219,Suécia,1,BK Häcken,hacken
+162524,Suécia,1,IF Elfsborg,ifelfsborg
+162699,Suécia,1,GAIS,gais
+163100,Suécia,1,AIK,aik
+163519,Suécia,1,Djurgården,djurgarden
+163865,Suécia,1,IF Brommapojkarna,ifbrommapojkarna
+163998,Suécia,1,Malmö FF,malmoff
+164889,Suécia,1,Örgryte IS,orgryteis
+165563,Polônia,1,Korona Kielce,koronakielce
+165839,Polônia,1,Radomiak Radom,radomiakradom
+166448,Polônia,1,Wisła Kraków,wisakrakow
+166839,Polônia,1,Raków Częstochowa,rakowczestochowa
+167173,Polônia,1,Wisła Płock,wisapock
+167302,Polônia,1,Cracovia,cracovia
+167375,Polônia,1,Śląsk Wrocław,slaskwrocaw
+167377,Polônia,1,Pogoń Szczecin,pogonszczecin
+167378,Polônia,1,Górnik Zabrze,gornikzabrze
+167517,Polônia,1,Wieczysta Kraków,wieczystakrakow
+167669,Polônia,1,Jagiellonia Białystok,jagielloniabiaystok
+168181,Polônia,1,Piast Gliwice,piastgliwice
+168281,Polônia,1,Widzew Łódź,widzewodz
+168478,Polônia,1,Motor Lublin,motorlublin
+168912,Polônia,1,GKS Katowice,gkskatowice
+169113,Polônia,1,Legia Warszawa,legiawarszawa
+169387,Polônia,1,Zagłębie Lubin,zagebielubin
+169829,Polônia,1,Lech Poznań,lechpoznan
+170125,Tchéquia,1,FC Baník Ostrava,banikostrava
+170147,Tchéquia,1,Bohemians Praha 1905,bohemianspraha1905
+170258,Tchéquia,1,FK Pardubice,pardubice
+170281,Tchéquia,1,SK Slavia Praha,slaviapraha
+170484,Tchéquia,1,MFK Karviná,mfkkarvina
+170621,Tchéquia,1,1. FC Slovácko,1slovacko
+171077,Tchéquia,1,Dukla Praha,duklapraha
+171136,Tchéquia,1,FC Zlín,zlin
+171548,Tchéquia,1,FC Slovan Liberec,slovanliberec
+171682,Tchéquia,1,AC Sparta Praha,spartapraha
+171875,Tchéquia,1,FK Mladá Boleslav,mladaboleslav
+172240,Tchéquia,1,FC Hradec Králové,hradeckralove
+173766,Tchéquia,1,FK Jablonec,jablonec
+173802,Tchéquia,1,SK Sigma Olomouc,sigmaolomouc
+173995,Tchéquia,1,FC Viktoria Plzeň,viktoriaplzen
+174491,Tchéquia,1,FK Teplice,teplice
+175099,Croácia,1,Gorica,gorica
+175105,Croácia,1,Slaven Belupo,slavenbelupo
+175979,Croácia,1,Osijek,osijek
+176462,Croácia,1,Varaždin,varazdin
+176607,Croácia,1,Hajduk Split,hajduksplit
+177077,Croácia,1,Dinamo Zagreb,dinamozagreb
+177798,Croácia,1,Rijeka,rijeka
+177818,Croácia,1,Lokomotiva Zagreb,lokomotivazagreb
+179455,Croácia,1,Rudeš,rudes
+179498,Croácia,1,Istra 1961,istra1961
+180158,Sérvia,1,Železničar Pančevo,zeleznicarpancevo
+180410,Sérvia,1,Zemun,zemun
+181288,Sérvia,1,Vojvodina,vojvodina
+181345,Sérvia,1,Mačva Šabac,macvasabac
+181478,Sérvia,1,Radnički Niš,radnickinis
+181536,Sérvia,1,Partizan,partizan
+181800,Sérvia,1,Radnik Surdulica,radniksurdulica
+182142,Sérvia,1,Radnički 1923,radnicki1923
+182391,Sérvia,1,IMT,imt
+182470,Sérvia,1,Mladost Lučani,mladostlucani
+183203,Sérvia,1,Crvena zvezda,crvenazvezda
+183582,Sérvia,1,OFK Beograd,ofkbeograd
+183776,Sérvia,1,Čukarički,cukaricki
+183820,Sérvia,1,Novi Pazar,novipazar
+185060,Grécia,1,Volos NFC,volosnfc
+185548,Grécia,1,Panathinaikos,panathinaikos
+186494,Grécia,1,Olympiacos,olympiacos
+186737,Grécia,1,Levadiakos,levadiakos
+187147,Grécia,1,Iraklis,iraklis
+187681,Grécia,1,Kalamata,kalamata
+187700,Grécia,1,Panetolikos,panetolikos
+187739,Grécia,1,AEK,aek
+187995,Grécia,1,Atromitos,atromitos
+188450,Grécia,1,OFI,ofi
+188627,Grécia,1,PAOK,paok
+189483,Grécia,1,Aris,aris
+189523,Grécia,1,Kifisia,kifisia
+189809,Grécia,1,Asteras Aktor,asterasaktor
