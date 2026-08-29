@@ -11,6 +11,8 @@ import java.util.Locale
  * renumerados apenas porque o nome visível do clube foi corrigido.
  */
 object BrasfootRealClubIdentity {
+    private val supportedCrestExtensions = setOf("png", "svg")
+
     data class Replacement(
         val legacyTeamId: Long,
         val country: String,
@@ -61,8 +63,13 @@ object BrasfootRealClubIdentity {
             require(replacement.legacyTeamId > 0L) { "ID legado inválido para ${replacement.realClubName}." }
             require(legacyIds.add(replacement.legacyTeamId)) { "ID legado reutilizado: ${replacement.legacyTeamId}" }
             require(replacement.division > 0) { "Divisão inválida para ${replacement.realClubName}." }
-            require(replacement.crestFileName.endsWith(".png", ignoreCase = true)) {
-                "Escudo deve preservar o PNG original do patch: ${replacement.crestFileName}"
+            require('/' !in replacement.crestFileName && '\\' !in replacement.crestFileName) {
+                "Nome de escudo deve ser basename puro: ${replacement.crestFileName}"
+            }
+            val extension = replacement.crestFileName.substringAfterLast('.', missingDelimiterValue = "")
+                .lowercase(Locale.ROOT)
+            require(extension in supportedCrestExtensions) {
+                "Escudo deve preservar PNG ou SVG auditado: ${replacement.crestFileName}"
             }
 
             val realKey = key(replacement.country, replacement.realClubName)
