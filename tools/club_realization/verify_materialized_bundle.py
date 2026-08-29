@@ -13,11 +13,14 @@ import argparse
 import csv
 import hashlib
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
 EXPECTED_REPLACEMENTS = 1907
+EXPECTED_FACTUAL_CLUBS = 617
+GENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 SUPPORTED_CREST_EXTENSIONS = {".png", ".svg"}
 
@@ -70,6 +73,39 @@ def read_baseline(path: Path) -> dict[int, tuple[str, int, str]]:
         result[team_id] = value
     if len(result) != EXPECTED_REPLACEMENTS:
         raise ValueError(f"baseline count {len(result)} != {EXPECTED_REPLACEMENTS}")
+    return result
+
+
+
+def canonical_identity_key(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
+    return "".join(token for token in re.findall(r"[a-z0-9]+", folded) if token not in GENERIC_CLUB_TOKENS)
+
+
+def read_factual_keys(path: Path) -> set[tuple[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    required = {"country", "clubName", "canonicalClubKey"}
+    if rows:
+        missing = required - set(rows[0])
+        if missing:
+            raise ValueError(f"factual baseline missing columns: {sorted(missing)}")
+    if len(rows) != EXPECTED_FACTUAL_CLUBS:
+        raise ValueError(f"factual baseline count {len(rows)} != {EXPECTED_FACTUAL_CLUBS}")
+    result: set[tuple[str, str]] = set()
+    for row in rows:
+        country = row["country"].strip()
+        club_name = row["clubName"].strip()
+        canonical = row["canonicalClubKey"].strip().casefold()
+        expected = canonical_identity_key(club_name)
+        if not country or not club_name or not canonical:
+            raise ValueError("empty factual club identity field")
+        if canonical != expected:
+            raise ValueError(
+                f"inconsistent factual canonical key for {country} / {club_name}: "
+                f"expected={expected!r} actual={canonical!r}"
+            )
+        result.add((country.casefold(), canonical))
     return result
 
 
@@ -145,11 +181,13 @@ def crest_assets(crest_dir: Path) -> list[Path]:
 
 def verify_complete_bundle(
     baseline_path: Path,
+    factual_baseline_path: Path,
     kotlin_path: Path,
     crest_dir: Path,
     manifest_path: Path,
 ) -> dict[str, str]:
     baseline = read_baseline(baseline_path)
+    factual_keys = read_factual_keys(factual_baseline_path)
     replacements = read_replacements(kotlin_path)
     manifest = read_manifest(manifest_path)
     assets = crest_assets(crest_dir)
@@ -177,6 +215,7 @@ def verify_complete_bundle(
 
     real_keys: set[tuple[str, str]] = set()
     canonical_keys: set[tuple[str, str]] = set()
+    alias_keys: set[tuple[str, str]] = set()
     crest_names: set[str] = set()
     actual_asset_names = {path.name.casefold(): path for path in assets}
     if len(actual_asset_names) != len(assets):
@@ -203,6 +242,19 @@ def verify_complete_bundle(
                 f"{row.country} / {canonical_name}"
             )
         canonical_keys.add(canonical_key)
+
+        alias_name = canonical_identity_key(row.real_club_name)
+        if not alias_name:
+            raise ValueError(f"real club does not yield a canonical alias for legacyTeamId {row.legacy_team_id}")
+        alias_key = (row.country.casefold(), alias_name)
+        if alias_key in alias_keys:
+            raise ValueError(f"club alias reused by more than one replacement: {row.country} / {row.real_club_name}")
+        alias_keys.add(alias_key)
+        if canonical_key in factual_keys or alias_key in factual_keys:
+            raise ValueError(
+                f"replacement reuses one of the {EXPECTED_FACTUAL_CLUBS} preserved factual clubs: "
+                f"{row.country} / {row.real_club_name}"
+            )
 
         for field in ("sourceKind", "sourceRevision", "sourceIdentityPath", "sourceCrestPath"):
             if not digest_row[field]:
@@ -279,12 +331,19 @@ def probe(args: argparse.Namespace) -> dict[str, str]:
             "digest_rows": str(digest_rows),
         }
 
-    return verify_complete_bundle(args.baseline, args.kotlin_file, args.crest_dir, args.digest_file)
+    return verify_complete_bundle(
+        args.baseline, args.factual_baseline, args.kotlin_file, args.crest_dir, args.digest_file
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, default=Path("docs/club-realization/generated-filler-slots.csv"))
+    parser.add_argument(
+        "--factual-baseline",
+        type=Path,
+        default=Path("docs/club-realization/preserved-factual-clubs.csv"),
+    )
     parser.add_argument("--kotlin-file", type=Path, default=Path("app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt"))
     parser.add_argument("--crest-dir", type=Path, default=Path("app/src/main/assets/club_crests"))
     parser.add_argument("--digest-file", type=Path, default=Path("docs/club-realization/crest-sha256.csv"))

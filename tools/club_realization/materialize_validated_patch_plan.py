@@ -16,12 +16,15 @@ import hashlib
 import re
 import shutil
 import struct
+import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 EXPECTED_REPLACEMENTS = 1907
+EXPECTED_FACTUAL_CLUBS = 617
+GENERIC_CLUB_TOKENS = {"fc", "cf", "sc", "ac", "afc", "cd", "ca", "fk", "nk", "hnk", "gnk", "sk", "bk", "club", "clube"}
 SUPPORTED_CREST_EXTENSIONS = {".png", ".svg"}
 
 
@@ -65,6 +68,42 @@ def load_slots(path: Path) -> dict[int, Slot]:
         result[slot.legacy_team_id] = slot
     if len(result) != EXPECTED_REPLACEMENTS:
         raise ValueError(f"Baseline deveria ter {EXPECTED_REPLACEMENTS} slots; recebeu {len(result)}")
+    return result
+
+
+
+def canonical_identity_key(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
+    return "".join(token for token in re.findall(r"[a-z0-9]+", folded) if token not in GENERIC_CLUB_TOKENS)
+
+
+def load_factual_keys(path: Path) -> set[tuple[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    required = {"country", "clubName", "canonicalClubKey"}
+    if rows:
+        missing = required - set(rows[0])
+        if missing:
+            raise ValueError(f"Baseline factual sem colunas obrigatórias: {sorted(missing)}")
+    if len(rows) != EXPECTED_FACTUAL_CLUBS:
+        raise ValueError(f"Baseline factual deveria ter {EXPECTED_FACTUAL_CLUBS} clubes; recebeu {len(rows)}")
+
+    result: set[tuple[str, str]] = set()
+    for row in rows:
+        country = row["country"].strip()
+        club_name = row["clubName"].strip()
+        canonical = row["canonicalClubKey"].strip().casefold()
+        expected = canonical_identity_key(club_name)
+        if not country or not club_name or not canonical:
+            raise ValueError("Baseline factual contém país, nome ou chave canônica vazios")
+        if canonical != expected:
+            raise ValueError(
+                f"Baseline factual possui canonicalClubKey inconsistente para {country} / {club_name}: "
+                f"expected={expected!r} actual={canonical!r}"
+            )
+        # A baseline factual congela clubes, não chaves únicas. Se dois factuais
+        # colapsarem sob a regra conservadora de alias, a chave continua proibida.
+        result.add((country.casefold(), canonical))
     return result
 
 
@@ -158,7 +197,12 @@ def kotlin_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
 
 
-def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path) -> list[tuple[PlanRow, str]]:
+def validate_plan(
+    slots: dict[int, Slot],
+    plan: list[PlanRow],
+    crests_dir: Path,
+    factual_keys: set[tuple[str, str]],
+) -> list[tuple[PlanRow, str]]:
     if len(plan) != EXPECTED_REPLACEMENTS:
         raise ValueError(f"Plano deve conter exatamente {EXPECTED_REPLACEMENTS} linhas; recebeu {len(plan)}")
 
@@ -172,6 +216,7 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
 
     real_keys: set[tuple[str, str]] = set()
     canonical_keys: set[tuple[str, str]] = set()
+    alias_keys: set[tuple[str, str]] = set()
     crest_keys: set[str] = set()
     checked: list[tuple[PlanRow, str]] = []
 
@@ -221,6 +266,21 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
                 f"{row.country} / {row.canonical_club_key}"
             )
         canonical_keys.add(canonical_key)
+
+        alias_name = canonical_identity_key(row.real_club_name)
+        if not alias_name:
+            raise ValueError(f"Nome real não produz identidade canônica utilizável no slot {row.legacy_team_id}")
+        alias_key = (row.country.casefold(), alias_name)
+        if alias_key in alias_keys:
+            raise ValueError(
+                f"Alias de clube reutilizado por mais de uma substituição: {row.country} / {row.real_club_name}"
+            )
+        alias_keys.add(alias_key)
+        if canonical_key in factual_keys or alias_key in factual_keys:
+            raise ValueError(
+                f"Substituição reutiliza um dos {EXPECTED_FACTUAL_CLUBS} clubes factuais preservados: "
+                f"{row.country} / {row.real_club_name}"
+            )
 
         crest_key = row.crest_file_name.casefold()
         if crest_key in crest_keys:
@@ -325,6 +385,11 @@ def write_digest_manifest(checked: list[tuple[PlanRow, str]], output: Path) -> N
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, default=Path("docs/club-realization/generated-filler-slots.csv"))
+    parser.add_argument(
+        "--factual-baseline",
+        type=Path,
+        default=Path("docs/club-realization/preserved-factual-clubs.csv"),
+    )
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--crests-dir", type=Path, required=True)
     parser.add_argument(
@@ -345,8 +410,9 @@ def main() -> None:
     args = parser.parse_args()
 
     slots = load_slots(args.baseline)
+    factual_keys = load_factual_keys(args.factual_baseline)
     plan = load_plan(args.plan)
-    checked = validate_plan(slots, plan, args.crests_dir)
+    checked = validate_plan(slots, plan, args.crests_dir, factual_keys)
     write_kotlin(checked, args.kotlin_output)
     copy_original_crests(checked, args.crests_dir, args.asset_output_dir)
     write_digest_manifest(checked, args.digest_output)
