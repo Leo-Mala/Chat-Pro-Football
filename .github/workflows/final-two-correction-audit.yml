@@ -31,7 +31,7 @@ jobs:
           import csv, hashlib, struct, time, urllib.request
           from pathlib import Path
           OUT=Path('final-two'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True,exist_ok=True)
-          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/2.1'}
+          UA={'User-Agent':'Mozilla/5.0 Chat-Pro-Football crest-audit/2.2'}
           targets=[
             {
               'country':'Emirados Árabes Unidos','club':'Sharjah FC','kind':'uaelogos',
@@ -39,9 +39,9 @@ jobs:
               'urls':['https://uaelogos.ae/storage/173/conversions/sharjah-fc-thumb.png']
             },
             {
-              'country':'Honduras','club':'Olancho FC','kind':'footystats',
-              'identity':'https://www.lnphn.com/team/olancho-f-c/',
-              'urls':['https://cdn.footystats.org/img/teams/honduras-olancho-fc.png','https://cdn.footystats.org/img/teams/honduras-olancho.png','https://cdn.footystats.org/img/teams/olancho-fc.png']
+              'country':'Honduras','club':'Génesis PN','kind':'liga-honduras-statsengine',
+              'identity':'https://www.lnphn.com/team/c-d-genesis',
+              'urls':['https://images.statsengine.playbyplay.api.geniussports.com/fc6606f47e759bfce9b113fa9f234b7eL1.png']
             },
           ]
           def fetch(url):
@@ -72,7 +72,7 @@ jobs:
                 sha=hashlib.sha256(data).hexdigest()
                 if sha in seen: errors.append((t['country'],t['club'],u,'DUPLICATE_SHA')); continue
                 seen.add(sha); local=sha+ext; (ASSETS/local).write_bytes(data)
-                rows.append((t['country'],t['club'],t['kind'],'2026-08-29-final-two-audit',t['identity'],u,final,ctype,len(data),ext,sha,'assets/'+local))
+                rows.append((t['country'],t['club'],t['kind'],'2026-08-29-final-two-audit-v2',t['identity'],u,final,ctype,len(data),ext,sha,'assets/'+local))
                 ok=True; break
               except Exception as e: errors.append((t['country'],t['club'],u,repr(e)))
             if not ok: errors.append((t['country'],t['club'],t['identity'],'NO_VALID_ASSET'))
