@@ -21,6 +21,7 @@ import gzip
 import hashlib
 import itertools
 import re
+import zlib
 from collections import Counter
 from io import StringIO
 from pathlib import Path
@@ -64,7 +65,7 @@ def reconstruct_payload() -> tuple[bytes, tuple[Path, ...], bytes]:
             continue
         try:
             payload = gzip.decompress(compressed)
-        except (OSError, EOFError):
+        except (OSError, EOFError, zlib.error):
             continue
         valid.append((payload, order, compressed))
 
