@@ -30,7 +30,23 @@ new = '''                    add(
                     )'''
 if old not in text:
     raise SystemExit("CareerSeedTemplateGeneratorTest Team constructor marker not found")
-p.write_text(text.replace(old, new, 1))
+text = text.replace(old, new, 1)
+
+# JUnit4 requires a Unit/void test method. Context.deleteDatabase returns Boolean, so force Unit
+# as the final runBlocking expression instead of accidentally exposing Boolean to the runner.
+old = '''        context.deleteDatabase(dbName)
+    }
+}
+'''
+new = '''        context.deleteDatabase(dbName)
+        Unit
+    }
+}
+'''
+if old not in text:
+    raise SystemExit("CareerSeedTemplateGeneratorTest final expression marker not found")
+text = text.replace(old, new, 1)
+p.write_text(text)
 
 # This integration test exists solely for the removed factual cross-league player/loan importer.
 p = Path("app/src/test/java/com/example/data/EuropeanCrossLeagueLoanImportTest.kt")
