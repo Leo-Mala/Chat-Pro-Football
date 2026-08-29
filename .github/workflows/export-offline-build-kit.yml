@@ -21,16 +21,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Package exact JDK 17
+      - name: Package exact JDK 17 bytes
         shell: bash
         run: |
           set -euo pipefail
           java -version
-          test -x "$JAVA_HOME/bin/java"
+          REAL_JAVA_HOME="$(readlink -f "$JAVA_HOME")"
+          test -x "$REAL_JAVA_HOME/bin/java"
           OUT="$RUNNER_TEMP/temurin-jdk17.tar.zst"
-          tar -C "$(dirname "$JAVA_HOME")" -I 'zstd -T0 -6' -cf "$OUT" "$(basename "$JAVA_HOME")"
+          tar -C "$(dirname "$REAL_JAVA_HOME")" -I 'zstd -T0 -6' -cf "$OUT" "$(basename "$REAL_JAVA_HOME")"
           sha256sum "$OUT" > "$RUNNER_TEMP/temurin-jdk17.sha256"
-          printf '%s\n' "$JAVA_HOME" > "$RUNNER_TEMP/JAVA_HOME.txt"
+          printf '%s\n' "$REAL_JAVA_HOME" > "$RUNNER_TEMP/JAVA_HOME.txt"
           ls -lh "$OUT" "$RUNNER_TEMP/temurin-jdk17.sha256" "$RUNNER_TEMP/JAVA_HOME.txt"
       - name: Upload JDK 17
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
