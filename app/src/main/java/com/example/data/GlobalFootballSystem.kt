@@ -117,6 +117,9 @@ object GlobalFootballSystem {
      * outros clubes passaram a usar IDs estáveis reservados.
      */
     fun getGlobalId(country: String, teamName: String): Long {
+        // Clubes reais que substituem fillers herdam o ID numérico EXATO do slot congelado.
+        // Isso é mais forte que depender apenas do nome/ordem do catálogo legado.
+        BrasfootRealClubIdentity.legacyTeamIdFor(country, teamName)?.let { return it }
         stableSeedIdFor(country, teamName)?.let { return it }
 
         val countryIndex = keys.indexOf(country)

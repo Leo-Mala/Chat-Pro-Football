@@ -12,6 +12,7 @@ import java.util.Locale
  */
 object BrasfootRealClubIdentity {
     data class Replacement(
+        val legacyTeamId: Long,
         val country: String,
         val division: Int,
         val legacySlotName: String,
@@ -20,16 +21,21 @@ object BrasfootRealClubIdentity {
     )
 
     private val lock = Any()
+    private var legacyTeamIdByRealKey: Map<String, Long> = emptyMap()
     private var legacySlotByRealKey: Map<String, String> = emptyMap()
     private var crestByRealKey: Map<String, String> = emptyMap()
 
     fun install(replacements: Collection<Replacement>) {
+        val ids = LinkedHashMap<String, Long>(replacements.size)
         val aliases = LinkedHashMap<String, String>(replacements.size)
         val crests = LinkedHashMap<String, String>(replacements.size)
+        val legacyIds = HashSet<Long>(replacements.size)
         val legacyKeys = HashSet<String>(replacements.size)
         val crestNames = HashSet<String>(replacements.size)
 
         replacements.forEach { replacement ->
+            require(replacement.legacyTeamId > 0L) { "ID legado inválido para ${replacement.realClubName}." }
+            require(legacyIds.add(replacement.legacyTeamId)) { "ID legado reutilizado: ${replacement.legacyTeamId}" }
             require(replacement.country.isNotBlank()) { "País vazio no plano de clubes reais." }
             require(replacement.division > 0) { "Divisão inválida para ${replacement.realClubName}." }
             require(replacement.legacySlotName.isNotBlank()) { "Slot legado vazio para ${replacement.realClubName}." }
@@ -49,15 +55,20 @@ object BrasfootRealClubIdentity {
             val crestKey = replacement.crestFileName.lowercase(Locale.ROOT)
             require(crestNames.add(crestKey)) { "Escudo reutilizado por mais de um clube: ${replacement.crestFileName}" }
 
+            ids[realKey] = replacement.legacyTeamId
             aliases[realKey] = replacement.legacySlotName
             crests[realKey] = replacement.crestFileName
         }
 
         synchronized(lock) {
+            legacyTeamIdByRealKey = ids.toMap()
             legacySlotByRealKey = aliases.toMap()
             crestByRealKey = crests.toMap()
         }
     }
+
+    fun legacyTeamIdFor(country: String, realClubName: String): Long? =
+        synchronized(lock) { legacyTeamIdByRealKey[key(country, realClubName)] }
 
     fun legacySlotNameFor(country: String, realClubName: String): String? =
         synchronized(lock) { legacySlotByRealKey[key(country, realClubName)] }
@@ -70,6 +81,7 @@ object BrasfootRealClubIdentity {
 
     internal fun resetForTests() {
         synchronized(lock) {
+            legacyTeamIdByRealKey = emptyMap()
             legacySlotByRealKey = emptyMap()
             crestByRealKey = emptyMap()
         }

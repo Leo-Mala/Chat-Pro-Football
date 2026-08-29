@@ -173,7 +173,7 @@ def write_kotlin(checked: list[tuple[PlanRow, str]], output: Path) -> None:
     for row, _ in checked:
         lines.append(
             "        BrasfootRealClubIdentity.Replacement(" +
-            f"country = {kotlin_string(row.country)}, division = {row.division}, " +
+            f"legacyTeamId = {row.legacy_team_id}L, country = {kotlin_string(row.country)}, division = {row.division}, " +
             f"legacySlotName = {kotlin_string(row.legacy_slot_name)}, " +
             f"realClubName = {kotlin_string(row.real_club_name)}, " +
             f"crestFileName = {kotlin_string(row.crest_file_name)}),"
