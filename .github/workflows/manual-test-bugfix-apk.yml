@@ -1,4 +1,4 @@
-name: Temporary External Crest Audit
+name: Temporary Targeted Crest Audit
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout exact audit head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -20,117 +20,89 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Collect individual crest indexes and assets
+      - name: Collect indexes and targeted Jamaica assets
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p external-crest-audit/assets
+          mkdir -p targeted-audit/assets
           python3 - <<'PY'
           from __future__ import annotations
-          import csv, hashlib, html, re, time, urllib.parse, urllib.request
+          import csv, hashlib, html, re, time, urllib.parse, urllib.request, unicodedata
           from pathlib import Path
 
-          ROOT = 'https://www.escudosdefutbolyequipaciones.com/images_esc3'
-          OUT = Path('external-crest-audit')
-          ASSETS = OUT / 'assets'
-          ASSETS.mkdir(parents=True, exist_ok=True)
-          candidates = {
-              'Jamaica': ['CONC/JAMAICA'],
-              'Guatemala': ['CONC/GUATEMALA'],
-              'México': ['CONC/MEXICO', 'CONC/MÉXICO'],
-              'Costa Rica': ['CONC/COSTA RICA'],
-              'Colômbia': ['CONM/COLOMBIA'],
-              'Uruguai': ['CONM/URUGUAY'],
-              'Paraguai': ['CONM/PARAGUAY'],
-              'Chile': ['CONM/CHILE'],
-              'China': ['AFC/CHINA'],
-              'Irã': ['AFC/IRAN'],
-              'Arábia Saudita': ['AFC/ARABIA SAUDITA', 'AFC/ARABIA SAUDÍ', 'AFC/SAUDI ARABIA'],
-              'Tchéquia': ['UEFA/REPUBLICA CHECA', 'UEFA/REPÚBLICA CHECA', 'UEFA/CZECH REPUBLIC', 'UEFA/CZECHIA', 'UEFA/CHEQUIA'],
-          }
-          banned = ('selecci', 'national', 'bandera', 'flag', 'mapa', 'federaci', 'federation', 'liga', 'league', 'association', 'confeder', 'femen', 'women', 'sub-', 'u17', 'u19', 'u20', 'u21', 'juvenil')
-          href_re = re.compile(r'href=[\"\']([^\"\']+)[\"\']', re.I)
-          ext_re = re.compile(r'\.(?:png|jpe?g)$', re.I)
-          rows, errors, seen_urls = [], [], set()
-
-          def fetch(url, attempts=4):
-              last = None
-              for attempt in range(attempts):
-                  try:
-                      req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 crest-audit/1.0'})
-                      with urllib.request.urlopen(req, timeout=30) as r:
-                          return r.read(), r.headers.get('Content-Type', '')
-                  except Exception as exc:
-                      last = exc
-                      time.sleep(1.5 * (attempt + 1))
-              raise last
-
-          for country, paths in candidates.items():
-              found = False
-              for logical_path in paths:
-                  encoded = urllib.parse.quote(logical_path, safe='/')
-                  for folder in ('escudos', 'escudos_jpg'):
-                      index_url = f'{ROOT}/{encoded}/{folder}/'
-                      try:
-                          raw, _ = fetch(index_url)
-                          text = raw.decode('utf-8', errors='replace')
-                      except Exception as exc:
-                          errors.append((country, logical_path, folder, index_url, repr(exc)))
-                          continue
-                      hrefs = []
-                      for href in href_re.findall(text):
-                          decoded = urllib.parse.unquote(html.unescape(href))
-                          if not ext_re.search(decoded):
-                              continue
-                          low = decoded.casefold()
-                          if any(token in low for token in banned):
-                              continue
-                          hrefs.append(href)
-                      if not hrefs:
-                          continue
-                      found = True
-                      for href in sorted(set(hrefs)):
-                          url = urllib.parse.urljoin(index_url, href)
-                          if url in seen_urls:
-                              continue
-                          seen_urls.add(url)
-                          decoded_name = urllib.parse.unquote(html.unescape(href)).split('/')[-1]
-                          try:
-                              data, ctype = fetch(url)
-                          except Exception as exc:
-                              errors.append((country, logical_path, folder, url, repr(exc)))
-                              continue
-                          if len(data) < 128:
-                              errors.append((country, logical_path, folder, url, f'too-small:{len(data)}'))
-                              continue
-                          digest = hashlib.sha256(data).hexdigest()
-                          suffix = Path(decoded_name).suffix.lower() or '.bin'
-                          artifact_name = f'{digest}{suffix}'
-                          target = ASSETS / artifact_name
-                          if not target.exists():
-                              target.write_bytes(data)
-                          rows.append((country, logical_path, folder, decoded_name, url, ctype, len(data), digest, f'assets/{artifact_name}'))
-              if not found:
-                  errors.append((country, '', '', '', 'NO_WORKING_DIRECTORY_WITH_IMAGES'))
-
-          with (OUT/'index.csv').open('w', encoding='utf-8', newline='') as f:
-              w=csv.writer(f); w.writerow(['country','logicalPath','folder','sourceFileName','sourceUrl','contentType','size','sha256','artifactFile']); w.writerows(rows)
-          with (OUT/'errors.csv').open('w', encoding='utf-8', newline='') as f:
-              w=csv.writer(f); w.writerow(['country','logicalPath','folder','url','error']); w.writerows(errors)
-          summary = {}
-          for row in rows:
-              summary.setdefault(row[0], set()).add(row[7])
-          with (OUT/'summary.txt').open('w', encoding='utf-8') as f:
-              for country in candidates:
-                  f.write(f'{country}: unique_assets={len(summary.get(country,set()))}\n')
-              f.write(f'total_rows={len(rows)}\nunique_assets={len({r[7] for r in rows})}\nerrors={len(errors)}\n')
+          ROOT='https://www.escudosdefutbolyequipaciones.com/images_esc3'
+          OUT=Path('targeted-audit'); ASSETS=OUT/'assets'; ASSETS.mkdir(parents=True, exist_ok=True)
+          paths={
+            'Jamaica':['CONC/JAMAICA'], 'Guatemala':['CONC/GUATEMALA'],
+            'México':['CONC/MEXICO','CONC/MÉXICO'], 'Costa Rica':['CONC/COSTA RICA'],
+            'Colômbia':['CONM/COLOMBIA'], 'Uruguai':['CONM/URUGUAY'],
+            'Paraguai':['CONM/PARAGUAY'], 'Chile':['CONM/CHILE'], 'China':['AFC/CHINA'],
+            'Irã':['AFC/IRAN'], 'Arábia Saudita':['AFC/ARABIA SAUDITA','AFC/ARABIA SAUDÍ','AFC/SAUDI ARABIA'],
+            'Tchéquia':['UEFA/REPUBLICA CHECA','UEFA/REPÚBLICA CHECA','UEFA/CZECH REPUBLIC','UEFA/CZECHIA','UEFA/CHEQUIA']}
+          jamaica_targets=["Brown's Town","Chapelton Maroons","Falmouth United","Liguanea United","Meadhaven United","New Kingston","Olympic Gardens","Racing United","Shortwood United","Treasure Beach"]
+          href_re=re.compile(r'href=[\"\']([^\"\']+)[\"\']',re.I); ext_re=re.compile(r'\.(?:png|jpe?g)$',re.I)
+          banned=('selecci','national','bandera','flag','mapa','federaci','federation','liga','league','association','confeder','femen','women','sub-','u17','u19','u20','u21','juvenil')
+          index_rows=[]; download_rows=[]; errors=[]
+          def norm(s):
+            s=unicodedata.normalize('NFKD',s).encode('ascii','ignore').decode().casefold()
+            s=re.sub(r'\b(?:escudo|logo|f\.?c\.?|fc|football club)\b',' ',s)
+            return re.sub(r'[^a-z0-9]','',s)
+          def fetch(url, attempts=2):
+            last=None
+            for i in range(attempts):
+              try:
+                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 crest-audit/1.1'})
+                with urllib.request.urlopen(req,timeout=20) as r: return r.read(),r.headers.get('Content-Type','')
+              except Exception as e: last=e; time.sleep(1+i)
+            raise last
+          for country, logical_paths in paths.items():
+            working=[]
+            for logical in logical_paths:
+              encoded=urllib.parse.quote(logical,safe='/')
+              for folder in ('escudos','escudos_jpg'):
+                base=f'{ROOT}/{encoded}/{folder}/'
+                try: raw,_=fetch(base); text=raw.decode('utf-8',errors='replace')
+                except Exception as e: errors.append((country,logical,folder,base,repr(e))); continue
+                files=[]
+                for href in href_re.findall(text):
+                  decoded=urllib.parse.unquote(html.unescape(href)).split('/')[-1]
+                  if not ext_re.search(decoded) or any(x in decoded.casefold() for x in banned): continue
+                  url=urllib.parse.urljoin(base,href); files.append((decoded,url))
+                  index_rows.append((country,logical,folder,decoded,url,norm(decoded)))
+                if files: working.append((logical,folder,files))
+            if country=='Jamaica':
+              for target in jamaica_targets:
+                nt=norm(target); matches=[]
+                for logical,folder,files in working:
+                  for name,url in files:
+                    nn=norm(name)
+                    if nt and (nt==nn or nt in nn or nn in nt): matches.append((0 if folder=='escudos' else 1,len(nn),logical,folder,name,url))
+                if not matches:
+                  errors.append((country,target,'','','TARGET_NOT_FOUND')); continue
+                matches.sort(); _,_,logical,folder,name,url=matches[0]
+                try: data,ctype=fetch(url)
+                except Exception as e: errors.append((country,target,folder,url,repr(e))); continue
+                digest=hashlib.sha256(data).hexdigest(); suffix=Path(name).suffix.lower(); local=f'{digest}{suffix}'
+                (ASSETS/local).write_bytes(data)
+                download_rows.append((target,logical,folder,name,url,ctype,len(data),digest,f'assets/{local}'))
+          with (OUT/'index.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','logicalPath','folder','sourceFileName','sourceUrl','normalizedFileName']); w.writerows(index_rows)
+          with (OUT/'jamaica-targets.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['targetClub','logicalPath','folder','sourceFileName','sourceUrl','contentType','size','sha256','artifactFile']); w.writerows(download_rows)
+          with (OUT/'errors.csv').open('w',encoding='utf-8',newline='') as f:
+            w=csv.writer(f); w.writerow(['country','item','folder','url','error']); w.writerows(errors)
+          counts={}
+          for r in index_rows: counts.setdefault(r[0],set()).add(r[5])
+          with (OUT/'summary.txt').open('w',encoding='utf-8') as f:
+            for c in paths: f.write(f'{c}: indexed_names={len(counts.get(c,set()))}\n')
+            f.write(f'jamaica_targets_downloaded={len(download_rows)}/10\nerrors={len(errors)}\n')
           print((OUT/'summary.txt').read_text())
           PY
 
-      - name: Upload audit corpus
+      - name: Upload targeted audit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: external-crest-audit-${{ github.sha }}
-          path: external-crest-audit/
+          name: targeted-crest-audit-${{ github.sha }}
+          path: targeted-audit/
           if-no-files-found: error
           retention-days: 2
