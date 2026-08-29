@@ -85,14 +85,16 @@ jobs:
           set -euo pipefail
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --tests com.example.data.ProceduralRosterOnlyTest --tests com.example.data.CareerSeedTemplateRuntimeTest --tests com.example.usecase.CareerCreationPerformanceTest --tests com.example.data.PreCareerEditorOverridesTest --stacktrace
 
-      - name: Commit production patch and remove temporary files
+      - name: Commit production patch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/tmp-procedural-player-purge.yml \
-            .github/scripts/tmp_procedural_purge.py \
+          # GitHub Actions token cannot modify workflow files. Restore every workflow exactly as
+          # it was at checkout; the connector will clean those up after this production commit.
+          git restore --source=HEAD -- .github/workflows
+          git rm .github/scripts/tmp_procedural_purge.py \
             .github/scripts/tmp_procedural_cleanup.py \
             .github/scripts/tmp_procedural_cleanup_fix.py
           git add -A
@@ -100,4 +102,4 @@ jobs:
           git commit -m "refactor: use procedural players only"
           git push origin HEAD:fix/3.0.1-manual-test-bugs
 
-# retry generator with explicit Unit return
+# workflows intentionally restored before bot push
