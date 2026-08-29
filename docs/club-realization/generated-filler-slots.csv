@@ -1,0 +1,1908 @@
+legacyTeamId,country,division,legacySlotName
+19,Inglaterra,2,London
+20,Inglaterra,2,Manchester
+31,Inglaterra,2,Liverpool FC 1
+32,Inglaterra,2,Birmingham FC
+33,Inglaterra,2,Leeds
+34,Inglaterra,2,Newcastle FC
+35,Inglaterra,2,Leicester FC
+36,Inglaterra,2,Bristol
+37,Inglaterra,2,Nottingham
+38,Inglaterra,2,Real Sheffield
+39,Inglaterra,2,Southampton City
+40,Inglaterra,2,Norwich United
+41,Inglaterra,2,Brighton FC
+42,Inglaterra,2,Wolverhampton
+43,Inglaterra,2,Bournemouth FC
+44,Inglaterra,2,Crystal Palace FC
+55,Inglaterra,3,Club London
+56,Inglaterra,3,União Manchester
+57,Inglaterra,3,Liverpool
+58,Inglaterra,3,Birmingham
+59,Inglaterra,3,Leeds FC
+60,Inglaterra,3,Newcastle FC 1
+61,Inglaterra,3,Leicester FC 1
+62,Inglaterra,3,Bristol United
+63,Inglaterra,3,FC Nottingham
+64,Inglaterra,3,Sheffield Sociedade
+65,Inglaterra,3,Southampton AC
+66,Inglaterra,3,Club Norwich
+67,Inglaterra,3,FC Brighton
+68,Inglaterra,3,Wolverhampton 1
+217,Espanha,2,Sport Madrid
+218,Espanha,2,Barcelona Sporting
+219,Espanha,2,Sport Valencia
+220,Espanha,2,Sevilla FC 1
+231,Espanha,2,Bilbao
+232,Espanha,2,Zaragoza
+233,Espanha,2,Malaga FC
+234,Espanha,2,Deportivo Murcia
+235,Espanha,2,Las Palmas
+236,Espanha,2,Palma Athletic
+237,Espanha,2,Vigo Sociedade
+238,Espanha,2,Granada AC
+239,Espanha,2,Inter San Sebastián
+240,Espanha,2,Girona FC 1
+251,Espanha,3,Deportivo Madrid
+252,Espanha,3,Barcelona FC
+253,Espanha,3,Valencia
+254,Espanha,3,Sevilla FC 2
+255,Espanha,3,Bilbao FC
+256,Espanha,3,Atlético Zaragoza
+257,Espanha,3,Malaga Sociedade
+258,Espanha,3,Murcia
+259,Espanha,3,Las Palmas 1
+260,Espanha,3,Mundial Palma
+261,Espanha,3,Vigo United
+262,Espanha,3,Club Granada
+263,Espanha,3,Inter San Sebastián 1
+264,Espanha,3,Mundial Girona
+265,Espanha,3,Villarreal Athletic
+266,Espanha,3,Pamplona
+267,Espanha,3,Getafe
+268,Espanha,3,Vitoria United
+269,Espanha,3,Vallecas FC
+270,Espanha,3,Leganés
+271,Espanha,3,Valladolid Sociedade
+272,Espanha,3,Sport Espanyol
+273,Espanha,3,Eibar FC
+274,Espanha,3,Mundial Gijón
+275,Espanha,3,Real Elche
+276,Espanha,3,Tenerife FC
+277,Espanha,3,Oviedo FC
+278,Espanha,3,União Cádiz
+279,Espanha,3,Deportivo United
+280,Espanha,3,FC Castellón
+281,Espanha,3,Ibiza Athletic
+282,Espanha,3,Córdoba City
+434,Itália,2,Club Udine
+435,Itália,2,Monza Sporting
+436,Itália,2,Empoli Sporting
+437,Itália,2,Mundial Salerno
+438,Itália,2,Venezia FC
+439,Itália,2,Sport Sassuolo
+440,Itália,2,Frosinone FC
+441,Itália,3,Deportivo Roma
+442,Itália,3,Milano FC
+443,Itália,3,Napoli United
+445,Itália,3,Palermo FC
+446,Itália,3,Genova City
+447,Itália,3,Atlético Bologna
+448,Itália,3,Firenze FC
+449,Itália,3,Bari FC 1
+450,Itália,3,Deportivo Catania
+451,Itália,3,Verona FC
+452,Itália,3,Cagliari FC
+454,Itália,3,Udine FC
+455,Itália,3,FC Monza
+456,Itália,3,Mundial Empoli
+457,Itália,3,Salerno FC
+458,Itália,3,Venezia FC 1
+459,Itália,3,Sassuolo FC 1
+460,Itália,3,Frosinone FC 1
+461,Itália,3,Parma FC
+463,Itália,3,Cremona FC
+464,Itália,3,Spezia
+465,Itália,3,Inter Pisa
+466,Itália,3,Sport Brescia
+467,Itália,3,Sport Reggio Emilia
+468,Itália,3,Ferrara FC
+469,Itália,3,Padova
+470,Itália,3,Perugia
+471,Itália,3,Livorno Athletic
+472,Itália,3,Vicenza FC
+473,Itália,3,Ancona FC
+474,Itália,3,Trieste City
+475,Itália,3,Taranto Sociedade
+476,Itália,3,Roma FC 1
+477,Itália,3,Milano 1
+479,Itália,3,Torino 1
+480,Itália,3,Palermo FC 1
+481,Itália,3,Club Genova
+483,Itália,3,Firenze 2
+484,Itália,3,Bari
+485,Itália,3,Real Catania
+486,Itália,3,Inter Verona
+487,Itália,3,Cagliari FC 1
+488,Itália,3,Lecce FC
+489,Itália,3,Udine 1
+490,Itália,3,Monza FC 1
+491,Itália,3,Empoli
+492,Itália,3,Salerno 1
+493,Itália,3,Venezia Athletic
+494,Itália,3,Atlético Sassuolo
+495,Itália,3,Frosinone FC 2
+496,Itália,3,Parma Athletic
+497,Itália,3,Como 1
+498,Itália,3,Cremona
+499,Itália,3,Spezia City
+500,Itália,3,Atlético Pisa
+653,Alemanha,3,Mundial Augsburg
+654,Alemanha,3,Mainz Athletic
+655,Alemanha,3,Atlético Freiburg
+656,Alemanha,3,Heidenheim Sporting
+834,França,2,Le Havre
+835,França,2,Deportivo Metz
+836,França,2,Lorient AC
+837,França,3,Paris Sporting
+838,França,3,União Marseille 1
+839,França,3,Lyon FC 1
+840,França,3,Atlético Toulouse
+841,França,3,Nice Sporting
+842,França,3,Nantes Sporting
+843,França,3,Strasbourg Athletic
+844,França,3,Montpellier FC 1
+845,França,3,Bordeaux 1
+846,França,3,Lille 2
+847,França,3,Rennes FC
+848,França,3,Reims
+849,França,3,Sport Monaco
+850,França,3,Lens Sporting
+851,França,3,Brest FC 1
+852,França,3,Le Havre Sociedade
+853,França,3,Sport Metz
+1019,Portugal,2,Mundial Lisboa
+1020,Portugal,2,Porto City
+1021,Portugal,2,Braga FC
+1022,Portugal,2,Coimbra
+1023,Portugal,2,Funchal Sociedade
+1024,Portugal,2,Setubal Sporting
+1025,Portugal,2,Faro FC
+1026,Portugal,2,Guimaraes
+1027,Portugal,2,Aveiro Sociedade
+1028,Portugal,2,Viseu
+1029,Portugal,2,Real Portimao
+1030,Portugal,2,Chaves FC
+1031,Portugal,2,Estoril
+1032,Portugal,2,Moreira FC 1
+1034,Portugal,2,Famalicao FC
+1035,Portugal,2,Barcelos 1
+1037,Portugal,3,Lisboa FC
+1038,Portugal,3,Real Porto
+1039,Portugal,3,Braga Sporting
+1040,Portugal,3,Mundial Coimbra
+1041,Portugal,3,Funchal FC
+1042,Portugal,3,Setubal
+1043,Portugal,3,Faro FC 1
+1044,Portugal,3,Guimaraes 1
+1045,Portugal,3,Aveiro
+1046,Portugal,3,FC Viseu
+1047,Portugal,3,Sport Portimao
+1048,Portugal,3,Mundial Chaves
+1049,Portugal,3,Estoril AC
+1050,Portugal,3,Moreira FC 2
+1051,Portugal,3,Arouca FC
+1052,Portugal,3,Famalicao
+1053,Portugal,3,Barcelos United
+1054,Portugal,3,Rio Ave Athletic
+1219,Países Baixos,2,Mundial Amsterdam
+1220,Países Baixos,2,Rotterdam AC
+1221,Países Baixos,2,Den Haag
+1222,Países Baixos,2,Inter Utrecht
+1223,Países Baixos,2,Eindhoven FC 1
+1224,Países Baixos,2,Groningen Sporting
+1225,Países Baixos,2,Arnhem AC 1
+1226,Países Baixos,2,FC Enschede
+1227,Países Baixos,2,Tilburg FC
+1228,Países Baixos,2,União Breda 1
+1229,Países Baixos,2,Alkmaar City
+1230,Países Baixos,2,Nijmegen FC
+1231,Países Baixos,2,Heerenveen United
+1232,Países Baixos,2,Zwolle FC
+1233,Países Baixos,2,Almere 1
+1234,Países Baixos,2,Sport Sittard
+1235,Países Baixos,2,Waalwijk
+1236,Países Baixos,2,Volendam
+1237,Países Baixos,2,Emmen
+1238,Países Baixos,2,Leeuwarden
+1239,Países Baixos,3,Amsterdam Sporting
+1240,Países Baixos,3,Rotterdam FC
+1241,Países Baixos,3,Den Haag FC
+1242,Países Baixos,3,Utrecht FC
+1243,Países Baixos,3,Eindhoven Sociedade
+1244,Países Baixos,3,Groningen FC
+1245,Países Baixos,3,Arnhem FC
+1246,Países Baixos,3,Enschede FC 1
+1247,Países Baixos,3,Tilburg FC 1
+1248,Países Baixos,3,Sport Breda
+1249,Países Baixos,3,Alkmaar Sporting
+1250,Países Baixos,3,Nijmegen Sporting
+1251,Países Baixos,3,Heerenveen FC 1
+1252,Países Baixos,3,Zwolle
+1253,Países Baixos,3,Deportivo Almere
+1254,Países Baixos,3,Club Sittard
+1255,Países Baixos,3,Waalwijk 1
+1256,Países Baixos,3,Mundial Volendam
+1417,Bélgica,2,Brussels FC 1
+1418,Bélgica,2,Real Antwerp
+1419,Bélgica,2,Gent 1
+1420,Bélgica,2,Deportivo Charleroi
+1421,Bélgica,2,Liege FC 1
+1422,Bélgica,2,Brugge Sporting
+1423,Bélgica,2,Namur FC
+1424,Bélgica,2,Mons
+1425,Bélgica,2,Leuven United
+1426,Bélgica,2,Mechelen
+1427,Bélgica,2,Anderlecht Sociedade
+1428,Bélgica,2,Genk
+1429,Bélgica,2,Kortrijk Sporting
+1430,Bélgica,2,Eupen Athletic
+1431,Bélgica,2,Westerlo FC
+1432,Bélgica,2,Deportivo Sint-Truiden
+1433,Bélgica,3,FC Brussels
+1434,Bélgica,3,Antwerp
+1435,Bélgica,3,Gent United
+1436,Bélgica,3,Charleroi
+1437,Bélgica,3,Liege Sociedade
+1438,Bélgica,3,Real Brugge
+1439,Bélgica,3,Namur United
+1440,Bélgica,3,Mons 1
+1441,Bélgica,3,Leuven
+1442,Bélgica,3,Mechelen FC 1
+1443,Bélgica,3,Inter Anderlecht
+1444,Bélgica,3,Genk 1
+1445,Bélgica,3,Real Kortrijk
+1446,Bélgica,3,Eupen Athletic 1
+1447,Bélgica,3,Sport Westerlo
+1448,Bélgica,3,Sint-Truiden FC 1
+1449,Bélgica,3,Cercle FC
+1450,Bélgica,3,Mundial Union SG
+1620,Turquia,2,Mundial Istanbul
+1621,Turquia,2,Ankara
+1622,Turquia,2,Izmir
+1623,Turquia,2,Bursa Sociedade
+1624,Turquia,2,Adana
+1625,Turquia,2,Gaziantep FC
+1626,Turquia,2,Sport Konya
+1627,Turquia,2,Antalya United
+1628,Turquia,2,Kayseri
+1629,Turquia,2,Trabzon Sociedade
+1630,Turquia,2,Sivas
+1631,Turquia,2,Rize FC
+1632,Turquia,2,Club Galatasaray
+1633,Turquia,2,Fenerbahce Sociedade
+1634,Turquia,2,Besiktas FC
+1635,Turquia,2,Sport Kasimpasa
+1636,Turquia,2,Basaksehir
+1637,Turquia,2,Alanya City
+1638,Turquia,2,Hatay United 1
+1639,Turquia,2,Samsun
+1640,Turquia,3,Istanbul FC 1
+1641,Turquia,3,Ankara FC
+1642,Turquia,3,Izmir United
+1643,Turquia,3,Bursa FC
+1644,Turquia,3,Adana United
+1645,Turquia,3,Gaziantep FC 1
+1646,Turquia,3,Konya
+1647,Turquia,3,Antalya FC
+1648,Turquia,3,Club Kayseri
+1649,Turquia,3,Trabzon FC
+1650,Turquia,3,Sivas 1
+1651,Turquia,3,Rize 1
+1652,Turquia,3,Galatasaray FC
+1653,Turquia,3,Fenerbahce AC
+1654,Turquia,3,Besiktas 1
+1655,Turquia,3,Kasimpasa
+1656,Turquia,3,Basaksehir FC
+1657,Turquia,3,Alanya FC
+1658,Turquia,3,Hatay FC
+1659,Turquia,3,Samsun 1
+1660,Turquia,3,FC Ankaragucu
+1661,Turquia,3,Sport Karagumruk
+1662,Turquia,3,Giresun FC
+1663,Turquia,3,Göztepe FC
+1664,Turquia,3,Denizli
+1665,Turquia,3,Mundial Genclerbirligi
+1666,Turquia,3,Istanbul Sociedade
+1667,Turquia,3,União Ankara
+1668,Turquia,3,Izmir FC 1
+1669,Turquia,3,Bursa FC 1
+1670,Turquia,3,Sport Adana
+1671,Turquia,3,Gaziantep Sporting
+1672,Turquia,3,Deportivo Konya
+1673,Turquia,3,Antalya
+1674,Turquia,3,Kayseri 1
+1675,Turquia,3,Club Trabzon
+1676,Turquia,3,FC Sivas
+1677,Turquia,3,Rize FC 1
+1813,Escócia,2,Glasgow Sporting
+1814,Escócia,2,Edinburgh City
+1815,Escócia,2,Atlético Aberdeen
+1816,Escócia,2,Dundee FC
+1817,Escócia,2,Mundial Inverness
+1818,Escócia,2,Perth
+1819,Escócia,2,Paisley 1
+1823,Escócia,3,Deportivo Glasgow
+1824,Escócia,3,Deportivo Edinburgh
+1825,Escócia,3,Aberdeen FC
+1827,Escócia,3,Real Inverness
+1828,Escócia,3,Perth United
+1829,Escócia,3,Inter Paisley
+1830,Escócia,3,Inter Falkirk
+1831,Escócia,3,Celtic FC
+1832,Escócia,3,Deportivo Rangers
+2013,Áustria,2,Wien AC
+2014,Áustria,2,Salzburg FC 1
+2015,Áustria,2,Graz FC 1
+2016,Áustria,2,Club Linz
+2017,Áustria,2,Innsbruck 1
+2018,Áustria,2,Deportivo Klagenfurt
+2019,Áustria,2,Villach
+2020,Áustria,2,Mundial Wels
+2021,Áustria,2,Rapid
+2022,Áustria,2,FC Austria
+2023,Áustria,2,Inter Sturm
+2024,Áustria,2,FC LASK
+2025,Áustria,2,Hartberg FC
+2026,Áustria,2,Wolfsberg City
+2027,Áustria,2,Altach FC
+2028,Áustria,2,Lustenau Sporting
+2029,Áustria,3,Inter Wien
+2030,Áustria,3,Salzburg FC 2
+2031,Áustria,3,Graz Sporting
+2032,Áustria,3,Inter Linz
+2033,Áustria,3,Sport Innsbruck
+2034,Áustria,3,Klagenfurt
+2035,Áustria,3,União Villach
+2036,Áustria,3,Wels
+2037,Áustria,3,Rapid 1
+2038,Áustria,3,Austria FC
+2039,Áustria,3,Sturm 1
+2040,Áustria,3,LASK AC
+2041,Áustria,3,Club Hartberg
+2042,Áustria,3,Wolfsberg
+2043,Áustria,3,Atlético Altach
+2044,Áustria,3,União Lustenau
+2213,Suíça,2,Zurich AC
+2214,Suíça,2,Geneva FC
+2215,Suíça,2,Basel
+2216,Suíça,2,Lausanne
+2217,Suíça,2,União Bern
+2218,Suíça,2,União Winterthur
+2219,Suíça,2,Mundial Lucerne
+2220,Suíça,2,St. Gallen
+2221,Suíça,2,Young Boys
+2222,Suíça,2,Grasshopper
+2413,Dinamarca,2,Copenhagen 1
+2414,Dinamarca,2,Aarhus
+2415,Dinamarca,2,Odense FC 1
+2416,Dinamarca,2,Aalborg
+2417,Dinamarca,2,Esbjerg Athletic
+2419,Dinamarca,2,Kolding Sporting
+2420,Dinamarca,2,Horsens FC 1
+2421,Dinamarca,2,Brondby Athletic
+2422,Dinamarca,2,Midtjylland 1
+2424,Dinamarca,2,Silkeborg FC 1
+2425,Dinamarca,3,União Copenhagen
+2426,Dinamarca,3,Aarhus 1
+2427,Dinamarca,3,Odense FC 2
+2428,Dinamarca,3,Aalborg United
+2429,Dinamarca,3,Esbjerg 1
+2430,Dinamarca,3,Randers 1
+2431,Dinamarca,3,Kolding FC
+2432,Dinamarca,3,Horsens Sporting
+2433,Dinamarca,3,Brondby City
+2434,Dinamarca,3,Midtjylland FC
+2435,Dinamarca,3,Inter Nordsjælland
+2436,Dinamarca,3,Silkeborg FC 2
+2617,Noruega,2,Oslo 1
+2618,Noruega,2,Bergen FC
+2619,Noruega,2,Trondheim 1
+2620,Noruega,2,Stavanger Sporting
+2621,Noruega,2,Inter Bodo
+2622,Noruega,2,Tromso
+2623,Noruega,2,Kristiansand 1
+2624,Noruega,2,Alesund FC
+2625,Noruega,2,Glimt FC
+2627,Noruega,2,Deportivo Lillestrom
+2628,Noruega,2,Valerenga FC
+2629,Noruega,2,Sandefjord
+2631,Noruega,2,Sarpsborg FC
+2632,Noruega,2,Haugesund
+2817,Suécia,2,Sport Stockholm
+2818,Suécia,2,FC Goteborg
+2819,Suécia,2,Malmo Sporting
+2820,Suécia,2,Uppsala
+2821,Suécia,2,Vasteras FC 1
+2822,Suécia,2,Orebro FC
+2823,Suécia,2,Linkoping
+2824,Suécia,2,Helsingborg
+2825,Suécia,2,AIK FC
+2826,Suécia,2,Djurgården FC
+2827,Suécia,2,Deportivo Hammarby
+2828,Suécia,2,Deportivo Elfsborg
+2829,Suécia,2,Häcken FC
+2830,Suécia,2,Norrköping Sociedade
+2831,Suécia,2,Halmstad
+2832,Suécia,2,Kalmar
+3019,Polônia,2,Club Warszawa
+3020,Polônia,2,Krakow
+3021,Polônia,2,Lodz Athletic
+3022,Polônia,2,Wroclaw
+3023,Polônia,2,Poznan Sporting
+3024,Polônia,2,Gdansk FC
+3025,Polônia,2,Szczecin 1
+3026,Polônia,2,Mundial Bydgoszcz
+3027,Polônia,2,Inter Legia
+3028,Polônia,2,Inter Lech
+3029,Polônia,2,Rakow City
+3030,Polônia,2,Inter Pogon
+3031,Polônia,2,Slask FC
+3032,Polônia,2,Deportivo Widzew
+3033,Polônia,2,Ruch
+3034,Polônia,2,Piast FC
+3035,Polônia,2,Gornik FC
+3036,Polônia,2,Jagiellonia
+3217,Tchéquia,2,Deportivo Praha
+3218,Tchéquia,2,Brno Athletic
+3219,Tchéquia,2,Ostrava FC
+3220,Tchéquia,2,Real Plzen
+3221,Tchéquia,2,Club Olomouc
+3222,Tchéquia,2,Liberec Sporting
+3223,Tchéquia,2,Ceske Budejovice City 1
+3224,Tchéquia,2,Inter Hradec Kralove
+3225,Tchéquia,2,Mundial Sparta
+3226,Tchéquia,2,Slavia FC
+3227,Tchéquia,2,Viktoria FC
+3228,Tchéquia,2,Banik United
+3229,Tchéquia,2,Slovan 1
+3230,Tchéquia,2,Club Mlada Boleslav
+3231,Tchéquia,2,Teplice FC
+3232,Tchéquia,2,Jablonec Sociedade
+3233,Tchéquia,3,Deportivo Praha 1
+3234,Tchéquia,3,Brno
+3235,Tchéquia,3,Ostrava City
+3236,Tchéquia,3,Plzen 1
+3237,Tchéquia,3,Olomouc FC
+3238,Tchéquia,3,Liberec 1
+3239,Tchéquia,3,Ceske Budejovice
+3240,Tchéquia,3,Hradec Kralove
+3241,Tchéquia,3,Mundial Sparta 1
+3242,Tchéquia,3,Slavia Sporting
+3243,Tchéquia,3,Inter Viktoria
+3244,Tchéquia,3,Atlético Banik
+3245,Tchéquia,3,União Slovan
+3246,Tchéquia,3,Mlada Boleslav
+3247,Tchéquia,3,Teplice FC 1
+3248,Tchéquia,3,Jablonec AC
+3249,Tchéquia,3,Pardubice City
+3250,Tchéquia,3,Bohemians FC
+3251,Tchéquia,3,Praha FC
+3252,Tchéquia,3,Brno FC 1
+3253,Tchéquia,3,Ostrava Sporting
+3254,Tchéquia,3,Plzen 2
+3255,Tchéquia,3,Olomouc Sporting
+3256,Tchéquia,3,Liberec United
+3257,Tchéquia,3,Ceske Budejovice FC
+3258,Tchéquia,3,Sport Hradec Kralove
+3259,Tchéquia,3,Sparta 1
+3260,Tchéquia,3,Slavia
+3261,Tchéquia,3,Sport Viktoria
+3262,Tchéquia,3,Banik AC
+3263,Tchéquia,3,Slovan FC
+3264,Tchéquia,3,Mlada Boleslav FC
+3265,Tchéquia,3,Teplice
+3266,Tchéquia,3,Jablonec FC 1
+3267,Tchéquia,3,Pardubice Sociedade
+3268,Tchéquia,3,Bohemians FC 1
+3269,Tchéquia,3,Praha AC
+3270,Tchéquia,3,Sport Brno
+3271,Tchéquia,3,Ostrava FC 1
+3272,Tchéquia,3,Plzen 3
+3273,Tchéquia,3,Olomouc 1
+3274,Tchéquia,3,Deportivo Liberec
+3275,Tchéquia,3,Ceske Budejovice FC 1
+3276,Tchéquia,3,Hradec Kralove Sociedade
+3277,Tchéquia,3,Sparta 2
+3278,Tchéquia,3,Slavia 1
+3279,Tchéquia,3,Viktoria 1
+3280,Tchéquia,3,Banik FC
+3411,Croácia,2,Zagreb FC
+3412,Croácia,2,Split
+3413,Croácia,2,Rijeka FC
+3414,Croácia,2,Mundial Osijek
+3415,Croácia,2,Zadar
+3416,Croácia,2,Pula FC 1
+3417,Croácia,2,Slavonski Brod FC
+3418,Croácia,2,Karlovac
+3419,Croácia,2,Sport Dinamo
+3420,Croácia,2,Hajduk 1
+3421,Croácia,2,Lokomotiva FC
+3422,Croácia,2,Gorica FC
+3423,Croácia,3,Club Zagreb
+3424,Croácia,3,Split FC
+3425,Croácia,3,União Rijeka
+3426,Croácia,3,Osijek FC
+3427,Croácia,3,Zadar United
+3428,Croácia,3,Pula FC 2
+3429,Croácia,3,Slavonski Brod FC 1
+3430,Croácia,3,Club Karlovac
+3431,Croácia,3,Real Dinamo
+3432,Croácia,3,Hajduk AC
+3433,Croácia,3,Lokomotiva FC 1
+3434,Croácia,3,Club Gorica
+3435,Croácia,3,Varaždin FC
+3436,Croácia,3,Slaven Belupo FC
+3437,Croácia,3,Atlético Istra
+3438,Croácia,3,Rudeš FC
+3439,Croácia,3,Šibenik
+3440,Croácia,3,Cibalia Sociedade
+3441,Croácia,3,FC Zagreb
+3442,Croácia,3,Split FC 1
+3443,Croácia,3,Rijeka FC 1
+3444,Croácia,3,Atlético Osijek
+3445,Croácia,3,Zadar AC
+3446,Croácia,3,Pula FC 3
+3447,Croácia,3,Slavonski Brod Sporting
+3448,Croácia,3,Karlovac United
+3449,Croácia,3,Dinamo Sporting
+3450,Croácia,3,Hajduk 2
+3451,Croácia,3,Lokomotiva AC
+3452,Croácia,3,Gorica AC
+3453,Croácia,3,Club Varaždin
+3454,Croácia,3,Slaven Belupo FC 1
+3455,Croácia,3,Sport Istra
+3456,Croácia,3,Mundial Rudeš
+3457,Croácia,3,Sport Šibenik
+3458,Croácia,3,Cibalia
+3459,Croácia,3,Zagreb 1
+3460,Croácia,3,Inter Split
+3461,Croácia,3,Rijeka FC 2
+3462,Croácia,3,Osijek FC 1
+3463,Croácia,3,Zadar FC 1
+3464,Croácia,3,Pula FC 4
+3465,Croácia,3,Slavonski Brod
+3466,Croácia,3,Karlovac FC
+3467,Croácia,3,Dinamo United
+3468,Croácia,3,União Hajduk
+3469,Croácia,3,União Lokomotiva
+3470,Croácia,3,Gorica United
+3471,Croácia,3,Varaždin City
+3472,Croácia,3,Deportivo Slaven Belupo
+3473,Croácia,3,Istra
+3475,Croácia,3,Club Šibenik
+3476,Croácia,3,Cibalia FC
+3477,Croácia,3,Zagreb Athletic
+3478,Croácia,3,Split FC 2
+3617,Sérvia,2,Beograd FC
+3618,Sérvia,2,Novi Sad City
+3619,Sérvia,2,Nis
+3620,Sérvia,2,Kragujevac FC
+3621,Sérvia,2,Real Subotica
+3622,Sérvia,2,Leskovac
+3623,Sérvia,2,Krusevac FC
+3624,Sérvia,2,Pancevo City
+3625,Sérvia,2,Crvena Zvezda FC 1
+3626,Sérvia,2,Partizan FC
+3627,Sérvia,2,Vojvodina FC
+3628,Sérvia,2,Čukarički City
+3629,Sérvia,2,Mundial TSC Bačka Palanka
+3630,Sérvia,2,União Novi Pazar
+3631,Sérvia,2,Inter Voždovac
+3632,Sérvia,2,Inter Radnički
+3633,Sérvia,3,Beograd
+3634,Sérvia,3,Novi Sad
+3635,Sérvia,3,Nis Sporting
+3636,Sérvia,3,Inter Kragujevac
+3637,Sérvia,3,Subotica FC
+3638,Sérvia,3,Leskovac Sporting
+3639,Sérvia,3,Krusevac
+3640,Sérvia,3,Real Pancevo
+3641,Sérvia,3,Crvena Zvezda FC 2
+3643,Sérvia,3,Vojvodina City
+3645,Sérvia,3,TSC Bačka Palanka FC
+3647,Sérvia,3,Voždovac AC
+3648,Sérvia,3,União Radnički
+3649,Sérvia,3,Napredak Athletic
+3650,Sérvia,3,Javor
+3815,Grécia,2,Club Athina
+3816,Grécia,2,Thessaloniki AC
+3817,Grécia,2,Patra Athletic
+3818,Grécia,2,Larisa FC
+3819,Grécia,2,Heraklion FC 1
+3820,Grécia,2,Volos Athletic
+3821,Grécia,2,Club Ioannina
+3822,Grécia,2,Chania United
+3823,Grécia,2,Olympiacos FC 1
+3824,Grécia,2,Panathinaikos Sporting
+3825,Grécia,2,AEK AC
+3826,Grécia,2,PAOK FC
+3827,Grécia,2,Club Aris
+3828,Grécia,2,Asteras FC
+4211,Argentina,1,Buenos Aires FC
+4212,Argentina,1,Rosario
+4213,Argentina,1,Mundial Córdoba
+4214,Argentina,1,Mendoza FC
+4215,Argentina,1,La Plata
+4216,Argentina,1,Tucumán FC
+4217,Argentina,1,Salta FC
+4218,Argentina,1,Santa Fe United
+4219,Argentina,1,Mar del Plata FC
+4220,Argentina,1,San Juan FC
+4221,Argentina,1,União Lanús
+4222,Argentina,1,Avellaneda
+4223,Argentina,1,Banfield City
+4224,Argentina,1,Quilmes 1
+4225,Argentina,1,Tigre FC
+4226,Argentina,1,Buenos Aires FC 1
+4227,Argentina,1,Rosario FC
+4228,Argentina,1,Córdoba FC
+4229,Argentina,1,Mendoza United
+4230,Argentina,1,La Plata AC
+4241,Argentina,2,FC Buenos Aires
+4242,Argentina,2,Rosario FC 1
+4243,Argentina,2,Córdoba Athletic
+4244,Argentina,2,Mendoza
+4245,Argentina,2,La Plata FC
+4246,Argentina,2,Atlético Tucumán 1
+4247,Argentina,2,Sport Salta
+4248,Argentina,2,Santa Fe
+4249,Argentina,2,Inter Mar del Plata
+4250,Argentina,2,San Juan FC 1
+4251,Argentina,2,FC Lanús
+4252,Argentina,2,Avellaneda FC
+4253,Argentina,2,Deportivo Banfield
+4254,Argentina,2,Quilmes 2
+4255,Argentina,2,União Tigre
+4256,Argentina,2,Buenos Aires FC 2
+4257,Argentina,2,Club Rosario
+4258,Argentina,2,Club Córdoba
+4259,Argentina,2,Inter Mendoza
+4260,Argentina,2,La Plata FC 1
+4261,Argentina,2,Tucumán FC 1
+4262,Argentina,2,Salta FC 1
+4263,Argentina,2,Santa Fe 1
+4264,Argentina,2,Mundial Mar del Plata
+4265,Argentina,2,San Juan
+4266,Argentina,2,Lanús FC
+4277,Argentina,3,Buenos Aires
+4278,Argentina,3,Rosario FC 2
+4279,Argentina,3,Córdoba FC 1
+4280,Argentina,3,Atlético Mendoza
+4281,Argentina,3,La Plata City
+4282,Argentina,3,Club Tucumán
+4283,Argentina,3,Salta
+4284,Argentina,3,Santa Fe 2
+4285,Argentina,3,Real Mar del Plata
+4286,Argentina,3,San Juan 1
+4287,Argentina,3,Atlético Lanús
+4288,Argentina,3,Avellaneda FC 1
+4289,Argentina,3,Atlético Banfield
+4290,Argentina,3,FC Quilmes
+4291,Argentina,3,Mundial Tigre
+4292,Argentina,3,Buenos Aires FC 3
+4293,Argentina,3,Rosario Athletic
+4294,Argentina,3,Córdoba
+4295,Argentina,3,Mendoza Sporting
+4296,Argentina,3,La Plata 1
+4297,Argentina,3,Tucumán
+4298,Argentina,3,Salta 1
+4299,Argentina,3,Santa Fe FC
+4300,Argentina,3,Mar del Plata
+4301,Argentina,3,San Juan United
+4302,Argentina,3,Lanús FC 1
+4303,Argentina,3,Avellaneda Sporting
+4304,Argentina,3,Banfield 1
+4305,Argentina,3,Quilmes FC
+4306,Argentina,3,Tigre United
+4401,Colômbia,1,Bogotá AC
+4402,Colômbia,1,União Medellín
+4403,Colômbia,1,Cali FC
+4404,Colômbia,1,Barranquilla
+4405,Colômbia,1,Deportivo Cartagena
+4406,Colômbia,1,Bucaramanga
+4407,Colômbia,1,Pereira Athletic
+4408,Colômbia,1,Ibagué FC
+4409,Colômbia,1,Manizales
+4410,Colômbia,1,Deportivo Santa Marta
+4411,Colômbia,1,Cúcuta
+4412,Colômbia,1,Pastos FC
+4413,Colômbia,1,Tunja United
+4414,Colômbia,1,Neiva
+4415,Colômbia,1,FC Bogotá
+4416,Colômbia,1,Medellín
+4417,Colômbia,1,Cali FC 1
+4418,Colômbia,1,Barranquilla Sociedade
+4419,Colômbia,1,Cartagena FC
+4420,Colômbia,1,Bucaramanga AC
+4421,Colômbia,2,Bogotá
+4422,Colômbia,2,Medellín City
+4423,Colômbia,2,Cali FC 2
+4424,Colômbia,2,Real Barranquilla
+4425,Colômbia,2,FC Cartagena
+4426,Colômbia,2,Bucaramanga Athletic
+4427,Colômbia,2,Pereira FC
+4428,Colômbia,2,Ibagué
+4429,Colômbia,2,Deportivo Manizales
+4430,Colômbia,2,Santa Marta
+4431,Colômbia,2,Cúcuta 1
+4432,Colômbia,2,Club Pastos
+4433,Colômbia,2,Deportivo Tunja
+4434,Colômbia,2,Neiva 1
+4435,Colômbia,2,Bogotá 1
+4436,Colômbia,2,Sport Medellín
+4437,Colômbia,3,Bogotá 2
+4438,Colômbia,3,Medellín FC
+4439,Colômbia,3,Cali
+4440,Colômbia,3,Barranquilla FC
+4441,Colômbia,3,Cartagena AC
+4442,Colômbia,3,Bucaramanga FC
+4443,Colômbia,3,Pereira FC 1
+4444,Colômbia,3,Ibagué 1
+4445,Colômbia,3,Manizales City
+4446,Colômbia,3,Inter Santa Marta
+4447,Colômbia,3,Cúcuta 2
+4448,Colômbia,3,FC Pastos
+4449,Colômbia,3,Real Tunja
+4450,Colômbia,3,Neiva Athletic
+4451,Colômbia,3,Real Bogotá
+4452,Colômbia,3,União Medellín 1
+4453,Colômbia,3,Cali City
+4454,Colômbia,3,Sport Barranquilla
+4455,Colômbia,3,Cartagena
+4456,Colômbia,3,Bucaramanga FC 1
+4457,Colômbia,3,Deportivo Pereira
+4458,Colômbia,3,Club Ibagué
+4459,Colômbia,3,Manizales 1
+4460,Colômbia,3,União Santa Marta
+4461,Colômbia,3,Cúcuta FC
+4462,Colômbia,3,União Pastos
+4463,Colômbia,3,Tunja
+4464,Colômbia,3,Neiva 2
+4465,Colômbia,3,Bogotá 3
+4466,Colômbia,3,Medellín 1
+4467,Colômbia,3,Cali United
+4468,Colômbia,3,Barranquilla FC 1
+4601,Chile,1,Club Santiago
+4602,Chile,1,Valparaíso FC
+4603,Chile,1,Concepción Sporting
+4604,Chile,1,Coquimbo FC
+4605,Chile,1,Mundial Antofagasta
+4606,Chile,1,Temuco Athletic
+4607,Chile,1,Rancagua FC
+4608,Chile,1,Talca FC
+4609,Chile,1,Arica
+4610,Chile,1,FC Iquique
+4611,Chile,1,Calama
+4612,Chile,1,La Serena City
+4613,Chile,1,Chillán FC
+4614,Chile,1,Curicó FC
+4615,Chile,1,Santiago FC
+4616,Chile,1,Valparaíso Sociedade
+4617,Chile,2,Santiago
+4618,Chile,2,Valparaíso
+4619,Chile,2,Concepción FC
+4620,Chile,2,Coquimbo
+4621,Chile,2,Mundial Antofagasta 1
+4622,Chile,2,Temuco FC
+4623,Chile,2,Rancagua
+4624,Chile,2,FC Talca
+4625,Chile,2,Inter Arica
+4626,Chile,2,Iquique FC
+4627,Chile,2,Calama AC
+4628,Chile,2,Deportivo La Serena
+4629,Chile,2,Chillán FC 1
+4630,Chile,2,Atlético Curicó
+4631,Chile,2,Santiago FC 1
+4632,Chile,2,Club Valparaíso
+4633,Chile,3,Santiago 1
+4634,Chile,3,Valparaíso FC 1
+4635,Chile,3,Concepción
+4636,Chile,3,Coquimbo FC 1
+4637,Chile,3,Antofagasta City
+4638,Chile,3,Temuco FC 1
+4639,Chile,3,FC Rancagua
+4640,Chile,3,Talca FC 1
+4641,Chile,3,Atlético Arica
+4642,Chile,3,Iquique FC 1
+4643,Chile,3,Real Calama
+4644,Chile,3,Sport La Serena
+4645,Chile,3,Chillán
+4646,Chile,3,Curicó FC 1
+4647,Chile,3,Real Santiago
+4648,Chile,3,Valparaíso FC 2
+4649,Chile,3,Concepción 1
+4650,Chile,3,Club Coquimbo
+4651,Chile,3,Real Antofagasta
+4652,Chile,3,Real Temuco
+4653,Chile,3,Rancagua 1
+4654,Chile,3,Talca FC 2
+4655,Chile,3,Arica FC
+4656,Chile,3,Real Iquique
+4657,Chile,3,FC Calama
+4658,Chile,3,La Serena
+4659,Chile,3,Chillán 1
+4660,Chile,3,Curicó United
+4661,Chile,3,Santiago 2
+4662,Chile,3,Valparaíso Sociedade 1
+4663,Chile,3,Concepción City
+4664,Chile,3,Coquimbo 1
+4801,Uruguai,1,Sport Montevideo
+4802,Uruguai,1,Salto
+4803,Uruguai,1,Paysandú City
+4804,Uruguai,1,Maldonado FC
+4805,Uruguai,1,Rivera
+4806,Uruguai,1,Tacuarembó Sporting
+4807,Uruguai,1,Melo Sociedade
+4808,Uruguai,1,Artigas
+4809,Uruguai,1,Las Piedras FC
+4810,Uruguai,1,Mundial Colonia
+4811,Uruguai,1,Florida AC
+4812,Uruguai,1,San José FC
+4813,Uruguai,1,Minas FC
+4814,Uruguai,1,Mercedes
+4815,Uruguai,1,FC Montevideo
+4816,Uruguai,1,FC Salto
+4817,Uruguai,2,Montevideo FC
+4818,Uruguai,2,Sport Salto
+4819,Uruguai,2,Paysandú
+4820,Uruguai,2,Maldonado
+4821,Uruguai,2,Rivera FC
+4822,Uruguai,2,Sport Tacuarembó
+4823,Uruguai,2,Melo Sociedade 1
+4824,Uruguai,2,União Artigas
+4825,Uruguai,2,Las Piedras
+4826,Uruguai,2,Colonia FC
+4827,Uruguai,2,Florida FC
+4828,Uruguai,2,San José Sociedade
+4829,Uruguai,2,Minas FC 1
+4830,Uruguai,2,Mundial Mercedes
+4831,Uruguai,3,Montevideo FC 1
+4832,Uruguai,3,Salto 1
+4833,Uruguai,3,Paysandú 1
+4834,Uruguai,3,Real Maldonado
+4835,Uruguai,3,Rivera 1
+4836,Uruguai,3,Sport Tacuarembó 1
+4837,Uruguai,3,Melo FC
+4838,Uruguai,3,Inter Artigas
+4839,Uruguai,3,Las Piedras FC 1
+4840,Uruguai,3,Colonia Sociedade
+4841,Uruguai,3,Florida FC 1
+4842,Uruguai,3,San José Athletic
+4843,Uruguai,3,Minas City
+4844,Uruguai,3,Mercedes AC
+5001,Paraguai,1,Asunción Sporting
+5002,Paraguai,1,Ciudad del Este FC
+5003,Paraguai,1,Sport Luque
+5004,Paraguai,1,Atlético San Lorenzo
+5005,Paraguai,1,Inter Capiatá
+5006,Paraguai,1,Lambaré FC
+5007,Paraguai,1,Fernando
+5008,Paraguai,1,Villarrica FC
+5009,Paraguai,1,Pedro Juan Caballero FC
+5010,Paraguai,1,Encarnación
+5011,Paraguai,1,Caaguazú
+5012,Paraguai,1,Club Itauguá
+5013,Paraguai,2,Asunción
+5014,Paraguai,2,Mundial Ciudad del Este
+5015,Paraguai,2,Luque
+5016,Paraguai,2,San Lorenzo FC
+5017,Paraguai,2,Capiatá
+5018,Paraguai,2,Lambaré FC 1
+5019,Paraguai,2,Fernando FC
+5020,Paraguai,2,Villarrica FC 1
+5021,Paraguai,2,Pedro Juan Caballero
+5022,Paraguai,2,Encarnación Sociedade
+5023,Paraguai,2,Caaguazú 1
+5024,Paraguai,2,Itauguá United
+5025,Paraguai,3,União Asunción
+5026,Paraguai,3,Ciudad del Este FC 1
+5027,Paraguai,3,Luque FC
+5028,Paraguai,3,San Lorenzo
+5029,Paraguai,3,Capiatá 1
+5030,Paraguai,3,Deportivo Lambaré
+5031,Paraguai,3,Deportivo Fernando
+5032,Paraguai,3,Villarrica
+5033,Paraguai,3,Pedro Juan Caballero 1
+5034,Paraguai,3,Encarnación 1
+5035,Paraguai,3,Caaguazú City
+5036,Paraguai,3,Itauguá Sociedade
+5201,Equador,1,União Quito
+5202,Equador,1,Guayaquil FC
+5203,Equador,1,Cuenca FC
+5204,Equador,1,Santo Domingo
+5205,Equador,1,Atlético Machala
+5206,Equador,1,Manta FC
+5207,Equador,1,Club Portoviejo
+5208,Equador,1,Mundial Loja
+5209,Equador,1,Ambato FC
+5210,Equador,1,Riobamba AC
+5211,Equador,1,Ibarra AC
+5212,Equador,1,Esmeraldas
+5213,Equador,1,Babahoyo
+5214,Equador,1,União Tulcán
+5215,Equador,1,Quito Sporting
+5216,Equador,1,Mundial Guayaquil
+5217,Equador,2,Quito FC
+5218,Equador,2,Guayaquil FC 1
+5219,Equador,2,Cuenca FC 1
+5220,Equador,2,Santo Domingo 1
+5221,Equador,2,Club Machala
+5222,Equador,2,Deportivo Manta
+5223,Equador,2,Portoviejo FC
+5224,Equador,2,Loja
+5225,Equador,2,Ambato FC 1
+5226,Equador,2,Riobamba City
+5401,Peru,1,Lima Sociedade
+5402,Peru,1,Arequipa Sporting
+5403,Peru,1,Trujillo Athletic
+5404,Peru,1,FC Chiclayo
+5405,Peru,1,Piura
+5406,Peru,1,Iquitos
+5407,Peru,1,Mundial Cusco
+5408,Peru,1,Huancayo Sporting
+5409,Peru,1,Chimbote FC
+5410,Peru,1,Tacna FC
+5411,Peru,1,Club Pucallpa
+5412,Peru,1,Real Juliaca
+5413,Peru,1,Deportivo Ica
+5414,Peru,1,Cajamarca City
+5415,Peru,1,Lima FC
+5416,Peru,1,Arequipa
+5417,Peru,1,Trujillo FC
+5418,Peru,1,Chiclayo FC
+5419,Peru,1,Piura 1
+5420,Peru,2,Real Lima
+5421,Peru,2,FC Arequipa
+5422,Peru,2,Trujillo Sociedade
+5423,Peru,2,Chiclayo Athletic
+5424,Peru,2,Piura FC
+5425,Peru,2,Iquitos United
+5426,Peru,2,Cusco
+5427,Peru,2,União Huancayo
+5428,Peru,2,Chimbote AC
+5429,Peru,2,Club Tacna
+5430,Peru,2,Pucallpa United
+5431,Peru,2,Juliaca FC
+5432,Peru,2,Ica Athletic
+5433,Peru,2,Cajamarca
+5601,Bolívia,1,La Paz FC
+5602,Bolívia,1,Club Santa Cruz
+5603,Bolívia,1,União Cochabamba
+5604,Bolívia,1,Oruro
+5605,Bolívia,1,Atlético Sucre
+5606,Bolívia,1,Potosí AC
+5607,Bolívia,1,Tarija
+5608,Bolívia,1,Trinidad
+5609,Bolívia,1,Sacaba FC
+5610,Bolívia,1,Montero FC
+5611,Bolívia,1,Quillacollo FC
+5612,Bolívia,1,Riberalta Sociedade
+5613,Bolívia,1,Club Yacuiba
+5614,Bolívia,1,União Warnes
+5615,Bolívia,1,União La Paz
+5616,Bolívia,1,Santa Cruz
+5801,Venezuela,1,FC Caracas
+5802,Venezuela,1,Maracaibo
+5803,Venezuela,1,União Valencia
+5804,Venezuela,1,Barquisimeto Athletic
+5805,Venezuela,1,Maracay City
+5806,Venezuela,1,San Cristóbal FC
+5807,Venezuela,1,Real Mérida
+5808,Venezuela,1,Real Barcelona
+5809,Venezuela,1,Ciudad Guayana FC
+5810,Venezuela,1,Maturín City
+5811,Venezuela,1,Barinas Athletic
+5812,Venezuela,1,Valera AC
+5813,Venezuela,1,Caracas
+5814,Venezuela,1,Maracaibo United
+5815,Venezuela,2,Sport Caracas
+5816,Venezuela,2,Maracaibo AC
+5817,Venezuela,2,Valencia FC
+5818,Venezuela,2,Club Barquisimeto
+5819,Venezuela,2,Maracay City 1
+5820,Venezuela,2,San Cristóbal AC
+5821,Venezuela,2,Mérida FC
+5822,Venezuela,2,Barcelona FC
+5823,Venezuela,2,Ciudad Guayana Athletic
+5824,Venezuela,2,Maturín
+5825,Venezuela,2,Inter Barinas
+5826,Venezuela,2,Inter Valera
+5827,Venezuela,2,Caracas 1
+5828,Venezuela,2,Maracaibo FC
+6001,México,1,Ciudad de México Sociedade
+6002,México,1,Guadalajara FC
+6003,México,1,Monterrey FC
+6004,México,1,Puebla
+6005,México,1,Tijuana Sociedade
+6006,México,1,León FC
+6007,México,1,Juárez
+6008,México,1,Torreón Sporting
+6009,México,1,Querétaro FC
+6010,México,1,Pachuca United
+6011,México,1,Sport San Luis
+6012,México,1,Mazatlán
+6013,México,1,Necaxa
+6014,México,1,Toluca
+6015,México,1,Ciudad de México
+6016,México,1,Guadalajara FC 1
+6017,México,1,Club Monterrey
+6018,México,1,Puebla 1
+6019,México,2,União Ciudad de México
+6020,México,2,Guadalajara FC 2
+6021,México,2,Monterrey FC 1
+6022,México,2,Mundial Puebla
+6023,México,2,Tijuana FC
+6024,México,2,Sport León
+6025,México,2,Juárez FC
+6026,México,2,Torreón
+6027,México,2,Querétaro Sporting
+6028,México,2,Deportivo Pachuca
+6029,México,2,San Luis FC
+6030,México,2,União Mazatlán
+6031,México,2,Mundial Necaxa
+6032,México,2,Toluca Athletic
+6033,México,2,Ciudad de México FC
+6034,México,3,Ciudad de México 1
+6035,México,3,Guadalajara Sporting
+6036,México,3,Monterrey Sporting
+6037,México,3,Club Puebla
+6038,México,3,Tijuana FC 1
+6039,México,3,León FC 1
+6040,México,3,Juárez 1
+6041,México,3,Atlético Torreón
+6042,México,3,Deportivo Querétaro
+6043,México,3,Pachuca City
+6044,México,3,Inter San Luis
+6045,México,3,Mazatlán AC
+6046,México,3,Necaxa 1
+6047,México,3,Toluca United
+6048,México,3,Deportivo Ciudad de México
+6049,México,3,Guadalajara FC 3
+6050,México,3,Monterrey FC 2
+6051,México,3,Puebla Sporting
+6052,México,3,Tijuana FC 2
+6053,México,3,Deportivo León
+6054,México,3,Juárez FC 1
+6055,México,3,Torreón 1
+6056,México,3,Club Querétaro
+6057,México,3,Pachuca
+6058,México,3,FC San Luis
+6059,México,3,Mazatlán FC
+6060,México,3,Atlético Necaxa
+6061,México,3,Toluca FC
+6062,México,3,União Ciudad de México 1
+6063,México,3,Club Guadalajara
+6064,México,3,Monterrey FC 3
+6065,México,3,Puebla 2
+6066,México,3,Tijuana FC 3
+6067,México,3,Sport León 1
+6068,México,3,Deportivo Juárez
+6069,México,3,Atlético Torreón 1
+6070,México,3,Querétaro FC 1
+6071,México,3,Pachuca FC
+6072,México,3,San Luis FC 1
+6073,México,3,Mazatlán City
+6074,México,3,Necaxa FC
+6075,México,3,Mundial Toluca
+6076,México,3,Ciudad de México FC 1
+6077,México,3,Inter Guadalajara
+6078,México,3,Deportivo Monterrey
+6079,México,3,Puebla 3
+6080,México,3,Tijuana FC 4
+6081,México,3,León City
+6082,México,3,Club Juárez
+6083,México,3,Torreón FC
+6084,México,3,Deportivo Querétaro 1
+6085,México,3,Pachuca FC 1
+6086,México,3,San Luis FC 2
+6087,México,3,Inter Mazatlán
+6088,México,3,Necaxa FC 1
+6089,México,3,Toluca FC 1
+6090,México,3,Ciudad de México 2
+6201,Estados Unidos / Canadá,1,Atlético New York
+6202,Estados Unidos / Canadá,1,Los Angeles FC
+6203,Estados Unidos / Canadá,1,Sport Chicago
+6204,Estados Unidos / Canadá,1,Toronto
+6205,Estados Unidos / Canadá,1,Vancouver FC
+6206,Estados Unidos / Canadá,1,Montreal
+6207,Estados Unidos / Canadá,1,Miami Sporting
+6208,Estados Unidos / Canadá,1,Seattle
+6209,Estados Unidos / Canadá,1,Atlanta City
+6210,Estados Unidos / Canadá,1,Boston FC
+6211,Estados Unidos / Canadá,1,Houston FC
+6212,Estados Unidos / Canadá,1,Philadelphia
+6213,Estados Unidos / Canadá,1,Columbus FC
+6214,Estados Unidos / Canadá,1,Portland
+6215,Estados Unidos / Canadá,1,Mundial Nashville
+6216,Estados Unidos / Canadá,1,Orlando United
+6217,Estados Unidos / Canadá,1,Cincinnati FC
+6218,Estados Unidos / Canadá,1,Inter San Jose
+6219,Estados Unidos / Canadá,1,Real New York
+6220,Estados Unidos / Canadá,1,Los Angeles
+6221,Estados Unidos / Canadá,1,Inter Chicago
+6222,Estados Unidos / Canadá,1,Toronto AC
+6223,Estados Unidos / Canadá,1,Vancouver
+6224,Estados Unidos / Canadá,1,Montreal FC
+6225,Estados Unidos / Canadá,1,Miami
+6226,Estados Unidos / Canadá,1,União Seattle
+6227,Estados Unidos / Canadá,1,Mundial Atlanta
+6228,Estados Unidos / Canadá,1,União Boston
+6229,Estados Unidos / Canadá,1,Houston Athletic
+6230,Estados Unidos / Canadá,1,Philadelphia 1
+6231,Estados Unidos / Canadá,2,New York City
+6232,Estados Unidos / Canadá,2,Los Angeles 1
+6233,Estados Unidos / Canadá,2,Chicago
+6234,Estados Unidos / Canadá,2,Toronto Sociedade
+6235,Estados Unidos / Canadá,2,Vancouver 1
+6236,Estados Unidos / Canadá,2,Montreal 1
+6237,Estados Unidos / Canadá,2,Miami FC
+6238,Estados Unidos / Canadá,2,Seattle 1
+6239,Estados Unidos / Canadá,2,Atlanta AC
+6240,Estados Unidos / Canadá,2,Boston
+6241,Estados Unidos / Canadá,2,Houston FC 1
+6242,Estados Unidos / Canadá,2,Mundial Philadelphia
+6243,Estados Unidos / Canadá,2,Real Columbus
+6244,Estados Unidos / Canadá,2,Portland FC
+6245,Estados Unidos / Canadá,2,Inter Nashville
+6246,Estados Unidos / Canadá,2,Orlando FC
+6247,Estados Unidos / Canadá,2,Cincinnati FC 1
+6248,Estados Unidos / Canadá,2,San Jose City
+6249,Estados Unidos / Canadá,2,New York
+6250,Estados Unidos / Canadá,2,Los Angeles 2
+6251,Estados Unidos / Canadá,2,Chicago Sociedade
+6252,Estados Unidos / Canadá,2,Toronto 1
+6253,Estados Unidos / Canadá,2,Vancouver 2
+6254,Estados Unidos / Canadá,2,Montreal FC 1
+6255,Estados Unidos / Canadá,3,União New York
+6256,Estados Unidos / Canadá,3,Los Angeles FC 1
+6257,Estados Unidos / Canadá,3,Chicago FC
+6258,Estados Unidos / Canadá,3,Toronto FC
+6259,Estados Unidos / Canadá,3,Vancouver FC 1
+6260,Estados Unidos / Canadá,3,Montreal FC 2
+6261,Estados Unidos / Canadá,3,Miami Sociedade
+6262,Estados Unidos / Canadá,3,Seattle Sociedade
+6263,Estados Unidos / Canadá,3,Atlanta Sociedade
+6264,Estados Unidos / Canadá,3,Boston 1
+6265,Estados Unidos / Canadá,3,Atlético Houston
+6266,Estados Unidos / Canadá,3,Philadelphia 2
+6267,Estados Unidos / Canadá,3,Columbus FC 1
+6268,Estados Unidos / Canadá,3,Portland Sociedade
+6269,Estados Unidos / Canadá,3,Nashville FC
+6270,Estados Unidos / Canadá,3,Orlando Sporting
+6271,Estados Unidos / Canadá,3,Club Cincinnati
+6272,Estados Unidos / Canadá,3,San Jose FC
+6273,Estados Unidos / Canadá,3,New York United
+6274,Estados Unidos / Canadá,3,Los Angeles Sociedade
+6275,Estados Unidos / Canadá,3,Chicago FC 1
+6276,Estados Unidos / Canadá,3,Toronto FC 1
+6277,Estados Unidos / Canadá,3,Vancouver FC 2
+6278,Estados Unidos / Canadá,3,Mundial Montreal
+6401,Costa Rica,1,San José AC
+6402,Costa Rica,1,Club Alajuela
+6403,Costa Rica,1,Mundial Cartago
+6404,Costa Rica,1,Heredia United
+6405,Costa Rica,1,Mundial Puntarenas
+6406,Costa Rica,1,Limón FC
+6407,Costa Rica,1,Liberia Athletic
+6408,Costa Rica,1,FC San Isidro
+6409,Costa Rica,1,Guápiles Sporting
+6410,Costa Rica,1,Sport Quesada
+6411,Costa Rica,1,Nicoya AC
+6412,Costa Rica,1,Paraíso
+6413,Costa Rica,2,San José
+6414,Costa Rica,2,Alajuela Sporting
+6415,Costa Rica,2,Cartago
+6416,Costa Rica,2,Heredia Sociedade
+6417,Costa Rica,2,Puntarenas FC
+6418,Costa Rica,2,Limón FC 1
+6419,Costa Rica,2,Liberia
+6420,Costa Rica,2,Sport San Isidro
+6421,Costa Rica,2,Guápiles
+6422,Costa Rica,2,Quesada FC
+6423,Costa Rica,2,FC Nicoya
+6424,Costa Rica,2,Mundial Paraíso
+6425,Costa Rica,2,San José Sporting
+6426,Costa Rica,2,Alajuela
+6427,Costa Rica,2,Cartago 1
+6428,Costa Rica,2,Heredia City
+6429,Costa Rica,2,Atlético Puntarenas
+6430,Costa Rica,2,Limón FC 2
+6431,Costa Rica,3,San José Sociedade
+6432,Costa Rica,3,Alajuela 1
+6433,Costa Rica,3,Cartago FC
+6434,Costa Rica,3,Heredia
+6435,Costa Rica,3,Club Puntarenas
+6436,Costa Rica,3,Limón
+6437,Costa Rica,3,Liberia 1
+6438,Costa Rica,3,San Isidro AC
+6439,Costa Rica,3,Guápiles United
+6440,Costa Rica,3,Quesada Sociedade
+6441,Costa Rica,3,Nicoya
+6442,Costa Rica,3,Paraíso FC
+6443,Costa Rica,3,San José FC
+6444,Costa Rica,3,Alajuela FC
+6445,Costa Rica,3,Sport Cartago
+6446,Costa Rica,3,Sport Heredia
+6601,Guatemala,1,Ciudad de Guatemala FC
+6602,Guatemala,1,Quetzaltenango FC
+6603,Guatemala,1,Mundial Escuintla
+6604,Guatemala,1,Puerto Barrios FC
+6605,Guatemala,1,Cobán FC
+6606,Guatemala,1,Sport Chimaltenango
+6607,Guatemala,1,Antigua FC
+6608,Guatemala,1,Mazatenango City
+6609,Guatemala,1,Zacapa FC
+6610,Guatemala,1,Jalapa Sociedade
+6611,Guatemala,1,Real Ciudad de Guatemala
+6612,Guatemala,1,Quetzaltenango
+6613,Guatemala,2,Ciudad de Guatemala Athletic
+6614,Guatemala,2,União Quetzaltenango
+6615,Guatemala,2,Escuintla AC
+6616,Guatemala,2,Puerto Barrios FC 1
+6617,Guatemala,2,Cobán FC 1
+6618,Guatemala,2,Chimaltenango
+6619,Guatemala,2,Antigua City
+6620,Guatemala,2,Deportivo Mazatenango
+6621,Guatemala,2,Zacapa
+6622,Guatemala,2,União Jalapa
+6623,Guatemala,2,FC Ciudad de Guatemala
+6624,Guatemala,2,Quetzaltenango FC 1
+6625,Guatemala,2,Escuintla Sporting
+6626,Guatemala,2,Puerto Barrios
+6627,Guatemala,2,Cobán
+6628,Guatemala,2,Chimaltenango 1
+6629,Guatemala,2,Club Antigua
+6630,Guatemala,2,Deportivo Mazatenango 1
+6631,Guatemala,2,Zacapa 1
+6632,Guatemala,2,Jalapa FC
+6801,Honduras,1,Tegucigalpa FC
+6802,Honduras,1,San Pedro Sula
+6803,Honduras,1,La Ceiba Sporting
+6804,Honduras,1,El Progreso FC
+6805,Honduras,1,Choluteca FC
+6806,Honduras,1,Inter Comayagua
+6807,Honduras,1,Juticalpa FC
+6808,Honduras,1,Tocoa
+6809,Honduras,1,Olanchito FC
+6810,Honduras,1,Siguatepeque
+6811,Honduras,2,Atlético Tegucigalpa
+6812,Honduras,2,San Pedro Sula FC
+6813,Honduras,2,La Ceiba United
+6814,Honduras,2,El Progreso United
+6815,Honduras,2,Choluteca AC
+6816,Honduras,2,Comayagua FC
+6817,Honduras,2,Deportivo Juticalpa
+6818,Honduras,2,Club Tocoa
+6819,Honduras,2,Olanchito Sociedade
+6820,Honduras,2,Atlético Siguatepeque
+7001,Panamá,1,Ciudad de Panamá City
+7002,Panamá,1,San Miguelito
+7003,Panamá,1,Tocumen
+7004,Panamá,1,David FC
+7005,Panamá,1,Las Cumbres AC
+7006,Panamá,1,Colón
+7007,Panamá,1,La Chorrera FC
+7008,Panamá,1,Penonomé
+7009,Panamá,1,Santiago de Veraguas FC
+7010,Panamá,1,Club Chitré
+7011,Panamá,1,Ciudad de Panamá Sociedade
+7012,Panamá,2,Ciudad de Panamá FC
+7013,Panamá,2,San Miguelito 1
+7014,Panamá,2,Tocumen Sociedade
+7015,Panamá,2,David United
+7016,Panamá,2,Las Cumbres FC
+7017,Panamá,2,Mundial Colón
+7018,Panamá,2,La Chorrera FC 1
+7019,Panamá,2,Real Penonomé
+7020,Panamá,2,Santiago de Veraguas FC 1
+7021,Panamá,2,Chitré
+7201,El Salvador,1,FC San Salvador
+7202,El Salvador,1,Santa Ana
+7203,El Salvador,1,San Miguel City
+7204,El Salvador,1,Mejicanos FC
+7205,El Salvador,1,Soyapango AC
+7206,El Salvador,1,Santa Tecla
+7207,El Salvador,1,Apopa
+7208,El Salvador,1,Delgado
+7209,El Salvador,1,Sonsonate FC
+7210,El Salvador,1,Club Usulután
+7211,El Salvador,1,San Salvador FC
+7212,El Salvador,1,Sport Santa Ana
+7213,El Salvador,2,San Salvador AC
+7214,El Salvador,2,Santa Ana Sociedade
+7215,El Salvador,2,San Miguel
+7216,El Salvador,2,Mejicanos
+7217,El Salvador,2,Soyapango FC
+7218,El Salvador,2,União Santa Tecla
+7219,El Salvador,2,Club Apopa
+7220,El Salvador,2,Deportivo Delgado
+7221,El Salvador,2,Deportivo Sonsonate
+7222,El Salvador,2,Usulután United
+7223,El Salvador,2,San Salvador
+7224,El Salvador,2,Santa Ana FC
+7225,El Salvador,2,San Miguel Sporting
+7226,El Salvador,2,Mejicanos FC 1
+7227,El Salvador,2,Club Soyapango
+7228,El Salvador,2,Santa Tecla Sporting
+7401,Jamaica,1,Kingston FC
+7402,Jamaica,1,Spanish Town Athletic
+7403,Jamaica,1,Portmore FC
+7404,Jamaica,1,Montego Bay
+7405,Jamaica,1,Atlético Mandeville
+7406,Jamaica,1,May Pen
+7407,Jamaica,1,Savanna-la-Mar Sociedade
+7408,Jamaica,1,Port Antonio FC
+7409,Jamaica,1,St. Ann's Bay
+7410,Jamaica,1,Port Maria FC
+7411,Jamaica,1,Kingston
+7412,Jamaica,1,Spanish Town FC
+7413,Jamaica,1,Portmore AC
+7414,Jamaica,1,Sport Montego Bay
+7415,Jamaica,2,Sport Kingston
+7416,Jamaica,2,Spanish Town FC 1
+7417,Jamaica,2,Portmore
+7418,Jamaica,2,Montego Bay Athletic
+7419,Jamaica,2,Inter Mandeville
+7420,Jamaica,2,May Pen FC
+7421,Jamaica,2,Savanna-la-Mar
+7422,Jamaica,2,Port Antonio City
+7423,Jamaica,2,St. Ann's Bay 1
+7424,Jamaica,2,Port Maria United
+7425,Jamaica,2,Mundial Kingston
+7426,Jamaica,2,Spanish Town
+7427,Jamaica,2,Portmore FC 1
+7428,Jamaica,2,Montego Bay City
+7429,Jamaica,2,Mandeville FC
+7430,Jamaica,2,May Pen Sociedade
+7431,Jamaica,2,Savanna-la-Mar FC
+7432,Jamaica,2,Port Antonio FC 1
+7433,Jamaica,2,St. Ann's Bay FC
+7434,Jamaica,2,Mundial Port Maria
+7601,República Dominicana,1,Santo Domingo
+7602,República Dominicana,1,Santiago AC
+7603,República Dominicana,1,La Romana Sociedade
+7604,República Dominicana,1,San Pedro
+7605,República Dominicana,1,San Francisco Sporting
+7606,República Dominicana,1,União Puerto Plata
+7607,República Dominicana,1,União Higüey
+7608,República Dominicana,1,Moca
+7609,República Dominicana,1,Club La Vega
+7610,República Dominicana,1,San Cristóbal FC
+7801,Trinidad e Tobago,1,Mundial Port of Spain
+7802,Trinidad e Tobago,1,Chaguanas FC
+7803,Trinidad e Tobago,1,San Fernando Sporting
+7804,Trinidad e Tobago,1,Deportivo Arima
+7805,Trinidad e Tobago,1,Point Fortin FC
+7806,Trinidad e Tobago,1,Scarborough City
+7807,Trinidad e Tobago,1,Sangre Grande FC
+7808,Trinidad e Tobago,1,Real Siparia
+7809,Trinidad e Tobago,1,Tunapuna
+7810,Trinidad e Tobago,1,Port of Spain
+7811,Trinidad e Tobago,1,Chaguanas
+7812,Trinidad e Tobago,1,San Fernando United
+8001,Japão,1,Tokyo United
+8002,Japão,1,Yokohama FC
+8003,Japão,1,Osaka Sociedade
+8004,Japão,1,Nagoya FC
+8005,Japão,1,Sapporo
+8006,Japão,1,Kobe FC
+8007,Japão,1,Deportivo Fukuoka
+8008,Japão,1,Kyoto FC
+8009,Japão,1,Saitama Sociedade
+8010,Japão,1,Hiroshima Sociedade
+8011,Japão,1,Kawasaki FC
+8012,Japão,1,Sendai
+8013,Japão,1,Chiba
+8014,Japão,1,Shizuoka
+8015,Japão,1,Tokyo
+8016,Japão,1,Yokohama Sociedade
+8017,Japão,1,Osaka
+8018,Japão,1,Deportivo Nagoya
+8019,Japão,1,Sapporo FC
+8020,Japão,1,União Kobe
+8021,Japão,2,FC Tokyo
+8022,Japão,2,Yokohama
+8023,Japão,2,Atlético Osaka
+8024,Japão,2,Nagoya
+8025,Japão,2,Sapporo 1
+8026,Japão,2,Kobe
+8027,Japão,2,Real Fukuoka
+8028,Japão,2,Kyoto
+8029,Japão,2,Saitama
+8030,Japão,2,Hiroshima United
+8031,Japão,2,Kawasaki FC 1
+8032,Japão,2,Sendai 1
+8033,Japão,2,Chiba FC
+8034,Japão,2,Shizuoka 1
+8035,Japão,2,Club Tokyo
+8036,Japão,2,Yokohama AC
+8037,Japão,2,FC Osaka
+8038,Japão,2,Nagoya FC 1
+8039,Japão,2,Sapporo Sociedade
+8040,Japão,2,Kobe 1
+8041,Japão,3,Inter Tokyo
+8042,Japão,3,Yokohama 1
+8043,Japão,3,Osaka 1
+8044,Japão,3,Nagoya 1
+8045,Japão,3,Sapporo 2
+8046,Japão,3,Kobe FC 1
+8047,Japão,3,Fukuoka FC
+8048,Japão,3,Mundial Kyoto
+8049,Japão,3,FC Saitama
+8050,Japão,3,Hiroshima AC
+8051,Japão,3,Kawasaki AC
+8052,Japão,3,Sendai 2
+8053,Japão,3,Chiba FC 1
+8054,Japão,3,FC Shizuoka
+8055,Japão,3,Tokyo 1
+8056,Japão,3,Yokohama 2
+8057,Japão,3,Osaka FC
+8058,Japão,3,Nagoya Sociedade
+8059,Japão,3,Sapporo FC 1
+8060,Japão,3,Kobe Sociedade
+8201,Coreia do Sul,1,Seoul City
+8202,Coreia do Sul,1,Busan United
+8203,Coreia do Sul,1,Incheon FC
+8204,Coreia do Sul,1,Deportivo Daegu
+8205,Coreia do Sul,1,Daejeon FC
+8206,Coreia do Sul,1,Gwangju
+8207,Coreia do Sul,1,Suwon
+8208,Coreia do Sul,1,Deportivo Ulsan
+8209,Coreia do Sul,1,Jeonju
+8210,Coreia do Sul,1,Jeju Sporting
+8211,Coreia do Sul,1,Deportivo Pohang
+8212,Coreia do Sul,1,Seongnam FC
+8213,Coreia do Sul,2,Seoul
+8214,Coreia do Sul,2,Club Busan
+8215,Coreia do Sul,2,Incheon
+8216,Coreia do Sul,2,Daegu
+8217,Coreia do Sul,2,Daejeon United
+8218,Coreia do Sul,2,Gwangju FC
+8219,Coreia do Sul,2,Inter Suwon
+8220,Coreia do Sul,2,Ulsan FC
+8221,Coreia do Sul,2,Jeonju FC
+8222,Coreia do Sul,2,Jeju City
+8223,Coreia do Sul,2,Pohang
+8224,Coreia do Sul,2,Seongnam
+8225,Coreia do Sul,2,Deportivo Chuncheon
+8226,Coreia do Sul,3,Seoul 1
+8227,Coreia do Sul,3,Real Busan
+8228,Coreia do Sul,3,Mundial Incheon
+8229,Coreia do Sul,3,Daegu United
+8230,Coreia do Sul,3,Daejeon
+8231,Coreia do Sul,3,Gwangju FC 1
+8232,Coreia do Sul,3,Club Suwon
+8233,Coreia do Sul,3,Ulsan
+8234,Coreia do Sul,3,Jeonju FC 1
+8235,Coreia do Sul,3,Jeju Athletic
+8236,Coreia do Sul,3,Pohang 1
+8237,Coreia do Sul,3,FC Seongnam
+8238,Coreia do Sul,3,Chuncheon FC
+8239,Coreia do Sul,3,Real Ansan
+8240,Coreia do Sul,3,FC Seoul
+8241,Coreia do Sul,3,Busan
+8242,Coreia do Sul,3,Real Incheon
+8243,Coreia do Sul,3,Daegu Sporting
+8244,Coreia do Sul,3,Real Daejeon
+8245,Coreia do Sul,3,Gwangju City
+8246,Coreia do Sul,3,Suwon FC
+8247,Coreia do Sul,3,Ulsan Sporting
+8248,Coreia do Sul,3,Jeonju United
+8249,Coreia do Sul,3,Jeju FC
+8250,Coreia do Sul,3,Pohang FC
+8251,Coreia do Sul,3,Seongnam AC
+8252,Coreia do Sul,3,Sport Chuncheon
+8401,Arábia Saudita,1,Sport Riyadh
+8402,Arábia Saudita,1,Jeddah FC
+8403,Arábia Saudita,1,Mecca
+8404,Arábia Saudita,1,Deportivo Medina
+8405,Arábia Saudita,1,Dammam United
+8406,Arábia Saudita,1,Taif FC
+8407,Arábia Saudita,1,Khobar
+8408,Arábia Saudita,1,União Tabuk
+8409,Arábia Saudita,1,Buraidah AC
+8410,Arábia Saudita,1,Khamis Mushait
+8411,Arábia Saudita,1,Real Hofuf
+8412,Arábia Saudita,1,Hail
+8413,Arábia Saudita,1,Najran
+8414,Arábia Saudita,1,Abha FC
+8415,Arábia Saudita,1,Riyadh Sociedade
+8416,Arábia Saudita,1,Jeddah Athletic
+8417,Arábia Saudita,1,Mecca FC
+8418,Arábia Saudita,1,Medina
+8419,Arábia Saudita,2,Riyadh FC
+8420,Arábia Saudita,2,Jeddah
+8421,Arábia Saudita,2,Mecca FC 1
+8422,Arábia Saudita,2,Atlético Medina
+8423,Arábia Saudita,2,Dammam
+8424,Arábia Saudita,2,Taif AC
+8425,Arábia Saudita,2,Khobar AC
+8426,Arábia Saudita,2,Tabuk FC
+8427,Arábia Saudita,2,Buraidah
+8428,Arábia Saudita,2,FC Khamis Mushait
+8429,Arábia Saudita,2,Hofuf Athletic
+8430,Arábia Saudita,2,Hail 1
+8431,Arábia Saudita,2,Najran FC
+8432,Arábia Saudita,2,Abha
+8433,Arábia Saudita,2,Riyadh Athletic
+8434,Arábia Saudita,2,Jeddah FC 1
+8435,Arábia Saudita,2,Mecca FC 2
+8436,Arábia Saudita,2,Medina FC
+8437,Arábia Saudita,3,Deportivo Riyadh
+8438,Arábia Saudita,3,Jeddah FC 2
+8439,Arábia Saudita,3,Real Mecca
+8440,Arábia Saudita,3,Medina FC 1
+8441,Arábia Saudita,3,Dammam AC
+8442,Arábia Saudita,3,Taif Athletic
+8443,Arábia Saudita,3,Khobar 1
+8444,Arábia Saudita,3,Tabuk
+8445,Arábia Saudita,3,Inter Buraidah
+8446,Arábia Saudita,3,Khamis Mushait FC
+8447,Arábia Saudita,3,Hofuf
+8448,Arábia Saudita,3,Hail FC
+8449,Arábia Saudita,3,Najran FC 1
+8450,Arábia Saudita,3,Mundial Abha
+8451,Arábia Saudita,3,Riyadh FC 1
+8452,Arábia Saudita,3,Jeddah FC 3
+8453,Arábia Saudita,3,Atlético Mecca
+8454,Arábia Saudita,3,FC Medina
+8601,Emirados Árabes Unidos,1,Dubai
+8602,Emirados Árabes Unidos,1,Abu Dhabi Sporting
+8603,Emirados Árabes Unidos,1,Sharjah FC
+8604,Emirados Árabes Unidos,1,Al Ain FC
+8605,Emirados Árabes Unidos,1,Ajman
+8606,Emirados Árabes Unidos,1,Ras Al Khaimah FC
+8607,Emirados Árabes Unidos,1,União Fujairah
+8608,Emirados Árabes Unidos,1,Umm Al Quwain
+8609,Emirados Árabes Unidos,1,Khor Fakkan United
+8610,Emirados Árabes Unidos,1,Kalba Athletic
+8611,Emirados Árabes Unidos,1,Dubai 1
+8612,Emirados Árabes Unidos,1,Abu Dhabi United
+8613,Emirados Árabes Unidos,1,FC Sharjah
+8614,Emirados Árabes Unidos,1,Al Ain FC 1
+8615,Emirados Árabes Unidos,2,Dubai FC
+8616,Emirados Árabes Unidos,2,Abu Dhabi United 1
+8617,Emirados Árabes Unidos,2,Sport Sharjah
+8618,Emirados Árabes Unidos,2,Sport Al Ain
+8619,Emirados Árabes Unidos,2,Ajman FC
+8620,Emirados Árabes Unidos,2,Ras Al Khaimah
+8621,Emirados Árabes Unidos,2,Real Fujairah
+8622,Emirados Árabes Unidos,2,Mundial Umm Al Quwain
+8623,Emirados Árabes Unidos,2,Khor Fakkan
+8624,Emirados Árabes Unidos,2,Deportivo Kalba
+8625,Emirados Árabes Unidos,2,Inter Dubai
+8626,Emirados Árabes Unidos,2,Club Abu Dhabi
+8801,Catar,1,Doha FC
+8802,Catar,1,Al Rayyan FC
+8803,Catar,1,Al Wakrah FC
+8804,Catar,1,Club Al Khor
+8805,Catar,1,Umm Salal Athletic
+8806,Catar,1,Madinat ash Shamal
+8807,Catar,1,Al Shahaniya FC
+8808,Catar,1,Sport Al Daayen
+8809,Catar,1,Atlético Mesaieed
+8810,Catar,1,Doha Athletic
+8811,Catar,1,Mundial Al Rayyan
+8812,Catar,1,Al Wakrah FC 1
+8813,Catar,2,Deportivo Doha
+8814,Catar,2,Al Rayyan United
+8815,Catar,2,Al Wakrah FC 2
+8816,Catar,2,Al Khor FC
+8817,Catar,2,Sport Umm Salal
+8818,Catar,2,Madinat ash Shamal FC
+8819,Catar,2,Al Shahaniya
+8820,Catar,2,Al Daayen FC
+8821,Catar,2,Inter Mesaieed
+8822,Catar,2,Doha Sociedade
+8823,Catar,2,Al Rayyan
+8824,Catar,2,União Al Wakrah
+9001,Irã,1,Tehran FC
+9002,Irã,1,Mashhad
+9003,Irã,1,Isfahan City
+9004,Irã,1,Karaj FC
+9005,Irã,1,Shiraz AC
+9006,Irã,1,Tabriz Sociedade
+9007,Irã,1,Qom
+9008,Irã,1,Ahvaz FC
+9009,Irã,1,FC Kermanshah
+9010,Irã,1,Urmia
+9011,Irã,1,Zahedan
+9012,Irã,1,Deportivo Rasht
+9013,Irã,1,Kerman FC
+9014,Irã,1,Deportivo Yazd
+9015,Irã,1,Tehran
+9016,Irã,1,Mashhad 1
+9017,Irã,2,Deportivo Tehran
+9018,Irã,2,Mashhad FC
+9019,Irã,2,Isfahan Athletic
+9020,Irã,2,Karaj
+9021,Irã,2,União Shiraz
+9022,Irã,2,Atlético Tabriz
+9023,Irã,2,Qom AC
+9024,Irã,2,FC Ahvaz
+9025,Irã,2,Kermanshah
+9026,Irã,2,Deportivo Urmia
+9027,Irã,2,Zahedan Athletic
+9028,Irã,2,Rasht
+9029,Irã,2,Kerman City
+9030,Irã,2,Yazd
+9031,Irã,2,Tehran 1
+9032,Irã,2,Mashhad 2
+9033,Irã,2,Isfahan
+9034,Irã,2,Karaj AC
+9035,Irã,3,Tehran 2
+9036,Irã,3,Club Mashhad
+9037,Irã,3,Isfahan FC
+9038,Irã,3,Club Karaj
+9039,Irã,3,Mundial Shiraz
+9040,Irã,3,Tabriz FC
+9041,Irã,3,Qom 1
+9042,Irã,3,Club Ahvaz
+9043,Irã,3,Kermanshah United
+9044,Irã,3,Atlético Urmia
+9045,Irã,3,Zahedan FC
+9046,Irã,3,Atlético Rasht
+9047,Irã,3,Kerman AC
+9048,Irã,3,Yazd FC
+9049,Irã,3,Tehran 3
+9050,Irã,3,FC Mashhad
+9051,Irã,3,Isfahan 1
+9052,Irã,3,Karaj Sociedade
+9053,Irã,3,Shiraz FC
+9054,Irã,3,Tabriz
+9055,Irã,3,Deportivo Qom
+9056,Irã,3,Ahvaz FC 1
+9057,Irã,3,Real Kermanshah
+9058,Irã,3,Urmia 1
+9059,Irã,3,Zahedan FC 1
+9060,Irã,3,Rasht 1
+9061,Irã,3,Kerman
+9062,Irã,3,Inter Yazd
+9201,China,1,Beijing FC
+9202,China,1,Shanghai FC
+9203,China,1,Guangzhou Sporting
+9204,China,1,Shenzhen FC
+9205,China,1,Inter Wuhan
+9206,China,1,FC Chengdu
+9207,China,1,Mundial Tianjin
+9208,China,1,Sport Nanjing
+9209,China,1,Club Chongqing
+9210,China,1,Hangzhou
+9211,China,1,Xi'an Sporting
+9212,China,1,Shenyang FC
+9213,China,1,Harbin FC
+9214,China,1,Dalian
+9215,China,1,Mundial Beijing
+9216,China,1,Shanghai FC 1
+9217,China,2,União Beijing
+9218,China,2,Shanghai Sociedade
+9219,China,2,Guangzhou
+9220,China,2,Mundial Shenzhen
+9221,China,2,Wuhan FC
+9222,China,2,Chengdu City
+9223,China,2,Tianjin FC
+9224,China,2,Club Nanjing
+9225,China,2,Chongqing City
+9226,China,2,Real Hangzhou
+9227,China,2,Xi'an FC
+9228,China,2,Shenyang
+9229,China,2,Harbin FC 1
+9230,China,2,Dalian City
+9231,China,2,Beijing FC 1
+9232,China,2,Shanghai City
+9233,China,3,Sport Beijing
+9234,China,3,Mundial Shanghai
+9235,China,3,Real Guangzhou
+9236,China,3,Shenzhen FC 1
+9237,China,3,Inter Wuhan 1
+9238,China,3,Chengdu
+9239,China,3,Club Tianjin
+9240,China,3,Nanjing
+9241,China,3,Chongqing FC
+9242,China,3,Inter Hangzhou
+9243,China,3,Xi'an Sporting 1
+9244,China,3,Shenyang FC 1
+9245,China,3,Harbin
+9246,China,3,Mundial Dalian
+9247,China,3,União Beijing 1
+9248,China,3,Sport Shanghai
+9249,China,3,Guangzhou Athletic
+9250,China,3,Shenzhen AC
+9251,China,3,Atlético Wuhan
+9252,China,3,Chengdu 1
+9253,China,3,Tianjin City
+9254,China,3,Nanjing 1
+9255,China,3,Chongqing FC 1
+9256,China,3,Club Hangzhou
+9257,China,3,Xi'an Sporting 2
+9258,China,3,Shenyang FC 2
+9259,China,3,Mundial Harbin
+9260,China,3,Dalian FC
+9261,China,3,Beijing United
+9262,China,3,Club Shanghai
+9263,China,3,Guangzhou 1
+9264,China,3,Shenzhen FC 2
+9265,China,3,Wuhan
+9266,China,3,Chengdu AC
+9267,China,3,Tianjin Athletic
+9268,China,3,União Nanjing
+9401,Austrália,1,Sydney AC
+9402,Austrália,1,Melbourne
+9403,Austrália,1,Brisbane City
+9404,Austrália,1,Perth Sociedade
+9405,Austrália,1,Adelaide FC
+9406,Austrália,1,Canberra
+9407,Austrália,1,Hobart Sporting
+9408,Austrália,1,Darwin FC
+9409,Austrália,1,Inter Newcastle
+9410,Austrália,1,Inter Central Coast
+9411,Austrália,1,Real Geelong
+9412,Austrália,1,Townsville FC
+9413,Austrália,1,Sydney
+9414,Austrália,2,Sydney FC
+9415,Austrália,2,Inter Melbourne
+9416,Austrália,2,Brisbane FC
+9417,Austrália,2,Perth
+9418,Austrália,2,Adelaide Athletic
+9419,Austrália,2,Canberra 1
+9420,Austrália,2,Hobart City
+9421,Austrália,2,Darwin
+9422,Austrália,2,Newcastle FC
+9423,Austrália,2,FC Central Coast
+9424,Austrália,2,Geelong
+9425,Austrália,2,Townsville
+9601,Egito,1,Cairo
+9602,Egito,1,Alexandria
+9603,Egito,1,Giza FC
+9604,Egito,1,Shubra El Kheima FC
+9605,Egito,1,Deportivo Port Said
+9606,Egito,1,Suez FC
+9607,Egito,1,Sport Luxor
+9608,Egito,1,Mansoura FC
+9609,Egito,1,Sport Tanta
+9610,Egito,1,União Asyut
+9611,Egito,1,Fayoum
+9612,Egito,1,Zagazig FC
+9613,Egito,1,Aswan FC
+9614,Egito,1,União Damietta
+9615,Egito,1,Cairo 1
+9616,Egito,1,Alexandria Athletic
+9617,Egito,2,FC Cairo
+9618,Egito,2,Alexandria FC
+9619,Egito,2,Giza FC 1
+9620,Egito,2,Shubra El Kheima
+9621,Egito,2,Port Said FC
+9622,Egito,2,União Suez
+9623,Egito,2,Sport Luxor 1
+9624,Egito,2,Mansoura
+9625,Egito,2,Tanta Sporting
+9626,Egito,2,Real Asyut
+9627,Egito,2,União Fayoum
+9628,Egito,2,Deportivo Zagazig
+9629,Egito,2,Aswan FC 1
+9630,Egito,2,União Damietta 1
+9631,Egito,2,Cairo 2
+9632,Egito,2,Alexandria 1
+9633,Egito,2,Giza FC 2
+9634,Egito,2,Real Shubra El Kheima
+9801,Marrocos,1,Casablanca Sociedade
+9802,Marrocos,1,Rabat Sociedade
+9803,Marrocos,1,Fes
+9804,Marrocos,1,Marrakech Sociedade
+9805,Marrocos,1,Tangier Sporting
+9806,Marrocos,1,Agadir
+9807,Marrocos,1,Oujda Sporting
+9808,Marrocos,1,Kenitra United
+9809,Marrocos,1,Tetouan
+9810,Marrocos,1,Inter Safi
+9811,Marrocos,1,Club Meknes
+9812,Marrocos,1,Club Nador
+9813,Marrocos,1,Laayoune
+9814,Marrocos,1,Khouribga
+9815,Marrocos,1,Casablanca Sociedade 1
+9816,Marrocos,1,Rabat FC
+9817,Marrocos,2,Casablanca Athletic
+9818,Marrocos,2,Rabat United
+9819,Marrocos,2,Fes FC
+9820,Marrocos,2,Marrakech
+9821,Marrocos,2,Tangier
+9822,Marrocos,2,Sport Agadir
+9823,Marrocos,2,Oujda AC
+9824,Marrocos,2,Kenitra FC
+9825,Marrocos,2,Tetouan 1
+9826,Marrocos,2,Safi
+9827,Marrocos,2,Club Meknes 1
+9828,Marrocos,2,Nador
+9829,Marrocos,2,FC Laayoune
+9830,Marrocos,2,União Khouribga
+9831,Marrocos,2,Club Casablanca
+9832,Marrocos,2,Rabat FC 1
+9833,Marrocos,3,Sport Casablanca
+9834,Marrocos,3,Rabat FC 2
+9835,Marrocos,3,Fes 1
+9836,Marrocos,3,Atlético Marrakech
+9837,Marrocos,3,Tangier Sporting 1
+9838,Marrocos,3,Agadir 1
+9839,Marrocos,3,Atlético Oujda
+9840,Marrocos,3,Kenitra FC 1
+9841,Marrocos,3,Tetouan FC
+9842,Marrocos,3,Safi FC
+9843,Marrocos,3,União Meknes
+9844,Marrocos,3,Club Nador 1
+9845,Marrocos,3,Laayoune Sporting
+9846,Marrocos,3,Club Khouribga
+9847,Marrocos,3,Casablanca FC
+9848,Marrocos,3,Atlético Rabat
+10001,Tunísia,1,Tunis FC
+10002,Tunísia,1,Sfax AC
+10003,Tunísia,1,Sousse FC
+10004,Tunísia,1,Kairouan
+10005,Tunísia,1,Inter Bizerte
+10006,Tunísia,1,Gabes
+10007,Tunísia,1,Ariana Sociedade
+10008,Tunísia,1,Gafsa United
+10009,Tunísia,1,Monastir FC
+10010,Tunísia,1,Sport Hammamet
+10011,Tunísia,1,La Marsa
+10012,Tunísia,1,Nabeul
+10013,Tunísia,1,FC Djerba
+10014,Tunísia,1,Kasserine
+10015,Tunísia,1,Tunis
+10016,Tunísia,1,Sfax FC
+10017,Tunísia,2,Tunis 1
+10018,Tunísia,2,Sfax FC 1
+10019,Tunísia,2,Sousse
+10020,Tunísia,2,Kairouan 1
+10021,Tunísia,2,Deportivo Bizerte
+10022,Tunísia,2,Gabes Athletic
+10023,Tunísia,2,Ariana FC
+10024,Tunísia,2,Gafsa FC
+10025,Tunísia,2,Monastir Sporting
+10026,Tunísia,2,Hammamet
+10027,Tunísia,2,La Marsa 1
+10028,Tunísia,2,Nabeul United
+10029,Tunísia,2,Djerba FC
+10030,Tunísia,2,União Kasserine
+10201,África do Sul,1,Johannesburg United
+10202,África do Sul,1,Cape Town FC
+10203,África do Sul,1,Deportivo Durban
+10204,África do Sul,1,União Pretoria
+10205,África do Sul,1,Real Port Elizabeth
+10206,África do Sul,1,Bloemfontein FC
+10207,África do Sul,1,Nelspruit FC
+10208,África do Sul,1,Polokwane AC
+10209,África do Sul,1,Rustenburg United
+10210,África do Sul,1,Atlético East London
+10211,África do Sul,1,Kimberley FC
+10212,África do Sul,1,Pietermaritzburg Athletic
+10213,África do Sul,1,União Johannesburg
+10214,África do Sul,1,Inter Cape Town
+10215,África do Sul,1,Durban
+10216,África do Sul,1,Pretoria
+10217,África do Sul,2,Inter Johannesburg
+10218,África do Sul,2,Cape Town FC 1
+10219,África do Sul,2,Durban 1
+10220,África do Sul,2,Pretoria 1
+10221,África do Sul,2,Deportivo Port Elizabeth
+10222,África do Sul,2,Bloemfontein
+10223,África do Sul,2,Nelspruit FC 1
+10224,África do Sul,2,Polokwane Athletic
+10225,África do Sul,2,Rustenburg Athletic
+10226,África do Sul,2,União East London
+10227,África do Sul,2,Kimberley
+10228,África do Sul,2,Pietermaritzburg Athletic 1
+10229,África do Sul,2,Johannesburg FC
+10230,África do Sul,2,Deportivo Cape Town
+10231,África do Sul,2,Real Durban
+10232,África do Sul,2,Pretoria FC
