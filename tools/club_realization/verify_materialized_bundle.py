@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Fail-closed verifier for the materialized Brasfoot real-club bundle.
+"""Fail-closed verifier for the materialized real-club bundle.
 
 The APK gate must not trust file counts alone. This verifier cross-checks the frozen
-1,907-slot baseline, generated Kotlin replacement data, bundled PNG assets and the
-SHA-256 manifest. An incomplete bundle is reported as not ready; a superficially
+1,907-slot baseline, generated Kotlin replacement data, bundled PNG/SVG assets and
+the SHA-256 manifest. An incomplete bundle is reported as not ready; a superficially
 complete but inconsistent bundle raises an error and fails CI.
 """
 
@@ -13,11 +13,13 @@ import argparse
 import csv
 import hashlib
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
 EXPECTED_REPLACEMENTS = 1907
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+SUPPORTED_CREST_EXTENSIONS = {".png", ".svg"}
 
 REPLACEMENT_RE = re.compile(
     r"BrasfootRealClubIdentity\.Replacement\("
@@ -38,7 +40,6 @@ class Replacement:
 
 
 def _unescape_kotlin(value: str) -> str:
-    # Generator only escapes backslash, quote and dollar; decode exactly those.
     return value.replace("\\\"", '"').replace("\\$", "$").replace("\\\\", "\\")
 
 
@@ -59,7 +60,7 @@ def read_baseline(path: Path) -> dict[int, tuple[str, int, str]]:
 
 def read_replacements(path: Path) -> list[Replacement]:
     text = path.read_text(encoding="utf-8")
-    rows = [
+    return [
         Replacement(
             legacy_team_id=int(match.group("id")),
             country=_unescape_kotlin(match.group("country")),
@@ -70,7 +71,6 @@ def read_replacements(path: Path) -> list[Replacement]:
         )
         for match in REPLACEMENT_RE.finditer(text)
     ]
-    return rows
 
 
 def sha256(path: Path) -> str:
@@ -79,6 +79,30 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def validate_asset(path: Path) -> None:
+    extension = path.suffix.casefold()
+    data = path.read_bytes()
+    if extension == ".png":
+        if not data.startswith(PNG_SIGNATURE):
+            raise ValueError(f"invalid PNG signature: {path.name}")
+        return
+    if extension == ".svg":
+        folded = data.lower()
+        for forbidden in (b"<!doctype", b"<!entity", b"<script", b"javascript:"):
+            if forbidden in folded:
+                raise ValueError(f"unsafe SVG content in {path.name}")
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError as exc:
+            raise ValueError(f"invalid SVG XML: {path.name}") from exc
+        if root.tag.rsplit("}", 1)[-1].casefold() != "svg":
+            raise ValueError(f"invalid SVG root: {path.name}")
+        if not root.get("viewBox") and not (root.get("width") and root.get("height")):
+            raise ValueError(f"SVG without viewBox or dimensions: {path.name}")
+        return
+    raise ValueError(f"unsupported crest extension: {path.name}")
 
 
 def read_manifest(path: Path) -> dict[int, dict[str, str]]:
@@ -96,6 +120,15 @@ def read_manifest(path: Path) -> dict[int, dict[str, str]]:
     return result
 
 
+def crest_assets(crest_dir: Path) -> list[Path]:
+    if not crest_dir.is_dir():
+        return []
+    return sorted(
+        path for path in crest_dir.iterdir()
+        if path.is_file() and path.suffix.casefold() in SUPPORTED_CREST_EXTENSIONS
+    )
+
+
 def verify_complete_bundle(
     baseline_path: Path,
     kotlin_path: Path,
@@ -105,14 +138,20 @@ def verify_complete_bundle(
     baseline = read_baseline(baseline_path)
     replacements = read_replacements(kotlin_path)
     manifest = read_manifest(manifest_path)
-    pngs = sorted(path for path in crest_dir.iterdir() if path.is_file() and path.suffix.lower() == ".png")
+    assets = crest_assets(crest_dir)
+    unsupported_files = sorted(
+        path.name for path in crest_dir.iterdir()
+        if path.is_file() and path.suffix.casefold() not in SUPPORTED_CREST_EXTENSIONS
+    )
 
+    if unsupported_files:
+        raise ValueError(f"unsupported files in crest bundle: {unsupported_files[:20]}")
     if len(replacements) != EXPECTED_REPLACEMENTS:
         raise ValueError(f"replacement count {len(replacements)} != {EXPECTED_REPLACEMENTS}")
     if len(manifest) != EXPECTED_REPLACEMENTS:
         raise ValueError(f"digest count {len(manifest)} != {EXPECTED_REPLACEMENTS}")
-    if len(pngs) != EXPECTED_REPLACEMENTS:
-        raise ValueError(f"crest count {len(pngs)} != {EXPECTED_REPLACEMENTS}")
+    if len(assets) != EXPECTED_REPLACEMENTS:
+        raise ValueError(f"crest count {len(assets)} != {EXPECTED_REPLACEMENTS}")
 
     ids = [row.legacy_team_id for row in replacements]
     if len(ids) != len(set(ids)):
@@ -124,9 +163,9 @@ def verify_complete_bundle(
 
     real_keys: set[tuple[str, str]] = set()
     crest_names: set[str] = set()
-    actual_asset_names = {path.name.casefold(): path for path in pngs}
-    if len(actual_asset_names) != len(pngs):
-        raise ValueError("case-insensitive duplicate PNG names in asset bundle")
+    actual_asset_names = {path.name.casefold(): path for path in assets}
+    if len(actual_asset_names) != len(assets):
+        raise ValueError("case-insensitive duplicate crest names in asset bundle")
 
     for row in replacements:
         baseline_value = baseline[row.legacy_team_id]
@@ -145,8 +184,7 @@ def verify_complete_bundle(
         asset = actual_asset_names.get(crest_key)
         if asset is None:
             raise ValueError(f"missing crest asset: {row.crest_file_name}")
-        if asset.read_bytes()[:8] != PNG_SIGNATURE:
-            raise ValueError(f"invalid PNG signature: {row.crest_file_name}")
+        validate_asset(asset)
 
         digest_row = manifest[row.legacy_team_id]
         expected_fields = {
@@ -166,13 +204,13 @@ def verify_complete_bundle(
             raise ValueError(f"sha256 mismatch for {row.crest_file_name}")
 
     if crest_names != set(actual_asset_names):
-        raise ValueError("asset directory contains PNGs not referenced by generated replacements")
+        raise ValueError("asset directory contains crests not referenced by generated replacements")
 
     return {
         "ready": "true",
         "reason": "complete-and-verified",
         "replacement_rows": str(len(replacements)),
-        "crest_count": str(len(pngs)),
+        "crest_count": str(len(assets)),
         "digest_rows": str(len(manifest)),
     }
 
@@ -180,9 +218,7 @@ def verify_complete_bundle(
 def probe(args: argparse.Namespace) -> dict[str, str]:
     kotlin_exists = args.kotlin_file.is_file()
     manifest_exists = args.digest_file.is_file()
-    crest_count = 0
-    if args.crest_dir.is_dir():
-        crest_count = sum(1 for p in args.crest_dir.iterdir() if p.is_file() and p.suffix.lower() == ".png")
+    crest_count = len(crest_assets(args.crest_dir))
 
     # Missing/incomplete materialization is an expected development state: defer APK without failing CI.
     if not kotlin_exists or not manifest_exists or crest_count != EXPECTED_REPLACEMENTS:
@@ -207,7 +243,6 @@ def probe(args: argparse.Namespace) -> dict[str, str]:
             "digest_rows": str(digest_rows),
         }
 
-    # Once the bundle looks complete by count, inconsistencies are fatal rather than silently deferred.
     return verify_complete_bundle(args.baseline, args.kotlin_file, args.crest_dir, args.digest_file)
 
 

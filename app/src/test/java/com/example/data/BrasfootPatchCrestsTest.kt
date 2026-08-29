@@ -26,18 +26,43 @@ class BrasfootPatchCrestsTest {
     }
 
     @Test
+    fun resolvesBundledSvgWithoutConvertingItsFormat() {
+        BrasfootPatchCrests.install(
+            listOf(BrasfootPatchCrests.Entry("México", "Clube Real", "club-real.svg"))
+        )
+        assertEquals(
+            "file:///android_asset/club_crests/club-real.svg",
+            BrasfootPatchCrests.assetUriFor("mexico", "CLUBE REAL")
+        )
+    }
+
+    @Test
     fun unknownClubHasNoInventedLocalCrest() {
         assertNull(BrasfootPatchCrests.assetUriFor("Brasil", "Clube desconhecido"))
     }
 
     @Test
-    fun rejectsOnePngAssignedToDifferentClubs() {
+    fun rejectsOneCrestAssignedToDifferentClubs() {
         assertThrows(IllegalArgumentException::class.java) {
             BrasfootPatchCrests.install(
                 listOf(
-                    BrasfootPatchCrests.Entry("Brasil", "Clube A", "same.png"),
-                    BrasfootPatchCrests.Entry("Brasil", "Clube B", "SAME.PNG")
+                    BrasfootPatchCrests.Entry("Brasil", "Clube A", "same.svg"),
+                    BrasfootPatchCrests.Entry("Brasil", "Clube B", "SAME.SVG")
                 )
+            )
+        }
+    }
+
+    @Test
+    fun rejectsUnsupportedOrPathTraversingCrestNames() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BrasfootPatchCrests.install(
+                listOf(BrasfootPatchCrests.Entry("Brasil", "Clube A", "crest.webp"))
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            BrasfootPatchCrests.install(
+                listOf(BrasfootPatchCrests.Entry("Brasil", "Clube A", "../crest.png"))
             )
         }
     }

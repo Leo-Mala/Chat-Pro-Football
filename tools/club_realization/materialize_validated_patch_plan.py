@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Materializa um plano JÁ VALIDADO de clubes reais/escudos do patch Brasfoot.
+"""Materializa um plano JÁ VALIDADO de clubes reais e seus escudos.
 
-Este utilitário deliberadamente não faz fuzzy matching nem consulta fontes externas.
-Ele aceita apenas um plano explícito 1:1 contra os 1.907 slots procedurais congelados,
-valida PNGs e copia os bytes originais sem redimensionar/reencodar.
+Este utilitário deliberadamente não faz fuzzy matching nem descobre clubes por conta
+própria. Ele aceita apenas um plano explícito 1:1 contra os 1.907 slots procedurais
+congelados, valida PNG/SVG e copia os bytes originais sem redimensionar/reencodar.
+Assim, escudos vindos do patch Brasfoot ou de uma fonte externa já auditada mantêm
+seu formato original.
 """
 
 from __future__ import annotations
@@ -13,11 +15,13 @@ import csv
 import hashlib
 import shutil
 import struct
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 EXPECTED_REPLACEMENTS = 1907
+SUPPORTED_CREST_EXTENSIONS = {".png", ".svg"}
 
 
 @dataclass(frozen=True)
@@ -85,21 +89,50 @@ def load_plan(path: Path) -> list[PlanRow]:
     ]
 
 
-def validate_png(path: Path) -> tuple[int, int, int, str]:
+def validate_png(path: Path) -> str:
     data = path.read_bytes()
     if len(data) < 33 or not data.startswith(PNG_SIGNATURE):
         raise ValueError(f"PNG inválido: {path}")
     if data[12:16] != b"IHDR":
         raise ValueError(f"PNG sem IHDR inicial: {path}")
-    width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
+    width, height, _bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
     if width <= 0 or height <= 0:
         raise ValueError(f"Dimensões inválidas: {path}")
     # 4=grayscale+alpha, 6=truecolor+alpha. Paletted PNG (3) may carry tRNS transparency.
     has_alpha = color_type in (4, 6) or (color_type == 3 and b"tRNS" in data)
     if not has_alpha:
-        raise ValueError(f"Escudo sem transparência preservável: {path}")
-    digest = hashlib.sha256(data).hexdigest()
-    return width, height, color_type, digest
+        raise ValueError(f"Escudo PNG sem transparência preservável: {path}")
+    return hashlib.sha256(data).hexdigest()
+
+
+def validate_svg(path: Path) -> str:
+    data = path.read_bytes()
+    if not data.strip():
+        raise ValueError(f"SVG vazio: {path}")
+    folded = data.lower()
+    for forbidden in (b"<!doctype", b"<!entity", b"<script", b"javascript:"):
+        if forbidden in folded:
+            raise ValueError(f"SVG contém conteúdo não permitido ({forbidden.decode(errors='ignore')}): {path}")
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as exc:
+        raise ValueError(f"SVG XML inválido: {path}: {exc}") from exc
+    local_name = root.tag.rsplit("}", 1)[-1].casefold()
+    if local_name != "svg":
+        raise ValueError(f"Arquivo .svg não tem raiz <svg>: {path}")
+    has_geometry = bool(root.get("viewBox")) or bool(root.get("width") and root.get("height"))
+    if not has_geometry:
+        raise ValueError(f"SVG sem viewBox ou dimensões: {path}")
+    return hashlib.sha256(data).hexdigest()
+
+
+def validate_crest(path: Path) -> str:
+    extension = path.suffix.casefold()
+    if extension == ".png":
+        return validate_png(path)
+    if extension == ".svg":
+        return validate_svg(path)
+    raise ValueError(f"Formato de escudo não suportado: {path.name}")
 
 
 def kotlin_string(value: str) -> str:
@@ -136,10 +169,10 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
             )
         if not row.real_club_name:
             raise ValueError(f"Clube real vazio no slot {row.legacy_team_id}")
-        if not row.crest_file_name.lower().endswith(".png"):
-            raise ValueError(f"Escudo não é PNG: {row.crest_file_name}")
         if Path(row.crest_file_name).name != row.crest_file_name:
             raise ValueError(f"Nome de escudo deve ser basename puro: {row.crest_file_name}")
+        if Path(row.crest_file_name).suffix.casefold() not in SUPPORTED_CREST_EXTENSIONS:
+            raise ValueError(f"Escudo deve preservar PNG ou SVG original: {row.crest_file_name}")
 
         real_key = (row.country.casefold(), row.real_club_name.casefold())
         if real_key in real_keys:
@@ -148,13 +181,13 @@ def validate_plan(slots: dict[int, Slot], plan: list[PlanRow], crests_dir: Path)
 
         crest_key = row.crest_file_name.casefold()
         if crest_key in crest_keys:
-            raise ValueError(f"PNG reutilizado: {row.crest_file_name}")
+            raise ValueError(f"Escudo reutilizado: {row.crest_file_name}")
         crest_keys.add(crest_key)
 
         crest_path = crests_dir / row.crest_file_name
         if not crest_path.is_file():
-            raise FileNotFoundError(f"PNG não encontrado: {crest_path}")
-        _, _, _, digest = validate_png(crest_path)
+            raise FileNotFoundError(f"Escudo não encontrado: {crest_path}")
+        digest = validate_crest(crest_path)
         checked.append((row, digest))
 
     return checked
@@ -164,7 +197,7 @@ def write_kotlin(checked: list[tuple[PlanRow, str]], output: Path) -> None:
     lines = [
         "package com.example.data",
         "",
-        "/** Gerado exclusivamente do plano validado do patch Brasfoot. Não editar manualmente. */",
+        "/** Gerado exclusivamente do plano validado de clubes reais. Não editar manualmente. */",
         "object BrasfootRealClubReplacementData {",
         f"    const val EXPECTED_REPLACEMENT_COUNT: Int = {EXPECTED_REPLACEMENTS}",
         "",
@@ -194,8 +227,8 @@ def write_kotlin(checked: list[tuple[PlanRow, str]], output: Path) -> None:
 def copy_original_crests(checked: list[tuple[PlanRow, str]], source_dir: Path, target_dir: Path) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
     expected_names = {row.crest_file_name for row, _ in checked}
-    for existing in target_dir.glob("*.png"):
-        if existing.name not in expected_names:
+    for existing in target_dir.iterdir():
+        if existing.is_file() and existing.suffix.casefold() in SUPPORTED_CREST_EXTENSIONS and existing.name not in expected_names:
             existing.unlink()
     for row, expected_digest in checked:
         src = source_dir / row.crest_file_name
@@ -203,7 +236,7 @@ def copy_original_crests(checked: list[tuple[PlanRow, str]], source_dir: Path, t
         shutil.copyfile(src, dst)
         actual = hashlib.sha256(dst.read_bytes()).hexdigest()
         if actual != expected_digest:
-            raise IOError(f"Cópia alterou bytes do PNG: {row.crest_file_name}")
+            raise IOError(f"Cópia alterou bytes do escudo: {row.crest_file_name}")
 
 
 def write_digest_manifest(checked: list[tuple[PlanRow, str]], output: Path) -> None:

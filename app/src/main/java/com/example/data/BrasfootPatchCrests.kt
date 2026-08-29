@@ -3,9 +3,10 @@ package com.example.data
 import java.text.Normalizer
 import java.util.Locale
 
-/** Catálogo dos PNGs originais de escudos fornecidos pelo patch Brasfoot. */
+/** Catálogo dos escudos originais materializados para os clubes reais (PNG ou SVG). */
 object BrasfootPatchCrests {
     private const val ASSET_URI_PREFIX = "file:///android_asset/club_crests/"
+    private val supportedExtensions = setOf("png", "svg")
 
     data class Entry(
         val country: String,
@@ -21,8 +22,13 @@ object BrasfootPatchCrests {
         entries.forEach { entry ->
             require(entry.country.isNotBlank()) { "País vazio no catálogo de escudos." }
             require(entry.clubName.isNotBlank()) { "Clube vazio no catálogo de escudos." }
-            require(entry.crestFileName.endsWith(".png", ignoreCase = true)) {
-                "O escudo deve manter o PNG original do patch: ${entry.crestFileName}"
+            require('/' !in entry.crestFileName && '\\' !in entry.crestFileName) {
+                "Nome de escudo deve ser basename puro: ${entry.crestFileName}"
+            }
+            val extension = entry.crestFileName.substringAfterLast('.', missingDelimiterValue = "")
+                .lowercase(Locale.ROOT)
+            require(extension in supportedExtensions) {
+                "O escudo deve preservar o PNG ou SVG original: ${entry.crestFileName}"
             }
             val key = key(entry.country, entry.clubName)
             val previous = next.putIfAbsent(key, entry.crestFileName)
