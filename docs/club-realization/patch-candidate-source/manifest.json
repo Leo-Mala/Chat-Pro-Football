@@ -1,0 +1,34 @@
+{
+  "source": {
+    "fileName": "3 221 Mobile Brasfoot.rar",
+    "sha256": "83b5466af153f79709abae267d74a44aca4f048965c689415d57ee00fa3a7d8b"
+  },
+  "catalog": {
+    "purpose": "Read-only candidate inventory for replacing procedural club fillers with real patch clubs; no player data is imported.",
+    "expectedCandidateRows": 4182,
+    "expectedFrozenFillerSlots": 1907,
+    "selectionPolicy": "Exact patch evidence only; no fuzzy club-to-crest matching. Final materialization must filter clubs already factual in Pro Football and preserve legacy filler IDs.",
+    "chunks": [
+      {
+        "file": "chunk-301c950af1c901c1.bin",
+        "gitBlobSha": "301c950af1c901c12ccac22bbc8386924611f02b",
+        "bytes": 14000
+      },
+      {
+        "file": "chunk-4aaeee499b48252d.bin",
+        "gitBlobSha": "4aaeee499b48252dc20269f5226f3bb503179269",
+        "bytes": 14000
+      },
+      {
+        "file": "chunk-2b51f78aee7d4408.bin",
+        "gitBlobSha": "2b51f78aee7d44083a81d2b84c8e90aec067be1c",
+        "bytes": 14000
+      },
+      {
+        "file": "chunk-7ffda5d3a6c21205.bin",
+        "gitBlobSha": "7ffda5d3a6c2120545ee8f4dd731ec4c6fdff7d3",
+        "bytes": 14000
+      }
+    ]
+  }
+}
