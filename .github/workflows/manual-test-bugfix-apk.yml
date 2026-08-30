@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: manual-test-bugfix-apk-${{ github.ref }}
@@ -85,33 +84,6 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
           cp debug.keystore ~/.android/debug.keystore
-
-      - name: Restore hardened 1907-club bundle in CI workspace
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HARDENED_SUPPLEMENTS_RUN_ID: '33310805796'
-          HARDENED_SUPPLEMENTS_ARTIFACT: 'hardened-plan-15-supplements-63d06347b63b6e43c69fcc1dede9048e64109798'
-        run: |
-          set -euo pipefail
-          if [ -d app/src/main/assets/club_crests ] && [ "$(find app/src/main/assets/club_crests -maxdepth 1 -type f \( -name '*.png' -o -name '*.svg' \) | wc -l)" -eq 1907 ]; then
-            echo '1907-club bundle already present in checkout'
-            exit 0
-          fi
-
-          test -f docs/club-realization/generated-filler-slots.csv
-          test -f docs/club-realization/preserved-factual-clubs.csv
-          test -f tools/club_realization/materialize_validated_patch_plan.py
-
-          mkdir -p "$RUNNER_TEMP/hardened-supplements"
-          gh run download "$HARDENED_SUPPLEMENTS_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name "$HARDENED_SUPPLEMENTS_ARTIFACT" \
-            --dir "$RUNNER_TEMP/hardened-supplements"
-          test -f "$RUNNER_TEMP/hardened-supplements/manifest.json"
-          test "$(find "$RUNNER_TEMP/hardened-supplements/assets" -maxdepth 1 -type f -name 'club_*.png' | wc -l)" -eq 15
-
-          echo 'Hardened 15-club supplement artifact restored and integrity inputs are available.'
 
       - name: Validate club realization Python tooling
         shell: bash
@@ -191,4 +163,4 @@ jobs:
           retention-days: 7
 
 # Focused manual-test certification for the exact current bugfix head, including the pristine career-seed fast path.
-# APK generation is gated until the materialized 1,907-club bundle is present and cross-verified.
+# APK generation is intentionally gated until all 1,907 real-club replacements and original PNGs are materialized and cross-verified.
