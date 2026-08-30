@@ -162,5 +162,5 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-# Focused manual-test certification for current bugfix/procedural-player head.
+# Focused manual-test certification for the exact current bugfix head, including the pristine career-seed fast path.
 # APK generation is intentionally gated until all 1,907 real-club replacements and original PNGs are materialized and cross-verified.
