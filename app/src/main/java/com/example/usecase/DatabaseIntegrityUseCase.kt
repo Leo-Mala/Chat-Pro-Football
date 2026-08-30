@@ -6,6 +6,9 @@ import com.example.data.Player
 import com.example.data.Team
 import com.example.data.getOrphanPlayerCount
 import com.example.data.getWeeklyRosterAggregates
+import java.util.WeakHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * UseCase responsável pela integridade e reparo automático do banco de dados Room.
@@ -24,6 +27,37 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
         val orphanPlayersFixedCount: Int,
         val issuesFound: List<String>
     )
+
+    private data class RecentRepair(
+        val completedAtNs: Long,
+        val report: IntegrityCheckReport
+    )
+
+    companion object {
+        // selectSaveSlot() e o collector de GameSave podem solicitar o mesmo autorreparo quase
+        // simultaneamente. Coalescemos apenas essa janela curta de abertura; validações posteriores
+        // continuam executando normalmente e os WeakHashMap não prolongam a vida de repositories.
+        private const val REPAIR_REUSE_WINDOW_NS = 2_000_000_000L
+        private val repairLocks = WeakHashMap<GameRepository, Mutex>()
+        private val recentRepairs = WeakHashMap<GameRepository, RecentRepair>()
+
+        private fun repairLockFor(repository: GameRepository): Mutex = synchronized(repairLocks) {
+            repairLocks.getOrPut(repository) { Mutex() }
+        }
+
+        private fun recentRepairFor(repository: GameRepository, nowNs: Long): IntegrityCheckReport? =
+            synchronized(recentRepairs) {
+                recentRepairs[repository]
+                    ?.takeIf { nowNs - it.completedAtNs <= REPAIR_REUSE_WINDOW_NS }
+                    ?.report
+            }
+
+        private fun rememberRepair(repository: GameRepository, report: IntegrityCheckReport) {
+            synchronized(recentRepairs) {
+                recentRepairs[repository] = RecentRepair(System.nanoTime(), report)
+            }
+        }
+    }
 
     private fun Team.requiresDomesticRosterIntegrity(): Boolean =
         !country.equals("Mundial", ignoreCase = true)
@@ -74,7 +108,14 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
         )
     }
 
-    suspend fun repairDatabase(): IntegrityCheckReport {
+    suspend fun repairDatabase(): IntegrityCheckReport = repairLockFor(repository).withLock {
+        recentRepairFor(repository, System.nanoTime())?.let { return@withLock it }
+        val report = repairDatabaseUncached()
+        rememberRepair(repository, report)
+        report
+    }
+
+    private suspend fun repairDatabaseUncached(): IntegrityCheckReport {
         // Um slot pré-carreira (sem GameSave canônico) pode conter apenas dados de seleção/editor.
         // Ele continua semanticamente vazio e não deve disparar um preenchimento global de elencos
         // que compete com a criação do Novo Jogo e será apagado pelo seed transacional da carreira.
