@@ -2,6 +2,7 @@ package com.example.data
 
 import java.text.Normalizer
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Compatibilidade de identidade para a troca dos fillers procedurais por clubes reais do patch.
@@ -12,6 +13,9 @@ import java.util.Locale
  */
 object BrasfootRealClubIdentity {
     private val supportedCrestExtensions = setOf("png", "svg")
+    private val combiningMarksRegex = "\\p{M}+".toRegex()
+    private val nonAlphaNumericRegex = "[^a-z0-9]+".toRegex()
+    private val normalizedValueCache = ConcurrentHashMap<String, String>()
 
     data class Replacement(
         val legacyTeamId: Long,
@@ -124,9 +128,11 @@ object BrasfootRealClubIdentity {
     private fun key(country: String, name: String): String =
         normalize(country) + '\u0000' + normalize(name)
 
-    private fun normalize(value: String): String = Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
-        .replace("\\p{M}+".toRegex(), "")
-        .lowercase(Locale.ROOT)
-        .replace("[^a-z0-9]+".toRegex(), " ")
-        .trim()
+    private fun normalize(value: String): String = normalizedValueCache.getOrPut(value) {
+        Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
+            .replace(combiningMarksRegex, "")
+            .lowercase(Locale.ROOT)
+            .replace(nonAlphaNumericRegex, " ")
+            .trim()
+    }
 }
