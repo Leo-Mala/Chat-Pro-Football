@@ -1,0 +1,42 @@
+name: Export current football logo corpus
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-current-football-logo-corpus.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout logo corpus
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/Leo4815162342/football-logos.git football-logos
+          git -C football-logos rev-parse HEAD | tee football-logos/SOURCE_COMMIT.txt
+          find football-logos/logos -type f | sort > football-logos/LOGO_FILES.txt
+          printf 'logo_files=' >> "$GITHUB_OUTPUT"
+          find football-logos/logos -type f | wc -l
+
+      - name: Package corpus
+        run: |
+          set -euo pipefail
+          tar -I 'zstd -19 -T0' -cf football-logos-corpus.tar.zst football-logos
+          sha256sum football-logos-corpus.tar.zst | tee football-logos-corpus.tar.zst.sha256
+
+      - name: Upload corpus artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: football-logos-corpus-${{ github.sha }}
+          path: |
+            football-logos-corpus.tar.zst
+            football-logos-corpus.tar.zst.sha256
+          if-no-files-found: error
+          retention-days: 1
