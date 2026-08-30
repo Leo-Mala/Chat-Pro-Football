@@ -1,0 +1,67 @@
+name: Export local Android build kit
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-local-android-build-kit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client": [{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          EOF
+      - name: Warm exact Android/Gradle dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug -PexcludeStressTests=true --stacktrace
+      - name: Package minimal offline build kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          du -sh "$HOME/.gradle/caches" "$ANDROID_HOME/platforms/android-35" "$ANDROID_HOME/build-tools" || true
+          mkdir -p offline-kit
+          tar --zstd -cf offline-kit/android-gradle-build-kit.tar.zst \
+            -C "$HOME" .gradle/caches \
+            -C "$ANDROID_HOME" platforms/android-35 build-tools platform-tools licenses
+          sha256sum offline-kit/android-gradle-build-kit.tar.zst | tee offline-kit/SHA256SUMS.txt
+          printf 'head=%s\nandroid_home=%s\n' "$GITHUB_SHA" "$ANDROID_HOME" > offline-kit/BUILD_KIT_INFO.txt
+      - name: Upload offline build kit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-gradle-build-kit-${{ github.sha }}
+          path: offline-kit/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
