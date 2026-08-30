@@ -11,6 +11,8 @@ import com.example.data.GameRepository
 import com.example.data.MatchSlot
 import com.example.data.Player
 import com.example.data.Team
+import com.example.data.model.SaveSlotMetadata
+import com.example.ui.viewmodel.MutableStateFlow as SaveSlotsMutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -160,5 +162,36 @@ class CareerCreationPerformanceTest {
         assertNotNull(recorded)
         assertEquals(snapshot, recorded)
         assertTrue(recorded!!.totalMs >= recorded.persistenceMs)
+    }
+
+    @Test
+    fun `new career fast slot publication preserves unknown slot safety`() {
+        val state = SaveSlotsMutableStateFlow<List<SaveSlotMetadata>>(emptyList())
+
+        state.value = listOf(
+            SaveSlotMetadata(
+                id = "3",
+                exists = true,
+                coachName = "Novo",
+                teamName = "Cruzeiro"
+            )
+        )
+        assertTrue(
+            "partial fast publication must not expose unreconciled slots as empty",
+            state.value.isEmpty()
+        )
+
+        val complete = (1..5).map { slot ->
+            SaveSlotMetadata(
+                id = slot.toString(),
+                exists = slot == 3,
+                coachName = if (slot == 3) "Novo" else "",
+                teamName = if (slot == 3) "Cruzeiro" else ""
+            )
+        }
+        state.value = complete
+
+        assertEquals((1..5).map(Int::toString), state.value.map { it.id })
+        assertTrue(state.value.single { it.id == "3" }.exists)
     }
 }
