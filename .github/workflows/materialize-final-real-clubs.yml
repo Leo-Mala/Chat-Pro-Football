@@ -27,89 +27,125 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Reassemble audited materialization input
+      - name: Reassemble and validate complete audited input
         shell: bash
         env:
-          EXPECTED_ARCHIVE_SHA256: 1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf
+          CANONICAL_ARCHIVE_SHA256: 7e82ed9f20c41a9385877898f39f1dfd6395917e00f3c12c4560d2a91771778f
+          TRANSPORT_V1_SHA256: 5d74b39e19b1cf756fc0f8f3f113734aa177e9d7d6736b9348db473a6cd384c9
+          HARDENED_PLAN_SHA256: eb4e5a4919eb3690f5ad9e0508d44bd523ed85ff2b7a75ba667dc15c87b58be1
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/club-realization-input"
+          input_root="$RUNNER_TEMP/club-realization-input"
+          archive="$RUNNER_TEMP/final-club-realization-input.tar.gz"
+          mkdir -p "$input_root"
           shopt -s nullglob
-          parts=(.club-realization-input/final-club-realization-input.tar.gz.part*)
-          test "${#parts[@]}" -gt 0
-          cat "${parts[@]}" > "$RUNNER_TEMP/final-club-realization-input.tar.gz"
-          echo "${EXPECTED_ARCHIVE_SHA256}  $RUNNER_TEMP/final-club-realization-input.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/final-club-realization-input.tar.gz" -C "$RUNNER_TEMP/club-realization-input"
-          test "$(($(wc -l < "$RUNNER_TEMP/club-realization-input/plan.csv") - 1))" -eq 1907
-          test -f "$RUNNER_TEMP/club-realization-input/metadata.json"
 
-      - name: Restore the 106 immutable external SVGs
-        shell: bash
-        run: |
-          set -euo pipefail
+          canonical_parts=(.club-realization-input/final-club-realization-input.tar.gz.part*)
+          transport_parts=(.club-realization-input/final-club-realization-transport-v1.tar.gz.part*)
+          complete_canonical=.club-realization-input/final-club-realization-input.tar.gz
+          complete_transport=.club-realization-input/final-club-realization-transport-v1.tar.gz
+
+          sources=0
+          if [ -f "$complete_canonical" ]; then
+            cp "$complete_canonical" "$archive"
+            sources=$((sources + 1))
+          fi
+          if [ -f "$complete_transport" ]; then
+            cp "$complete_transport" "$archive"
+            sources=$((sources + 1))
+          fi
+          if [ "${#canonical_parts[@]}" -gt 0 ]; then
+            cat "${canonical_parts[@]}" > "$archive"
+            sources=$((sources + 1))
+          fi
+          if [ "${#transport_parts[@]}" -gt 0 ]; then
+            cat "${transport_parts[@]}" > "$archive"
+            sources=$((sources + 1))
+          fi
+          test "$sources" -eq 1
+
+          actual_archive_sha=$(sha256sum "$archive" | awk '{print $1}')
+          case "$actual_archive_sha" in
+            "$CANONICAL_ARCHIVE_SHA256"|"$TRANSPORT_V1_SHA256") ;;
+            *)
+              echo "unapproved complete input archive sha256=$actual_archive_sha" >&2
+              exit 1
+              ;;
+          esac
+
+          tar -xzf "$archive" -C "$input_root"
+          test -f "$input_root/plan.csv"
+          test -f "$input_root/metadata.json"
+          test -d "$input_root/source-crests"
+          echo "$HARDENED_PLAN_SHA256  $input_root/plan.csv" | sha256sum -c -
+          test "$(($(wc -l < "$input_root/plan.csv") - 1))" -eq 1907
+          test "$(find "$input_root/source-crests" -maxdepth 1 -type f \( -name '*.png' -o -name '*.svg' \) | wc -l)" -eq 1907
+
+          INPUT_ROOT="$input_root" \
+          HARDENED_PLAN_SHA256="$HARDENED_PLAN_SHA256" \
+          CANONICAL_ARCHIVE_SHA256="$CANONICAL_ARCHIVE_SHA256" \
           python3 - <<'PY'
           from __future__ import annotations
-          import csv, hashlib, pathlib, time, urllib.parse, urllib.request
-          from concurrent.futures import ThreadPoolExecutor, as_completed
+          import csv
+          import hashlib
+          import json
+          import os
+          import pathlib
 
-          root = pathlib.Path('/tmp')
-          input_dir = pathlib.Path(__import__('os').environ['RUNNER_TEMP']) / 'club-realization-input'
-          plan_path = input_dir / 'plan.csv'
-          crest_dir = input_dir / 'source-crests'
-          crest_dir.mkdir(parents=True, exist_ok=True)
-          with plan_path.open(encoding='utf-8', newline='') as handle:
+          root = pathlib.Path(os.environ['INPUT_ROOT'])
+          plan = root / 'plan.csv'
+          crest_dir = root / 'source-crests'
+          with plan.open(encoding='utf-8-sig', newline='') as handle:
               rows = list(csv.DictReader(handle))
-          missing = [row for row in rows if not (crest_dir / row['crestFileName']).is_file()]
-          if len(missing) != 106:
-              raise SystemExit(f'expected exactly 106 network crests, found {len(missing)}')
-          if any(row['sourceKind'] != 'github-svg' for row in missing):
-              raise SystemExit('network restoration is restricted to immutable github-svg rows')
-
-          def fetch_one(row):
-              raw_url = row['sourceCrestPath']
-              url = urllib.parse.quote(raw_url, safe=':/?&=%-._~')
-              last = None
-              for attempt in range(4):
-                  try:
-                      request = urllib.request.Request(url, headers={'User-Agent':'Chat-Pro-Football-materializer/1.0'})
-                      with urllib.request.urlopen(request, timeout=45) as response:
-                          data = response.read()
-                      actual = hashlib.sha256(data).hexdigest()
-                      expected = row['sourceCrestSha256'].lower()
-                      if actual != expected:
-                          raise ValueError(f"sha mismatch for {row['realClubName']}: expected={expected} actual={actual}")
-                      folded = data.lower()
-                      if b'<svg' not in folded[:8192]:
-                          raise ValueError(f"source is not SVG for {row['realClubName']}")
-                      if any(token in folded for token in (b'<!doctype', b'<!entity', b'<script', b'javascript:')):
-                          raise ValueError(f"unsafe SVG for {row['realClubName']}")
-                      (crest_dir / row['crestFileName']).write_bytes(data)
-                      return row['legacyTeamId']
-                  except Exception as exc:
-                      last = exc
-                      time.sleep(1 + attempt)
-              raise RuntimeError(f"failed {row['realClubName']} from {raw_url}: {last}")
-
-          with ThreadPoolExecutor(max_workers=8) as executor:
-              futures = [executor.submit(fetch_one, row) for row in missing]
-              for future in as_completed(futures):
-                  future.result()
-          count = sum(1 for path in crest_dir.iterdir() if path.is_file() and path.suffix.lower() in {'.png','.svg'})
-          if count != 1907:
-              raise SystemExit(f'source crest count {count} != 1907')
+          if len(rows) != 1907:
+              raise SystemExit(f'plan rows {len(rows)} != 1907')
+          names = [row['crestFileName'] for row in rows]
+          if len(set(names)) != 1907:
+              raise SystemExit('crestFileName values are not unique')
+          team_ids = [row['legacyTeamId'] for row in rows]
+          if len(set(team_ids)) != 1907:
+              raise SystemExit('legacyTeamId values are not unique')
+          expected = set(names)
+          actual = {path.name for path in crest_dir.iterdir() if path.is_file() and path.suffix.lower() in {'.png', '.svg'}}
+          if actual != expected:
+              missing = sorted(expected - actual)
+              extra = sorted(actual - expected)
+              raise SystemExit(f'source crest set mismatch missing={missing[:10]} extra={extra[:10]}')
+          for row in rows:
+              data = (crest_dir / row['crestFileName']).read_bytes()
+              digest = hashlib.sha256(data).hexdigest()
+              if digest.lower() != row['sourceCrestSha256'].lower():
+                  raise SystemExit(
+                      f"source crest sha mismatch {row['crestFileName']} expected={row['sourceCrestSha256']} actual={digest}"
+                  )
+          metadata = json.loads((root / 'metadata.json').read_text(encoding='utf-8'))
+          transport_format = metadata.get('format')
+          if transport_format == 'chat-pro-football-club-realization-transport-v1':
+              if metadata.get('crestCount') != 1907:
+                  raise SystemExit('transport metadata crestCount != 1907')
+              if metadata.get('planSha256') != os.environ['HARDENED_PLAN_SHA256']:
+                  raise SystemExit('transport metadata planSha256 mismatch')
+              if metadata.get('canonicalArchiveSha256') != os.environ['CANONICAL_ARCHIVE_SHA256']:
+                  raise SystemExit('transport metadata canonicalArchiveSha256 mismatch')
+          print('complete_input_verified=true')
           print('source_crests=1907')
           PY
 
       - name: Materialize and independently verify 1907 replacements
         shell: bash
+        env:
+          HARDENED_PLAN_SHA256: eb4e5a4919eb3690f5ad9e0508d44bd523ed85ff2b7a75ba667dc15c87b58be1
         run: |
           set -euo pipefail
-          python3 -m py_compile tools/club_realization/*.py
+          python3 -m py_compile \
+            tools/club_realization/materialize_validated_patch_plan.py \
+            tools/club_realization/verify_materialized_bundle.py
           python3 tools/club_realization/materialize_validated_patch_plan.py \
             --plan "$RUNNER_TEMP/club-realization-input/plan.csv" \
             --crests-dir "$RUNNER_TEMP/club-realization-input/source-crests"
           python3 tools/club_realization/verify_materialized_bundle.py
           cp "$RUNNER_TEMP/club-realization-input/plan.csv" docs/club-realization/validated-replacement-plan.csv
+          echo "$HARDENED_PLAN_SHA256  docs/club-realization/validated-replacement-plan.csv" | sha256sum -c -
           test "$(($(wc -l < docs/club-realization/validated-replacement-plan.csv) - 1))" -eq 1907
           test "$(find app/src/main/assets/club_crests -maxdepth 1 -type f \( -name '*.png' -o -name '*.svg' \) | wc -l)" -eq 1907
           test "$(($(wc -l < docs/club-realization/crest-sha256.csv) - 1))" -eq 1907
