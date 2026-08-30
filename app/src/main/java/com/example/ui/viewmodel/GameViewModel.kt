@@ -1329,6 +1329,10 @@ class GameViewModel @Inject constructor(
     }
 
     internal suspend fun seedAllDefaultTeams(targetRepo: GameRepository = repo, activeCountry: String = _selectedCountry.value) {
+        // Um slot recém-criado por createFromAsset já contém o universo global completo.
+        // O marker íntegro permite evitar 2.524 resoluções de template/ID/logo e consultas de elenco.
+        if (targetRepo.pristineCareerSeedTemplateOrNull() != null) return
+
         val existingTeams = targetRepo.getAllTeams()
         val existingGlobalIds = existingTeams.map { it.id }.toSet()
         val newTeamsToSeed = mutableListOf<Team>()
@@ -1602,36 +1606,27 @@ class GameViewModel @Inject constructor(
         val totalStartedAtNs = System.nanoTime()
         CareerCreationPerformanceMonitor.clear()
 
-        // 1. Preparação dos dados de times em memória do zero
-        val clubSetupStartedAtNs = System.nanoTime()
-        val newTeamsToSeed = mutableListOf<Team>()
-        for (countryKey in GlobalFootballSystem.keys) {
-            val templates = DefaultData.getTeamsForCountry(countryKey)
-            for (t in templates) {
-                val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
-                newTeamsToSeed.add(
-                    Team(
-                        id = globalId,
-                        name = t.name,
-                        city = t.city,
-                        state = t.state,
-                        country = countryKey,
-                        division = t.division,
-                        rating = t.rating,
-                        stadiumName = t.stadium,
-                        logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
-                        isPlayerControlled = (globalId == teamId)
-                    )
-                )
-            }
-        }
-        val dbTeams = newTeamsToSeed
-        val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
-
-        // Um slot novo pode ter sido criado diretamente do baseline Room empacotado. O marker
-        // só é aceito se schema, SHA fonte factual removida, contagens e ausência de GameSave coincidirem.
+        // Um slot novo pode ter sido criado diretamente do baseline Room empacotado.
         val prebuiltSeedMarker = targetRepo.pristineCareerSeedTemplateOrNull()
         val usePrebuiltCareerSeed = prebuiltSeedMarker != null
+
+        // 1. No fast path, reutiliza os 2.524 clubes já validados no template em vez de
+        // reconstruir objetos, recalcular IDs e resolver logos novamente.
+        val clubSetupStartedAtNs = System.nanoTime()
+        val dbTeams: List<Team> = if (usePrebuiltCareerSeed) {
+            targetRepo.getAllTeams()
+        } else {
+            buildList {
+                for (countryKey in GlobalFootballSystem.keys) {
+                    val templates = DefaultData.getTeamsForCountry(countryKey)
+                    for (t in templates) {
+                        val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                        add(Team(id = globalId, name = t.name, city = t.city, state = t.state, country = countryKey, division = t.division, rating = t.rating, stadiumName = t.stadium, logoUrl = DefaultData.getLogoForTeam(t.name, countryKey), isPlayerControlled = (globalId == teamId)))
+                    }
+                }
+            }
+        }
+        val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
 
         // 2. Cálculo do calendário em memória ANTES da transação do banco.
         // O calendário também registra a intenção do seed factual para este mesmo repositório.
@@ -1658,7 +1653,9 @@ class GameViewModel @Inject constructor(
         )
 
         // 4. Preparação dos metadados do GameSave em memória
-        val playerSelectedTeam = dbTeams.find { it.id == teamId }
+        val playerSelectedTeam = dbTeams.find { it.id == teamId }?.let { selected ->
+            if (usePrebuiltCareerSeed && !selected.isPlayerControlled) selected.copy(isPlayerControlled = true) else selected
+        }
         val initialAcademyProspects = generateInitialProspects(activeCountry)
         val initialSocioTorcedores = (playerSelectedTeam?.rating ?: 50) * 400
 
