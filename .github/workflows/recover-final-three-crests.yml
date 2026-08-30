@@ -1,0 +1,112 @@
+name: Recover final three audited crests
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/recover-final-three-crests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Recover and verify exact audited PNG bytes
+        id: recover
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidates matched
+          cat > recover.py <<'PY'
+          import hashlib
+          import pathlib
+          import subprocess
+          import urllib.parse
+
+          targets = [
+              {
+                  'file': 'club_3478.png',
+                  'sha': '0b5f6c4ab56174b15d01a2692658b3677a0c9897a1f688d8552772ffd596c057',
+                  'urls': [
+                      'https://www.escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_HNK%20VUKOVAR%201991.png',
+                      'https://escudosdefutbolyequipaciones.com/images_esc3/UEFA/CROACIA/escudos/ESC_HNK%20VUKOVAR%201991.png',
+                  ],
+              },
+              {
+                  'file': 'club_4453.png',
+                  'sha': 'e9a1004da9f8f479292f79dfa66e17681ca1be77f99e52a9554b2a012aa4838d',
+                  'urls': [
+                      'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_BOYAC%c1%20CHIC%d3%20F.C.-1.png',
+                      'https://escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_BOYAC%c1%20CHIC%d3%20F.C.-1.png',
+                      'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_BOYAC%C3%81%20CHIC%C3%93%20F.C.-1.png',
+                      'https://escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_BOYAC%C3%81%20CHIC%C3%93%20F.C.-1.png',
+                  ],
+              },
+              {
+                  'file': 'club_8430.png',
+                  'sha': '1fe51118942a5f3cd596c704933b891f101cd84f39b225a65b0c54b8cbc4709b',
+                  'urls': [
+                      'https://www.escudosdefutbolyequipaciones.com/images_esc3/AFC/ARABIA%20SAUDITA/escudos/ESC_AL-AHLI%20SAUDI%20F.C.-1.png',
+                      'https://escudosdefutbolyequipaciones.com/images_esc3/AFC/ARABIA%20SAUDITA/escudos/ESC_AL-AHLI%20SAUDI%20F.C.-1.png',
+                  ],
+              },
+          ]
+
+          manifest = []
+          all_ok = True
+          for target in targets:
+              matched = False
+              for i, url in enumerate(target['urls']):
+                  out = pathlib.Path('candidates') / f"{target['file']}.candidate{i}.bin"
+                  proc = subprocess.run([
+                      'curl', '--fail', '--location', '--silent', '--show-error',
+                      '--globoff', '--path-as-is',
+                      '-A', 'Chat-Pro-Football-crest-recovery/1.0',
+                      url, '-o', str(out),
+                  ], text=True, capture_output=True)
+                  if proc.returncode != 0:
+                      manifest.append(f"{target['file']} candidate={i} download_error={proc.stderr.strip()} url={url}")
+                      continue
+                  data = out.read_bytes()
+                  digest = hashlib.sha256(data).hexdigest()
+                  manifest.append(f"{target['file']} candidate={i} bytes={len(data)} sha256={digest} url={url}")
+                  if digest == target['sha']:
+                      pathlib.Path('matched', target['file']).write_bytes(data)
+                      manifest.append(f"MATCH {target['file']} sha256={digest}")
+                      matched = True
+                      break
+              if not matched:
+                  all_ok = False
+                  manifest.append(f"NO_MATCH {target['file']} expected={target['sha']}")
+
+          pathlib.Path('manifest.txt').write_text('\n'.join(manifest) + '\n', encoding='utf-8')
+          print('\n'.join(manifest))
+          with open(__import__('os').environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+              fh.write(f"ready={'true' if all_ok else 'false'}\n")
+          PY
+          python3 recover.py
+
+      - name: Upload recovery candidates and exact matches
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-three-crest-recovery-${{ github.sha }}
+          path: |
+            manifest.txt
+            candidates/
+            matched/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Enforce all three exact SHA-256 matches
+        if: steps.recover.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo 'One or more exact audited PNGs did not match.' >&2
+          cat manifest.txt >&2
+          exit 1
