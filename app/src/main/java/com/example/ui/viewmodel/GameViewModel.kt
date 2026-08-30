@@ -1761,7 +1761,23 @@ class GameViewModel @Inject constructor(
             week = save.currentWeek,
             balance = save.bankBalance
         )
-        saveSlots.value = preferencesRepo.loadSaveSlots()
+        // updateSlotMetadata acabou de persistir a projeção autoritativa deste slot.
+        // Não reconcilie os cinco bancos aqui: loadSaveSlots() inspeciona cada slot múltiplas
+        // vezes e transformava uma simples publicação de UI em I/O pesado no caminho crítico.
+        // A reconciliação completa continua sendo feita nas entradas normais da tela de saves.
+        val createdSlotMetadata = SaveSlotMetadata(
+            id = saveId,
+            exists = true,
+            coachName = save.coachName,
+            teamName = playerSelectedTeam?.name ?: "Sem Clube",
+            season = save.currentSeason,
+            week = save.currentWeek,
+            balance = save.bankBalance
+        )
+        saveSlots.value = saveSlots.value
+            .filterNot { it.id == saveId }
+            .plus(createdSlotMetadata)
+            .sortedBy { it.id.toIntOrNull() ?: Int.MAX_VALUE }
 
         val totalMs = (System.nanoTime() - totalStartedAtNs) / 1_000_000L
         val performanceSnapshot = CareerCreationPerformanceSnapshot(
