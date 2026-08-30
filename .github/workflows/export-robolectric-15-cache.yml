@@ -1,0 +1,71 @@
+name: Export Robolectric 15 cache
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-robolectric-15-cache.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Restore trusted Gradle cache
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: true
+      - name: Set up validation google-services
+        shell: bash
+        run: |
+          cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          EOF
+      - name: Populate Android 15 Robolectric runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.data.CareerSeedTemplateRuntimeTest \
+            --stacktrace
+      - name: Package Android 15 Robolectric runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$HOME/.m2/repository/org/robolectric/android-all-instrumented/15-robolectric-13954326-i7"
+          test -d "$ROOT"
+          find "$ROOT" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          OUT="$RUNNER_TEMP/robolectric-android15-cache.tar.zst"
+          tar -C "$HOME/.m2/repository" -I 'zstd -T0 -6' -cf "$OUT" org/robolectric/android-all-instrumented/15-robolectric-13954326-i7
+          sha256sum "$OUT" > "$RUNNER_TEMP/robolectric-android15-cache.sha256"
+      - name: Upload Android 15 Robolectric cache
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: robolectric-android15-cache-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/robolectric-android15-cache.tar.zst
+            ${{ runner.temp }}/robolectric-android15-cache.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
