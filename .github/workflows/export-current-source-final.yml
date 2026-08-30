@@ -36,3 +36,5 @@ jobs:
           hidden-files: true
           if-no-files-found: error
           retention-days: 2
+
+# Recovery trigger: export the exact bugfix head for local crest materialization and APK validation.
