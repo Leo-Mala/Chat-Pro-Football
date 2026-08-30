@@ -1,0 +1,166 @@
+name: Apply career seed fast path
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/apply-career-seed-fastpath.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-career-seed-fastpath-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Apply pristine-template fast paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          text = path.read_text(encoding='utf-8')
+
+          old_seed = '''    internal suspend fun seedAllDefaultTeams(targetRepo: GameRepository = repo, activeCountry: String = _selectedCountry.value) {
+        val existingTeams = targetRepo.getAllTeams()
+'''
+          new_seed = '''    internal suspend fun seedAllDefaultTeams(targetRepo: GameRepository = repo, activeCountry: String = _selectedCountry.value) {
+        // Um slot recém-criado por createFromAsset já contém o universo global completo.
+        // Validar o marker é mais barato do que percorrer 2.524 templates, recalcular IDs/logos
+        // e executar uma consulta de elenco por clube antes mesmo de existir uma carreira.
+        if (targetRepo.pristineCareerSeedTemplateOrNull() != null) return
+
+        val existingTeams = targetRepo.getAllTeams()
+'''
+          if old_seed not in text:
+              raise SystemExit('seedAllDefaultTeams anchor not found')
+          text = text.replace(old_seed, new_seed, 1)
+
+          old_start = '''        // 1. Preparação dos dados de times em memória do zero
+        val clubSetupStartedAtNs = System.nanoTime()
+        val newTeamsToSeed = mutableListOf<Team>()
+        for (countryKey in GlobalFootballSystem.keys) {
+            val templates = DefaultData.getTeamsForCountry(countryKey)
+            for (t in templates) {
+                val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                newTeamsToSeed.add(
+                    Team(
+                        id = globalId,
+                        name = t.name,
+                        city = t.city,
+                        state = t.state,
+                        country = countryKey,
+                        division = t.division,
+                        rating = t.rating,
+                        stadiumName = t.stadium,
+                        logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
+                        isPlayerControlled = (globalId == teamId)
+                    )
+                )
+            }
+        }
+        val dbTeams = newTeamsToSeed
+        val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
+
+        // Um slot novo pode ter sido criado diretamente do baseline Room empacotado. O marker
+        // só é aceito se schema, SHA fonte factual removida, contagens e ausência de GameSave coincidirem.
+        val prebuiltSeedMarker = targetRepo.pristineCareerSeedTemplateOrNull()
+        val usePrebuiltCareerSeed = prebuiltSeedMarker != null
+'''
+          new_start = '''        // Um slot novo pode ter sido criado diretamente do baseline Room empacotado. O marker
+        // só é aceito se schema, seed, contagens e ausência de GameSave coincidirem.
+        val prebuiltSeedMarker = targetRepo.pristineCareerSeedTemplateOrNull()
+        val usePrebuiltCareerSeed = prebuiltSeedMarker != null
+
+        // 1. Preparação dos clubes. No fast path, o banco-base já contém exatamente os clubes
+        // que serão usados pelo calendário; lê-los evita reconstruir 2.524 objetos, recalcular
+        // IDs e resolver logos novamente. Saves antigos continuam no caminho conservador.
+        val clubSetupStartedAtNs = System.nanoTime()
+        val dbTeams: List<Team> = if (usePrebuiltCareerSeed) {
+            targetRepo.getAllTeams()
+        } else {
+            buildList {
+                for (countryKey in GlobalFootballSystem.keys) {
+                    val templates = DefaultData.getTeamsForCountry(countryKey)
+                    for (t in templates) {
+                        val globalId = GlobalFootballSystem.getGlobalId(countryKey, t.name)
+                        add(
+                            Team(
+                                id = globalId,
+                                name = t.name,
+                                city = t.city,
+                                state = t.state,
+                                country = countryKey,
+                                division = t.division,
+                                rating = t.rating,
+                                stadiumName = t.stadium,
+                                logoUrl = DefaultData.getLogoForTeam(t.name, countryKey),
+                                isPlayerControlled = (globalId == teamId)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        val clubSetupMs = (System.nanoTime() - clubSetupStartedAtNs) / 1_000_000L
+'''
+          if old_start not in text:
+              raise SystemExit('performStartNewGameInternal anchor not found')
+          text = text.replace(old_start, new_start, 1)
+
+          old_selected = '''        val playerSelectedTeam = dbTeams.find { it.id == teamId }
+'''
+          new_selected = '''        val playerSelectedTeam = dbTeams.find { it.id == teamId }?.let { selected ->
+            if (usePrebuiltCareerSeed && !selected.isPlayerControlled) {
+                selected.copy(isPlayerControlled = true)
+            } else {
+                selected
+            }
+        }
+'''
+          if old_selected not in text:
+              raise SystemExit('playerSelectedTeam anchor not found')
+          text = text.replace(old_selected, new_selected, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+
+      - name: Focused regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon \
+            testDebugUnitTest \
+            --tests 'com.example.data.CareerSeedTemplateRuntimeTest' \
+            --tests 'com.example.usecase.CareerCreationPerformanceTest' \
+            --tests 'com.example.usecase.DatabaseIntegrityFastPathTest'
+
+      - name: Commit validated fast path
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm .github/workflows/apply-career-seed-fastpath.yml
+          git add -A -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt .github/workflows/apply-career-seed-fastpath.yml
+          git diff --cached --check
+          git commit -m 'perf: reuse pristine career seed teams'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
