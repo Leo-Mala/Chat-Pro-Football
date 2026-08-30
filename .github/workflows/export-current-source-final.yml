@@ -38,3 +38,4 @@ jobs:
           retention-days: 2
 
 # Recovery trigger: export the exact bugfix head for local crest materialization and APK validation.
+# Re-triggered after confirming the final hardened crest corpus locally on 2026-08-30.
