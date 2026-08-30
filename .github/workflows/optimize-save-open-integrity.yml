@@ -22,10 +22,13 @@ jobs:
           fetch-depth: 1
 
       - name: Configure JDK 17
-        uses: actions/setup-java@7a445ee88d4e23b52c33f0f0f0f31c8b7e7e4bd3
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
       - name: Patch duplicate integrity repair
         shell: bash
