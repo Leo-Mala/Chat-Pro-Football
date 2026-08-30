@@ -1,0 +1,33 @@
+name: Export Gradle wrapper distribution
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-gradle-wrapper-dist.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download exact Gradle wrapper distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://services.gradle.org/distributions/gradle-8.10.2-bin.zip \
+            --output gradle-8.10.2-bin.zip
+          echo '31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26  gradle-8.10.2-bin.zip' | sha256sum -c -
+      - name: Upload exact Gradle distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gradle-8.10.2-bin
+          path: gradle-8.10.2-bin.zip
+          if-no-files-found: error
+          retention-days: 1
