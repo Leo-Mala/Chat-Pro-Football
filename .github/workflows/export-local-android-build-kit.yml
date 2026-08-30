@@ -55,23 +55,69 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew assembleDebug -PexcludeStressTests=true --stacktrace
-      - name: Package minimal offline build kit
+      - name: Package and split offline build kit
         shell: bash
         run: |
           set -euo pipefail
           echo "ANDROID_HOME=$ANDROID_HOME"
           du -sh "$HOME/.gradle/caches" "$ANDROID_HOME/platforms/android-35" "$ANDROID_HOME/build-tools" || true
-          mkdir -p offline-kit
-          tar --zstd -cf offline-kit/android-gradle-build-kit.tar.zst \
+          mkdir -p offline-kit-parts
+          tar --zstd -cf "$RUNNER_TEMP/android-gradle-build-kit.tar.zst" \
             -C "$HOME" .gradle/caches \
             -C "$ANDROID_HOME" platforms/android-35 build-tools platform-tools licenses
-          sha256sum offline-kit/android-gradle-build-kit.tar.zst | tee offline-kit/SHA256SUMS.txt
-          printf 'head=%s\nandroid_home=%s\n' "$GITHUB_SHA" "$ANDROID_HOME" > offline-kit/BUILD_KIT_INFO.txt
-      - name: Upload offline build kit
+          sha256sum "$RUNNER_TEMP/android-gradle-build-kit.tar.zst" | tee offline-kit-parts/SHA256SUMS.txt
+          printf 'head=%s\nandroid_home=%s\n' "$GITHUB_SHA" "$ANDROID_HOME" > offline-kit-parts/BUILD_KIT_INFO.txt
+          split -b 240M -d -a 2 "$RUNNER_TEMP/android-gradle-build-kit.tar.zst" offline-kit-parts/part-
+          test "$(find offline-kit-parts -maxdepth 1 -type f -name 'part-*' | wc -l)" -eq 6
+          ls -lh offline-kit-parts
+      - name: Upload offline kit part 00
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: android-gradle-build-kit-${{ github.sha }}
-          path: offline-kit/
+          name: android-build-kit-part-00-${{ github.sha }}
+          path: offline-kit-parts/part-00
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Upload offline kit part 01
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-build-kit-part-01-${{ github.sha }}
+          path: offline-kit-parts/part-01
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Upload offline kit part 02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-build-kit-part-02-${{ github.sha }}
+          path: offline-kit-parts/part-02
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Upload offline kit part 03
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-build-kit-part-03-${{ github.sha }}
+          path: offline-kit-parts/part-03
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Upload offline kit part 04
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-build-kit-part-04-${{ github.sha }}
+          path: offline-kit-parts/part-04
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Upload offline kit part 05 and metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-build-kit-part-05-${{ github.sha }}
+          path: |
+            offline-kit-parts/part-05
+            offline-kit-parts/SHA256SUMS.txt
+            offline-kit-parts/BUILD_KIT_INFO.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
