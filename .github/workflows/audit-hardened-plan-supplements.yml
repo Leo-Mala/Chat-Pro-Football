@@ -1,0 +1,137 @@
+name: Audit hardened plan supplements
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/audit-hardened-plan-supplements.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch and freeze 15 distinct club crest sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audited/assets
+          cat > audit.py <<'PY'
+          from __future__ import annotations
+          import hashlib, html, json, pathlib, re, time, unicodedata
+          import urllib.parse, urllib.request
+
+          OUT = pathlib.Path('audited/assets')
+          UA = 'Chat-Pro-Football-hardened-club-audit/1.0'
+
+          def canonical(value: str) -> str:
+              folded = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode().casefold()
+              return ''.join(re.findall(r'[a-z0-9]+', folded))
+
+          def fetch(url: str) -> tuple[bytes, str]:
+              last = None
+              for attempt in range(4):
+                  try:
+                      req = urllib.request.Request(url, headers={'User-Agent': UA})
+                      with urllib.request.urlopen(req, timeout=45) as response:
+                          return response.read(), response.geturl()
+                  except Exception as exc:
+                      last = exc
+                      time.sleep(1 + attempt)
+              raise RuntimeError(f'failed {url}: {last}')
+
+          def check_png(data: bytes, label: str) -> str:
+              if not data.startswith(b'\x89PNG\r\n\x1a\n'):
+                  raise ValueError(f'{label}: expected PNG signature, got {data[:16]!r}')
+              if len(data) < 1024:
+                  raise ValueError(f'{label}: suspiciously small PNG ({len(data)} bytes)')
+              return hashlib.sha256(data).hexdigest()
+
+          scrape_targets = [
+              ('262', 'Espanha', 'A.D. ADRA', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BALMER%C3%8DA'),
+              ('1815', 'Escócia', 'STIRLING UNIVERSITY F.C.', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BESCOCIA'),
+              ('3217', 'Tchéquia', 'F.C. SELLIER Y BELLOT', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BREP%C3%9ABLICA%20CHECA'),
+              ('3247', 'Tchéquia', 'POVLTAVSKÁ FOTBALOVÁ AKADEMIE', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BREP%C3%9ABLICA%20CHECA'),
+              ('3423', 'Croácia', 'HNK MITNICA', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BCROACIA'),
+              ('3478', 'Croácia', 'HNK SUHOPOLJE', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BCROACIA'),
+              ('6077', 'México', 'ACADEMIA CUEXTLÁN F.C.', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BM%C3%89XICO'),
+              ('6083', 'México', 'C.D. ETCHOJOA', 'https://www.escudosdefutbolyequipaciones.com/ESCUDOS%2BM%C3%89XICO'),
+          ]
+          direct_targets = [
+              ('4421', 'Colômbia', 'C. ATLETICO HUILA', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_C.%20ATLETICO%20HUILA.png', '971bf860a74fdcaeeeacdad91e80cb315cd776540ed3b8eb495f29406733e7e8', 'CONM/COLOMBIA'),
+              ('4453', 'Colômbia', 'C. ATLETICO NACIONAL', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_C.%20ATLETICO%20NACIONAL.png', '74ea3351bb77b6dfe5aa2729160c44b72dc09180d1925597c159d7697f87c0eb', 'CONM/COLOMBIA'),
+              ('4455', 'Colômbia', 'C. DEPORTES TOLIMA', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/COLOMBIA/escudos/ESC_C.%20DEPORTES%20TOLIMA.png', 'e82535378e6f40af1864bd6993a3c9958af21c52f4d15b29003c1ecbc192daab', 'CONM/COLOMBIA'),
+              ('4838', 'Uruguai', 'ARTIGAS JUNIORS F.C.', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/URUGUAY/escudos/ESC_ARTIGAS%20JUNIORS%20F.C..png', '9f6b79c05a7e5da86dec0c353ec22f04460be8e020e5d3f13ec24d8218c686e3', 'CONM/URUGUAY'),
+              ('5030', 'Paraguai', 'C. 12 DE JUNIO', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONM/PARAGUAY/escudos/ESC_C.%2012%20DE%20JUNIO.png', 'e00533bf1384c95071cee6d9a5084063c0e162cd4ef4665d3c469686d2b8f09d', 'CONM/PARAGUAY'),
+              ('6444', 'Costa Rica', 'A.D. CARIARI', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/CONC/COSTA%20RICA/escudos/ESC_A.D.%20CARIARI.png', 'd02d500c91386ce24ef37de266ca10c4a56e948023480d702ab6199821238d87', 'CONC/COSTA RICA'),
+              ('8430', 'Arábia Saudita', 'AL-BALAD F.C.(KSA)', 'https://www.escudosdefutbolyequipaciones.com/images_esc3/AFC/ARABIA%20SAUDITA/escudos/ESC_AL-BALAD%20F.C.(KSA).png', '8dd81b8d884ddf2f309a24030f6898eff2bac538d5da349203f765f12b26015a', 'AFC/ARABIA SAUDITA'),
+          ]
+
+          manifest = []
+          page_cache: dict[str, str] = {}
+          for slot, country, club, page_url in scrape_targets:
+              if page_url not in page_cache:
+                  raw, _ = fetch(page_url)
+                  page_cache[page_url] = raw.decode('utf-8', errors='replace')
+              text = html.unescape(page_cache[page_url])
+              hrefs = re.findall(r'href=[\"\']([^\"\']*descargar\.php[^\"\']*)[\"\']', text, flags=re.I)
+              target_key = canonical(club)
+              matches = []
+              for href in hrefs:
+                  url = urllib.parse.urljoin(page_url, html.unescape(href))
+                  query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+                  if query.get('tipo', [''])[0] != 'esc':
+                      continue
+                  name = query.get('nombreEscudo', [''])[0]
+                  if canonical(name) == target_key:
+                      matches.append(url)
+              if not matches:
+                  raise SystemExit(f'no crest download link found for {country} / {club}')
+              source_url = matches[0]
+              data, final_url = fetch(source_url)
+              digest = check_png(data, club)
+              file_name = f'club_{slot}.png'
+              (OUT / file_name).write_bytes(data)
+              manifest.append({
+                  'legacyTeamId': slot, 'country': country, 'realClubName': club,
+                  'sourceKind': 'escudosdefutbol-id', 'sourceRevision': '2026-08-30-hardened-plan-audit',
+                  'sourceIdentityPath': source_url, 'sourceCrestPath': source_url,
+                  'finalUrl': final_url, 'sourceCrestSha256': digest,
+                  'crestFileName': file_name, 'bytes': len(data),
+              })
+
+          for slot, country, club, source_url, expected, identity in direct_targets:
+              data, final_url = fetch(source_url)
+              digest = check_png(data, club)
+              if digest != expected:
+                  raise SystemExit(f'{club}: expected {expected}, got {digest}')
+              file_name = f'club_{slot}.png'
+              (OUT / file_name).write_bytes(data)
+              manifest.append({
+                  'legacyTeamId': slot, 'country': country, 'realClubName': club,
+                  'sourceKind': 'escudosdefutbol-directory', 'sourceRevision': '33259470557-audited',
+                  'sourceIdentityPath': identity, 'sourceCrestPath': source_url,
+                  'finalUrl': final_url, 'sourceCrestSha256': digest,
+                  'crestFileName': file_name, 'bytes': len(data),
+              })
+
+          if len(manifest) != 15:
+              raise SystemExit(f'expected 15 audited rows, got {len(manifest)}')
+          digests = [r['sourceCrestSha256'] for r in manifest]
+          if len(set(digests)) != 15:
+              raise SystemExit('duplicate digest among the 15 supplements')
+          pathlib.Path('audited/manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          python3 audit.py
+      - name: Upload audited supplements
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hardened-plan-15-supplements-${{ github.sha }}
+          path: audited/
+          if-no-files-found: error
+          retention-days: 2
