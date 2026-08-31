@@ -59,35 +59,8 @@ jobs:
           selection = Path('app/src/main/java/com/example/ui/screens/TeamSelectionScreen.kt')
           replace_once(
               selection,
-              '''                                // Emblem placeholder or Url image
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (team.logoUrl != null) {
-                                        val resolvedLogo = remember(team.logoUrl) { resolveLogoUrl(team.logoUrl) }
-                                        Image(
-                                            painter = rememberAsyncImagePainter(resolvedLogo),
-                                            contentDescription = team.name,
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Default.SportsSoccer,
-                                            contentDescription = null,
-                                            tint = AccentLime,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }''',
-              '''                                TeamBadge(
-                                    teamName = team.name,
-                                    logoUrl = team.logoUrl,
-                                    teamId = team.id,
-                                    size = 44.dp
-                                )''',
+              '                                    if (team.logoUrl != null) {\n                                        val resolvedLogo = remember(team.logoUrl) { resolveLogoUrl(team.logoUrl) }\n                                        Image(\n                                            painter = rememberAsyncImagePainter(resolvedLogo),\n                                            contentDescription = team.name,\n                                            modifier = Modifier.size(36.dp)\n                                        )\n                                    } else {\n                                        Icon(\n                                            Icons.Default.SportsSoccer,\n                                            contentDescription = null,\n                                            tint = AccentLime,\n                                            modifier = Modifier.size(24.dp)\n                                        )\n                                    }',
+              '                                    TeamBadge(\n                                        teamName = team.name,\n                                        logoUrl = team.logoUrl,\n                                        teamId = team.id,\n                                        size = 44.dp\n                                    )',
               'team selection crest renderer',
           )
 
