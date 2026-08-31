@@ -23,9 +23,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== retained artifacts likely related to APK/crest/logo/realization ==='
+          echo '=== all retained artifacts created since 2026-08-29 ==='
           gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
-            --jq '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | test("apk|crest|logo|realization|factual|transport|source-final")) or (.size_in_bytes >= 20000000)) | [.id, .name, .size_in_bytes, .workflow_run.id, .created_at] | @tsv' \
-            | sort -k3,3nr
+            --jq '.artifacts[] | select(.expired == false) | select(.created_at >= "2026-08-29T00:00:00Z") | [.id, .name, .size_in_bytes, .workflow_run.id, .created_at] | @tsv' \
+            | sort -k5,5
 
-# refreshed to enumerate the complete retained set for the manual-test crest certification
+# Full retained-set inventory for the exact manual-test crest recovery.
