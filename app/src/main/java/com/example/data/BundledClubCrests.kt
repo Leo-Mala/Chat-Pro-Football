@@ -11,11 +11,11 @@ object BundledClubCrests {
     private const val ASSET_DIR = "club_crests"
     private const val ASSET_URI_PREFIX = "file:///android_asset/"
 
-    private val resolvedPaths = ConcurrentHashMap<Int, String>()
-    private val missingIds = ConcurrentHashMap.newKeySet<Int>()
+    private val resolvedPaths = ConcurrentHashMap<Long, String>()
+    private val missingIds = ConcurrentHashMap.newKeySet<Long>()
 
-    fun resolve(context: Context, teamId: Int?, fallbackUrl: String?): String? {
-        val id = teamId?.takeIf { it > 0 } ?: return fallbackUrl
+    fun resolve(context: Context, teamId: Long?, fallbackUrl: String?): String? {
+        val id = teamId?.takeIf { it > 0L } ?: return fallbackUrl
         resolvedPaths[id]?.let { return ASSET_URI_PREFIX + it }
         if (missingIds.contains(id)) return fallbackUrl
 
@@ -30,7 +30,7 @@ object BundledClubCrests {
         return ASSET_URI_PREFIX + path
     }
 
-    internal fun assetPathFor(context: Context, teamId: Int): String? {
+    internal fun assetPathFor(context: Context, teamId: Long): String? {
         val uri = resolve(context, teamId, null) ?: return null
         return uri.removePrefix(ASSET_URI_PREFIX)
     }
@@ -40,7 +40,7 @@ object BundledClubCrests {
         missingIds.clear()
     }
 
-    private fun candidates(id: Int): List<String> = listOf(
+    private fun candidates(id: Long): List<String> = listOf(
         "$ASSET_DIR/factual_${id}.webp",
         "$ASSET_DIR/factual_${id}.png",
         "$ASSET_DIR/factual_${id}.svg",
