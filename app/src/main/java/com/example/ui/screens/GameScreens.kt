@@ -145,13 +145,18 @@ fun getTeamColor(teamName: String, colorHex: String? = null): Color {
 fun TeamBadge(
     teamName: String,
     logoUrl: String?,
+    teamId: Long? = null,
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = 44.dp,
     colorHex: String? = null
 ) {
+    val context = LocalContext.current
     val badgeColor = getTeamColor(teamName, colorHex)
-    var isSuccess by remember(logoUrl) { mutableStateOf(false) }
-    val resolvedUrl = remember(logoUrl) { resolveLogoUrl(logoUrl) }
+    val fallbackUrl = remember(logoUrl) { resolveLogoUrl(logoUrl) }
+    val resolvedUrl = remember(context, teamId, fallbackUrl) {
+        BundledClubCrests.resolve(context, teamId, fallbackUrl)
+    }
+    var isSuccess by remember(resolvedUrl) { mutableStateOf(false) }
     val isBundledPatchCrest = remember(resolvedUrl) {
         BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
     }
@@ -178,7 +183,6 @@ fun TeamBadge(
         contentAlignment = Alignment.Center
     ) {
         val abbrev = teamName.take(2).uppercase()
-        val context = androidx.compose.ui.platform.LocalContext.current
 
         if (!resolvedUrl.isNullOrEmpty()) {
             val imageRequest = remember(resolvedUrl) {

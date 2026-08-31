@@ -251,6 +251,7 @@ fun DashboardTab(
                             TeamBadge(
                                 teamName = pTeam.name,
                                 logoUrl = pTeam.logoUrl,
+                                teamId = pTeam.id,
                                 size = 56.dp
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -295,6 +296,7 @@ fun DashboardTab(
                             TeamBadge(
                                 teamName = opponentName,
                                 logoUrl = opponentLogo,
+                                teamId = opponentId,
                                 size = 56.dp
                             )
                             Spacer(modifier = Modifier.height(8.dp))

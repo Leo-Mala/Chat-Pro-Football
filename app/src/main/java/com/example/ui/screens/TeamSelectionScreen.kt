@@ -402,21 +402,12 @@ fun TeamSelectionScreen(
                                         .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (team.logoUrl != null) {
-                                        val resolvedLogo = remember(team.logoUrl) { resolveLogoUrl(team.logoUrl) }
-                                        Image(
-                                            painter = rememberAsyncImagePainter(resolvedLogo),
-                                            contentDescription = team.name,
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Default.SportsSoccer,
-                                            contentDescription = null,
-                                            tint = AccentLime,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
+                                    TeamBadge(
+                                        teamName = team.name,
+                                        logoUrl = team.logoUrl,
+                                        teamId = team.id,
+                                        size = 44.dp
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.width(16.dp))
