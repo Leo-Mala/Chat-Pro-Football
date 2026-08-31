@@ -51,8 +51,7 @@ jobs:
             app/src/test/java/com/example/ui/viewmodel/LiveMatchPersistenceOrderingRegressionTest.kt \
             app/src/test/java/com/example/ui/viewmodel/LiveMatchSkipRegressionTest.kt \
             app/src/test/java/com/example/usecase/CompletedFixtureDashboardRegressionTest.kt \
-            app/src/test/java/com/example/usecase/MonthlyEvolutionWeekFourRegressionTest.kt \
-            .github/workflows/manual-test-bugfix-apk.yml
+            app/src/test/java/com/example/usecase/MonthlyEvolutionWeekFourRegressionTest.kt
           git diff --cached --check
           test -n "$(git diff --cached --name-only)"
           git commit -m 'fix: stabilize crests live match completion and week four'
