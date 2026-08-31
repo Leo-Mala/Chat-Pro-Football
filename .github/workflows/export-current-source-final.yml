@@ -39,3 +39,4 @@ jobs:
 
 # Recovery trigger: export the exact bugfix head for local crest materialization and APK validation.
 # Re-triggered after confirming the final hardened crest corpus locally on 2026-08-30.
+# Re-export current runtime-fix head for exact offline manual-test APK certification on 2026-08-31.
