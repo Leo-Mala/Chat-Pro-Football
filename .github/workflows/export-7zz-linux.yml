@@ -6,6 +6,7 @@ on:
       - fix/3.0.1-manual-test-bugs
     paths:
       - .github/workflows/export-7zz-linux.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
