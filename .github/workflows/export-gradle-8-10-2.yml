@@ -1,0 +1,41 @@
+name: Export Gradle 8.10.2 distribution
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-gradle-8-10-2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout wrapper
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Materialize exact Gradle wrapper distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --version >/dev/null
+          dist=$(find "$HOME/.gradle/wrapper/dists/gradle-8.10.2-bin" -mindepth 1 -maxdepth 1 -type d -print -quit)
+          test -n "$dist"
+          test -x "$dist/gradle-8.10.2/bin/gradle"
+          tar -C "$dist" -czf gradle-8.10.2-bin-offline.tar.gz gradle-8.10.2
+          sha256sum gradle-8.10.2-bin-offline.tar.gz > SHA256SUMS.txt
+      - name: Upload distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gradle-8.10.2-bin-offline-${{ github.sha }}
+          path: |
+            gradle-8.10.2-bin-offline.tar.gz
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
