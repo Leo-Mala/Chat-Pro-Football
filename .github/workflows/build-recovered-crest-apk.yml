@@ -1,0 +1,226 @@
+name: Build recovered crest APK
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/build-recovered-crest-apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover-test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_CLUB_CRESTS: '1907'
+      EXPECTED_FACTUAL_CRESTS: '617'
+      EXPECTED_TOTAL_CRESTS: '2524'
+    steps:
+      - name: Checkout exact bugfix head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Record exact build SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Recover exact 2524-crest runtime from retained manual-test APK
+        id: recover
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/recovered-crest-source"
+          rm -rf "$work"
+          mkdir -p "$work"
+
+          found=0
+          while IFS=$'\t' read -r run_id run_number; do
+            [ -n "$run_id" ] || continue
+            while IFS=$'\t' read -r artifact_id artifact_name; do
+              [ -n "$artifact_id" ] || continue
+              artifact_zip="$work/artifact-${artifact_id}.zip"
+              artifact_dir="$work/artifact-${artifact_id}"
+              rm -rf "$artifact_dir" "$artifact_zip"
+              mkdir -p "$artifact_dir"
+
+              echo "Inspecting retained manual-test artifact: run=${run_id} number=${run_number} artifact=${artifact_id} name=${artifact_name}"
+              curl -L --fail --retry 2 --silent --show-error \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+                -o "$artifact_zip"
+              unzip -q "$artifact_zip" -d "$artifact_dir"
+
+              while IFS= read -r source_apk; do
+                [ -n "$source_apk" ] || continue
+                total=$(unzip -Z1 "$source_apk" | grep -c '^assets/club_crests/[^/]*$' || true)
+                club=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
+                factual=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
+                echo "Candidate APK $(basename "$source_apk"): total=${total} club=${club} factual=${factual}"
+                if [ "$total" = "$EXPECTED_TOTAL_CRESTS" ] && [ "$club" = "$EXPECTED_CLUB_CRESTS" ] && [ "$factual" = "$EXPECTED_FACTUAL_CRESTS" ]; then
+                  cp "$source_apk" "$work/source-rejected.apk"
+                  printf '%s\n' "$run_id" > "$work/source-run-id.txt"
+                  printf '%s\n' "$artifact_id" > "$work/source-artifact-id.txt"
+                  printf '%s\n' "$artifact_name" > "$work/source-artifact-name.txt"
+                  sha256sum "$work/source-rejected.apk" | tee "$work/source-apk-sha256.txt"
+                  found=1
+                  break 3
+                fi
+              done < <(find "$artifact_dir" -type f -name '*.apk' -print)
+            done < <(
+              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+                --jq '.artifacts[] | select(.expired == false) | select(.name | startswith("manual-test-apk-")) | [.id, .name] | @tsv'
+            )
+          done < <(
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/343909110/runs?branch=fix%2F3.0.1-manual-test-bugs&per_page=100" \
+              --jq '.workflow_runs[] | select(.status == "completed") | select(.conclusion == "success") | [.id, .run_number] | @tsv'
+          )
+
+          if [ "$found" -ne 1 ]; then
+            echo 'No retained Manual Test Bugfix APK artifact proved the exact 1907 + 617 = 2524 WebP runtime.' >&2
+            exit 1
+          fi
+
+          rm -rf app/src/main/assets/club_crests
+          mkdir -p app/src/main/assets/club_crests
+          unzip -jq "$work/source-rejected.apk" 'assets/club_crests/*' -d app/src/main/assets/club_crests
+
+          total=$(find app/src/main/assets/club_crests -maxdepth 1 -type f | wc -l)
+          club=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'club_*.webp' | wc -l)
+          factual=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)
+          test "$total" = "$EXPECTED_TOTAL_CRESTS"
+          test "$club" = "$EXPECTED_CLUB_CRESTS"
+          test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
+
+          echo "source_run_id=$(cat "$work/source-run-id.txt")" >> "$GITHUB_OUTPUT"
+          echo "source_artifact_id=$(cat "$work/source-artifact-id.txt")" >> "$GITHUB_OUTPUT"
+          echo "source_artifact_name=$(cat "$work/source-artifact-name.txt")" >> "$GITHUB_OUTPUT"
+          echo "Recovered exact runtime: ${club} club + ${factual} factual = ${total}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Prepare Android validation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then base64 -d debug.keystore.base64 > debug.keystore; fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, O=Android, C=US'
+          fi
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Run real crest resolver and Coil regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.data.BundledClubCrestsTest \
+            --stacktrace
+
+      - name: Run focused manual-test regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
+            --tests com.example.data.PreCareerEditorOverridesTest \
+            --tests com.example.ui.screens.EditorNavigationRegressionTest \
+            --tests com.example.usecase.RestartSeasonPersistenceTest \
+            --tests com.example.usecase.MarketPurchaseRefreshTest \
+            --tests com.example.usecase.MarketPurchasePersistenceTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
+            --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
+            --tests com.example.data.PlayerEvolutionRegressionTest \
+            --tests com.example.usecase.CareerCreationPerformanceTest \
+            --tests com.example.data.CareerSeedTemplateRuntimeTest \
+            --tests com.example.data.ProceduralRosterOnlyTest \
+            --tests com.example.data.BrasfootRealClubIdentityTest \
+            --tests com.example.data.BrasfootPatchCrestsTest \
+            --stacktrace
+
+      - name: Build installable Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --stacktrace
+          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk"
+          mkdir -p manual-test-apk
+          out="manual-test-apk/Pro-Football-3.0.1-crest-fix-${GITHUB_SHA}.apk"
+          cp "$apk" "$out"
+          sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
+          {
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'branch=%s\n' "$GITHUB_REF_NAME"
+            printf 'source_manual_test_run=%s\n' '${{ steps.recover.outputs.source_run_id }}'
+            printf 'source_artifact_id=%s\n' '${{ steps.recover.outputs.source_artifact_id }}'
+            printf 'source_artifact_name=%s\n' '${{ steps.recover.outputs.source_artifact_name }}'
+          } > manual-test-apk/BUILD_INFO.txt
+
+      - name: Validate APK integrity signature identity and crest bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find manual-test-apk -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk"
+          unzip -t "$apk" >/dev/null
+
+          total=$(unzip -Z1 "$apk" | grep -c '^assets/club_crests/[^/]*$' || true)
+          club=$(unzip -Z1 "$apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
+          factual=$(unzip -Z1 "$apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
+          test "$total" = "$EXPECTED_TOTAL_CRESTS"
+          test "$club" = "$EXPECTED_CLUB_CRESTS"
+          test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
+
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)
+          test -n "$bt"
+          "$ANDROID_HOME/build-tools/$bt/zipalign" -c -v 4 "$apk" >/dev/null
+          "$ANDROID_HOME/build-tools/$bt/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/$bt/aapt" dump badging "$apk" | tee manual-test-apk/BADGING.txt
+          grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" manual-test-apk/BADGING.txt
+          printf 'crest_total=%s\nclub=%s\nfactual=%s\n' "$total" "$club" "$factual" | tee manual-test-apk/CREST_BUNDLE.txt
+
+      - name: Upload exact installable APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: crest-fix-manual-test-apk-${{ github.sha }}
+          path: manual-test-apk/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload focused failure report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: crest-fix-failure-${{ github.sha }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 7
