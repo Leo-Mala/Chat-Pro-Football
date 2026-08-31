@@ -27,3 +27,5 @@ jobs:
           gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
             --jq '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | test("apk|crest|logo|realization|factual|transport|source-final")) or (.size_in_bytes >= 20000000)) | [.id, .name, .size_in_bytes, .workflow_run.id, .created_at] | @tsv' \
             | sort -k3,3nr
+
+# refreshed to enumerate the complete retained set for the manual-test crest certification
