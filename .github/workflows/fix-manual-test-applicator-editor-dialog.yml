@@ -1,0 +1,59 @@
+name: Fix Manual Test Applicator Editor Dialog
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - '.github/workflows/fix-manual-test-applicator-editor-dialog.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout bugfix branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+
+      - name: Add missing EditorDialogs crest route patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tools/manual_test/apply_runtime_bugfix_round_20260831.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '# The team-selection and Dashboard call sites were already ID-based in the baseline.\n'
+          if marker not in text:
+              raise SystemExit('crest assertion marker not found')
+          addition = '''replace_exact(
+              "app/src/main/java/com/example/ui/components/editor/EditorDialogs.kt",
+              "TeamBadge(teamName = team.name, logoUrl = team.logoUrl, size = 30.dp, colorHex = team.colorHex)",
+              "TeamBadge(teamName = team.name, logoUrl = team.logoUrl, teamId = team.id, size = 30.dp, colorHex = team.colorHex)",
+          )
+          
+          '''
+          if 'ui/components/editor/EditorDialogs.kt' not in text:
+              text = text.replace(marker, addition + marker, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          python3 -m py_compile tools/manual_test/apply_runtime_bugfix_round_20260831.py
+          git diff --check
+
+      - name: Commit updated applicator
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/manual_test/apply_runtime_bugfix_round_20260831.py
+          git diff --cached --check
+          git commit -m 'fix: cover editor dialog crest identity route'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
