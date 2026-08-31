@@ -101,6 +101,11 @@ jobs:
           ./gradlew testDebugUnitTest \
             -PexcludeStressTests=true \
             --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
+            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
             --tests com.example.data.PreCareerEditorOverridesTest \
             --tests com.example.ui.screens.EditorNavigationRegressionTest \
             --tests com.example.usecase.RestartSeasonPersistenceTest \
