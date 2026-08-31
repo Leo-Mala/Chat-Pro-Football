@@ -136,7 +136,6 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
     }
 
     if (m >= 90 && _matchState.value == GameViewModel.MatchState.PLAYING) {
-        _matchState.value = GameViewModel.MatchState.FINISHED
         val fix = liveMatchFixture
         if (fix != null) {
             val homeScore = _matchHomeScore.value
@@ -161,6 +160,10 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 }
             }
         }
+        // Only now can the UI expose "Voltar à Central".  exitLiveMatch() cancels
+        // liveMatchJob, so publishing FINISHED before this durable commit could roll back
+        // isPlayed=true and resurrect the exact same fixture on the Dashboard.
+        _matchState.value = GameViewModel.MatchState.FINISHED
     }
 }
 

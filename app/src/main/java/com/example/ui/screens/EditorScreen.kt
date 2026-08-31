@@ -362,6 +362,7 @@ fun TeamAndPlayerEditorScreen(
                                     TeamBadge(
                                         teamName = currentSelectedTeam.name,
                                         logoUrl = currentSelectedTeam.logoUrl,
+                                        teamId = currentSelectedTeam.id,
                                         size = 46.dp,
                                         colorHex = currentSelectedTeam.colorHex
                                     )

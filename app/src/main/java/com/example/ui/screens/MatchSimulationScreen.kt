@@ -123,6 +123,7 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
                         TeamBadge(
                             teamName = hTeam?.name ?: "Home",
                             logoUrl = hTeam?.logoUrl,
+                            teamId = hTeam?.id,
                             size = 48.dp
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -179,6 +180,7 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
                         TeamBadge(
                             teamName = aTeam?.name ?: "Away",
                             logoUrl = aTeam?.logoUrl,
+                            teamId = aTeam?.id,
                             size = 48.dp
                         )
                         Spacer(modifier = Modifier.height(6.dp))

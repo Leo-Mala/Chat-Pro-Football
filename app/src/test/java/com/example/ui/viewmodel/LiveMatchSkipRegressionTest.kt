@@ -18,6 +18,8 @@ class LiveMatchSkipRegressionTest {
 
         assertTrue(skipBody.contains("liveMatchFixture?.id == targetFixture.id"))
         assertTrue(skipBody.contains("finishPreparedLiveFixture(targetFixture)"))
+        assertFalse(skipBody.contains("simulateMatchDetailed"))
+        assertFalse(skipBody.contains("Random.nextLong"))
         assertTrue(skipBody.contains("else {\n                simulateSingleUserFixtureSafely"))
         assertFalse(
             "An active prepared live match must never be replaced by a fresh RNG simulation",

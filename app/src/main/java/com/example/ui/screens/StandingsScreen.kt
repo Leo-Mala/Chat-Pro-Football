@@ -334,7 +334,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.width(2.dp))
-                                TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 16.dp)
+                                TeamBadge(logoUrl = team.logoUrl, teamName = team.name, teamId = team.id, size = 16.dp)
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "${team.name} (${team.country.take(3).uppercase()})",
@@ -400,7 +400,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.weight(1.2f)
                                 ) {
-                                    TeamBadge(logoUrl = homeTeam.logoUrl, teamName = homeTeam.name, size = 24.dp)
+                                    TeamBadge(logoUrl = homeTeam.logoUrl, teamName = homeTeam.name, teamId = homeTeam.id, size = 24.dp)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         homeTeam.name,
@@ -446,7 +446,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    TeamBadge(logoUrl = awayTeam.logoUrl, teamName = awayTeam.name, size = 24.dp)
+                                    TeamBadge(logoUrl = awayTeam.logoUrl, teamName = awayTeam.name, teamId = awayTeam.id, size = 24.dp)
                                 }
                             }
                         }
@@ -500,7 +500,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 modifier = Modifier.weight(1.2f)
                                             ) {
-                                                TeamBadge(logoUrl = homeTeam.logoUrl, teamName = homeTeam.name, size = 24.dp)
+                                                TeamBadge(logoUrl = homeTeam.logoUrl, teamName = homeTeam.name, teamId = homeTeam.id, size = 24.dp)
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
                                                     homeTeam.name,
@@ -553,7 +553,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                                     fontWeight = if (awayTeam.isPlayerControlled) FontWeight.Bold else FontWeight.Normal
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                TeamBadge(logoUrl = awayTeam.logoUrl, teamName = awayTeam.name, size = 24.dp)
+                                                TeamBadge(logoUrl = awayTeam.logoUrl, teamName = awayTeam.name, teamId = awayTeam.id, size = 24.dp)
                                             }
                                         }
 
@@ -804,7 +804,7 @@ fun StandingsTab(viewModel: GameViewModel) {
                                 )
                             }
                             Spacer(modifier = Modifier.width(2.dp))
-                            TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 16.dp)
+                            TeamBadge(logoUrl = team.logoUrl, teamName = team.name, teamId = team.id, size = 16.dp)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 team.name,

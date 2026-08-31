@@ -56,6 +56,8 @@ data class MonthlyEvolutionExecutionOutcome(
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
  * suspensões por cartão e renovação de contratos de atletas.
  */
+private const val MONTHLY_EVOLUTION_BATCH_SIZE = 512
+
 class PlayerEvolutionUseCase(private val repository: GameRepository) {
 
     /**
@@ -103,27 +105,46 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         periodDate: String,
         retainDetailedResults: Boolean = false
     ): MonthlyEvolutionPlan {
-        val allPlayers = repository.getAllPlayers()
+        val expectedPlayerCount = repository.getMonthlyEvolutionPlayerCount()
         val allTeams = repository.getAllTeams().associateBy { it.id }
-        val evolutionResults = if (retainDetailedResults) {
-            PlayerEvolutionMonthlyEngine.process(allPlayers, allTeams, periodDate)
-        } else {
-            PlayerEvolutionMonthlyEngine.processChanged(allPlayers, allTeams, periodDate)
-        }
-
-        val changedPlayers = ArrayList<Player>(evolutionResults.size)
+        val evolutionResults = ArrayList<PlayerEvolutionResult>(
+            if (retainDetailedResults) expectedPlayerCount else minOf(expectedPlayerCount, 4096)
+        )
+        val changedPlayers = ArrayList<Player>()
         val historyLogs = ArrayList<HistoricoEvolucao>()
-        for (result in evolutionResults) {
-            if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) changedPlayers.add(result.player)
-            if (result.historyLogs.isNotEmpty()) historyLogs.addAll(result.historyLogs)
+        val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
+        val referencedTeamIds = HashSet<Long>()
+
+        // Keep the exact ORDER BY force DESC, name ASC and call the same evolution engine in
+        // sequence. Kotlin Random.Default therefore sees the same uninterrupted call sequence;
+        // only the lifetime of each full Player batch changes.
+        var offset = 0
+        while (offset < expectedPlayerCount) {
+            val batch = repository.getAllPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
+            check(batch.isNotEmpty()) {
+                "Monthly evolution player scan ended at $offset of $expectedPlayerCount rows."
+            }
+            val batchResults = if (retainDetailedResults) {
+                PlayerEvolutionMonthlyEngine.process(batch, allTeams, periodDate)
+            } else {
+                PlayerEvolutionMonthlyEngine.processChanged(batch, allTeams, periodDate)
+            }
+            evolutionResults.addAll(batchResults)
+
+            for (result in batchResults) {
+                if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) changedPlayers.add(result.player)
+                if (result.historyLogs.isNotEmpty()) historyLogs.addAll(result.historyLogs)
+            }
+            for (player in batch) {
+                expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
+                player.teamId?.let(referencedTeamIds::add)
+            }
+            offset += batch.size
+        }
+        check(expectedInputs.size == expectedPlayerCount) {
+            "Monthly evolution expected $expectedPlayerCount inputs but captured ${expectedInputs.size}."
         }
 
-        val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(allPlayers.size)
-        val referencedTeamIds = HashSet<Long>()
-        for (player in allPlayers) {
-            expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
-            player.teamId?.let(referencedTeamIds::add)
-        }
         val expectedTrainingLevels = referencedTeamIds.associateWith { teamId ->
             allTeams[teamId]?.trainingCenterLevel ?: 1
         }
@@ -137,7 +158,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             updatedPlayers = changedPlayers,
             historyLogs = historyLogs,
             expectedInputs = expectedInputs,
-            expectedPlayerCount = allPlayers.size,
+            expectedPlayerCount = expectedPlayerCount,
             expectedTrainingCenterLevels = expectedTrainingLevels
         )
     }

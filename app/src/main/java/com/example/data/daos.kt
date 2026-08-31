@@ -73,6 +73,10 @@ interface PlayerDao {
     @Query("SELECT * FROM players ORDER BY force DESC, name ASC")
     suspend fun getAllPlayers(): List<Player>
 
+    /** Monthly evolution keeps the exact canonical getAllPlayers ordering but bounds heap usage. */
+    @Query("SELECT * FROM players ORDER BY force DESC, name ASC LIMIT :limit OFFSET :offset")
+    suspend fun getAllPlayersBatch(limit: Int, offset: Int): List<Player>
+
     @Query("SELECT * FROM players WHERE teamId = :teamId ORDER BY position DESC, force DESC")
     fun getPlayersByTeamFlow(teamId: Long?): Flow<List<Player>>
 

@@ -428,7 +428,7 @@ fun TransferPlayerDialog(
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                TeamBadge(teamName = team.name, logoUrl = team.logoUrl, size = 30.dp, colorHex = team.colorHex)
+                                TeamBadge(teamName = team.name, logoUrl = team.logoUrl, teamId = team.id, size = 30.dp, colorHex = team.colorHex)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = team.name,

@@ -72,6 +72,7 @@ fun TeamEditorCard(
             TeamBadge(
                 teamName = team.name,
                 logoUrl = team.logoUrl,
+                teamId = team.id,
                 size = 46.dp,
                 colorHex = team.colorHex
             )

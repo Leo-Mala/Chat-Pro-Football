@@ -173,6 +173,8 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun deleteTeams() = db.teamDao().deleteTeams()
 
     suspend fun getAllPlayers(): List<Player> = db.playerDao().getAllPlayers()
+    suspend fun getAllPlayersBatch(limit: Int, offset: Int): List<Player> =
+        db.playerDao().getAllPlayersBatch(limit, offset)
     suspend fun getPlayersByTeam(teamId: Long?): List<Player> = db.playerDao().getPlayersByTeam(teamId)
     suspend fun getPlayerCountByTeam(teamId: Long?): Int = db.playerDao().getPlayerCountByTeam(teamId)
     suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()

@@ -197,7 +197,7 @@ fun TopScorersView(allPlayers: List<Player>, allTeams: List<Team>) {
                             Spacer(modifier = Modifier.width(12.dp))
 
                             if (team != null) {
-                                TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = 28.dp)
+                                TeamBadge(logoUrl = team.logoUrl, teamName = team.name, teamId = team.id, size = 28.dp)
                                 Spacer(modifier = Modifier.width(10.dp))
                             }
 
@@ -318,7 +318,7 @@ fun PodiumCard(player: Player, rank: Int, badgeColor: Color, allTeams: List<Team
         }
         Spacer(modifier = Modifier.height(4.dp))
         if (team != null) {
-            TeamBadge(logoUrl = team.logoUrl, teamName = team.name, size = if (rank == 1) 28.dp else 22.dp)
+            TeamBadge(logoUrl = team.logoUrl, teamName = team.name, teamId = team.id, size = if (rank == 1) 28.dp else 22.dp)
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
