@@ -1,0 +1,218 @@
+name: Apply Manual Test Runtime Fixes
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - 'tools/manual_test/apply_runtime_bugfix_round_20260831.py'
+      - '.github/workflows/apply-manual-test-runtime-fixes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-manual-test-runtime-fixes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patch-test-build-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": { "package_name": "com.aistudio.brasfutretro.djuxzt" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Setup debug keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Apply focused runtime fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/manual_test/apply_runtime_bugfix_round_20260831.py
+          python3 tools/manual_test/apply_runtime_bugfix_round_20260831.py
+          git diff --check
+
+      - name: Run focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
+            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
+            --tests com.example.data.BundledClubCrestsTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --stacktrace
+
+      - name: Verify complete bundled crest corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/club_realization/verify_materialized_bundle.py
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Validate APK and crest payload
+        id: apkmeta
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk"
+          unzip -t "$apk" >/dev/null
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$bt/zipalign" -c -v 4 "$apk" >/dev/null
+          "$bt/apksigner" verify --verbose "$apk" | tee /tmp/apksigner.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/apksigner.txt
+          "$bt/aapt" dump badging "$apk" | tee /tmp/badging.txt
+          grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" /tmp/badging.txt
+          python3 - "$apk" <<'PY'
+          import sys, zipfile
+          apk = sys.argv[1]
+          with zipfile.ZipFile(apk) as z:
+              names = [n for n in z.namelist() if n.startswith('assets/club_crests/') and not n.endswith('/')]
+          factual = [n for n in names if n.split('/')[-1].startswith('factual_')]
+          replacements = [n for n in names if n.split('/')[-1].startswith('club_')]
+          assert len(factual) == 617, len(factual)
+          assert len(replacements) == 1907, len(replacements)
+          assert len(names) == 2524, len(names)
+          print(f'crest_total={len(names)} factual={len(factual)} replacements={len(replacements)}')
+          PY
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Commit tested source fixes to bugfix branch
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            app/src/main/java/com/example/data/daos.kt \
+            app/src/main/java/com/example/data/repository.kt \
+            app/src/main/java/com/example/usecase/PlayerEvolutionUseCase.kt \
+            app/src/main/java/com/example/ui/screens/EditorScreen.kt \
+            app/src/main/java/com/example/ui/components/editor/EditorCards.kt \
+            app/src/main/java/com/example/ui/screens/MatchSimulationScreen.kt \
+            app/src/main/java/com/example/ui/screens/StandingsScreen.kt \
+            app/src/main/java/com/example/ui/components/standings/TopScorersView.kt \
+            app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt \
+            app/src/test/java/com/example/ui/screens/ClubCrestUiIdentityRegressionTest.kt \
+            app/src/test/java/com/example/ui/viewmodel/LiveMatchPersistenceOrderingRegressionTest.kt \
+            app/src/test/java/com/example/ui/viewmodel/LiveMatchSkipRegressionTest.kt \
+            app/src/test/java/com/example/usecase/CompletedFixtureDashboardRegressionTest.kt \
+            app/src/test/java/com/example/usecase/MonthlyEvolutionWeekFourRegressionTest.kt \
+            .github/workflows/manual-test-bugfix-apk.yml
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No tested source changes to commit.' >&2
+            exit 1
+          fi
+          git commit -m 'fix: persist live fixtures and unify crest runtime identity'
+          final_sha=$(git rev-parse HEAD)
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
+          echo "final_sha=$final_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Package exact manual-test APK
+        shell: bash
+        env:
+          APK: ${{ steps.apkmeta.outputs.apk }}
+          FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p manual-test-apk
+          out="manual-test-apk/Pro-Football-3.0.1-Teste-Manual-Bugs-Corrigidos-${FINAL_SHA:0:12}.apk"
+          cp "$APK" "$out"
+          sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
+          size=$(stat -c '%s' "$out")
+          cat > manual-test-apk/BUILD_INFO.txt <<EOF
+          commit=$FINAL_SHA
+          branch=fix/3.0.1-manual-test-bugs
+          package=com.aistudio.brasfutretro.djuxzt
+          versionCode=32
+          versionName=3.0.1
+          crest_total=2524
+          crest_factual=617
+          crest_replacements=1907
+          size_bytes=$size
+          EOF
+
+      - name: Upload exact tested APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: manual-test-runtime-fixed-${{ steps.commit.outputs.final_sha }}
+          path: manual-test-apk/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload focused test report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-fix-failure-${{ github.sha }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 7
