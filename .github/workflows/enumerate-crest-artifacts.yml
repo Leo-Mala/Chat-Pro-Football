@@ -1,0 +1,29 @@
+name: Enumerate retained crest artifacts
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/enumerate-crest-artifacts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Enumerate retained artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== retained artifacts likely related to APK/crest/logo/realization ==='
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | test("apk|crest|logo|realization|factual|transport|source-final")) or (.size_in_bytes >= 20000000)) | [.id, .name, .size_in_bytes, .workflow_run.id, .created_at] | @tsv' \
+            | sort -k3,3nr
