@@ -1,0 +1,265 @@
+name: Apply team-id crest runtime fix
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/apply-team-id-crest-runtime-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-compile:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact working head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Apply fail-closed runtime patch and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          helper = Path('app/src/main/java/com/example/data/BundledClubCrests.kt')
+          helper.write_text('''package com.example.data
+
+import android.content.Context
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Resolves an installed crest from the stable Team.id before falling back to a persisted URL.
+ * This keeps old saves compatible: a stale remote logoUrl never wins over a bundled crest.
+ */
+object BundledClubCrests {
+    private const val ASSET_DIR = "club_crests"
+    private const val ASSET_URI_PREFIX = "file:///android_asset/"
+
+    private val resolvedPaths = ConcurrentHashMap<Int, String>()
+    private val missingIds = ConcurrentHashMap.newKeySet<Int>()
+
+    fun resolve(context: Context, teamId: Int?, fallbackUrl: String?): String? {
+        val id = teamId?.takeIf { it > 0 } ?: return fallbackUrl
+        resolvedPaths[id]?.let { return ASSET_URI_PREFIX + it }
+        if (missingIds.contains(id)) return fallbackUrl
+
+        val path = candidates(id).firstOrNull { candidate ->
+            runCatching { context.assets.open(candidate).use { } }.isSuccess
+        }
+        if (path == null) {
+            missingIds.add(id)
+            return fallbackUrl
+        }
+        resolvedPaths[id] = path
+        return ASSET_URI_PREFIX + path
+    }
+
+    internal fun assetPathFor(context: Context, teamId: Int): String? {
+        val uri = resolve(context, teamId, null) ?: return null
+        return uri.removePrefix(ASSET_URI_PREFIX)
+    }
+
+    internal fun resetForTests() {
+        resolvedPaths.clear()
+        missingIds.clear()
+    }
+
+    private fun candidates(id: Int): List<String> = listOf(
+        "$ASSET_DIR/factual_${id}.webp",
+        "$ASSET_DIR/factual_${id}.png",
+        "$ASSET_DIR/factual_${id}.svg",
+        "$ASSET_DIR/club_${id}.webp",
+        "$ASSET_DIR/club_${id}.png",
+        "$ASSET_DIR/club_${id}.svg",
+    )
+}
+''', encoding='utf-8')
+
+          game = Path('app/src/main/java/com/example/ui/screens/GameScreens.kt')
+          replace_once(
+              game,
+              '''fun TeamBadge(\n    teamName: String,\n    logoUrl: String?,\n    modifier: Modifier = Modifier,''',
+              '''fun TeamBadge(\n    teamName: String,\n    logoUrl: String?,\n    teamId: Int? = null,\n    modifier: Modifier = Modifier,''',
+              'TeamBadge signature',
+          )
+          replace_once(
+              game,
+              '''    val badgeColor = getTeamColor(teamName, colorHex)\n    var isSuccess by remember(logoUrl) { mutableStateOf(false) }\n    val resolvedUrl = remember(logoUrl) { resolveLogoUrl(logoUrl) }\n    val isBundledPatchCrest = remember(resolvedUrl) {''',
+              '''    val context = LocalContext.current\n    val badgeColor = getTeamColor(teamName, colorHex)\n    val fallbackUrl = remember(logoUrl) { resolveLogoUrl(logoUrl) }\n    val resolvedUrl = remember(context, teamId, fallbackUrl) {\n        BundledClubCrests.resolve(context, teamId, fallbackUrl)\n    }\n    var isSuccess by remember(resolvedUrl) { mutableStateOf(false) }\n    val isBundledPatchCrest = remember(resolvedUrl) {''',
+              'TeamBadge resolver',
+          )
+          replace_once(
+              game,
+              '''        val abbrev = teamName.take(2).uppercase()\n        val context = androidx.compose.ui.platform.LocalContext.current\n\n        if (!resolvedUrl.isNullOrEmpty()) {''',
+              '''        val abbrev = teamName.take(2).uppercase()\n\n        if (!resolvedUrl.isNullOrEmpty()) {''',
+              'TeamBadge context de-duplication',
+          )
+
+          selection = Path('app/src/main/java/com/example/ui/screens/TeamSelectionScreen.kt')
+          replace_once(
+              selection,
+              '''                                // Emblem placeholder or Url image\n                                Box(\n                                    modifier = Modifier\n                                        .size(44.dp)\n                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f), CircleShape),\n                                    contentAlignment = Alignment.Center\n                                ) {\n                                    if (team.logoUrl != null) {\n                                        val resolvedLogo = remember(team.logoUrl) { resolveLogoUrl(team.logoUrl) }\n                                        Image(\n                                            painter = rememberAsyncImagePainter(resolvedLogo),\n                                            contentDescription = team.name,\n                                            modifier = Modifier.size(36.dp)\n                                        )\n                                    } else {\n                                        Icon(\n                                            Icons.Default.SportsSoccer,\n                                            contentDescription = null,\n                                            tint = AccentLime,\n                                            modifier = Modifier.size(24.dp)\n                                        )\n                                    }\n                                }''',
+              '''                                TeamBadge(\n                                    teamName = team.name,\n                                    logoUrl = team.logoUrl,\n                                    teamId = team.id,\n                                    size = 44.dp\n                                )''',
+              'team selection crest renderer',
+          )
+
+          dashboard = Path('app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt')
+          replace_once(
+              dashboard,
+              '''                            TeamBadge(\n                                teamName = pTeam.name,\n                                logoUrl = pTeam.logoUrl,\n                                size = 56.dp\n                            )''',
+              '''                            TeamBadge(\n                                teamName = pTeam.name,\n                                logoUrl = pTeam.logoUrl,\n                                teamId = pTeam.id,\n                                size = 56.dp\n                            )''',
+              'dashboard player crest',
+          )
+          replace_once(
+              dashboard,
+              '''                            TeamBadge(\n                                teamName = opponentName,\n                                logoUrl = opponentLogo,\n                                size = 56.dp\n                            )''',
+              '''                            TeamBadge(\n                                teamName = opponentName,\n                                logoUrl = opponentLogo,\n                                teamId = opponentId,\n                                size = 56.dp\n                            )''',
+              'dashboard opponent crest',
+          )
+
+          test = Path('app/src/test/java/com/example/data/BundledClubCrestsTest.kt')
+          test.parent.mkdir(parents=True, exist_ok=True)
+          test.write_text('''package com.example.data
+
+import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.test.core.app.ApplicationProvider
+import coil.ImageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class BundledClubCrestsTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @After
+    fun tearDown() {
+        BundledClubCrests.resetForTests()
+    }
+
+    @Test
+    fun `seven reported Brazilian clubs override stale remote URLs and Coil decodes them`() = runBlocking {
+        val clubs = listOf(
+            4009 to "Flamengo",
+            4014 to "Palmeiras",
+            4002 to "Atlético Mineiro",
+            4008 to "Cruzeiro",
+            4017 to "Santos",
+            4004 to "Botafogo",
+            4018 to "São Paulo",
+        )
+        val loader = ImageLoader.Builder(context).build()
+
+        for ((id, name) in clubs) {
+            val remote = "https://invalid.example.test/${id}.svg"
+            val uri = BundledClubCrests.resolve(context, id, remote)
+            assertEquals("$name should resolve the factual bundled crest", "file:///android_asset/club_crests/factual_${id}.webp", uri)
+            val result = loader.execute(
+                ImageRequest.Builder(context)
+                    .data(uri)
+                    .size(256)
+                    .build()
+            )
+            assertTrue("Coil failed to decode $name from $uri: $result", result is SuccessResult)
+        }
+    }
+
+    @Test
+    fun `runtime bundle contains and Android decodes all 2524 club crests`() {
+        val names = context.assets.list("club_crests")?.toList().orEmpty()
+        assertEquals(2524, names.size)
+        assertEquals(617, names.count { it.startsWith("factual_") && it.endsWith(".webp") })
+        assertEquals(1907, names.count { it.startsWith("club_") })
+
+        for (name in names) {
+            context.assets.open("club_crests/$name").use { input ->
+                if (!name.endsWith(".svg", ignoreCase = true)) {
+                    assertNotNull("Android failed to decode club_crests/$name", BitmapFactory.decodeStream(input))
+                }
+            }
+        }
+    }
+}
+''', encoding='utf-8')
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client": [{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          GOOGLE_EOF
+
+      - name: Setup debug keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then base64 -d debug.keystore.base64 > debug.keystore; fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+          fi
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Compile production and regression test sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin -PexcludeStressTests=true --stacktrace
+
+      - name: Commit only after successful compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            app/src/main/java/com/example/data/BundledClubCrests.kt \
+            app/src/main/java/com/example/ui/screens/GameScreens.kt \
+            app/src/main/java/com/example/ui/screens/TeamSelectionScreen.kt \
+            app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt \
+            app/src/test/java/com/example/data/BundledClubCrestsTest.kt
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'fix: resolve bundled club crests by team id'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
