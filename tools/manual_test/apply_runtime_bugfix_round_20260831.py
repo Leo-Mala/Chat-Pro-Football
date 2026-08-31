@@ -461,11 +461,21 @@ replace_exact(
 )
 
 # Persist the focused suite in the branch's normal manual-test workflow.
-workflow = " .github/workflows/manual-test-bugfix-apk.yml".strip()
-replace_exact(
-    workflow,
-    """            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \\\n            --tests com.example.data.PreCareerEditorOverridesTest \\\""",
-    """            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \\\n            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \\\n            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \\\n            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \\\n            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \\\n            --tests com.example.usecase.SeasonSimulationRegressionTest \\\n            --tests com.example.data.PreCareerEditorOverridesTest \\\""",
-)
+workflow = ".github/workflows/manual-test-bugfix-apk.yml"
+slash = chr(92)
+old_suite = "\n".join([
+    f"            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest {slash}",
+    f"            --tests com.example.data.PreCareerEditorOverridesTest {slash}",
+])
+new_suite = "\n".join([
+    f"            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest {slash}",
+    f"            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest {slash}",
+    f"            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest {slash}",
+    f"            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest {slash}",
+    f"            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest {slash}",
+    f"            --tests com.example.usecase.SeasonSimulationRegressionTest {slash}",
+    f"            --tests com.example.data.PreCareerEditorOverridesTest {slash}",
+])
+replace_exact(workflow, old_suite, new_suite)
 
 print("Focused runtime bugfix patch applied successfully.")
