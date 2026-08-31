@@ -73,6 +73,12 @@ replace_exact(
     "TeamBadge(logoUrl = team.logoUrl, teamName = team.name, teamId = team.id, size = if (rank == 1) 28.dp else 22.dp)",
 )
 
+replace_exact(
+    "app/src/main/java/com/example/ui/components/editor/EditorDialogs.kt",
+    "TeamBadge(teamName = team.name, logoUrl = team.logoUrl, size = 30.dp, colorHex = team.colorHex)",
+    "TeamBadge(teamName = team.name, logoUrl = team.logoUrl, teamId = team.id, size = 30.dp, colorHex = team.colorHex)",
+)
+
 # The team-selection and Dashboard call sites were already ID-based in the baseline.
 # Make the baseline invariant explicit so a future partial UI route cannot silently regress.
 def assert_team_badges_have_ids():
