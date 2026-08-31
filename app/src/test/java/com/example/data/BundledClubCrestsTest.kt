@@ -2,11 +2,14 @@ package com.example.data
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import kotlinx.coroutines.runBlocking
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -14,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -27,7 +31,7 @@ class BundledClubCrestsTest {
     }
 
     @Test
-    fun `seven reported Brazilian clubs override stale remote URLs and Coil decodes them`() = runBlocking {
+    fun `seven reported Brazilian clubs override stale remote URLs and Coil decodes them`() {
         val clubs = listOf(
             4009L to "Flamengo",
             4014L to "Palmeiras",
@@ -47,13 +51,7 @@ class BundledClubCrestsTest {
                 "file:///android_asset/club_crests/factual_${id}.webp",
                 uri,
             )
-            val result = loader.execute(
-                ImageRequest.Builder(context)
-                    .data(uri)
-                    .size(256)
-                    .build()
-            )
-            assertTrue("Coil failed to decode $name from $uri: $result", result is SuccessResult)
+            assertCoilDecodes(loader, name, requireNotNull(uri))
         }
     }
 
@@ -74,5 +72,38 @@ class BundledClubCrestsTest {
                 }
             }
         }
+    }
+
+    private fun assertCoilDecodes(loader: ImageLoader, clubName: String, uri: String) {
+        val completed = AtomicBoolean(false)
+        val success = AtomicReference<SuccessResult?>()
+        val failure = AtomicReference<Throwable?>()
+        val request = ImageRequest.Builder(context)
+            .data(uri)
+            .size(256)
+            .listener(
+                onSuccess = { _, result ->
+                    success.set(result)
+                    completed.set(true)
+                },
+                onError = { _, result ->
+                    failure.set(result.throwable)
+                    completed.set(true)
+                },
+            )
+            .build()
+
+        loader.enqueue(request)
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        while (!completed.get() && System.nanoTime() < deadline) {
+            mainLooper.idle()
+            Thread.sleep(5)
+        }
+        mainLooper.idle()
+
+        failure.get()?.let { throw AssertionError("Coil failed to decode $clubName from $uri", it) }
+        assertTrue("Coil timed out decoding $clubName from $uri", completed.get())
+        assertNotNull("Coil did not return SuccessResult for $clubName from $uri", success.get())
     }
 }
