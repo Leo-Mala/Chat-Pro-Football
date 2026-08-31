@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: apply-manual-test-runtime-fixes-${{ github.ref }}
@@ -19,13 +20,26 @@ concurrency:
 jobs:
   patch-test-build-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_CLUB_CRESTS: '1907'
+      EXPECTED_FACTUAL_CRESTS: '617'
+      EXPECTED_TOTAL_CRESTS: '2524'
+      EXPECTED_CREST_CORPUS_SHA256: 'd1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90'
+      TESTED_APK_SHA256: 'cd24e4a454dff2881a203c79ce67fd9743b474080f3298be13edb319c4b134f6'
     steps:
       - name: Checkout exact branch head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: fix/3.0.1-manual-test-bugs
           fetch-depth: 0
+
+      - name: Record patch baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "PATCH_BASELINE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
@@ -86,6 +100,107 @@ jobs:
           python3 tools/manual_test/apply_runtime_bugfix_round_20260831.py
           git diff --check
 
+      - name: Recover byte-identical audited crest corpus
+        id: recover
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/recovered-crest-source"
+          rm -rf "$work"
+          mkdir -p "$work"
+
+          corpus_digest() {
+            python3 - "$1" <<'PY'
+          import hashlib, sys, zipfile
+          apk = sys.argv[1]
+          with zipfile.ZipFile(apk) as z:
+              names = sorted(
+                  n for n in z.namelist()
+                  if n.startswith('assets/club_crests/') and not n.endswith('/')
+              )
+              h = hashlib.sha256()
+              for name in names:
+                  h.update(name.encode('utf-8'))
+                  h.update(b'\0')
+                  h.update(hashlib.sha256(z.read(name)).digest())
+          print(h.hexdigest())
+          PY
+          }
+
+          found=0
+          while IFS=$'\t' read -r run_id run_number; do
+            [ -n "$run_id" ] || continue
+            while IFS=$'\t' read -r artifact_id artifact_name; do
+              [ -n "$artifact_id" ] || continue
+              artifact_zip="$work/artifact-${artifact_id}.zip"
+              artifact_dir="$work/artifact-${artifact_id}"
+              rm -rf "$artifact_dir" "$artifact_zip"
+              mkdir -p "$artifact_dir"
+
+              echo "Inspecting retained artifact: run=${run_id} number=${run_number} artifact=${artifact_id} name=${artifact_name}"
+              curl -L --fail --retry 2 --silent --show-error \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+                -o "$artifact_zip"
+              unzip -q "$artifact_zip" -d "$artifact_dir"
+
+              while IFS= read -r source_apk; do
+                [ -n "$source_apk" ] || continue
+                total=$(unzip -Z1 "$source_apk" | grep -c '^assets/club_crests/[^/]*$' || true)
+                club=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
+                factual=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
+                if [ "$total" != "$EXPECTED_TOTAL_CRESTS" ] || [ "$club" != "$EXPECTED_CLUB_CRESTS" ] || [ "$factual" != "$EXPECTED_FACTUAL_CRESTS" ]; then
+                  continue
+                fi
+
+                digest=$(corpus_digest "$source_apk")
+                apk_sha=$(sha256sum "$source_apk" | awk '{print $1}')
+                echo "Candidate $(basename "$source_apk"): apk_sha=${apk_sha} corpus_sha=${digest}"
+                if [ "$digest" = "$EXPECTED_CREST_CORPUS_SHA256" ]; then
+                  cp "$source_apk" "$work/source-audited.apk"
+                  printf '%s\n' "$run_id" > "$work/source-run-id.txt"
+                  printf '%s\n' "$artifact_id" > "$work/source-artifact-id.txt"
+                  printf '%s\n' "$artifact_name" > "$work/source-artifact-name.txt"
+                  printf '%s\n' "$apk_sha" > "$work/source-apk-sha256.txt"
+                  found=1
+                  break 3
+                fi
+              done < <(find "$artifact_dir" -type f -name '*.apk' -print)
+            done < <(
+              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+                --jq '.artifacts[] | select(.expired == false) | select(.name | startswith("manual-test-apk-") or startswith("crest-fix-manual-test-apk-")) | [.id, .name] | @tsv'
+            )
+          done < <(
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?branch=fix%2F3.0.1-manual-test-bugs&status=completed&per_page=100" \
+              --jq '.workflow_runs[] | select(.conclusion == "success") | [.id, .run_number] | @tsv'
+          )
+
+          if [ "$found" -ne 1 ]; then
+            echo "No retained APK matched audited crest corpus SHA-256 ${EXPECTED_CREST_CORPUS_SHA256}." >&2
+            exit 1
+          fi
+
+          rm -rf app/src/main/assets/club_crests
+          mkdir -p app/src/main/assets/club_crests
+          unzip -jq "$work/source-audited.apk" 'assets/club_crests/*' -d app/src/main/assets/club_crests
+
+          total=$(find app/src/main/assets/club_crests -maxdepth 1 -type f | wc -l)
+          club=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'club_*.webp' | wc -l)
+          factual=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)
+          test "$total" = "$EXPECTED_TOTAL_CRESTS"
+          test "$club" = "$EXPECTED_CLUB_CRESTS"
+          test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
+
+          source_apk_sha=$(cat "$work/source-apk-sha256.txt")
+          echo "source_apk=$work/source-audited.apk" >> "$GITHUB_OUTPUT"
+          echo "source_apk_sha256=$source_apk_sha" >> "$GITHUB_OUTPUT"
+          echo "source_run_id=$(cat "$work/source-run-id.txt")" >> "$GITHUB_OUTPUT"
+          echo "source_artifact_id=$(cat "$work/source-artifact-id.txt")" >> "$GITHUB_OUTPUT"
+          echo "source_artifact_name=$(cat "$work/source-artifact-name.txt")" >> "$GITHUB_OUTPUT"
+          echo "Recovered byte-identical audited corpus: ${club} replacement + ${factual} factual = ${total}"
+
       - name: Run focused regressions
         shell: bash
         run: |
@@ -103,11 +218,27 @@ jobs:
             --tests com.example.usecase.MatchStatisticsIdempotencyTest \
             --stacktrace
 
-      - name: Verify complete bundled crest corpus
+      - name: Verify recovered crest corpus before build
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/club_realization/verify_materialized_bundle.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root = Path('app/src/main/assets/club_crests')
+          files = sorted(p for p in root.iterdir() if p.is_file())
+          assert len(files) == 2524, len(files)
+          h = hashlib.sha256()
+          for path in files:
+              archive_name = f'assets/club_crests/{path.name}'
+              h.update(archive_name.encode('utf-8'))
+              h.update(b'\0')
+              h.update(hashlib.sha256(path.read_bytes()).digest())
+          digest = h.hexdigest()
+          expected = 'd1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90'
+          assert digest == expected, (digest, expected)
+          print(f'audited_crest_corpus_sha256={digest}')
+          PY
 
       - name: Build debug APK
         shell: bash
@@ -115,33 +246,55 @@ jobs:
           set -euo pipefail
           ./gradlew assembleDebug --stacktrace
 
-      - name: Validate APK and crest payload
+      - name: Validate APK identity signature and byte-identical crest payload
         id: apkmeta
         shell: bash
+        env:
+          SOURCE_APK: ${{ steps.recover.outputs.source_apk }}
         run: |
           set -euo pipefail
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$apk"
           unzip -t "$apk" >/dev/null
+
           bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           "$bt/zipalign" -c -v 4 "$apk" >/dev/null
           "$bt/apksigner" verify --verbose "$apk" | tee /tmp/apksigner.txt
           grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/apksigner.txt
           "$bt/aapt" dump badging "$apk" | tee /tmp/badging.txt
           grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" /tmp/badging.txt
-          python3 - "$apk" <<'PY'
-          import sys, zipfile
-          apk = sys.argv[1]
-          with zipfile.ZipFile(apk) as z:
-              names = [n for n in z.namelist() if n.startswith('assets/club_crests/') and not n.endswith('/')]
-          factual = [n for n in names if n.split('/')[-1].startswith('factual_')]
-          replacements = [n for n in names if n.split('/')[-1].startswith('club_')]
-          assert len(factual) == 617, len(factual)
-          assert len(replacements) == 1907, len(replacements)
-          assert len(names) == 2524, len(names)
-          print(f'crest_total={len(names)} factual={len(factual)} replacements={len(replacements)}')
+
+          python3 - "$SOURCE_APK" "$apk" <<'PY'
+          import hashlib, sys, zipfile
+          source_apk, built_apk = sys.argv[1:]
+          prefix = 'assets/club_crests/'
+          with zipfile.ZipFile(source_apk) as src, zipfile.ZipFile(built_apk) as built:
+              src_names = sorted(n for n in src.namelist() if n.startswith(prefix) and not n.endswith('/'))
+              built_names = sorted(n for n in built.namelist() if n.startswith(prefix) and not n.endswith('/'))
+              assert src_names == built_names, 'crest filename set changed'
+              assert len(built_names) == 2524, len(built_names)
+              factual = [n for n in built_names if n.split('/')[-1].startswith('factual_')]
+              replacements = [n for n in built_names if n.split('/')[-1].startswith('club_')]
+              assert len(factual) == 617, len(factual)
+              assert len(replacements) == 1907, len(replacements)
+              for name in src_names:
+                  if src.read(name) != built.read(name):
+                      raise AssertionError(f'crest bytes changed: {name}')
+              h = hashlib.sha256()
+              for name in built_names:
+                  h.update(name.encode('utf-8'))
+                  h.update(b'\0')
+                  h.update(hashlib.sha256(built.read(name)).digest())
+              digest = h.hexdigest()
+              assert digest == 'd1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90', digest
+              print(f'crest_total={len(built_names)} factual={len(factual)} replacements={len(replacements)} corpus_sha256={digest}')
           PY
+
+          sha256=$(sha256sum "$apk" | awk '{print $1}')
+          size=$(stat -c '%s' "$apk")
           echo "apk=$apk" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
 
       - name: Commit tested source fixes to bugfix branch
         id: commit
@@ -156,6 +309,7 @@ jobs:
             app/src/main/java/com/example/usecase/PlayerEvolutionUseCase.kt \
             app/src/main/java/com/example/ui/screens/EditorScreen.kt \
             app/src/main/java/com/example/ui/components/editor/EditorCards.kt \
+            app/src/main/java/com/example/ui/components/editor/EditorDialogs.kt \
             app/src/main/java/com/example/ui/screens/MatchSimulationScreen.kt \
             app/src/main/java/com/example/ui/screens/StandingsScreen.kt \
             app/src/main/java/com/example/ui/components/standings/TopScorersView.kt \
@@ -180,16 +334,23 @@ jobs:
         shell: bash
         env:
           APK: ${{ steps.apkmeta.outputs.apk }}
+          APK_SHA256: ${{ steps.apkmeta.outputs.sha256 }}
+          APK_SIZE: ${{ steps.apkmeta.outputs.size }}
           FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+          SOURCE_APK_SHA256: ${{ steps.recover.outputs.source_apk_sha256 }}
+          SOURCE_RUN_ID: ${{ steps.recover.outputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ steps.recover.outputs.source_artifact_id }}
         run: |
           set -euo pipefail
           mkdir -p manual-test-apk
           out="manual-test-apk/Pro-Football-3.0.1-Teste-Manual-Bugs-Corrigidos-${FINAL_SHA:0:12}.apk"
           cp "$APK" "$out"
           sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
-          size=$(stat -c '%s' "$out")
+          test "$(sha256sum "$out" | awk '{print $1}')" = "$APK_SHA256"
+          test "$(stat -c '%s' "$out")" = "$APK_SIZE"
           cat > manual-test-apk/BUILD_INFO.txt <<EOF
           commit=$FINAL_SHA
+          patch_baseline=$PATCH_BASELINE
           branch=fix/3.0.1-manual-test-bugs
           package=com.aistudio.brasfutretro.djuxzt
           versionCode=32
@@ -197,7 +358,13 @@ jobs:
           crest_total=2524
           crest_factual=617
           crest_replacements=1907
-          size_bytes=$size
+          crest_corpus_sha256=$EXPECTED_CREST_CORPUS_SHA256
+          tested_source_apk_sha256=$TESTED_APK_SHA256
+          recovered_source_apk_sha256=$SOURCE_APK_SHA256
+          source_run_id=$SOURCE_RUN_ID
+          source_artifact_id=$SOURCE_ARTIFACT_ID
+          apk_sha256=$APK_SHA256
+          size_bytes=$APK_SIZE
           EOF
 
       - name: Upload exact tested APK
