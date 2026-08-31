@@ -29,13 +29,13 @@ class BundledClubCrestsTest {
     @Test
     fun `seven reported Brazilian clubs override stale remote URLs and Coil decodes them`() = runBlocking {
         val clubs = listOf(
-            4009 to "Flamengo",
-            4014 to "Palmeiras",
-            4002 to "Atlético Mineiro",
-            4008 to "Cruzeiro",
-            4017 to "Santos",
-            4004 to "Botafogo",
-            4018 to "São Paulo",
+            4009L to "Flamengo",
+            4014L to "Palmeiras",
+            4002L to "Atlético Mineiro",
+            4008L to "Cruzeiro",
+            4017L to "Santos",
+            4004L to "Botafogo",
+            4018L to "São Paulo",
         )
         val loader = ImageLoader.Builder(context).build()
 
