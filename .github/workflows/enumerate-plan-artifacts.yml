@@ -1,0 +1,28 @@
+name: Enumerate realization plan artifacts
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/enumerate-plan-artifacts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Enumerate plan-related artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | select(.name | ascii_downcase | test("plan|mapping|supplement|audit|replacement|realization")) | [.id, .name, .size_in_bytes, .workflow_run.id, .created_at] | @tsv' \
+            | sort -k5,5r
