@@ -21,11 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout exact accelerated head
+      - name: Checkout exact current bugfix head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: Record exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "SOURCE_HEAD=$GITHUB_SHA" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
@@ -145,22 +152,36 @@ jobs:
           }
           KOTLIN
 
-      - name: Apply current manual-test runtime bugfix round and its mandatory tests
+      - name: Verify temporary build materialization is scoped and clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -f app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt
+          test ! -d app/src/main/assets/club_crests
+
+      - name: Run current manual-test regressions
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          python3 tools/manual_test/apply_runtime_bugfix_round_20260831.py
-
-      - name: Run preserved focused regressions plus exact real-club materialization
-        shell: bash
-        run: |
-          set -euo pipefail
           ./gradlew testDebugUnitTest \
             -PexcludeStressTests=true \
             --tests com.example.data.AcceleratedRealClubMaterializationTest \
+            --tests com.example.ui.viewmodel.PostGameReturnToCentralRegressionTest \
+            --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --tests com.example.ui.viewmodel.ClubStrengthImmediateRefreshTest \
+            --tests com.example.ui.viewmodel.ClubStrength99RosterConsistencyTest \
+            --tests com.example.usecase.MarketPurchaseImmediateRemovalTest \
+            --tests com.example.usecase.MarketStrengthAlwaysVisibleTest \
+            --tests com.example.usecase.ScoutRemovalNavigationTest \
+            --tests com.example.usecase.LeagueTableImmediateRefreshTest \
+            --tests com.example.data.FixtureRealClubIdentityCrestRegressionTest \
+            --tests com.example.CoachAvatarPersistenceTest \
             --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
             --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
             --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
             --tests com.example.usecase.SeasonSimulationRegressionTest \
@@ -177,9 +198,10 @@ jobs:
             --tests com.example.data.CareerSeedTemplateRuntimeTest \
             --tests com.example.data.ProceduralRosterOnlyTest \
             --tests com.example.data.BrasfootRealClubIdentityTest \
+            --tests com.example.data.BrasfootPatchCrestsTest \
             --stacktrace
 
-      - name: Build current installable APK base
+      - name: Build exact current installable APK base
         shell: bash
         run: |
           set -euo pipefail
@@ -199,13 +221,28 @@ jobs:
           cp "$build_tools/lib/apksigner.jar" accelerated-base/build-tools/lib/
           chmod +x accelerated-base/build-tools/zipalign accelerated-base/build-tools/apksigner accelerated-base/build-tools/aapt
           sha256sum accelerated-base/base.apk | tee accelerated-base/BASE_SHA256.txt
-          printf 'source_head=%s\npackage=com.aistudio.brasfutretro.djuxzt\nversionCode=32\nversionName=3.0.1\nreplacement_mapping_sha256=ff99ff8228efcd372b86fc57671b35b7156ff00417dd1469c346818118250956\nreplacement_count=1907\n' \
+          "$build_tools/aapt" dump badging accelerated-base/base.apk | tee accelerated-base/BASE_BADGING.txt
+          grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" accelerated-base/BASE_BADGING.txt
+          printf 'source_head=%s\npackage=com.aistudio.brasfutretro.djuxzt\nversionCode=32\nversionName=3.0.1\nreplacement_mapping_sha256=ff99ff8228efcd372b86fc57671b35b7156ff00417dd1469c346818118250956\nreplacement_count=1907\ncrest_injection=deferred-to-byte-identical-certified-corpus\n' \
             "$GITHUB_SHA" > accelerated-base/BUILD_INFO.txt
 
-      - name: Upload accelerated APK base and signing tools
+      - name: Upload current APK base and deterministic signing tools
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: accelerated-manual-test-base-${{ github.sha }}
+          name: current-manual-test-base-${{ github.sha }}
           path: accelerated-base/
           if-no-files-found: error
           retention-days: 3
+
+      - name: Upload focused failure report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: current-manual-test-base-failure-${{ github.sha }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 3
+
+# The certified 2,524 crest bytes are deliberately not regenerated here.
+# This workflow certifies the exact current source head and exports a crest-less base;
+# final assembly injects only the already-certified byte-identical crest corpus and revalidates it.
