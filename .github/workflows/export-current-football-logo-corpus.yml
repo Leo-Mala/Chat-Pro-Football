@@ -1,4 +1,4 @@
-name: Export current football logo corpus
+name: Export exact audited football logo corpus
 
 on:
   push:
@@ -15,27 +15,40 @@ jobs:
   export:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      SOURCE_REPO: https://github.com/JoseArroyave/football-logos.git
+      SOURCE_COMMIT: 1b8e57c3ea3658001cafba18c4a6db730b420ad6
+      EXPECTED_FILE_COUNT: '2853'
     steps:
-      - name: Checkout logo corpus
+      - name: Checkout exact audited source revision
+        shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/JoseArroyave/football-logos.git football-logos
-          git -C football-logos rev-parse HEAD | tee football-logos/SOURCE_COMMIT.txt
+          git init football-logos
+          git -C football-logos remote add origin "$SOURCE_REPO"
+          git -C football-logos fetch --depth 1 origin "$SOURCE_COMMIT"
+          git -C football-logos checkout --detach FETCH_HEAD
+          actual=$(git -C football-logos rev-parse HEAD)
+          test "$actual" = "$SOURCE_COMMIT"
+          printf '%s\n' "$actual" | tee football-logos/SOURCE_COMMIT.txt
           find football-logos/logos -type f | sort > football-logos/LOGO_FILES.txt
-          find football-logos/logos -type f | wc -l
+          count=$(find football-logos/logos -type f | wc -l)
+          test "$count" = "$EXPECTED_FILE_COUNT"
+          printf 'source_commit=%s\nfile_count=%s\n' "$actual" "$count" | tee football-logos/AUDIT_INFO.txt
 
-      - name: Package corpus
+      - name: Package exact corpus
+        shell: bash
         run: |
           set -euo pipefail
           tar -I 'zstd -19 -T0' -cf football-logos-corpus.tar.zst football-logos
           sha256sum football-logos-corpus.tar.zst | tee football-logos-corpus.tar.zst.sha256
 
-      - name: Upload corpus artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload exact corpus artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: football-logos-corpus-${{ github.sha }}
+          name: football-logos-corpus-exact-${{ github.sha }}
           path: |
             football-logos-corpus.tar.zst
             football-logos-corpus.tar.zst.sha256
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
