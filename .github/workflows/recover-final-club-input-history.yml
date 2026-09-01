@@ -15,7 +15,7 @@ permissions:
 jobs:
   recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout full repository refs
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -23,36 +23,50 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Locate historical materializer runs and transient heads
+      - name: Scan every reachable commit for materialized crest corpus
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/materializer-runs.tsv"
+          out="$RUNNER_TEMP/crest-history.tsv"
           : > "$out"
-          for day in 2026-08-29 2026-08-30 2026-08-31 2026-09-01; do
-            for page in $(seq 1 10); do
-              response="$(gh api -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${GITHUB_REPOSITORY}/actions/runs?created=${day}&per_page=100&page=${page}")"
-              count="$(jq '.workflow_runs | length' <<<"$response")"
-              [ "$count" -gt 0 ] || break
-              jq -r '.workflow_runs[] | select((.path // "") | contains("materialize-final-real-clubs.yml")) | [.id,.head_sha,.status,(.conclusion // ""),.created_at,.path] | @tsv' <<<"$response" >> "$out"
-            done
-          done
-          sort -u "$out" -o "$out"
-          echo "materializer_run_count=$(wc -l < "$out")"
-          cat "$out"
-
-          while IFS=$'\t' read -r run_id sha status conclusion created path; do
-            [ -n "$sha" ] || continue
-            echo "checking_run=$run_id head_sha=$sha status=$status conclusion=$conclusion created=$created"
-            git fetch --no-tags --depth=1 origin "$sha" >/dev/null 2>&1 || true
-            if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-              git ls-tree -r --name-only "$sha" | grep '^\.club-realization-input/' || true
-            else
-              echo "head_sha_not_fetchable=$sha"
+          git rev-list --all | sort -u > "$RUNNER_TEMP/commits.txt"
+          echo "reachable_commits=$(wc -l < "$RUNNER_TEMP/commits.txt")"
+          while read -r sha; do
+            paths="$(git ls-tree -r --name-only "$sha")"
+            count="$(grep -Ec '^app/src/main/assets/club_crests/club_[^/]+\.(png|svg)$' <<<"$paths" || true)"
+            factual="$(grep -Ec '^app/src/main/assets/club_crests/factual_[^/]+\.(png|svg)$' <<<"$paths" || true)"
+            plan=0; manifest=0; replacement=0
+            grep -qx 'docs/club-realization/validated-replacement-plan.csv' <<<"$paths" && plan=1 || true
+            grep -qx 'docs/club-realization/crest-sha256.csv' <<<"$paths" && manifest=1 || true
+            grep -Eq 'BrasfootRealClubReplacementData\.kt$' <<<"$paths" && replacement=1 || true
+            if [ "$count" -gt 0 ] || [ "$plan" -eq 1 ] || [ "$manifest" -eq 1 ]; then
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sha" "$count" "$factual" "$plan" "$manifest" "$replacement" >> "$out"
             fi
-          done < "$out"
+          done < "$RUNNER_TEMP/commits.txt"
+
+          echo 'sha club_count factual_count validated_plan crest_manifest replacement_data'
+          sort -t$'\t' -k2,2nr "$out" | head -100
+          max="$(awk -F'\t' 'BEGIN{m=0} $2>m{m=$2} END{print m}' "$out")"
+          echo "max_historical_club_crests=$max"
+          awk -F'\t' '$2==1907 || ($4==1 && $5==1) {print}' "$out" | tee "$RUNNER_TEMP/exact-candidates.tsv"
+
+      - name: Export strongest historical candidate if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$(awk -F'\t' '$2==1907 && $5==1 {print $1; exit}' "$RUNNER_TEMP/exact-candidates.tsv" || true)"
+          mkdir -p "$RUNNER_TEMP/candidate"
+          if [ -z "$candidate" ]; then
+            echo 'NO_EXACT_COMMITTED_1907_CANDIDATE' | tee "$RUNNER_TEMP/candidate/STATUS.txt"
+            exit 0
+          fi
+          echo "$candidate" | tee "$RUNNER_TEMP/candidate/COMMIT_SHA.txt"
+          git archive --format=tar "$candidate" \
+            app/src/main/assets/club_crests \
+            docs/club-realization \
+            2>/dev/null | tar -xf - -C "$RUNNER_TEMP/candidate"
+          find "$RUNNER_TEMP/candidate/app/src/main/assets/club_crests" -type f | sort | wc -l
+          sha256sum "$RUNNER_TEMP/candidate"/app/src/main/assets/club_crests/* | sort > "$RUNNER_TEMP/candidate/crest-files.sha256"
 
       - name: Record deterministic recovery evidence
         shell: bash
@@ -68,9 +82,11 @@ jobs:
       - name: Upload recovery diagnostics
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: final-club-input-history-diagnostics-${{ github.sha }}
+          name: committed-crest-history-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/materializer-runs.tsv
+            ${{ runner.temp }}/crest-history.tsv
+            ${{ runner.temp }}/exact-candidates.tsv
+            ${{ runner.temp }}/candidate/
             ${{ runner.temp }}/recovery-evidence.txt
           if-no-files-found: error
           retention-days: 7
