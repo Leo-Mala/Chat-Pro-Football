@@ -21,6 +21,7 @@ jobs:
       EXPECTED_CLUB_CRESTS: '1907'
       EXPECTED_FACTUAL_CRESTS: '617'
       EXPECTED_TOTAL_CRESTS: '2524'
+      EXPECTED_CREST_FINGERPRINT: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
     steps:
       - name: Checkout exact bugfix head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -35,7 +36,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           echo "BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
 
-      - name: Recover exact 2524-crest runtime from retained manual-test APK
+      - name: Recover exact certified 2524-crest runtime from retained manual-test APK
         id: recover
         shell: bash
         run: |
@@ -43,6 +44,29 @@ jobs:
           work="$RUNNER_TEMP/recovered-crest-source"
           rm -rf "$work"
           mkdir -p "$work"
+
+          crest_fingerprint_apk() {
+            python3 - "$1" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import zipfile
+
+          apk = pathlib.Path(sys.argv[1])
+          with zipfile.ZipFile(apk) as z:
+              names = sorted(
+                  n for n in z.namelist()
+                  if n.startswith('assets/club_crests/') and not n.endswith('/')
+              )
+              h = hashlib.sha256()
+              for name in names:
+                  canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
+                  h.update(canonical.encode('utf-8'))
+                  h.update(b'\0')
+                  h.update(hashlib.sha256(z.read(name)).digest())
+              print(h.hexdigest())
+          PY
+          }
 
           found=0
           while IFS=$'\t' read -r run_id run_number; do
@@ -68,13 +92,18 @@ jobs:
                 total=$(unzip -Z1 "$source_apk" | grep -c '^assets/club_crests/[^/]*$' || true)
                 club=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
                 factual=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
-                echo "Candidate APK $(basename "$source_apk"): total=${total} club=${club} factual=${factual}"
-                if [ "$total" = "$EXPECTED_TOTAL_CRESTS" ] && [ "$club" = "$EXPECTED_CLUB_CRESTS" ] && [ "$factual" = "$EXPECTED_FACTUAL_CRESTS" ]; then
-                  cp "$source_apk" "$work/source-rejected.apk"
+                fingerprint=$(crest_fingerprint_apk "$source_apk")
+                echo "Candidate APK $(basename "$source_apk"): total=${total} club=${club} factual=${factual} fingerprint=${fingerprint}"
+                if [ "$total" = "$EXPECTED_TOTAL_CRESTS" ] \
+                  && [ "$club" = "$EXPECTED_CLUB_CRESTS" ] \
+                  && [ "$factual" = "$EXPECTED_FACTUAL_CRESTS" ] \
+                  && [ "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT" ]; then
+                  cp "$source_apk" "$work/source-certified.apk"
                   printf '%s\n' "$run_id" > "$work/source-run-id.txt"
                   printf '%s\n' "$artifact_id" > "$work/source-artifact-id.txt"
                   printf '%s\n' "$artifact_name" > "$work/source-artifact-name.txt"
-                  sha256sum "$work/source-rejected.apk" | tee "$work/source-apk-sha256.txt"
+                  printf '%s\n' "$fingerprint" > "$work/source-crest-fingerprint.txt"
+                  sha256sum "$work/source-certified.apk" | tee "$work/source-apk-sha256.txt"
                   found=1
                   break 3
                 fi
@@ -89,13 +118,13 @@ jobs:
           )
 
           if [ "$found" -ne 1 ]; then
-            echo 'No retained Manual Test Bugfix APK artifact proved the exact 1907 + 617 = 2524 WebP runtime.' >&2
+            echo "No retained Manual Test Bugfix APK artifact proved the certified ${EXPECTED_CLUB_CRESTS} + ${EXPECTED_FACTUAL_CRESTS} = ${EXPECTED_TOTAL_CRESTS} runtime with fingerprint ${EXPECTED_CREST_FINGERPRINT}." >&2
             exit 1
           fi
 
           rm -rf app/src/main/assets/club_crests
           mkdir -p app/src/main/assets/club_crests
-          unzip -jq "$work/source-rejected.apk" 'assets/club_crests/*' -d app/src/main/assets/club_crests
+          unzip -jq "$work/source-certified.apk" 'assets/club_crests/*' -d app/src/main/assets/club_crests
 
           total=$(find app/src/main/assets/club_crests -maxdepth 1 -type f | wc -l)
           club=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'club_*.webp' | wc -l)
@@ -103,11 +132,13 @@ jobs:
           test "$total" = "$EXPECTED_TOTAL_CRESTS"
           test "$club" = "$EXPECTED_CLUB_CRESTS"
           test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
+          test "$(cat "$work/source-crest-fingerprint.txt")" = "$EXPECTED_CREST_FINGERPRINT"
 
           echo "source_run_id=$(cat "$work/source-run-id.txt")" >> "$GITHUB_OUTPUT"
           echo "source_artifact_id=$(cat "$work/source-artifact-id.txt")" >> "$GITHUB_OUTPUT"
           echo "source_artifact_name=$(cat "$work/source-artifact-name.txt")" >> "$GITHUB_OUTPUT"
-          echo "Recovered exact runtime: ${club} club + ${factual} factual = ${total}"
+          echo "source_crest_fingerprint=$(cat "$work/source-crest-fingerprint.txt")" >> "$GITHUB_OUTPUT"
+          echo "Recovered certified runtime: ${club} club + ${factual} factual = ${total}; fingerprint=${EXPECTED_CREST_FINGERPRINT}"
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
@@ -133,7 +164,7 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
-      - name: Run real crest resolver and Coil regression
+      - name: Run real crest resolver regression
         shell: bash
         run: |
           set -euo pipefail
@@ -143,13 +174,29 @@ jobs:
             --tests com.example.data.BundledClubCrestsTest \
             --stacktrace
 
-      - name: Run focused manual-test regressions
+      - name: Run mandatory current manual-test regressions
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest \
             -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.PostGameReturnToCentralRegressionTest \
+            --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --tests com.example.ui.viewmodel.ClubStrengthImmediateRefreshTest \
+            --tests com.example.ui.viewmodel.ClubStrength99RosterConsistencyTest \
+            --tests com.example.usecase.MarketPurchaseImmediateRemovalTest \
+            --tests com.example.usecase.MarketStrengthAlwaysVisibleTest \
+            --tests com.example.usecase.ScoutRemovalNavigationTest \
+            --tests com.example.usecase.LeagueTableImmediateRefreshTest \
+            --tests com.example.data.FixtureRealClubIdentityCrestRegressionTest \
+            --tests com.example.CoachAvatarPersistenceTest \
             --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
+            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
             --tests com.example.data.PreCareerEditorOverridesTest \
             --tests com.example.ui.screens.EditorNavigationRegressionTest \
             --tests com.example.usecase.RestartSeasonPersistenceTest \
@@ -174,18 +221,20 @@ jobs:
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$apk"
           mkdir -p manual-test-apk
-          out="manual-test-apk/Pro-Football-3.0.1-crest-fix-${GITHUB_SHA}.apk"
+          out="manual-test-apk/Pro-Football-3.0.1-manual-test-${GITHUB_SHA}.apk"
           cp "$apk" "$out"
           sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
+          stat -c 'size_bytes=%s' "$out" | tee manual-test-apk/APK_SIZE.txt
           {
             printf 'commit=%s\n' "$GITHUB_SHA"
             printf 'branch=%s\n' "$GITHUB_REF_NAME"
             printf 'source_manual_test_run=%s\n' '${{ steps.recover.outputs.source_run_id }}'
             printf 'source_artifact_id=%s\n' '${{ steps.recover.outputs.source_artifact_id }}'
             printf 'source_artifact_name=%s\n' '${{ steps.recover.outputs.source_artifact_name }}'
+            printf 'source_crest_fingerprint=%s\n' '${{ steps.recover.outputs.source_crest_fingerprint }}'
           } > manual-test-apk/BUILD_INFO.txt
 
-      - name: Validate APK integrity signature identity and crest bundle
+      - name: Validate APK integrity signature identity and certified crest fingerprint
         shell: bash
         run: |
           set -euo pipefail
@@ -200,13 +249,36 @@ jobs:
           test "$club" = "$EXPECTED_CLUB_CRESTS"
           test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
 
+          fingerprint=$(python3 - "$apk" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              names = sorted(
+                  n for n in z.namelist()
+                  if n.startswith('assets/club_crests/') and not n.endswith('/')
+              )
+              h = hashlib.sha256()
+              for name in names:
+                  canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
+                  h.update(canonical.encode('utf-8'))
+                  h.update(b'\0')
+                  h.update(hashlib.sha256(z.read(name)).digest())
+              print(h.hexdigest())
+          PY
+          )
+          test "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT"
+
           bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)
           test -n "$bt"
           "$ANDROID_HOME/build-tools/$bt/zipalign" -c -v 4 "$apk" >/dev/null
-          "$ANDROID_HOME/build-tools/$bt/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/$bt/apksigner" verify --verbose "$apk" | tee manual-test-apk/SIGNATURE.txt
           "$ANDROID_HOME/build-tools/$bt/aapt" dump badging "$apk" | tee manual-test-apk/BADGING.txt
           grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" manual-test-apk/BADGING.txt
-          printf 'crest_total=%s\nclub=%s\nfactual=%s\n' "$total" "$club" "$factual" | tee manual-test-apk/CREST_BUNDLE.txt
+          printf 'crest_total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\n' \
+            "$total" "$club" "$factual" "$fingerprint" | tee manual-test-apk/CREST_BUNDLE.txt
 
       - name: Upload exact installable APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
