@@ -160,9 +160,20 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 }
             }
         }
-        // Only now can the UI expose "Voltar à Central".  exitLiveMatch() cancels
-        // liveMatchJob, so publishing FINISHED before this durable commit could roll back
-        // isPlayed=true and resurrect the exact same fixture on the Dashboard.
+        // Complete the week lifecycle before exposing the post-match exit. This removes the
+        // race where the button was clickable while CPU fixtures/evolution still owned the weekly
+        // lifecycle and also guarantees that standings are already authoritative on return.
+        val saveAfterMatch = repo.getGameSave()
+        if (saveAfterMatch != null) {
+            simulateCpuMatchesForCurrentWeek()
+            val refreshedWeekFixtures = repo.getFixturesForWeek(
+                saveAfterMatch.currentSeason,
+                saveAfterMatch.currentWeek
+            )
+            if (!hasPendingUserFixtures(refreshedWeekFixtures, saveAfterMatch.playerTeamId)) {
+                processWeekEndEconomicAndEvolution()
+            }
+        }
         _matchState.value = GameViewModel.MatchState.FINISHED
     }
 }
@@ -303,13 +314,14 @@ private suspend fun GameViewModel.finishPreparedLiveFixture(targetFixture: Fixtu
     _matchHomeScore.value = committedFixture.homeScore ?: homeScore
     _matchAwayScore.value = committedFixture.awayScore ?: awayScore
     _matchMinute.value = 90
-    _matchState.value = GameViewModel.MatchState.FINISHED
+    // The caller still owns the weekly lifecycle. FINISHED is published only after CPU fixtures
+    // and the durable weekly close have completed.
     return committedFixture
 }
 
 fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
     liveMatchJob?.cancel()
-    viewModelScope.launch(Dispatchers.IO) {
+    liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
         val save = repo.getGameSave() ?: return@launch
         val targetFixture = fixture ?: liveMatchFixture ?: run {
             val weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
@@ -334,17 +346,15 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
             _matchHomeScore.value = updated.homeScore ?: 0
             _matchAwayScore.value = updated.awayScore ?: 0
             _matchMinute.value = 90
-            _matchState.value = GameViewModel.MatchState.FINISHED
-        } else {
-            _matchState.value = GameViewModel.MatchState.FINISHED
         }
 
+        // FINISHED is the durable boundary: CPU fixtures and the weekly close are complete first.
         simulateCpuMatchesForCurrentWeek()
-
         val refreshedWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
         if (!hasPendingUserFixtures(refreshedWeekFixtures, save.playerTeamId)) {
             processWeekEndEconomicAndEvolution()
         }
+        _matchState.value = GameViewModel.MatchState.FINISHED
     }
 }
 

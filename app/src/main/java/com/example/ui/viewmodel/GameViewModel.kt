@@ -587,22 +587,17 @@ class GameViewModel @Inject constructor(
     }
 
     fun exitLiveMatch() {
+        // All durable match/week work is completed before FINISHED is exposed.
+        // Returning to Central is therefore immediate and safe to repeat.
         liveMatchJob?.cancel()
+        liveMatchJob = null
         _matchState.value = MatchState.IDLE
         liveMatchFixture = null
         liveMatchHomeTeam = null
         liveMatchAwayTeam = null
         liveMatchHomePlayers = emptyList()
         liveMatchAwayPlayers = emptyList()
-        viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            val weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
-            val userFixture = weekFixtures.find { it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId }
-            if (userFixture == null || userFixture.isPlayed) {
-                simulateCpuMatchesForCurrentWeek()
-                processWeekEndEconomicAndEvolution()
-            }
-        }
+        currentMatchEvents = emptyList()
     }
 
     // Watchlist StateFlow

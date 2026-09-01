@@ -56,7 +56,9 @@ data class MonthlyEvolutionExecutionOutcome(
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
  * suspensões por cartão e renovação de contratos de atletas.
  */
-private const val MONTHLY_EVOLUTION_BATCH_SIZE = 512
+// 4,096 preserves the exact global ORDER BY and sequential RNG stream while avoiding
+// the pathological ~118 LIMIT/OFFSET scans observed at the week-four monthly boundary.
+private const val MONTHLY_EVOLUTION_BATCH_SIZE = 4096
 
 class PlayerEvolutionUseCase(private val repository: GameRepository) {
 
