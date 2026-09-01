@@ -53,8 +53,8 @@ jobs:
           from pathlib import Path
           p = Path('/tmp/apply_manual_test_fixes.py')
           text = p.read_text(encoding='utf-8')
-          old = """              if found != count:\n                  raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
-          new = """              if found != count:\n                  safe_sale_duplicate = (\n                      path.endswith('ProcessTransfersUseCase.kt') and\n                      'Math.addExact(currentSave.bankBalance, safePrice)' in old and\n                      found == 2 and count == 1\n                  )\n                  if not safe_sale_duplicate:\n                      raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
+          old = """    if found != count:\n        raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
+          new = """    if found != count:\n        safe_sale_duplicate = (\n            path.endswith('ProcessTransfersUseCase.kt') and\n            'Math.addExact(currentSave.bankBalance, safePrice)' in old and\n            found == 2 and count == 1\n        )\n        if not safe_sale_duplicate:\n            raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
           if text.count(old) != 1:
               raise SystemExit('patch-normalizer anchor mismatch')
           p.write_text(text.replace(old, new, 1), encoding='utf-8')
