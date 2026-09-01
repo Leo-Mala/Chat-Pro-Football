@@ -1,0 +1,149 @@
+name: Recover exact crest plan evidence from historical logs
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/recover-plan-from-historical-logs.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Scan all retained workflow logs for exact plan evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TARGET_FP: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovered/logs recovered/matches
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, zipfile, io, re, time
+
+          repo = os.environ['REPO']
+          target_fp = os.environ['TARGET_FP']
+          out = pathlib.Path('recovered')
+          runs = []
+          page = 1
+          while True:
+              raw = subprocess.check_output([
+                  'gh','api',f'repos/{repo}/actions/runs',
+                  '-f','branch=fix/3.0.1-manual-test-bugs',
+                  '-f','per_page=100','-f',f'page={page}',
+              ], text=True)
+              payload = json.loads(raw)
+              batch = payload.get('workflow_runs', [])
+              if not batch:
+                  break
+              runs.extend(batch)
+              if len(batch) < 100:
+                  break
+              page += 1
+
+          needles = [
+              target_fp,
+              'validated-replacement-plan',
+              'replacement-plan',
+              'crest-sha256',
+              'sourceCrestSha256',
+              'sourceCrestPath',
+              'legacyTeamId',
+              '1907',
+              'club-realization',
+              'materialize_validated_patch_plan',
+              'hardened-plan',
+          ]
+          strong = [target_fp, 'validated-replacement-plan', 'sourceCrestSha256', 'sourceCrestPath', 'legacyTeamId']
+          summary = []
+          extracted_lines = []
+          log_ok = log_missing = matched_runs = 0
+          for idx, run in enumerate(runs, 1):
+              rid = run['id']
+              name = run.get('name','')
+              path = run.get('path','')
+              sha = run.get('head_sha','')
+              try:
+                  data = subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{rid}/logs'], stderr=subprocess.DEVNULL)
+              except subprocess.CalledProcessError:
+                  log_missing += 1
+                  continue
+              log_ok += 1
+              try:
+                  zf = zipfile.ZipFile(io.BytesIO(data))
+              except zipfile.BadZipFile:
+                  continue
+              run_hits = []
+              for member in zf.namelist():
+                  if member.endswith('/'):
+                      continue
+                  text = zf.read(member).decode('utf-8', errors='replace')
+                  lines = text.splitlines()
+                  for lineno, line in enumerate(lines, 1):
+                      folded = line.casefold()
+                      if any(n.casefold() in folded for n in needles):
+                          clean = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                          run_hits.append((member, lineno, clean))
+              if run_hits:
+                  matched_runs += 1
+                  score = sum(10 for _,_,l in run_hits if any(s.casefold() in l.casefold() for s in strong)) + len(run_hits)
+                  summary.append({
+                      'run_id': rid, 'name': name, 'path': path, 'head_sha': sha,
+                      'created_at': run.get('created_at'), 'conclusion': run.get('conclusion'),
+                      'hits': len(run_hits), 'score': score,
+                  })
+                  for member, lineno, line in run_hits:
+                      extracted_lines.append(f'{rid}\t{sha}\t{name}\t{member}:{lineno}\t{line}')
+              if idx % 50 == 0:
+                  print(f'scanned={idx}/{len(runs)} logs_ok={log_ok} matched_runs={matched_runs}')
+
+          summary.sort(key=lambda x: (-x['score'], -x['hits'], x['run_id']))
+          (out/'run-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          (out/'matching-lines.tsv').write_text('\n'.join(extracted_lines)+'\n', encoding='utf-8')
+          report = {
+              'total_runs': len(runs), 'logs_downloaded': log_ok, 'logs_unavailable': log_missing,
+              'matched_runs': matched_runs, 'matching_lines': len(extracted_lines),
+              'target_fingerprint_hits': sum(target_fp in line for line in extracted_lines),
+              'top_runs': summary[:30],
+          }
+          (out/'REPORT.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Extract likely CSV rows and provenance references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          src = Path('recovered/matching-lines.tsv').read_text(encoding='utf-8', errors='replace').splitlines()
+          candidates = []
+          urls = []
+          hashes = []
+          for line in src:
+              if re.search(r'\bclub_\d+\.(?:png|svg)\b', line, re.I) or 'sourceCrestPath' in line or 'legacyTeamId' in line:
+                  candidates.append(line)
+              urls += re.findall(r'https?://[^\s\"\']+', line)
+              hashes += re.findall(r'\b[0-9a-f]{64}\b', line, re.I)
+          Path('recovered/likely-plan-lines.tsv').write_text('\n'.join(candidates)+'\n', encoding='utf-8')
+          Path('recovered/urls.txt').write_text('\n'.join(sorted(set(urls)))+'\n', encoding='utf-8')
+          Path('recovered/sha256-values.txt').write_text('\n'.join(sorted(set(h.lower() for h in hashes)))+'\n', encoding='utf-8')
+          print(f'likely_plan_lines={len(candidates)} unique_urls={len(set(urls))} unique_sha256={len(set(h.lower() for h in hashes))}')
+          PY
+
+      - name: Upload recovery evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exact-crest-plan-log-recovery-${{ github.sha }}
+          path: recovered/
+          if-no-files-found: error
+          retention-days: 3
