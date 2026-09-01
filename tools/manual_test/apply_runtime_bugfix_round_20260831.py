@@ -178,7 +178,7 @@ replace_exact(
 # Restart is session-bound and reports real completion to the confirmation dialog.
 replace_regex(
     vm,
-    r"    fun restartCurrentSeason\(\) \{.*?\n    \}\n\n    fun exportSaveToUri",
+    r"    fun restartCurrentSeason\(\) \{.*?\n    \}\n\n    fun selectCountry",
     '''    fun restartCurrentSeason(onComplete: (Boolean) -> Unit = {}) {
         _isSimulatingSeason.value = false
         val session = _activeSaveSession.value
@@ -225,7 +225,7 @@ replace_regex(
         }
     }
 
-    fun exportSaveToUri'''
+    fun selectCountry'''
 )
 
 # ---------------------------------------------------------------------------
