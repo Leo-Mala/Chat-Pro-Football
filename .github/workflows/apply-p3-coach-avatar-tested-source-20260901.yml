@@ -1,0 +1,107 @@
+name: Apply P3 Coach Avatar 2026-09-01
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - 'tools/manual_test/apply_p3_coach_avatar_20260901.py'
+      - '.github/workflows/apply-p3-coach-avatar-tested-source-20260901.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: apply-p3-coach-avatar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patch-test-build-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation services and debug keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client": [{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          GOOGLE_EOF
+          keytool -genkeypair -keystore debug.keystore -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=Android Debug,O=Android,C=US' >/dev/null 2>&1
+
+      - name: Apply P3 source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/manual_test/apply_p3_coach_avatar_20260901.py
+          python3 tools/manual_test/apply_p3_coach_avatar_20260901.py
+          git diff --check
+          git diff --exit-code -- app/src/main/assets/club_crests
+          ! grep -R -E 'rememberLauncherForActivityResult|ActivityResultContracts\.(GetContent|TakePicture)|READ_MEDIA_IMAGES|CAMERA' \
+            app/src/main/java/com/example/ui/screens/CoachScreen.kt \
+            app/src/main/java/com/example/ui/components/CoachAvatar.kt
+
+      - name: Run P3 and save regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.CoachAvatarPersistenceTest \
+            --tests com.example.GamePreferencesRestoreSafetyTest \
+            --tests com.example.ui.viewmodel.ClubStrengthImmediateRefreshTest \
+            --tests com.example.usecase.MarketPurchaseImmediateRemovalTest \
+            --tests com.example.ui.viewmodel.PostGameReturnToCentralRegressionTest \
+            --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
+            --tests com.example.data.FixtureRealClubIdentityCrestRegressionTest \
+            --tests com.example.data.BrasfootPatchCrestsTest \
+            --stacktrace
+
+      - name: Assemble signed debug
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Commit tested P3 source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            app/src/main/java/com/example/data/GamePreferencesRepository.kt \
+            app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
+            app/src/main/java/com/example/ui/components/CoachAvatar.kt \
+            app/src/main/java/com/example/ui/screens/CoachScreen.kt \
+            app/src/main/java/com/example/ui/screens/DashboardScreen.kt \
+            app/src/test/java/com/example/CoachAvatarPersistenceTest.kt
+          git diff --cached --quiet && { echo 'No P3 source delta'; exit 0; }
+          git commit -m 'feat: persist coach avatar per career'
+          git pull --ff-only origin fix/3.0.1-manual-test-bugs
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
