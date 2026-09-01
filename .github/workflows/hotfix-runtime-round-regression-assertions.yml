@@ -25,7 +25,7 @@ jobs:
           ref: fix/3.0.1-manual-test-bugs
           fetch-depth: 0
 
-      - name: Repair restart UI patch and contract assertion
+      - name: Bound roster regression to restart method
         shell: bash
         run: |
           set -euo pipefail
@@ -33,31 +33,11 @@ jobs:
           from pathlib import Path
           path = Path('tools/manual_test/apply_runtime_bugfix_round_20260831.py')
           text = path.read_text(encoding='utf-8')
-
-          old_ui = '''text = text.replace(\'\'\'                        onClick = {\n                            viewModel.restartCurrentSeason()\n                            showRestartConfirm = false\n                        },\n\'\'\', \'\'\'                        onClick = {\n                            restartInProgress = true\n                            viewModel.restartCurrentSeason { success ->\n                                restartInProgress = false\n                                if (success) showRestartConfirm = false\n                            }\n                        },\n\'\'\', 1)'''
-          new_ui = '''text = text.replace(\'\'\'                                onClick = {\n                                    viewModel.restartCurrentSeason()\n                                    showRestartConfirm = false\n                                }\n\'\'\', \'\'\'                                onClick = {\n                                    restartInProgress = true\n                                    viewModel.restartCurrentSeason { success ->\n                                        restartInProgress = false\n                                        if (success) showRestartConfirm = false\n                                    }\n                                }\n\'\'\', 1)'''
-          if old_ui not in text:
-              raise SystemExit('obsolete CoachScreen restart replacement block not found')
-          text = text.replace(old_ui, new_ui, 1)
-
-          old_label = '''text = text.replace('Text("RECOMEÇAR", fontWeight = FontWeight.Bold)', 'Text(if (restartInProgress) "REINICIANDO..." else "RECOMEÇAR", fontWeight = FontWeight.Bold)', 1)'''
-          new_label = '''text = text.replace('Text("RECOMEÇAR", color = Color(0xFFD81B60), fontWeight = FontWeight.Bold)', 'Text(if (restartInProgress) "REINICIANDO..." else "RECOMEÇAR", color = Color(0xFFD81B60), fontWeight = FontWeight.Bold)', 1)'''
-          if old_label not in text:
-              raise SystemExit('obsolete restart button label replacement not found')
-          text = text.replace(old_label, new_label, 1)
-
-          old_contract = 'assertTrue(block.contains("resetAllSeasonStats"))'
-          new_contract = 'assertTrue(block.contains("resetSeasonState()"))'
-          if text.count(old_contract) != 1:
-              raise SystemExit(f'expected one obsolete restart state assertion, found {text.count(old_contract)}')
-          text = text.replace(old_contract, new_contract, 1)
-
-          anchor = 'write(coach, text)\n\n# Technical disambiguation suffix stays persisted but is hidden in presentation.'
-          guarded = '''if "viewModel.restartCurrentSeason { success ->" not in text:\n    raise RuntimeError("CoachScreen restart callback patch did not apply")\nif "REINICIANDO..." not in text:\n    raise RuntimeError("CoachScreen restart progress label patch did not apply")\nwrite(coach, text)\n\n# Technical disambiguation suffix stays persisted but is hidden in presentation.'''
-          if anchor not in text:
-              raise SystemExit('CoachScreen write anchor not found')
-          text = text.replace(anchor, guarded, 1)
-
+          old = 'val block = repo.substringAfter("restartSeasonStateAtomically").substringBefore("suspend fun getActiveLoans")'
+          new = 'val block = repo.substringAfter("restartSeasonStateAtomically").substringBefore("suspend fun saveTransaction")'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one over-broad restart block selector, found {text.count(old)}')
+          text = text.replace(old, new, 1)
           path.write_text(text, encoding='utf-8')
           PY
           python3 -m py_compile tools/manual_test/apply_runtime_bugfix_round_20260831.py
@@ -71,5 +51,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add tools/manual_test/apply_runtime_bugfix_round_20260831.py
           git diff --cached --check
-          git commit -m 'ci: align restart regressions with atomic season contract'
+          git commit -m 'ci: scope restart roster regression to atomic reset method'
           git push origin HEAD:fix/3.0.1-manual-test-bugs
