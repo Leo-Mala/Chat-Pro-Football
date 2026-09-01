@@ -23,6 +23,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "retained_plan_artifacts_begin"
           gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
             --jq '.artifacts[] | select(.expired == false) | select(.name | ascii_downcase | test("plan|mapping|supplement|audit|replacement|realization")) | [.id, .name, .size_in_bytes, .workflow_run.id, .created_at] | @tsv' \
             | sort -k5,5r
+          echo "retained_plan_artifacts_end"
