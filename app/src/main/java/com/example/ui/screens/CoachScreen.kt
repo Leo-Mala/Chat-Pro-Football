@@ -1,11 +1,9 @@
 package com.example.ui.screens
 
 import com.example.ui.viewmodel.*
+import com.example.ui.components.CoachAvatar
+import com.example.ui.components.CoachAvatarOptions
 
-import android.net.Uri
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import com.example.ui.theme.*
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -67,6 +65,7 @@ fun CoachTab(viewModel: GameViewModel) {
     val allPlayers by viewModel.seasonScorers.collectAsStateWithLifecycle()
     val allFixtures by viewModel.playerPlayedFixtures.collectAsStateWithLifecycle()
     val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()
+    val coachAvatarId by viewModel.coachAvatarId.collectAsStateWithLifecycle()
 
     var showEditorDialog by remember { mutableStateOf(false) }
 
@@ -136,18 +135,56 @@ fun CoachTab(viewModel: GameViewModel) {
             colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text("Perfil do Treinador", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Nome:", color = Color.Gray, fontSize = 13.sp)
-                    Text(s.coachName, color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Reputação:", color = Color.Gray, fontSize = 13.sp)
-                    Text("${s.coachReputation}/100", color = AccentGold, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                CoachAvatar(
+                    avatarId = coachAvatarId,
+                    modifier = Modifier.size(96.dp).testTag("coach_avatar_selected")
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(s.coachName, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("Reputação ${s.coachReputation}/100", color = AccentGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    "Escolha seu avatar",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().testTag("coach_avatar_selector"),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(CoachAvatarOptions, key = { it.id }) { option ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { viewModel.setCoachAvatarId(option.id) }
+                                .padding(4.dp)
+                                .testTag("coach_avatar_option_${option.id}")
+                        ) {
+                            CoachAvatar(
+                                avatarId = option.id,
+                                modifier = Modifier.size(58.dp),
+                                selected = option.id == coachAvatarId
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                option.label,
+                                color = if (option.id == coachAvatarId) AccentLime else Color.Gray,
+                                fontSize = 10.sp,
+                                fontWeight = if (option.id == coachAvatarId) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
                 }
             }
         }

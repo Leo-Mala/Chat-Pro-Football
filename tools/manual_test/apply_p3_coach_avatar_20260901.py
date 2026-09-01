@@ -467,6 +467,7 @@ class CoachAvatarPersistenceTest {
             .edit()
             .clear()
             .commit()
+        Unit
     }
 
     @Test

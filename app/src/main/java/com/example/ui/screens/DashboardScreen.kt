@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
+import com.example.ui.components.CoachAvatar
 import com.example.ui.components.dashboard.DashboardTab
 import com.example.ui.components.squad.*
 import com.example.ui.theme.*
@@ -34,6 +35,7 @@ fun CareerDashboardScreen(viewModel: GameViewModel) {
     val gameSave by viewModel.gameSave.collectAsStateWithLifecycle()
     val playerTeam by viewModel.playerTeam.collectAsStateWithLifecycle()
     val playerRoster by viewModel.playerRoster.collectAsStateWithLifecycle()
+    val coachAvatarId by viewModel.coachAvatarId.collectAsStateWithLifecycle()
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
     val nextFixture by viewModel.playerNextFixture.collectAsStateWithLifecycle()
 
@@ -86,20 +88,10 @@ fun CareerDashboardScreen(viewModel: GameViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(AccentLime.copy(alpha = 0.1f), CircleShape)
-                                    .border(1.5.dp, AccentLime.copy(alpha = 0.3f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = AccentLime,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            CoachAvatar(
+                                avatarId = coachAvatarId,
+                                modifier = Modifier.size(40.dp).testTag("dashboard_coach_avatar")
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(

@@ -34,6 +34,8 @@ class GamePreferencesRepository @Inject constructor(
         private val INFINITE_STAMINA_KEY = booleanPreferencesKey("infinite_stamina_enabled")
         private val AUTOLINEUP_KEY = booleanPreferencesKey("autolineup_enabled")
         private val WATCHLIST_KEY = stringSetPreferencesKey("watchlist_players")
+        const val DEFAULT_COACH_AVATAR_ID = "coach_1"
+        val SUPPORTED_COACH_AVATAR_IDS: Set<String> = setOf("coach_1", "coach_2", "coach_3", "coach_4")
         private const val TAG = "GamePreferencesRepo"
         private const val MAX_RECONCILIATION_RETRIES = 3
         private const val MAX_RECONCILIATION_FAILURE_ATTEMPTS = 4
@@ -85,6 +87,29 @@ class GamePreferencesRepository @Inject constructor(
     val watchlistPlayers: Flow<Set<Long>> = dataStore.data.map { prefs ->
         val set = prefs[WATCHLIST_KEY] ?: legacyPrefs.getStringSet("watchlist_players", emptySet()) ?: emptySet()
         set.mapNotNull { it.toLongOrNull() }.toSet()
+    }
+
+    fun coachAvatarId(saveId: String): Flow<String> {
+        val preferenceKey = stringPreferencesKey("slot_${saveId}_coach_avatar")
+        val legacyKey = "slot_${saveId}_coach_avatar"
+        return dataStore.data.map { prefs ->
+            val stored = prefs[preferenceKey]
+                ?: legacyPrefs.getString(legacyKey, DEFAULT_COACH_AVATAR_ID)
+                ?: DEFAULT_COACH_AVATAR_ID
+            stored.takeIf { it in SUPPORTED_COACH_AVATAR_IDS } ?: DEFAULT_COACH_AVATAR_ID
+        }
+    }
+
+    suspend fun setCoachAvatarId(saveId: String, avatarId: String) {
+        require(avatarId in SUPPORTED_COACH_AVATAR_IDS) { "Avatar interno inválido: $avatarId" }
+        val preferenceKey = stringPreferencesKey("slot_${saveId}_coach_avatar")
+        val legacyKey = "slot_${saveId}_coach_avatar"
+        dataStore.edit { prefs ->
+            prefs[preferenceKey] = avatarId
+        }
+        check(legacyPrefs.edit().putString(legacyKey, avatarId).commit()) {
+            "Falha ao persistir avatar do técnico para o slot $saveId"
+        }
     }
 
     suspend fun setAutoSaveEnabled(enabled: Boolean) {
@@ -458,6 +483,7 @@ class GamePreferencesRepository @Inject constructor(
                 prefs.remove(intPreferencesKey("slot_${saveId}_season"))
                 prefs.remove(intPreferencesKey("slot_${saveId}_week"))
                 prefs.remove(longPreferencesKey("slot_${saveId}_balance"))
+                prefs.remove(stringPreferencesKey("slot_${saveId}_coach_avatar"))
             }
             dataStoreSucceeded = true
         } catch (e: CancellationException) {
@@ -474,6 +500,7 @@ class GamePreferencesRepository @Inject constructor(
             .remove("slot_${saveId}_season")
             .remove("slot_${saveId}_week")
             .remove("slot_${saveId}_balance")
+            .remove("slot_${saveId}_coach_avatar")
             .commit()
 
         if (!legacySucceeded) {

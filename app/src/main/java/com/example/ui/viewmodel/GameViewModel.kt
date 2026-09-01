@@ -63,6 +63,18 @@ class GameViewModel @Inject constructor(
     internal val _currentSaveId = MutableStateFlow<String?>(null)
     val currentSaveId = _currentSaveId.asStateFlow()
 
+    val coachAvatarId: StateFlow<String> = currentSaveId.flatMapLatest { saveId ->
+        if (saveId.isNullOrBlank()) {
+            flowOf(GamePreferencesRepository.DEFAULT_COACH_AVATAR_ID)
+        } else {
+            preferencesRepo.coachAvatarId(saveId)
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        GamePreferencesRepository.DEFAULT_COACH_AVATAR_ID
+    )
+
     private val sessionGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val _activeSaveSession = MutableStateFlow<SaveSession?>(null)
     val activeSaveSession = _activeSaveSession.asStateFlow()
@@ -777,6 +789,13 @@ class GameViewModel @Inject constructor(
         _autoLineupEnabled.value = enabled
         viewModelScope.launch(Dispatchers.IO) {
             preferencesRepo.setAutoLineupEnabled(enabled)
+        }
+    }
+
+    fun setCoachAvatarId(avatarId: String) {
+        val saveId = _currentSaveId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            preferencesRepo.setCoachAvatarId(saveId, avatarId)
         }
     }
 
