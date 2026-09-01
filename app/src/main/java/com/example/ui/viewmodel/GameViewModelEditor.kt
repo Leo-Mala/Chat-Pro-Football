@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -265,6 +267,37 @@ fun GameViewModel.editorPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> =
         else repository.getPlayersForTeamFlow(teamId)
     }
 
+sealed interface EditorPlayersLoadState {
+    data object Inactive : EditorPlayersLoadState
+    data class Loading(val teamId: Long?) : EditorPlayersLoadState
+    data class Ready(val teamId: Long?, val players: List<Player>) : EditorPlayersLoadState
+}
+
+private fun Flow<List<Player>>.asEditorPlayersLoadState(teamId: Long?): Flow<EditorPlayersLoadState> =
+    map<List<Player>, EditorPlayersLoadState> { players ->
+        EditorPlayersLoadState.Ready(teamId, players)
+    }.onStart { emit(EditorPlayersLoadState.Loading(teamId)) }
+
+fun GameViewModel.editorPlayersForEditorFlow(
+    teamId: Long?,
+    active: Boolean
+): Flow<EditorPlayersLoadState> {
+    if (!active) return flowOf(EditorPlayersLoadState.Inactive)
+    if (teamId == null) return allPlayers.asEditorPlayersLoadState(null)
+    return activeRepositoryFlow.flatMapLatest { repository ->
+        if (repository == null) flowOf(EditorPlayersLoadState.Loading(teamId))
+        else repository.getPlayersForTeamFlow(teamId).asEditorPlayersLoadState(teamId)
+    }
+}
+
+internal fun editorRosterCountOrNull(
+    state: EditorPlayersLoadState,
+    teamId: Long?
+): Int? = (state as? EditorPlayersLoadState.Ready)
+    ?.takeIf { it.teamId == teamId }
+    ?.players
+    ?.size
+
 internal fun applyEditedTeamStrength(players: List<Player>, newRating: Int): List<Player> =
     players.map { player ->
         val currentAttr = player.getAtributosObject()
@@ -289,6 +322,18 @@ internal fun applyEditedTeamStrength(players: List<Player>, newRating: Int): Lis
             vision = scaledAttr.visaoJogo,
             defense = scaledAttr.desarme
         )
+    }
+
+internal fun synchronizeExistingRosterForEditedTeam(
+    players: List<Player>,
+    newRating: Int
+): List<Player> = applyEditedTeamStrength(players, newRating)
+
+internal fun resolveEditedTeamRating(team: Team, roster: List<Player>): Int =
+    if (roster.isNotEmpty() && roster.all { it.force == team.rating }) {
+        team.rating
+    } else {
+        GameEngine.calculateTeamRating(roster)
     }
 
 fun GameViewModel.ensureRosterForTeam(teamId: Long) {
@@ -321,24 +366,24 @@ fun GameViewModel.saveTeamFromEditor(team: Team) {
             ?: return@launch
         val finalTeamId = if (team.id == 0L) System.currentTimeMillis() else team.id
         val teamToSave = team.copy(id = finalTeamId)
-        editorRepository.saveTeams(listOf(teamToSave))
 
-        val existingPlayers = editorRepository.getPlayersByTeam(finalTeamId)
-        if (existingPlayers.isEmpty()) {
-            val roster = DefaultData.generateRosterForTeam(finalTeamId, teamToSave.rating, teamToSave.name, teamToSave.country)
-            editorRepository.savePlayers(roster)
-        } else {
-            val currentAvg = existingPlayers.map { it.force }.average().toInt()
-            val delta = teamToSave.rating - currentAvg
-            if (delta != 0) {
-                val updatedPlayers = existingPlayers.map { p ->
-                    val newForce = (p.force + delta).coerceIn(30, 99)
-                    p.copy(
-                        force = newForce,
-                        potential = maxOf(p.potential, newForce + 3).coerceIn(35, 99)
-                    )
-                }
-                editorRepository.savePlayers(updatedPlayers)
+        editorRepository.withTransaction {
+            editorRepository.saveTeams(listOf(teamToSave))
+            val existingPlayers = editorRepository.getPlayersByTeam(finalTeamId)
+            if (existingPlayers.isEmpty()) {
+                val generatedRoster = DefaultData.generateRosterForTeam(
+                    finalTeamId,
+                    teamToSave.rating,
+                    teamToSave.name,
+                    teamToSave.country
+                )
+                editorRepository.savePlayers(
+                    synchronizeExistingRosterForEditedTeam(generatedRoster, teamToSave.rating)
+                )
+            } else {
+                editorRepository.updatePlayers(
+                    synchronizeExistingRosterForEditedTeam(existingPlayers, teamToSave.rating)
+                )
             }
         }
     }
@@ -350,11 +395,14 @@ fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int
             ?: awaitPreparedEditorRepositoryOrNull()
             ?: return@launch
         val newRating = ((attack + mid + def) / 3).coerceIn(15, 99)
-        val team = editorRepository.getTeam(teamId) ?: return@launch
-        editorRepository.updateTeam(team.copy(rating = newRating))
-
-        val players = editorRepository.getPlayersByTeam(teamId)
-        editorRepository.updatePlayers(applyEditedTeamStrength(players, newRating))
+        editorRepository.withTransaction {
+            val team = editorRepository.getTeam(teamId) ?: return@withTransaction
+            editorRepository.updateTeam(team.copy(rating = newRating))
+            val players = editorRepository.getPlayersByTeam(teamId)
+            editorRepository.updatePlayers(
+                synchronizeExistingRosterForEditedTeam(players, newRating)
+            )
+        }
     }
 }
 
@@ -409,7 +457,7 @@ fun GameViewModel.savePlayerFromEditor(
                 for (teamId in affectedTeamIds) {
                     val roster = editorRepository.getPlayersByTeam(teamId)
                     val team = editorRepository.getTeam(teamId) ?: continue
-                    val calculated = GameEngine.calculateTeamRating(roster)
+                    val calculated = resolveEditedTeamRating(team, roster)
                     if (team.rating != calculated) {
                         editorRepository.updateTeam(team.copy(rating = calculated))
                     }

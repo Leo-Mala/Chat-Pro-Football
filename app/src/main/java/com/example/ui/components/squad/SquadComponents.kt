@@ -123,7 +123,7 @@ fun PlayerActionDialog(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("NOTA GERAL", color = Color.LightGray, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                            Text("ÍNDICE ATRIB.", color = Color.LightGray, fontSize = 8.sp, fontWeight = FontWeight.Black)
                             Text("$notaGeral", color = Color(0xFF00E676), fontSize = 22.sp, fontWeight = FontWeight.Black)
                         }
                     }

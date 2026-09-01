@@ -177,8 +177,7 @@ fun GameViewModel.sellPlayer(
         val save = repo.getGameSave() ?: return@launch
         val salePrice = if (price > 0L) price else getDynamicPlayerPrice(player)
         val result = if (paymentType == "PARCELADO") {
-            val otherTeams = repo.getAllTeams().filter { it.id != save.playerTeamId }
-            val buyer = otherTeams.shuffled().find { repo.getPlayerCountByTeam(it.id) < 30 }
+            val buyer = processTransfersUseCase.findEligibleBuyerTeam(save.playerTeamId)
             if (buyer != null) {
                 processTransfersUseCase.executeInstallmentSale(
                     save = save,

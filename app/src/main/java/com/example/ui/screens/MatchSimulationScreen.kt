@@ -68,6 +68,7 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
     val awayScore by viewModel.matchAwayScore.collectAsStateWithLifecycle()
     val events by viewModel.matchEvents.collectAsStateWithLifecycle()
     val matchState by viewModel.matchState.collectAsStateWithLifecycle()
+    val isFinalizing by viewModel.liveMatchFinalizing.collectAsStateWithLifecycle()
     val saveState by viewModel.gameSave.collectAsStateWithLifecycle()
     val selectedCountry by viewModel.selectedCountry.collectAsStateWithLifecycle()
 
@@ -77,6 +78,9 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
     val liveTacticalFeedback by viewModel.liveTacticalFeedback.collectAsStateWithLifecycle()
 
     var showTacticalDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(isFinalizing) {
+        if (isFinalizing) showTacticalDialog = false
+    }
 
     val hTeam = viewModel.liveMatchHomeTeam
     val aTeam = viewModel.liveMatchAwayTeam
@@ -101,7 +105,11 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "PARTIDA EM ANDAMENTO",
+                    text = when {
+                        isFinalizing -> "FINALIZANDO PARTIDA..."
+                        matchState == GameViewModel.MatchState.FINISHED -> "PARTIDA ENCERRADA"
+                        else -> "PARTIDA EM ANDAMENTO"
+                    },
                     color = AccentGold,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -257,7 +265,9 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
                                 color = if (isSelected) AccentGold else Color.White.copy(alpha = 0.15f),
                                 shape = RoundedCornerShape(6.dp)
                             )
-                            .clickable {
+                            .clickable(
+                                enabled = !isFinalizing && matchState != GameViewModel.MatchState.FINISHED
+                            ) {
                                 viewModel.changeLiveMatchSpeed(speedItem)
                             },
                         contentAlignment = Alignment.Center
@@ -607,10 +617,10 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
 
         // Intercept back button/gesture to prevent app closing/crashing
         androidx.activity.compose.BackHandler {
-            if (matchState == GameViewModel.MatchState.FINISHED) {
-                viewModel.exitLiveMatch()
-            } else {
-                viewModel.pauseLiveMatch()
+            when {
+                matchState == GameViewModel.MatchState.FINISHED -> viewModel.exitLiveMatch()
+                isFinalizing -> Unit
+                else -> viewModel.pauseLiveMatch()
             }
         }
 
@@ -628,6 +638,23 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("VOLTAR À CENTRAL", fontWeight = FontWeight.Black)
+                }
+            } else if (isFinalizing) {
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = CardSurfaceDark,
+                        disabledContentColor = AccentGold
+                    )
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("FINALIZANDO PARTIDA...", fontWeight = FontWeight.Black)
                 }
             } else {
                 if (matchState == GameViewModel.MatchState.PLAYING) {
@@ -675,7 +702,7 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
             }
         }
 
-        if (showTacticalDialog) {
+        if (showTacticalDialog && !isFinalizing) {
             TacticalControlDialog(
                 viewModel = viewModel,
                 onDismiss = { showTacticalDialog = false }

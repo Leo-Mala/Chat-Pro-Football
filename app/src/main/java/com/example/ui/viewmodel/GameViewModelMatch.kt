@@ -3,12 +3,57 @@ package com.example.ui.viewmodel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import com.example.usecase.DatabaseIntegrityUseCase
+import java.util.WeakHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private class StaleWeeklyMonthlyEvolutionRollback : RuntimeException()
+
+internal class LiveMatchFinalizationGate {
+    private val _finalizing = MutableStateFlow(false)
+    val finalizing: StateFlow<Boolean> = _finalizing.asStateFlow()
+
+    @Synchronized
+    fun tryBegin(): Boolean {
+        if (_finalizing.value) return false
+        _finalizing.value = true
+        return true
+    }
+
+    @Synchronized
+    fun complete() {
+        _finalizing.value = false
+    }
+
+    fun isActive(): Boolean = _finalizing.value
+}
+
+private val liveMatchFinalizationGates = WeakHashMap<GameViewModel, LiveMatchFinalizationGate>()
+private val liveMatchFinalizationGatesGuard = Any()
+
+private fun GameViewModel.liveMatchFinalizationGate(): LiveMatchFinalizationGate =
+    synchronized(liveMatchFinalizationGatesGuard) {
+        liveMatchFinalizationGates.getOrPut(this) { LiveMatchFinalizationGate() }
+    }
+
+val GameViewModel.liveMatchFinalizing: StateFlow<Boolean>
+    get() = liveMatchFinalizationGate().finalizing
+
+internal fun liveMatchUserControlsEnabled(
+    state: GameViewModel.MatchState,
+    finalizing: Boolean
+): Boolean = !finalizing &&
+    (state == GameViewModel.MatchState.PLAYING || state == GameViewModel.MatchState.PAUSED)
+
+internal fun liveMatchCanBeginFinalization(
+    state: GameViewModel.MatchState,
+    finalizing: Boolean
+): Boolean = state != GameViewModel.MatchState.FINISHED && !finalizing
 
 internal fun collectAppearancePlayerIds(
     homeStarters: List<Player>,
@@ -54,6 +99,7 @@ internal fun hasPendingUserFixtures(
 }
 
 fun GameViewModel.startLiveMatch(fixture: Fixture) {
+    if (liveMatchFinalizationGate().isActive()) return
     liveMatchJob?.cancel()
     liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
         val save = repo.getGameSave() ?: return@launch
@@ -135,7 +181,11 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
         }
     }
 
-    if (m >= 90 && _matchState.value == GameViewModel.MatchState.PLAYING) {
+    val finalizationGate = liveMatchFinalizationGate()
+    if (m >= 90 &&
+        _matchState.value == GameViewModel.MatchState.PLAYING &&
+        finalizationGate.tryBegin()
+    ) {
         val fix = liveMatchFixture
         if (fix != null) {
             val homeScore = _matchHomeScore.value
@@ -175,10 +225,12 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
             }
         }
         _matchState.value = GameViewModel.MatchState.FINISHED
+        finalizationGate.complete()
     }
 }
 
 fun GameViewModel.substitutePlayer(playerOut: Player, playerIn: Player) {
+    if (liveMatchFinalizationGate().isActive()) return
     viewModelScope.launch(Dispatchers.IO) {
         val currentMinute = _matchMinute.value
         val isHome = liveMatchHomeTeam?.isPlayerControlled == true
@@ -205,11 +257,16 @@ fun GameViewModel.substitutePlayer(playerOut: Player, playerIn: Player) {
 }
 
 fun GameViewModel.pauseLiveMatch() {
+    val finalizationGate = liveMatchFinalizationGate()
+    if (!liveMatchUserControlsEnabled(_matchState.value, finalizationGate.isActive())) return
+    if (_matchState.value != GameViewModel.MatchState.PLAYING) return
     _matchState.value = GameViewModel.MatchState.PAUSED
     liveMatchJob?.cancel()
 }
 
 fun GameViewModel.resumeLiveMatch() {
+    val finalizationGate = liveMatchFinalizationGate()
+    if (finalizationGate.isActive()) return
     if (_matchState.value == GameViewModel.MatchState.PAUSED) {
         _matchState.value = GameViewModel.MatchState.PLAYING
         liveMatchJob?.cancel()
@@ -320,9 +377,16 @@ private suspend fun GameViewModel.finishPreparedLiveFixture(targetFixture: Fixtu
 }
 
 fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
+    val finalizationGate = liveMatchFinalizationGate()
+    if (!liveMatchCanBeginFinalization(_matchState.value, finalizationGate.isActive())) return
+    if (!finalizationGate.tryBegin()) return
     liveMatchJob?.cancel()
     liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val save = repo.getGameSave()
+        if (save == null) {
+            finalizationGate.complete()
+            return@launch
+        }
         val targetFixture = fixture ?: liveMatchFixture ?: run {
             val weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
             weekFixtures.find { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
@@ -355,6 +419,7 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
             processWeekEndEconomicAndEvolution()
         }
         _matchState.value = GameViewModel.MatchState.FINISHED
+        finalizationGate.complete()
     }
 }
 

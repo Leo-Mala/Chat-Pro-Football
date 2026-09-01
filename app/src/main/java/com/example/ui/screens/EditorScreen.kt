@@ -41,7 +41,6 @@ fun TeamAndPlayerEditorScreen(
     }
 
     val allTeams by viewModel.allTeams.collectAsStateWithLifecycle()
-    val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Times, 1: Jogadores
 
@@ -56,9 +55,17 @@ fun TeamAndPlayerEditorScreen(
     // Player Editor Filters & Dialog State
     var playerSearchQuery by remember { mutableStateOf("") }
     var selectedPlayerTeamFilter by remember { mutableStateOf<Long?>(null) } // null = Todos
-    val selectedTeamPlayers by remember(selectedPlayerTeamFilter) {
-        viewModel.editorPlayersForTeamFlow(selectedPlayerTeamFilter)
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val editorPlayersState by remember(selectedPlayerTeamFilter, selectedTab) {
+        viewModel.editorPlayersForEditorFlow(
+            teamId = selectedPlayerTeamFilter,
+            active = selectedTab == 1
+        )
+    }.collectAsStateWithLifecycle(initialValue = EditorPlayersLoadState.Inactive)
+    val editorPlayersSnapshot = (editorPlayersState as? EditorPlayersLoadState.Ready)
+        ?.takeIf { it.teamId == selectedPlayerTeamFilter }
+        ?.players
+    val editorPlayers = editorPlayersSnapshot.orEmpty()
+    val editorPlayersLoading = selectedTab == 1 && editorPlayersSnapshot == null
     var selectedPositionFilter by remember { mutableStateOf("Todas") }
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var isCreatingPlayer by remember { mutableStateOf(false) }
@@ -106,12 +113,11 @@ fun TeamAndPlayerEditorScreen(
         seq.toList()
     }
 
-    val filteredPlayers = remember(allPlayers, selectedTeamPlayers, selectedTab, playerSearchQuery, selectedPlayerTeamFilter, selectedPositionFilter) {
+    val filteredPlayers = remember(editorPlayers, selectedTab, playerSearchQuery, selectedPlayerTeamFilter, selectedPositionFilter) {
         if (selectedTab != 1) {
             emptyList()
         } else {
-            val playerSource = if (selectedPlayerTeamFilter != null) selectedTeamPlayers else allPlayers
-            var seq = playerSource.asSequence()
+            var seq = editorPlayers.asSequence()
             if (selectedPlayerTeamFilter != null) {
                 seq = seq.filter { it.teamId == selectedPlayerTeamFilter }
             }
@@ -191,7 +197,11 @@ fun TeamAndPlayerEditorScreen(
                         onClick = { selectedTab = 0 }
                     )
                     TabButton(
-                        text = "⚽ JOGADORES (${if (selectedPlayerTeamFilter != null) filteredPlayers.size else allPlayers.size})",
+                        text = if (selectedTab == 1) {
+                            "⚽ JOGADORES (${editorRosterCountOrNull(editorPlayersState, selectedPlayerTeamFilter)?.toString() ?: "…"})"
+                        } else {
+                            "⚽ JOGADORES"
+                        },
                         isSelected = selectedTab == 1,
                         modifier = Modifier.weight(1f),
                         onClick = { selectedTab = 1 }
@@ -399,7 +409,11 @@ fun TeamAndPlayerEditorScreen(
                                             }
                                         }
                                         Text(
-                                            text = "Elenco (${filteredPlayers.size} jogadores) • ${currentSelectedTeam.city}, ${currentSelectedTeam.state}",
+                                            text = if (editorPlayersLoading) {
+                                                "Elenco (carregando...) • ${currentSelectedTeam.city}, ${currentSelectedTeam.state}"
+                                            } else {
+                                                "Elenco (${filteredPlayers.size} jogadores) • ${currentSelectedTeam.city}, ${currentSelectedTeam.state}"
+                                            },
                                             fontSize = 11.sp,
                                             color = AccentLime,
                                             fontWeight = FontWeight.SemiBold
@@ -576,15 +590,42 @@ fun TeamAndPlayerEditorScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
-                        items(filteredPlayers, key = { it.id }) { player ->
-                            val playerTeam = teamMap[player.teamId]
-                            PlayerEditorCard(
-                                player = player,
-                                teamName = playerTeam?.name ?: "Sem Time",
-                                onEdit = { editingPlayer = player; isCreatingPlayer = false },
-                                onTransfer = { playerToTransfer = player },
-                                onDelete = { playerToDelete = player }
-                            )
+                        if (editorPlayersLoading) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 28.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Text(
+                                            "CARREGANDO ELENCO...",
+                                            color = Color.Gray,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            items(filteredPlayers, key = { it.id }) { player ->
+                                val playerTeam = teamMap[player.teamId]
+                                PlayerEditorCard(
+                                    player = player,
+                                    teamName = playerTeam?.name ?: "Sem Time",
+                                    onEdit = { editingPlayer = player; isCreatingPlayer = false },
+                                    onTransfer = { playerToTransfer = player },
+                                    onDelete = { playerToDelete = player }
+                                )
+                            }
                         }
                     }
                 }

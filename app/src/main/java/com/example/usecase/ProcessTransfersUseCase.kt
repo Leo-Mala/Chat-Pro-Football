@@ -17,6 +17,10 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
 
     companion object {
         const val INSTALLMENT_COUNT = 3
+        const val MAX_ROSTER_SIZE = 35
+
+        fun canReceiveTransferredPlayer(rosterSize: Int): Boolean =
+            rosterSize < MAX_ROSTER_SIZE
     }
 
     sealed class TransferResult {
@@ -34,6 +38,16 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
         return executeSale(save, player, offerPrice, roster)
     }
 
+    suspend fun findEligibleBuyerTeam(excludedTeamId: Long): Team? {
+        val candidates = repository.getAllTeams().filter { it.id != excludedTeamId }.shuffled()
+        for (candidate in candidates) {
+            if (canReceiveTransferredPlayer(repository.getPlayerCountByTeam(candidate.id))) {
+                return candidate
+            }
+        }
+        return null
+    }
+
     suspend fun buyPlayerAdvanced(
         save: GameSave,
         player: Player,
@@ -48,7 +62,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
         if (save.bankBalance < 0L) return TransferResult.Error("Clubes endividados não podem realizar contratações!")
 
         val roster = repository.getPlayersByTeam(save.playerTeamId)
-        if (roster.size >= 35 && player.teamId != save.playerTeamId) {
+        if (!canReceiveTransferredPlayer(roster.size) && player.teamId != save.playerTeamId) {
             return TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
         }
 
@@ -78,7 +92,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                 return@withTransaction TransferResult.Error("Este agente livre já assinou com outro clube!")
             }
             val freshRoster = repository.getPlayersByTeam(currentSave.playerTeamId)
-            if (freshRoster.size >= 35 && freshPlayer.teamId != currentSave.playerTeamId) {
+            if (!canReceiveTransferredPlayer(freshRoster.size) && freshPlayer.teamId != currentSave.playerTeamId) {
                 return@withTransaction TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
             }
             val wageCap = calculateWeeklyWageCap(currentSave)
@@ -155,7 +169,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
         if (buyerTeamId == save.playerTeamId) return TransferResult.Error("O clube comprador não pode ser o seu próprio clube!")
 
         repository.getTeam(buyerTeamId) ?: return TransferResult.Error("Clube comprador não foi encontrado!")
-        if (repository.getPlayerCountByTeam(buyerTeamId) >= 35) {
+        if (!canReceiveTransferredPlayer(repository.getPlayerCountByTeam(buyerTeamId))) {
             return TransferResult.Error("O clube comprador já possui o elenco cheio (35 jogadores)!")
         }
 
@@ -177,6 +191,9 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                 )
             }
 
+            if (!canReceiveTransferredPlayer(repository.getPlayerCountByTeam(buyerTeamId))) {
+                return@withTransaction TransferResult.Error("O clube comprador já possui o elenco cheio ($MAX_ROSTER_SIZE jogadores)!")
+            }
             val currentSave = repository.getGameSave() ?: save
             val newBalance = try { Math.addExact(currentSave.bankBalance, downPayment) } catch (_: ArithmeticException) { Long.MAX_VALUE }
             val updatedSave = currentSave.copy(bankBalance = newBalance)
@@ -234,7 +251,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
     ): TransferResult {
         if (loanWeeks <= 0) return TransferResult.Error("Duração do empréstimo inválida!")
         if (weeklyFee < 0L) return TransferResult.Error("Taxa semanal do empréstimo inválida!")
-        if (repository.getPlayersByTeam(save.playerTeamId).size >= 35) {
+        if (!canReceiveTransferredPlayer(repository.getPlayersByTeam(save.playerTeamId).size)) {
             return TransferResult.Error("Elenco cheio (máximo 35 jogadores)!")
         }
 
@@ -309,7 +326,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
         if (price <= 0L) return TransferResult.Error("O valor da oferta de transferência deve ser maior que zero!")
         if (player.teamId == save.playerTeamId && !player.isOnLoan) return TransferResult.Error("O jogador já pertence ao seu clube!")
         if (save.bankBalance < 0L) return TransferResult.Error("Clubes endividados não podem realizar contratações!")
-        if (currentRoster.size >= 35 && player.teamId != save.playerTeamId) return TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
+        if (!canReceiveTransferredPlayer(currentRoster.size) && player.teamId != save.playerTeamId) return TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
 
         val safePrice = price.coerceAtLeast(1L)
         if (save.bankBalance < safePrice) return TransferResult.Error("Saldo insuficiente em caixa para realizar esta operação!")
@@ -334,7 +351,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             }
 
             val freshRoster = repository.getPlayersByTeam(currentSave.playerTeamId)
-            if (freshRoster.size >= 35 && freshPlayer.teamId != currentSave.playerTeamId) return@withTransaction TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
+            if (!canReceiveTransferredPlayer(freshRoster.size) && freshPlayer.teamId != currentSave.playerTeamId) return@withTransaction TransferResult.Error("Limite máximo de 35 jogadores no elenco atingido!")
             val wageCap = calculateWeeklyWageCap(currentSave)
             val currentWageBill = projectedCurrentWageBillForPurchase(freshRoster, freshPlayer, currentSave.playerTeamId)
             val newPlayerSalary = freshPlayer.calculateSalary(currentSave.coachReputation.toDouble())
@@ -379,19 +396,8 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
     ): TransferResult {
         if (price <= 0L) return TransferResult.Error("O valor de venda deve ser maior que zero!")
         val safePrice = price.coerceAtLeast(1L)
-        val otherTeams = repository.getAllTeams().filter { it.id != save.playerTeamId }
-        if (otherTeams.isEmpty()) return TransferResult.Error("Não houve clubes interessados no momento. O atleta ${player.name} permanecerá na equipe.")
-
-        var buyer: Team? = null
-        var attempts = 0
-        for (candidate in otherTeams.shuffled()) {
-            if (attempts++ >= 50) break
-            if (repository.getPlayerCountByTeam(candidate.id) < 30) {
-                buyer = candidate
-                break
-            }
-        }
-        buyer ?: return TransferResult.Error("Não houve clubes interessados no momento. O atleta ${player.name} permanecerá na equipe.")
+        val buyer = findEligibleBuyerTeam(save.playerTeamId)
+            ?: return TransferResult.Error("Não houve clubes interessados no momento. O atleta ${player.name} permanecerá na equipe.")
 
         return repository.withTransaction {
             val freshPlayer = repository.getPlayer(player.id)
@@ -408,11 +414,14 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                 return@withTransaction TransferResult.Error("Não é possível vender. Seu elenco deve ter no mínimo 16 jogadores.")
             }
 
+            if (!canReceiveTransferredPlayer(repository.getPlayerCountByTeam(buyer.id))) {
+                return@withTransaction TransferResult.Error("O clube comprador já possui o elenco cheio ($MAX_ROSTER_SIZE jogadores)!")
+            }
             val currentSave = repository.getGameSave() ?: save
             val newBalance = try { Math.addExact(currentSave.bankBalance, safePrice) } catch (_: ArithmeticException) { Long.MAX_VALUE }
             val updatedSave = currentSave.copy(bankBalance = newBalance)
             val updatedPlayer = freshPlayer.copy(
-                teamId = requireNotNull(buyer).id,
+                teamId = buyer.id,
                 originalTeamId = null,
                 moral = 70,
                 isStarter = false,
@@ -427,12 +436,12 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                     week = currentSave.currentWeek,
                     season = currentSave.currentSeason,
                     type = "VENDA",
-                    description = "Venda do jogador ${freshPlayer.name} para ${requireNotNull(buyer).name}",
+                    description = "Venda do jogador ${freshPlayer.name} para ${buyer.name}",
                     amount = safePrice,
                     isIncome = true
                 )
             )
-            TransferResult.Success(updatedSave, updatedPlayer, "Atleta ${freshPlayer.name} vendido ao ${requireNotNull(buyer).name} por R$ %,d!".format(safePrice))
+            TransferResult.Success(updatedSave, updatedPlayer, "Atleta ${freshPlayer.name} vendido ao ${buyer.name} por R$ %,d!".format(safePrice))
         }
     }
 
@@ -461,7 +470,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
                 repository.getAllTeams().find { it.name == offer.buyerTeamName }
             }) ?: return@withTransaction TransferResult.Error("Clube interessado não foi encontrado!")
             if (borrowerTeam.id == save.playerTeamId) return@withTransaction TransferResult.Error("O clube proprietário e recebedor não podem ser o mesmo!")
-            if (repository.getPlayerCountByTeam(borrowerTeam.id) >= 35) return@withTransaction TransferResult.Error("O clube interessado já está com o elenco cheio!")
+            if (!canReceiveTransferredPlayer(repository.getPlayerCountByTeam(borrowerTeam.id))) return@withTransaction TransferResult.Error("O clube interessado já está com o elenco cheio!")
 
             val loanWeeks = if (offer.durationWeeks > 0) offer.durationWeeks else 26
             val updatedPlayer = freshPlayer.copy(
@@ -492,7 +501,7 @@ class ProcessTransfersUseCase(private val repository: GameRepository) {
             } else {
                 repository.getAllTeams().find { it.name == offer.buyerTeamName }
             }) ?: return@withTransaction TransferResult.Error("Clube comprador não foi encontrado!")
-            if (repository.getPlayerCountByTeam(buyerTeam.id) >= 35) return@withTransaction TransferResult.Error("O clube comprador está com o elenco cheio!")
+            if (!canReceiveTransferredPlayer(repository.getPlayerCountByTeam(buyerTeam.id))) return@withTransaction TransferResult.Error("O clube comprador está com o elenco cheio!")
 
             val safePrice = offer.price.coerceAtLeast(1L)
             val currentSave = repository.getGameSave() ?: save
