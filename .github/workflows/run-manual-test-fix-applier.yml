@@ -1,0 +1,101 @@
+name: Run manual-test fix applier
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/run-manual-test-fix-applier.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact bootstrap head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify remote head before work
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin fix/3.0.1-manual-test-bugs
+          test "$(git rev-parse origin/fix/3.0.1-manual-test-bugs)" = "$GITHUB_SHA"
+
+      - name: Extract and run exact patch program
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk '
+            /^          python3 - <<.PY.$/ { capture=1; next }
+            capture && /^          PY$/ { exit }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/apply-manual-test-fixes.yml > /tmp/apply_manual_test_fixes.py
+          test -s /tmp/apply_manual_test_fixes.py
+          python3 -m py_compile /tmp/apply_manual_test_fixes.py
+          python3 /tmp/apply_manual_test_fixes.py
+          git diff --check
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client": [{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          GOOGLE_EOF
+
+      - name: Run focused regressions on patched working tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.Post90FinalizationStateRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchFinalizationCannotBeCancelledRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchFinalizationIdempotencyRegressionTest \
+            --tests com.example.ui.viewmodel.TeamStrength99RealEditorPathRegressionTest \
+            --tests com.example.ui.viewmodel.TeamStrength99PersistenceRegressionTest \
+            --tests com.example.ui.viewmodel.TeamRatingDoesNotDropAfter99EditRegressionTest \
+            --tests com.example.ui.viewmodel.EditorRosterNoFalseZeroRegressionTest \
+            --tests com.example.usecase.PlayerSaleBuyerCapacityRegressionTest \
+            --tests com.example.usecase.PlayerSaleImmediateRemovalRegressionTest \
+            --tests com.example.usecase.PlayerSalePersistenceRegressionTest \
+            --tests com.example.usecase.PlayerSaleNoDoubleCreditRegressionTest \
+            --tests com.example.usecase.InstallmentSaleBuyerCapacityRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.ui.viewmodel.ClubStrength99RosterConsistencyTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
+            --stacktrace
+
+      - name: Recheck remote head and commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin fix/3.0.1-manual-test-bugs
+          test "$(git rev-parse origin/fix/3.0.1-manual-test-bugs)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main app/src/test .github/workflows/manual-test-bugfix-apk.yml
+          git diff --cached --check
+          git commit -m 'fix: close latest manual-test regressions'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
