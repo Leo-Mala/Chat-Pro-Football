@@ -23,7 +23,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Player
 import com.example.data.isInRosterLoanConversionFor
-import com.example.ui.components.finances.ScoutSelectionDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.*
 
@@ -31,6 +30,7 @@ import com.example.ui.viewmodel.*
 fun PurchaseNegotiationDialog(
     player: Player,
     viewModel: GameViewModel,
+    onPurchased: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val save by viewModel.gameSave.collectAsStateWithLifecycle()
@@ -38,12 +38,6 @@ fun PurchaseNegotiationDialog(
     val rosterSize = roster.size
     val balance = save?.bankBalance ?: 0L
     val isInRosterLoanConversion = player.isInRosterLoanConversionFor(save?.playerTeamId)
-
-    val isGlobalReveal = save?.globalScoutRevealWeeksRemaining ?: 0 > 0
-    val isUserTeam = player.teamId == save?.playerTeamId
-    val observedForce = player.getObservedForce(isGlobalReveal, isUserTeam)
-
-    var showScoutDialog by remember { mutableStateOf(false) }
 
     val marketValue = player.calculateMarketValue()
     val minOffer = (marketValue * 0.5).toLong().coerceAtLeast(10000L)
@@ -60,14 +54,6 @@ fun PurchaseNegotiationDialog(
     var paymentType by remember { mutableStateOf("VISTA") }
     var hasGoalBonus by remember { mutableStateOf(false) }
     var hasSolidarity by remember { mutableStateOf(false) }
-
-    if (showScoutDialog) {
-        ScoutSelectionDialog(
-            player = player,
-            viewModel = viewModel,
-            onDismiss = { showScoutDialog = false }
-        )
-    }
 
     Dialog(
         onDismissRequest = { if (!isPurchasing) onDismiss() },
@@ -169,7 +155,7 @@ fun PurchaseNegotiationDialog(
                                     }
                                 )
                                 Text(
-                                    text = observedForce,
+                                    text = player.force.toString(),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = AccentGold
@@ -187,57 +173,11 @@ fun PurchaseNegotiationDialog(
                                 fontWeight = FontWeight.Black
                             )
                             Text(
-                                text = "Força: $observedForce • Idade: ${player.age} anos • Nal: ${player.nationality ?: "Sem clube"}",
+                                text = "Força: ${player.force} • Idade: ${player.age} anos • Nal: ${player.nationality ?: "Sem clube"}",
                                 color = Color.LightGray,
                                 fontSize = 11.sp
                             )
                         }
-                    }
-                }
-
-                val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
-                val isWatching = watchlist.contains(player.id)
-                Button(
-                    onClick = { viewModel.toggleWatchlistPlayer(player.id) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isWatching) Color(0xFF8E24AA) else Color.White.copy(alpha = 0.1f),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, if (isWatching) Color(0xFF8E24AA) else Color.White.copy(alpha = 0.2f))
-                ) {
-                    Icon(
-                        imageVector = if (isWatching) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = if (isWatching) AccentLime else Color.White
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isWatching) "REMOVER DO OLHEIRO (DE OLHO)" else "FICAR DE OLHO (OLHEIRO)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-
-                if (!isUserTeam && !isGlobalReveal && player.scoutedLevel < 5) {
-                    Button(
-                        onClick = { showScoutDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AccentGold,
-                            contentColor = TurfDeepGreen
-                        ),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (player.scoutedLevel < 0) "OBSERVAÇÃO EM ANDAMENTO (AGUARDE 1 RODADA)" else "CONTRATAR OLHEIRO (REVELAR QUALIDADES)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        )
                     }
                 }
 
@@ -279,6 +219,7 @@ fun PurchaseNegotiationDialog(
                             viewModel.executeInstantBuy(player) { success ->
                                 isPurchasing = false
                                 if (success) {
+                                    onPurchased()
                                     onDismiss()
                                 } else {
                                     errorMessage = "Não foi possível concluir a compra imediata. Verifique saldo, elenco e propriedade do atleta."
@@ -455,7 +396,10 @@ fun PurchaseNegotiationDialog(
                                             viewModel.buyPlayerAdvanced(player, offeredPrice, paymentType, hasGoalBonus, hasSolidarity) { result ->
                                                 isPurchasing = false
                                                 when (result) {
-                                                    is com.example.usecase.ProcessTransfersUseCase.TransferResult.Success -> onDismiss()
+                                                    is com.example.usecase.ProcessTransfersUseCase.TransferResult.Success -> {
+                                                        onPurchased()
+                                                        onDismiss()
+                                                    }
                                                     is com.example.usecase.ProcessTransfersUseCase.TransferResult.Error -> errorMessage = result.reason
                                                 }
                                             }
@@ -484,7 +428,10 @@ fun PurchaseNegotiationDialog(
                                                     viewModel.buyPlayerAdvanced(player, counterPrice, paymentType, hasGoalBonus, hasSolidarity) { result ->
                                                         isPurchasing = false
                                                         when (result) {
-                                                            is com.example.usecase.ProcessTransfersUseCase.TransferResult.Success -> onDismiss()
+                                                            is com.example.usecase.ProcessTransfersUseCase.TransferResult.Success -> {
+                                                                onPurchased()
+                                                                onDismiss()
+                                                            }
                                                             is com.example.usecase.ProcessTransfersUseCase.TransferResult.Error -> errorMessage = result.reason
                                                         }
                                                     }

@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * Erro de domínio para uma tentativa de reset/Novo Jogo que encontrou carreira persistida.
@@ -16,22 +17,30 @@ class ExistingCareerOverwriteBlockedException(
     "Exclusão parcial de GameSave bloqueada: $gameSaveRowCount linha(s) preservada(s); remova explicitamente o banco do slot."
 )
 
+private fun Team.withCanonicalRealClubIdentity(): Team {
+    val replacement = BrasfootRealClubIdentity.replacementForLegacyTeamId(id) ?: return this
+    return if (name == replacement.realClubName) this else copy(name = replacement.realClubName)
+}
+
+private fun List<Team>.withCanonicalRealClubIdentities(): List<Team> =
+    map { it.withCanonicalRealClubIdentity() }
+
 class GameRepository(internal val db: AppDatabase) {
     suspend fun <R> withTransaction(block: suspend () -> R): R = db.withTransaction(block)
 
     suspend fun <R> runInTransaction(block: suspend () -> R): R = db.withTransaction(block)
     val gameSaveFlow: Flow<GameSave?> = db.gameSaveDao().getGameSaveFlow()
-    val allTeamsFlow: Flow<List<Team>> = db.teamDao().getAllTeamsFlow()
-    fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>> = db.teamDao().getTeamsByLeagueFlow(leagueCountry)
+    val allTeamsFlow: Flow<List<Team>> = db.teamDao().getAllTeamsFlow().map { it.withCanonicalRealClubIdentities() }
+    fun getTeamsByLeagueFlow(leagueCountry: String): Flow<List<Team>> = db.teamDao().getTeamsByLeagueFlow(leagueCountry).map { it.withCanonicalRealClubIdentities() }
     fun getTeamsByCountryDivisionFlow(country: String, division: Int): Flow<List<Team>> =
-        db.teamDao().getTeamsByCountryDivisionFlow(country, division)
-    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId)
+        db.teamDao().getTeamsByCountryDivisionFlow(country, division).map { it.withCanonicalRealClubIdentities() }
+    fun getTeamFlow(teamId: Long): Flow<Team?> = db.teamDao().getTeamFlow(teamId).map { it?.withCanonicalRealClubIdentity() }
     fun getTeamsByIdsFlow(ids: List<Long>): Flow<List<Team>> {
         val distinctIds = ids.distinct()
         if (distinctIds.isEmpty()) return flowOf(emptyList())
         val chunkFlows = distinctIds
             .chunked(SQLITE_SAFE_IN_QUERY_SIZE)
-            .map { chunk -> db.teamDao().getTeamsByIdsFlow(chunk) }
+            .map { chunk -> db.teamDao().getTeamsByIdsFlow(chunk).map { it.withCanonicalRealClubIdentities() } }
         if (chunkFlows.size == 1) return chunkFlows.single()
         return combine(chunkFlows) { chunks ->
             chunks
@@ -163,8 +172,8 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun deleteOrder(order: TransferOrder) = db.transferOrderDao().deleteOrder(order)
     suspend fun deleteOrders() = db.transferOrderDao().deleteOrders()
 
-    suspend fun getAllTeams(): List<Team> = db.teamDao().getAllTeams()
-    suspend fun getTeam(id: Long): Team? = db.teamDao().getTeam(id)
+    suspend fun getAllTeams(): List<Team> = db.teamDao().getAllTeams().withCanonicalRealClubIdentities()
+    suspend fun getTeam(id: Long): Team? = db.teamDao().getTeam(id)?.withCanonicalRealClubIdentity()
     suspend fun saveTeams(teams: List<Team>) = db.withTransaction {
         if (teams.isNotEmpty()) db.teamDao().insertTeams(teams)
     }

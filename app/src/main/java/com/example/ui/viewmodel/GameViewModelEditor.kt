@@ -8,6 +8,9 @@ import java.util.WeakHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -256,6 +259,38 @@ suspend fun GameViewModel.ensureSaveActiveForEditor(
     }
 }
 
+fun GameViewModel.editorPlayersForTeamFlow(teamId: Long?): Flow<List<Player>> =
+    activeRepositoryFlow.flatMapLatest { repository ->
+        if (repository == null || teamId == null) flowOf(emptyList())
+        else repository.getPlayersForTeamFlow(teamId)
+    }
+
+internal fun applyEditedTeamStrength(players: List<Player>, newRating: Int): List<Player> =
+    players.map { player ->
+        val currentAttr = player.getAtributosObject()
+        val oldForce = player.force.coerceAtLeast(1)
+        val ratio = newRating.toDouble() / oldForce.toDouble()
+        val scaledAttr = currentAttr.copy(
+            finalizacao = (currentAttr.finalizacao * ratio).roundToInt().coerceIn(10, 99),
+            passe = (currentAttr.passe * ratio).roundToInt().coerceIn(10, 99),
+            velocidade = (currentAttr.velocidade * ratio).roundToInt().coerceIn(10, 99),
+            forca = (currentAttr.forca * ratio).roundToInt().coerceIn(10, 99),
+            visaoJogo = (currentAttr.visaoJogo * ratio).roundToInt().coerceIn(10, 99),
+            desarme = (currentAttr.desarme * ratio).roundToInt().coerceIn(10, 99)
+        )
+        player.copy(
+            force = newRating,
+            potential = maxOf(player.potential, newRating + 3).coerceIn(15, 99),
+            atributosJson = AtributosConverter.atributosToJson(scaledAttr),
+            finishing = scaledAttr.finalizacao,
+            passing = scaledAttr.passe,
+            pace = scaledAttr.velocidade,
+            strength = scaledAttr.forca,
+            vision = scaledAttr.visaoJogo,
+            defense = scaledAttr.desarme
+        )
+    }
+
 fun GameViewModel.ensureRosterForTeam(teamId: Long) {
     viewModelScope.launch(Dispatchers.IO) {
         val editorRepository = preparedEditorRepositoryOrNull()
@@ -319,34 +354,7 @@ fun GameViewModel.saveTeamStrength(teamId: Long, attack: Int, mid: Int, def: Int
         editorRepository.updateTeam(team.copy(rating = newRating))
 
         val players = editorRepository.getPlayersByTeam(teamId)
-        val updatedPlayers = players.map { player ->
-            val currentAttr = player.getAtributosObject()
-            val oldForce = player.force.coerceAtLeast(1)
-            val ratio = newRating.toDouble() / oldForce.toDouble()
-
-            val scaledAttr = currentAttr.copy(
-                finalizacao = (currentAttr.finalizacao * ratio).roundToInt().coerceIn(10, 99),
-                passe = (currentAttr.passe * ratio).roundToInt().coerceIn(10, 99),
-                velocidade = (currentAttr.velocidade * ratio).roundToInt().coerceIn(10, 99),
-                forca = (currentAttr.forca * ratio).roundToInt().coerceIn(10, 99),
-                visaoJogo = (currentAttr.visaoJogo * ratio).roundToInt().coerceIn(10, 99),
-                desarme = (currentAttr.desarme * ratio).roundToInt().coerceIn(10, 99)
-            )
-
-            val newJson = AtributosConverter.atributosToJson(scaledAttr)
-            player.copy(
-                force = newRating,
-                potential = maxOf(player.potential, newRating + 3).coerceIn(15, 99),
-                atributosJson = newJson,
-                finishing = scaledAttr.finalizacao,
-                passing = scaledAttr.passe,
-                pace = scaledAttr.velocidade,
-                strength = scaledAttr.forca,
-                vision = scaledAttr.visaoJogo,
-                defense = scaledAttr.desarme
-            )
-        }
-        editorRepository.updatePlayers(updatedPlayers)
+        editorRepository.updatePlayers(applyEditedTeamStrength(players, newRating))
     }
 }
 

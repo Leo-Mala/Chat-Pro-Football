@@ -47,8 +47,8 @@ fun MarketTab(viewModel: GameViewModel) {
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedPlayerForPurchase by remember { mutableStateOf<Player?>(null) }
-    var selectedPlayerForScouting by remember { mutableStateOf<Player?>(null) }
-    var currentSubTab by remember { mutableStateOf("MERCADO") } // "MERCADO", "OLHEIRO", "STAFF"
+    var locallyPurchasedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var currentSubTab by remember { mutableStateOf("MERCADO") } // "MERCADO", "STAFF"
 
     val isWindowOpen = save?.let { GameCalendar.isTransferWindowOpen(it.currentSeason, it.currentWeek) } ?: false
     val currentDateStr = save?.let { GameCalendar.getLongFormattedDate(it.currentSeason, it.currentWeek) } ?: ""
@@ -62,10 +62,12 @@ fun MarketTab(viewModel: GameViewModel) {
         searchMinForce,
         searchMaxAge,
         searchMaxPrice,
-        searchSortBy
+        searchSortBy,
+        locallyPurchasedIds
     ) {
         availablePlayers = withContext(Dispatchers.Default) {
             allPlayers.filter { player ->
+                player.id !in locallyPurchasedIds &&
                 player.isTransferMarketCandidateFor(save?.playerTeamId) &&
                 (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
                 (searchPos == "TODOS" || player.position == searchPos) &&
@@ -97,7 +99,6 @@ fun MarketTab(viewModel: GameViewModel) {
         ) {
             val subTabs = listOf(
                 "MERCADO" to "MERCADO",
-                "OLHEIRO" to "OLHEIRO",
                 "STAFF" to "STAFF"
             )
             subTabs.forEach { tab ->
@@ -430,16 +431,12 @@ fun MarketTab(viewModel: GameViewModel) {
                 } else {
                     items(availablePlayers, key = { it.id }) { player ->
                         val club = allTeams.find { it.id == player.teamId } ?: GlobalFootballSystem.getTeamByGlobalId(player.teamId)
-                        val isGlobalReveal = save?.globalScoutRevealWeeksRemaining ?: 0 > 0
-                        val scoutedLevel = player.scoutedLevel
-                        val observedForce = player.getObservedForce(isGlobalReveal, player.teamId == save?.playerTeamId)
-
                         val dynamicPrice = viewModel.getDynamicPlayerPrice(player)
 
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { if (scoutedLevel >= 0) selectedPlayerForPurchase = player },
+                                .clickable { if (isWindowOpen) selectedPlayerForPurchase = player },
                             colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
                             shape = RoundedCornerShape(8.dp)
                         ) {
@@ -465,7 +462,7 @@ fun MarketTab(viewModel: GameViewModel) {
                                 }
 
                                 Text(
-                                    text = observedForce,
+                                    text = player.force.toString(),
                                     color = AccentGold,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Black,
@@ -483,123 +480,21 @@ fun MarketTab(viewModel: GameViewModel) {
                                 )
 
                                 Box(modifier = Modifier.weight(1.0f), contentAlignment = Alignment.Center) {
-                                    if (scoutedLevel <= 0 && !isGlobalReveal) {
-                                        if (scoutedLevel < 0) {
-                                            Text("OBSERVANDO", color = AccentGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                        } else {
-                                            Button(
-                                                onClick = { selectedPlayerForScouting = player },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = AccentGold, contentColor = TurfDeepGreen),
-                                                shape = RoundedCornerShape(4.dp),
-                                                modifier = Modifier.height(26.dp)
-                                            ) {
-                                                Text("OBSERVAR", fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                            }
-                                        }
-                                    } else {
-                                        Button(
-                                            onClick = { if (isWindowOpen) selectedPlayerForPurchase = player },
-                                            enabled = isWindowOpen,
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = AccentLime,
-                                                contentColor = TurfDeepGreen,
-                                                disabledContainerColor = Color.White.copy(alpha = 0.08f),
-                                                disabledContentColor = Color.Gray
-                                            ),
-                                            shape = RoundedCornerShape(4.dp),
-                                            modifier = Modifier.height(26.dp)
-                                        ) {
-                                            Text(if (isWindowOpen) "NEGOCIAR" else "FECHADA", fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                        }
+                                    Button(
+                                        onClick = { if (isWindowOpen) selectedPlayerForPurchase = player },
+                                        enabled = isWindowOpen,
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = AccentLime,
+                                            contentColor = TurfDeepGreen,
+                                            disabledContainerColor = Color.White.copy(alpha = 0.08f),
+                                            disabledContentColor = Color.Gray
+                                        ),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.height(26.dp)
+                                    ) {
+                                        Text(if (isWindowOpen) "NEGOCIAR" else "FECHADA", fontSize = 9.sp, fontWeight = FontWeight.Black)
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else if (currentSubTab == "OLHEIRO") {
-            val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
-            val watchedPlayers = allPlayers.filter { it.id in watchlist }
-
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("OLHEIRO (ATLETAS MONITORADOS)", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                    Text("Acompanhe em tempo real o desenvolvimento dos atletas sob monitoramento, mesmo que estejam em outros times.", color = Color.Gray, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                if (watchedPlayers.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.02f)),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .padding(24.dp)
-                                    .fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text("Nenhum atleta monitorado.", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Abra um atleta no mercado e clique em 'FICAR DE OLHO' para começar a monitorar o seu desenvolvimento.", color = Color.Gray, fontSize = 11.sp, textAlign = TextAlign.Center)
-                            }
-                        }
-                    }
-                } else {
-                    items(watchedPlayers, key = { it.id }) { player ->
-                        val currentTeam = allTeams.find { it.id == player.teamId }
-                        val isGlobalReveal = save?.globalScoutRevealWeeksRemaining ?: 0 > 0
-                        val observedForce = player.getObservedForce(isGlobalReveal, player.teamId == save?.playerTeamId)
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedPlayerForPurchase = player },
-                            colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
-                            border = BorderStroke(1.dp, AccentGold.copy(alpha = 0.2f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .background(AccentLime.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                        .border(0.5.dp, AccentLime, RoundedCornerShape(8.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(player.position, color = AccentLime, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(player.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text(
-                                        text = "Time: ${currentTeam?.name ?: "Sem Clube"} • Força: $observedForce • Idade: ${player.age} anos",
-                                        color = Color.LightGray,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    val dynamicPrice = viewModel.getDynamicPlayerPrice(player)
-                                    Text("R$ %,d".format(dynamicPrice), color = AccentGold, fontWeight = FontWeight.Black, fontSize = 12.sp)
-                                    Text("Monitorado", color = Color(0xFF8E24AA), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -616,18 +511,11 @@ fun MarketTab(viewModel: GameViewModel) {
         }
     }
 
-    selectedPlayerForScouting?.let { p ->
-        ScoutSelectionDialog(
-            player = p,
-            viewModel = viewModel,
-            onDismiss = { selectedPlayerForScouting = null }
-        )
-    }
-
     selectedPlayerForPurchase?.let { p ->
         PurchaseNegotiationDialog(
             player = p,
             viewModel = viewModel,
+            onPurchased = { locallyPurchasedIds = locallyPurchasedIds + p.id },
             onDismiss = { selectedPlayerForPurchase = null }
         )
     }

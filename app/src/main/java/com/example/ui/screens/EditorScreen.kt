@@ -56,6 +56,9 @@ fun TeamAndPlayerEditorScreen(
     // Player Editor Filters & Dialog State
     var playerSearchQuery by remember { mutableStateOf("") }
     var selectedPlayerTeamFilter by remember { mutableStateOf<Long?>(null) } // null = Todos
+    val selectedTeamPlayers by remember(selectedPlayerTeamFilter) {
+        viewModel.editorPlayersForTeamFlow(selectedPlayerTeamFilter)
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
     var selectedPositionFilter by remember { mutableStateOf("Todas") }
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var isCreatingPlayer by remember { mutableStateOf(false) }
@@ -103,11 +106,12 @@ fun TeamAndPlayerEditorScreen(
         seq.toList()
     }
 
-    val filteredPlayers = remember(allPlayers, selectedTab, playerSearchQuery, selectedPlayerTeamFilter, selectedPositionFilter) {
+    val filteredPlayers = remember(allPlayers, selectedTeamPlayers, selectedTab, playerSearchQuery, selectedPlayerTeamFilter, selectedPositionFilter) {
         if (selectedTab != 1) {
             emptyList()
         } else {
-            var seq = allPlayers.asSequence()
+            val playerSource = if (selectedPlayerTeamFilter != null) selectedTeamPlayers else allPlayers
+            var seq = playerSource.asSequence()
             if (selectedPlayerTeamFilter != null) {
                 seq = seq.filter { it.teamId == selectedPlayerTeamFilter }
             }
