@@ -1,0 +1,134 @@
+name: Recover audited crest corpus from release assets
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - '.github/workflows/recover-crests-from-release-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recover-crests-from-release-assets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inspect-release-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_FP: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+      EXPECTED_CLUB: '1907'
+      EXPECTED_FACTUAL: '617'
+      EXPECTED_TOTAL: '2524'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download permanent v3.0.1 release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work recovered
+          gh release download v3.0.1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Pro-Football-3.0.1-vc32.apk' \
+            --pattern 'Pro-Football-3.0.1-vc32.aab' \
+            --dir work
+          sha256sum work/* | tee release-assets.sha256
+
+      - name: Inspect APK and AAB for exact audited corpus
+        id: inspect
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+
+          target = os.environ['TARGET_FP']
+          expected = {
+              'club': int(os.environ['EXPECTED_CLUB']),
+              'factual': int(os.environ['EXPECTED_FACTUAL']),
+              'total': int(os.environ['EXPECTED_TOTAL']),
+          }
+          report = []
+          recovered = False
+
+          for path in sorted(pathlib.Path('work').glob('*')):
+              if path.suffix not in {'.apk', '.aab'}:
+                  continue
+              with zipfile.ZipFile(path) as z:
+                  prefixes = ['assets/club_crests/', 'base/assets/club_crests/']
+                  names = []
+                  prefix_used = None
+                  for prefix in prefixes:
+                      cand = sorted(n for n in z.namelist() if n.startswith(prefix) and not n.endswith('/'))
+                      if cand:
+                          names = cand
+                          prefix_used = prefix
+                          break
+                  club = sum(pathlib.PurePosixPath(n).name.startswith('club_') for n in names)
+                  factual = sum(pathlib.PurePosixPath(n).name.startswith('factual_') for n in names)
+                  h = hashlib.sha256()
+                  for name in names:
+                      canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
+                      h.update(canonical.encode('utf-8'))
+                      h.update(b'\0')
+                      h.update(hashlib.sha256(z.read(name)).digest())
+                  fp = h.hexdigest() if names else None
+                  row = {
+                      'file': path.name,
+                      'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                      'prefix': prefix_used,
+                      'total': len(names),
+                      'club': club,
+                      'factual': factual,
+                      'fingerprint': fp,
+                  }
+                  report.append(row)
+                  print(json.dumps(row, sort_keys=True))
+                  if len(names) == expected['total'] and club == expected['club'] and factual == expected['factual'] and fp == target:
+                      out = pathlib.Path('recovered/club_crests')
+                      out.mkdir(parents=True, exist_ok=True)
+                      for name in names:
+                          (out / pathlib.PurePosixPath(name).name).write_bytes(z.read(name))
+                      pathlib.Path('recovered/SOURCE.txt').write_text(path.name + '\n', encoding='utf-8')
+                      pathlib.Path('recovered/FINGERPRINT.txt').write_text(fp + '\n', encoding='utf-8')
+                      recovered = True
+                      break
+
+          pathlib.Path('release-crest-inspection.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write(f'recovered={str(recovered).lower()}\n')
+          PY
+
+      - name: Verify recovered file counts
+        if: steps.inspect.outputs.recovered == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find recovered/club_crests -maxdepth 1 -type f | wc -l)" = "$EXPECTED_TOTAL"
+          test "$(find recovered/club_crests -maxdepth 1 -type f -name 'club_*.webp' | wc -l)" = "$EXPECTED_CLUB"
+          test "$(find recovered/club_crests -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)" = "$EXPECTED_FACTUAL"
+          test "$(cat recovered/FINGERPRINT.txt)" = "$TARGET_FP"
+
+      - name: Upload exact recovered corpus
+        if: steps.inspect.outputs.recovered == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: audited-2524-crests-from-release-${{ github.sha }}
+          path: recovered/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload inspection report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-crest-inspection-${{ github.sha }}
+          path: |
+            release-assets.sha256
+            release-crest-inspection.json
+          if-no-files-found: error
+          retention-days: 3
