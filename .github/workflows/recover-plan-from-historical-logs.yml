@@ -22,17 +22,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TARGET_FP: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+          TARGET_ARCHIVE_SHA: 1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p recovered/contexts
+          mkdir -p recovered/contexts recovered/full-candidate-logs
           python3 - <<'PY'
           import json, os, pathlib, subprocess, zipfile, io, re
 
           repo = os.environ['REPO']
           target_fp = os.environ['TARGET_FP']
+          target_archive = os.environ['TARGET_ARCHIVE_SHA']
           out = pathlib.Path('recovered')
           ctxdir = out / 'contexts'
+          fulldir = out / 'full-candidate-logs'
           runs = []
           page = 1
           while True:
@@ -50,18 +53,28 @@ jobs:
               page += 1
 
           needles = [
-              target_fp, 'validated-replacement-plan', 'replacement-plan', 'crest-sha256',
+              target_fp, target_archive, 'validated-replacement-plan', 'replacement-plan', 'crest-sha256',
               'sourceCrestSha256', 'sourceCrestPath', 'legacyTeamId', 'sourceRevision',
               'identityEvidence', '.club-realization-input', 'generated-filler-slots',
               'preserved-factual-clubs', 'materialize_validated_patch_plan', 'hardened-plan',
               'DictWriter', 'writerow', 'writerows', 'plan_rows', '1907', 'club-realization',
+              'final-club-realization-input', 'plan.csv', 'metadata.json', 'source-crests',
+              'crestFileName', 'EXPECTED_ARCHIVE_SHA256', 'tar.gz.part', 'github-svg',
+              'immutable external SVG', 'network crests', '1801', '106',
           ]
           strong = [
-              target_fp, 'validated-replacement-plan', 'sourceCrestSha256', 'sourceCrestPath',
+              target_fp, target_archive, 'validated-replacement-plan', 'sourceCrestSha256', 'sourceCrestPath',
               'legacyTeamId', '.club-realization-input', 'DictWriter', 'writerow', 'plan_rows',
+              'final-club-realization-input', 'plan.csv', 'metadata.json', 'source-crests',
+              'crestFileName', 'EXPECTED_ARCHIVE_SHA256', 'tar.gz.part',
+          ]
+          full_log_markers = [
+              target_archive, 'final-club-realization-input', '.club-realization-input', 'plan.csv',
+              'source-crests', 'metadata.json', 'crestFileName', 'sourceCrestSha256', 'tar.gz.part',
           ]
           ansi = re.compile(r'\x1b\[[0-9;]*m')
           summary, extracted_lines, context_index = [], [], []
+          full_candidates = []
           log_ok = log_missing = matched_runs = 0
 
           def merge_ranges(ranges):
@@ -94,10 +107,18 @@ jobs:
 
               run_hits = []
               run_contexts = 0
+              run_is_full_candidate = False
               for member in zf.namelist():
                   if member.endswith('/'):
                       continue
-                  lines = zf.read(member).decode('utf-8', errors='replace').splitlines()
+                  raw_text = zf.read(member).decode('utf-8', errors='replace')
+                  lines = raw_text.splitlines()
+                  folded_all = raw_text.casefold()
+                  if any(m.casefold() in folded_all for m in full_log_markers):
+                      run_is_full_candidate = True
+                      safe_member = re.sub(r'[^A-Za-z0-9_.-]+', '_', member)[:120]
+                      full_path = fulldir / f'{rid}__{safe_member}'
+                      full_path.write_text(ansi.sub('', raw_text), encoding='utf-8')
                   hit_indexes = []
                   for pos, line in enumerate(lines):
                       folded = line.casefold()
@@ -108,9 +129,7 @@ jobs:
                   if not hit_indexes:
                       continue
 
-                  # Preserve wide context around evidence so transient shell/Python code and
-                  # CSV generation statements printed by Actions can be reconstructed exactly.
-                  ranges = merge_ranges([(max(0, p - 120), min(len(lines) - 1, p + 120)) for p in hit_indexes])
+                  ranges = merge_ranges([(max(0, p - 180), min(len(lines) - 1, p + 180)) for p in hit_indexes])
                   safe_member = re.sub(r'[^A-Za-z0-9_.-]+', '_', member)[:120]
                   for block_no, (start, end) in enumerate(ranges, 1):
                       filename = f'{rid}__{safe_member}__{block_no:02d}__L{start+1}-L{end+1}.txt'
@@ -130,6 +149,11 @@ jobs:
                       })
                       run_contexts += 1
 
+              if run_is_full_candidate:
+                  full_candidates.append({
+                      'run_id': rid, 'name': name, 'path': path, 'head_sha': sha,
+                      'created_at': run.get('created_at'), 'conclusion': run.get('conclusion'),
+                  })
               if run_hits:
                   matched_runs += 1
                   strong_hits = sum(
@@ -146,18 +170,20 @@ jobs:
                   for member, lineno, line in run_hits:
                       extracted_lines.append(f'{rid}\t{sha}\t{name}\t{member}:{lineno}\t{line}')
               if idx % 50 == 0:
-                  print(f'scanned={idx}/{len(runs)} logs_ok={log_ok} matched_runs={matched_runs}')
+                  print(f'scanned={idx}/{len(runs)} logs_ok={log_ok} matched_runs={matched_runs} full_candidates={len(full_candidates)}')
 
           summary.sort(key=lambda x: (-x['score'], -x['hits'], x['run_id']))
           (out/'run-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
           (out/'context-index.json').write_text(json.dumps(context_index, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          (out/'full-candidates.json').write_text(json.dumps(full_candidates, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
           (out/'matching-lines.tsv').write_text('\n'.join(extracted_lines)+'\n', encoding='utf-8')
           report = {
               'total_runs': len(runs), 'logs_downloaded': log_ok, 'logs_unavailable': log_missing,
               'matched_runs': matched_runs, 'matching_lines': len(extracted_lines),
-              'context_blocks': len(context_index),
+              'context_blocks': len(context_index), 'full_candidate_runs': len(full_candidates),
               'target_fingerprint_hits': sum(target_fp in line for line in extracted_lines),
-              'top_runs': summary[:40],
+              'target_archive_sha_hits': sum(target_archive in line for line in extracted_lines),
+              'top_runs': summary[:60],
           }
           (out/'REPORT.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
           print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -173,7 +199,7 @@ jobs:
           src = Path('recovered/matching-lines.tsv').read_text(encoding='utf-8', errors='replace').splitlines()
           candidates, urls, hashes = [], [], []
           for line in src:
-              if re.search(r'\bclub_\d+\.(?:png|svg)\b', line, re.I) or any(k in line for k in ('sourceCrestPath','sourceCrestSha256','legacyTeamId','identityEvidence')):
+              if re.search(r'\bclub_\d+\.(?:png|svg)\b', line, re.I) or any(k in line for k in ('sourceCrestPath','sourceCrestSha256','legacyTeamId','identityEvidence','crestFileName','plan.csv','source-crests')):
                   candidates.append(line)
               urls += re.findall(r'https?://[^\s\"\']+', line)
               hashes += re.findall(r'\b[0-9a-f]{64}\b', line, re.I)
@@ -186,7 +212,7 @@ jobs:
       - name: Upload contextual recovery evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: exact-crest-plan-context-recovery-${{ github.sha }}
+          name: exact-crest-plan-deep-recovery-${{ github.sha }}
           path: recovered/
           if-no-files-found: error
           retention-days: 3
