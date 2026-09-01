@@ -56,6 +56,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tools/manual_test/apply_p3_coach_avatar_20260901.py')
+          text = p.read_text(encoding='utf-8')
+          old = '''            .clear()
+              .commit()
+          }
+
+              @Test'''
+          # The embedded @After expression body must evaluate to Unit for JUnit 4.
+          # Match the source without depending on indentation in this workflow heredoc.
+          old = old.replace('  ', '')
+          anchor = '            .clear()\n            .commit()\n    }\n\n    @Test'
+          replacement = '            .clear()\n            .commit()\n        Unit\n    }\n\n    @Test'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected one tearDown anchor, found {text.count(anchor)}')
+          p.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
           python3 -m py_compile tools/manual_test/apply_p3_coach_avatar_20260901.py
           python3 tools/manual_test/apply_p3_coach_avatar_20260901.py
           git diff --check
@@ -95,6 +113,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
+            tools/manual_test/apply_p3_coach_avatar_20260901.py \
             app/src/main/java/com/example/data/GamePreferencesRepository.kt \
             app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
             app/src/main/java/com/example/ui/components/CoachAvatar.kt \
