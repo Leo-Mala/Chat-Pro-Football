@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout exact current head
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30dcc455b5382be2fdbfb
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -40,3 +40,4 @@ jobs:
 # Recovery trigger: export the exact bugfix head for local crest materialization and APK validation.
 # Re-triggered after confirming the final hardened crest corpus locally on 2026-08-30.
 # Re-export current runtime-fix head for exact offline manual-test APK certification on 2026-08-31.
+# Accelerated source export after recovering the exact 2,524-crest corpus from the retained ChatGPT Library on 2026-09-01.
