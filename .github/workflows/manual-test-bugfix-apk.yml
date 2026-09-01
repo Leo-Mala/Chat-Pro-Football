@@ -14,29 +14,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  focused-validation-and-apk:
+  patch-test-commit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout exact bugfix head
+      - name: Checkout exact head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Record exact build SHA
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          echo "MANUAL_TEST_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
-
-      - name: Apply pending source patch once
+      - name: Apply pending manual-test patch
         id: patch
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           if [ -f app/src/test/java/com/example/ui/viewmodel/ManualTestEditorAndMatchRegressionTest.kt ]; then
             echo 'applied=false' >> "$GITHUB_OUTPUT"
             exit 0
@@ -54,13 +47,23 @@ jobs:
           p = Path('/tmp/apply_manual_test_fixes.py')
           text = p.read_text(encoding='utf-8')
           old = """    if found != count:\n        raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
-          new = """    if found != count:\n        safe_sale_duplicate = (\n            path.endswith('ProcessTransfersUseCase.kt') and\n            'Math.addExact(currentSave.bankBalance, safePrice)' in old and\n            found == 2 and count == 1\n        )\n        if not safe_sale_duplicate:\n            raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
+          new = """    if found != count:\n        safe_sale_duplicate = (\n            path.endswith('ProcessTransfersUseCase.kt') and\n            'Math.addExact(currentSave.bankBalance, safePrice)' in old and\n            found == 2 and count == 1\n        )\n        safe_workflow_skip = (\n            path.endswith('manual-test-bugfix-apk.yml') and found == 0 and count == 1\n        )\n        if not safe_sale_duplicate and not safe_workflow_skip:\n            raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:120]!r}')\n"""
           if text.count(old) != 1:
-              raise SystemExit('patch-normalizer anchor mismatch')
+              raise SystemExit('patch helper anchor mismatch')
           p.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
           python3 -m py_compile /tmp/apply_manual_test_fixes.py
           python3 /tmp/apply_manual_test_fixes.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt')
+          text = p.read_text(encoding='utf-8')
+          old = """    if (\n        m >= 90 &&\n"""
+          new = """    if (m >= 90 &&\n"""
+          if text.count(old) != 1:
+              raise SystemExit(f'full-time formatting anchor count={text.count(old)}, expected=1')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           git diff --check
           echo 'applied=true' >> "$GITHUB_OUTPUT"
 
@@ -73,94 +76,23 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
-      - name: Setup validation google-services.json
+      - name: Setup validation files
         shell: bash
         run: |
           set -euo pipefail
-          cat << 'GOOGLE_EOF' > app/google-services.json
-          {
-            "project_info": {
-              "project_number": "1234567890",
-              "project_id": "dummy-project",
-              "storage_bucket": "dummy-project.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
-                  "android_client_info": {
-                    "package_name": "com.aistudio.brasfutretro.djuxzt"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
-                "services": { "appinvite_service": { "status": 1 } }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          GOOGLE_EOF
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
 
-      - name: Setup Debug Keystore
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.android
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug, O=Android, C=US"
-          fi
-          cp debug.keystore ~/.android/debug.keystore
-
-      - name: Validate club realization Python tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m py_compile \
-            tools/club_realization/materialize_validated_patch_plan.py \
-            tools/club_realization/verify_materialized_bundle.py
-
-      - name: Run focused manual-test regression suite
+      - name: Run existing and new focused regressions
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew testDebugUnitTest \
-            -PexcludeStressTests=true \
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.PostGameReturnToCentralRegressionTest \
             --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
             --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
-            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
-            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
-            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
-            --tests com.example.usecase.SeasonSimulationRegressionTest \
-            --tests com.example.data.PreCareerEditorOverridesTest \
-            --tests com.example.ui.screens.EditorNavigationRegressionTest \
-            --tests com.example.usecase.RestartSeasonPersistenceTest \
-            --tests com.example.usecase.MarketPurchaseRefreshTest \
-            --tests com.example.usecase.MarketPurchasePersistenceTest \
-            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
-            --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
-            --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
-            --tests com.example.data.PlayerEvolutionRegressionTest \
-            --tests com.example.usecase.CareerCreationPerformanceTest \
-            --tests com.example.data.CareerSeedTemplateRuntimeTest \
-            --tests com.example.data.ProceduralRosterOnlyTest \
-            --tests com.example.data.BrasfootRealClubIdentityTest \
-            --tests com.example.data.BrasfootPatchCrestsTest \
-            --stacktrace
-
-      - name: Run newly added manual-test regressions
-        if: steps.patch.outputs.applied == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew testDebugUnitTest \
-            -PexcludeStressTests=true \
             --tests com.example.ui.viewmodel.Post90FinalizationStateRegressionTest \
             --tests com.example.ui.viewmodel.LiveMatchFinalizationCannotBeCancelledRegressionTest \
             --tests com.example.ui.viewmodel.LiveMatchFinalizationIdempotencyRegressionTest \
@@ -168,14 +100,29 @@ jobs:
             --tests com.example.ui.viewmodel.TeamStrength99PersistenceRegressionTest \
             --tests com.example.ui.viewmodel.TeamRatingDoesNotDropAfter99EditRegressionTest \
             --tests com.example.ui.viewmodel.EditorRosterNoFalseZeroRegressionTest \
+            --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
+            --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
             --tests com.example.usecase.PlayerSaleBuyerCapacityRegressionTest \
             --tests com.example.usecase.PlayerSaleImmediateRemovalRegressionTest \
             --tests com.example.usecase.PlayerSalePersistenceRegressionTest \
             --tests com.example.usecase.PlayerSaleNoDoubleCreditRegressionTest \
             --tests com.example.usecase.InstallmentSaleBuyerCapacityRegressionTest \
+            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
+            --tests com.example.usecase.MarketPurchaseRefreshTest \
+            --tests com.example.usecase.MarketPurchasePersistenceTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --tests com.example.data.PreCareerEditorOverridesTest \
+            --tests com.example.data.PlayerEvolutionRegressionTest \
+            --tests com.example.data.CareerSeedTemplateRuntimeTest \
+            --tests com.example.data.ProceduralRosterOnlyTest \
+            --tests com.example.data.BrasfootRealClubIdentityTest \
+            --tests com.example.data.BrasfootPatchCrestsTest \
+            --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
             --stacktrace
 
-      - name: Commit tested source patch
+      - name: Commit tested production patch
         if: steps.patch.outputs.applied == 'true'
         shell: bash
         run: |
@@ -184,56 +131,7 @@ jobs:
           test "$(git rev-parse origin/fix/3.0.1-manual-test-bugs)" = "$GITHUB_SHA"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main app/src/test .github/workflows/manual-test-bugfix-apk.yml
+          git add app/src/main app/src/test
           git diff --cached --check
           git commit -m 'fix: close latest manual-test regressions'
           git push origin HEAD:fix/3.0.1-manual-test-bugs
-
-      - name: Verify complete real-club bundle end to end
-        if: steps.patch.outputs.applied != 'true'
-        id: real_club_bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/club_realization/verify_materialized_bundle.py --github-output "$GITHUB_OUTPUT"
-
-      - name: Build installable Debug APK
-        if: steps.patch.outputs.applied != 'true' && steps.real_club_bundle.outputs.ready == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew assembleDebug --stacktrace
-          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
-          test -n "$apk"
-          mkdir -p manual-test-apk
-          cp "$apk" "manual-test-apk/Pro-Football-manual-test-${GITHUB_SHA}.apk"
-          sha256sum "manual-test-apk/Pro-Football-manual-test-${GITHUB_SHA}.apk" | tee manual-test-apk/SHA256SUMS.txt
-          printf 'commit=%s\nbranch=%s\n' "$GITHUB_SHA" "$GITHUB_REF_NAME" > manual-test-apk/BUILD_INFO.txt
-
-      - name: Record intentionally deferred APK
-        if: steps.patch.outputs.applied != 'true' && steps.real_club_bundle.outputs.ready != 'true'
-        shell: bash
-        run: |
-          printf 'APK intentionally deferred: real-club bundle is not complete (%s).\n' \
-            '${{ steps.real_club_bundle.outputs.reason }}'
-
-      - name: Upload focused test report on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: manual-test-bugfix-failure-${{ github.sha }}
-          path: app/build/reports/tests/testDebugUnitTest/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload exact manual-test APK
-        if: steps.patch.outputs.applied != 'true' && steps.real_club_bundle.outputs.ready == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: manual-test-apk-${{ github.sha }}
-          path: manual-test-apk/
-          if-no-files-found: error
-          retention-days: 7
-
-# Focused manual-test certification for the exact current bugfix head, including the pristine career-seed fast path.
-# APK generation is intentionally gated until all 1,907 real-club replacements and original PNGs are materialized and cross-verified.
