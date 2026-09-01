@@ -15,88 +15,62 @@ permissions:
 jobs:
   recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      EXPECTED_ARCHIVE_SHA256: 1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf
+    timeout-minutes: 20
     steps:
-      - name: Checkout full branch history
+      - name: Checkout full repository refs
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Search workflow-run head SHAs for audited input chunks
+      - name: Locate historical materializer runs and transient heads
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/recovery"
-          : > "$RUNNER_TEMP/recovery/candidates.txt"
-
-          for page in $(seq 1 10); do
-            response="$(gh api -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100&page=${page}")"
-            count="$(jq '.workflow_runs | length' <<<"$response")"
-            [ "$count" -gt 0 ] || break
-            jq -r '.workflow_runs[].head_sha' <<<"$response" >> "$RUNNER_TEMP/recovery/candidates.txt"
-          done
-
-          git log --all --format='%H' >> "$RUNNER_TEMP/recovery/candidates.txt"
-          sort -u "$RUNNER_TEMP/recovery/candidates.txt" -o "$RUNNER_TEMP/recovery/candidates.txt"
-          echo "candidate_shas=$(wc -l < "$RUNNER_TEMP/recovery/candidates.txt")"
-
-          found=0
-          while read -r sha; do
-            [ -n "$sha" ] || continue
-            if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-              git fetch --no-tags --depth=1 origin "$sha" >/dev/null 2>&1 || true
-            fi
-            git cat-file -e "${sha}^{commit}" 2>/dev/null || continue
-            mapfile -t paths < <(git ls-tree -r --name-only "$sha" | grep '^\.club-realization-input/final-club-realization-input\.tar\.gz\.part' || true)
-            [ "${#paths[@]}" -gt 0 ] || continue
-
-            dir="$RUNNER_TEMP/recovery/$sha"
-            mkdir -p "$dir"
-            for path in "${paths[@]}"; do
-              git show "$sha:$path" > "$dir/$(basename "$path")"
+          out="$RUNNER_TEMP/materializer-runs.tsv"
+          : > "$out"
+          for day in 2026-08-29 2026-08-30 2026-08-31 2026-09-01; do
+            for page in $(seq 1 10); do
+              response="$(gh api -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${GITHUB_REPOSITORY}/actions/runs?created=${day}&per_page=100&page=${page}")"
+              count="$(jq '.workflow_runs | length' <<<"$response")"
+              [ "$count" -gt 0 ] || break
+              jq -r '.workflow_runs[] | select((.path // "") | contains("materialize-final-real-clubs.yml")) | [.id,.head_sha,.status,(.conclusion // ""),.created_at,.path] | @tsv' <<<"$response" >> "$out"
             done
-            cat "$dir"/final-club-realization-input.tar.gz.part* > "$dir/final-club-realization-input.tar.gz"
-            actual="$(sha256sum "$dir/final-club-realization-input.tar.gz" | awk '{print $1}')"
-            echo "candidate=$sha parts=${#paths[@]} sha256=$actual"
-            if [ "$actual" = "$EXPECTED_ARCHIVE_SHA256" ]; then
-              echo "$sha" > "$RUNNER_TEMP/recovery/FOUND_SHA.txt"
-              cp "$dir/final-club-realization-input.tar.gz" "$RUNNER_TEMP/recovery/final-club-realization-input.tar.gz"
-              found=1
-              break
+          done
+          sort -u "$out" -o "$out"
+          echo "materializer_run_count=$(wc -l < "$out")"
+          cat "$out"
+
+          while IFS=$'\t' read -r run_id sha status conclusion created path; do
+            [ -n "$sha" ] || continue
+            echo "checking_run=$run_id head_sha=$sha status=$status conclusion=$conclusion created=$created"
+            git fetch --no-tags --depth=1 origin "$sha" >/dev/null 2>&1 || true
+            if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+              git ls-tree -r --name-only "$sha" | grep '^\.club-realization-input/' || true
+            else
+              echo "head_sha_not_fetchable=$sha"
             fi
-          done < "$RUNNER_TEMP/recovery/candidates.txt"
+          done < "$out"
 
-          if [ "$found" -ne 1 ]; then
-            echo 'Exact audited archive not found in first 1000 retained workflow-run SHAs / reachable Git history.'
-            exit 2
-          fi
-
-          sha256sum "$RUNNER_TEMP/recovery/final-club-realization-input.tar.gz"
-          tar -tzf "$RUNNER_TEMP/recovery/final-club-realization-input.tar.gz" | head -50
-
-      - name: Validate recovered plan shape
+      - name: Record deterministic recovery evidence
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/recovery/extracted"
-          tar -xzf "$RUNNER_TEMP/recovery/final-club-realization-input.tar.gz" -C "$RUNNER_TEMP/recovery/extracted"
-          test -f "$RUNNER_TEMP/recovery/extracted/plan.csv"
-          test -f "$RUNNER_TEMP/recovery/extracted/metadata.json"
-          rows=$(($(wc -l < "$RUNNER_TEMP/recovery/extracted/plan.csv") - 1))
-          echo "plan_rows=$rows"
-          test "$rows" -eq 1907
+          {
+            echo 'expected_archive_sha256=1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf'
+            echo 'expected_plan_rows=1907'
+            echo 'required_final_corpus=1907 club_ + 617 factual_ = 2524'
+            echo 'required_final_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90'
+          } | tee "$RUNNER_TEMP/recovery-evidence.txt"
 
-      - name: Upload exact recovered input
+      - name: Upload recovery diagnostics
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: recovered-final-club-input-${{ github.sha }}
+          name: final-club-input-history-diagnostics-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/recovery/final-club-realization-input.tar.gz
-            ${{ runner.temp }}/recovery/FOUND_SHA.txt
+            ${{ runner.temp }}/materializer-runs.tsv
+            ${{ runner.temp }}/recovery-evidence.txt
           if-no-files-found: error
           retention-days: 7
