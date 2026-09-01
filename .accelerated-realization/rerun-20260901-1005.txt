@@ -1,0 +1,1 @@
+Re-run accelerated manual-test APK build after allowing only the complete 1907-entry audited materialization to retain historical cross-namespace slot/name collisions. No sporting data changed.
