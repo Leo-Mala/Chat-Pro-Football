@@ -1,0 +1,150 @@
+name: Recover final club input artifacts
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/recover-final-club-input-artifacts.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Enumerate historical builders and artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TARGET_FP: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+          TARGET_ARCHIVE_SHA: 1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          from datetime import datetime, timezone
+
+          repo = os.environ['REPO']
+          target_fp = os.environ['TARGET_FP']
+          target_archive = os.environ['TARGET_ARCHIVE_SHA']
+          out = pathlib.Path('recovery')
+          branches = ['fix/3.0.1-manual-test-bugs', 'tmp/external-crest-audit']
+          workflow_terms = (
+              'crest','club','realization','replacement','materialize','harden','audit','export','factual','logo'
+          )
+          source_markers = (
+              'final-club-realization-input','validated-replacement-plan','plan.csv','metadata.json',
+              'source-crests','.club-realization-input','sourceCrestSha256','sourceCrestPath',
+              'crestFileName','1801','106',target_fp,target_archive,
+          )
+          artifact_terms = (
+              'crest','club','realization','replacement','plan','input','source','audit','logo','bundle','final','harden'
+          )
+
+          def api(path, fields=None):
+              cmd=['gh','api','--method','GET',path]
+              for k,v in (fields or {}).items():
+                  cmd += ['-f', f'{k}={v}']
+              return json.loads(subprocess.check_output(cmd, text=True))
+
+          runs=[]
+          for branch in branches:
+              page=1
+              while True:
+                  payload=api(f'repos/{repo}/actions/runs', {'branch':branch,'per_page':'100','page':str(page)})
+                  batch=payload.get('workflow_runs',[])
+                  if not batch: break
+                  for r in batch:
+                      created=r.get('created_at','')
+                      if created and created < '2026-08-29T00:00:00Z':
+                          continue
+                      if created and created > '2026-08-31T23:59:59Z':
+                          continue
+                      runs.append(r)
+                  if len(batch)<100: break
+                  page += 1
+
+          workflow_cache={}
+          records=[]
+          artifact_records=[]
+          for idx,r in enumerate(runs,1):
+              rid=r['id']; name=r.get('name',''); path=r.get('path',''); sha=r.get('head_sha','')
+              text=''
+              key=(sha,path)
+              if path and path.startswith('.github/workflows/'):
+                  if key not in workflow_cache:
+                      try:
+                          data=api(f'repos/{repo}/contents/{path}', {'ref':sha})
+                          workflow_cache[key]=base64.b64decode(data.get('content','')).decode('utf-8','replace')
+                      except Exception as exc:
+                          workflow_cache[key]=f'ERROR:{exc}'
+                  text=workflow_cache[key]
+              low=(name+' '+path+' '+text).casefold()
+              marker_hits=[m for m in source_markers if m.casefold() in low]
+              term_hits=[t for t in workflow_terms if t in low]
+              relevant=bool(marker_hits or term_hits)
+              try:
+                  arts=api(f'repos/{repo}/actions/runs/{rid}/artifacts', {'per_page':'100'}).get('artifacts',[])
+              except Exception:
+                  arts=[]
+              for a in arts:
+                  aname=a.get('name',''); alow=aname.casefold()
+                  ahits=[t for t in artifact_terms if t in alow]
+                  rec={
+                      'run_id':rid,'run_name':name,'workflow_path':path,'head_sha':sha,
+                      'created_at':r.get('created_at'),'conclusion':r.get('conclusion'),
+                      'artifact_id':a.get('id'),'artifact_name':aname,'size':a.get('size_in_bytes'),
+                      'expired':a.get('expired'),'expires_at':a.get('expires_at'),'digest':a.get('digest'),
+                      'artifact_term_hits':ahits,'workflow_marker_hits':marker_hits,
+                  }
+                  artifact_records.append(rec)
+              if relevant:
+                  records.append({
+                      'run_id':rid,'name':name,'path':path,'head_sha':sha,'created_at':r.get('created_at'),
+                      'conclusion':r.get('conclusion'),'workflow_terms':term_hits,'markers':marker_hits,
+                      'artifact_count':len(arts),
+                  })
+                  if text and not text.startswith('ERROR:') and marker_hits:
+                      (out/f'workflow-{rid}-{sha[:10]}.yml').write_text(text,encoding='utf-8')
+              if idx % 50 == 0:
+                  print(f'scanned_runs={idx}/{len(runs)} artifacts={len(artifact_records)} relevant={len(records)}')
+
+          ranked=[]
+          for a in artifact_records:
+              score=0
+              score += 100 * len(a['workflow_marker_hits'])
+              score += 20 * len(a['artifact_term_hits'])
+              if not a['expired']: score += 50
+              if a['size'] and a['size'] > 1000000: score += 5
+              a['score']=score
+              if score>0: ranked.append(a)
+          ranked.sort(key=lambda x:(-x['score'], x['created_at'] or '', x['run_id']))
+          records.sort(key=lambda x:(-(len(x['markers'])*100+len(x['workflow_terms'])), x['created_at'] or ''))
+          artifact_records.sort(key=lambda x:(x['created_at'] or '',x['run_id'],x['artifact_name']))
+
+          (out/'relevant-runs.json').write_text(json.dumps(records,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          (out/'all-artifacts.json').write_text(json.dumps(artifact_records,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          (out/'ranked-artifacts.json').write_text(json.dumps(ranked,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          report={
+              'runs_scanned':len(runs),'relevant_runs':len(records),'artifacts_seen':len(artifact_records),
+              'nonexpired_artifacts':sum(not a['expired'] for a in artifact_records),
+              'ranked_candidates':len(ranked),'top_candidates':ranked[:80],
+          }
+          (out/'REPORT.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Upload recovery inventory
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-club-input-artifact-inventory-${{ github.sha }}
+          path: recovery/
+          if-no-files-found: error
+          retention-days: 3
