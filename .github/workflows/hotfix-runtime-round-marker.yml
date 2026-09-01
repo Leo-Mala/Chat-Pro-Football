@@ -1,0 +1,55 @@
+name: Repair Runtime Round Marker
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - '.github/workflows/hotfix-runtime-round-marker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-runtime-round-marker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repair-marker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+
+      - name: Repair exact restart marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tools/manual_test/apply_runtime_bugfix_round_20260831.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'fun exportSaveToUri'
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'expected exactly 2 obsolete restart delimiters, found {count}')
+          path.write_text(text.replace(old, 'fun selectCountry'), encoding='utf-8')
+          PY
+          python3 -m py_compile tools/manual_test/apply_runtime_bugfix_round_20260831.py
+          git diff --check
+          grep -n 'restartCurrentSeason\|fun selectCountry' tools/manual_test/apply_runtime_bugfix_round_20260831.py | head -20
+
+      - name: Commit marker repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/manual_test/apply_runtime_bugfix_round_20260831.py
+          git diff --cached --check
+          git commit -m 'ci: align runtime restart patch marker with current source'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
