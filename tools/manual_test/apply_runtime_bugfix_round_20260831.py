@@ -707,7 +707,7 @@ import org.junit.Test
 class RestartSeasonEditorRosterRegressionTest {
     @Test fun `restart never recreates teams or players and editor waits until reset completes`() {
         val repo = project("src/main/java/com/example/data/repository.kt").readText()
-        val block = repo.substringAfter("restartSeasonStateAtomically").substringBefore("suspend fun getActiveLoans")
+        val block = repo.substringAfter("restartSeasonStateAtomically").substringBefore("suspend fun saveTransaction")
         assertFalse(block.contains("saveTeams("))
         assertFalse(block.contains("deleteAllPlayers"))
         assertTrue(block.contains("resetSeasonState()"))
