@@ -1,0 +1,199 @@
+name: Recover audited crest corpus from Gradle cache
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - '.github/workflows/recover-crests-from-gradle-cache.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recover-crests-from-gradle-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET_FP: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+      EXPECTED_CLUB: '1907'
+      EXPECTED_FACTUAL: '617'
+      EXPECTED_TOTAL: '2524'
+    steps:
+      - name: Checkout exact recovery head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Restore shared Gradle state
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: true
+
+      - name: Inspect restored Gradle caches for historical crest outputs
+        id: recover
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery/report recovery/extracted recovery/corpus
+          python3 - <<'PY'
+          from __future__ import annotations
+          import gzip, hashlib, io, json, os, pathlib, re, shutil, tarfile
+
+          home = pathlib.Path.home() / '.gradle'
+          out = pathlib.Path('recovery')
+          extract_root = out / 'extracted'
+          corpus_root = out / 'corpus' / 'club_crests'
+          target = os.environ['TARGET_FP']
+          expected_total = int(os.environ['EXPECTED_TOTAL'])
+          expected_club = int(os.environ['EXPECTED_CLUB'])
+          expected_factual = int(os.environ['EXPECTED_FACTUAL'])
+
+          candidates = []
+          cache_files = []
+          for base in [home / 'caches' / 'build-cache-1', home / 'caches']:
+              if not base.exists():
+                  continue
+              for p in base.rglob('*'):
+                  if p.is_file() and p.stat().st_size >= 256:
+                      cache_files.append(p)
+              if cache_files:
+                  break
+
+          def fingerprint(files):
+              h = hashlib.sha256()
+              for p in sorted(files, key=lambda x: x.name):
+                  name = 'assets/club_crests/' + p.name
+                  h.update(name.encode('utf-8'))
+                  h.update(b'\0')
+                  h.update(hashlib.sha256(p.read_bytes()).digest())
+              return h.hexdigest()
+
+          def assess_dir(root: pathlib.Path, source: str):
+              files = [p for p in root.rglob('*') if p.is_file() and re.fullmatch(r'(?:club|factual)_\d+\.(?:webp|png|svg)', p.name, re.I)]
+              if not files:
+                  return False
+              by_name = {}
+              for p in files:
+                  by_name.setdefault(p.name, p)
+              unique = list(by_name.values())
+              club = sum(p.name.startswith('club_') for p in unique)
+              factual = sum(p.name.startswith('factual_') for p in unique)
+              fp = fingerprint(unique) if len(unique) == expected_total else None
+              row = {'source': source, 'unique': len(unique), 'club': club, 'factual': factual, 'fingerprint': fp}
+              candidates.append(row)
+              print(json.dumps(row, sort_keys=True))
+              if len(unique) == expected_total and club == expected_club and factual == expected_factual and fp == target:
+                  if corpus_root.exists():
+                      shutil.rmtree(corpus_root)
+                  corpus_root.mkdir(parents=True)
+                  for p in unique:
+                      shutil.copyfile(p, corpus_root / p.name)
+                  return True
+              return False
+
+          recovered = assess_dir(home, 'restored-gradle-tree')
+          inspected = 0
+          hits = 0
+
+          if not recovered:
+              build_cache = home / 'caches' / 'build-cache-1'
+              files = list(build_cache.glob('*')) if build_cache.exists() else []
+              for idx, p in enumerate(files):
+                  if not p.is_file() or p.stat().st_size < 256:
+                      continue
+                  inspected += 1
+                  data = None
+                  try:
+                      raw = p.read_bytes()
+                  except OSError:
+                      continue
+                  # Gradle's directory build-cache entries are commonly gzip-packed.
+                  try:
+                      data = gzip.decompress(raw)
+                  except Exception:
+                      data = raw
+                  if b'club_crests' not in data and b'club_' not in data and b'factual_' not in data:
+                      continue
+                  hits += 1
+                  dest = extract_root / f'{idx:05d}-{p.name[:24]}'
+                  dest.mkdir(parents=True, exist_ok=True)
+                  unpacked = False
+                  for payload in (raw, data):
+                      try:
+                          with tarfile.open(fileobj=io.BytesIO(payload), mode='r:*') as tf:
+                              safe=[]
+                              for m in tf.getmembers():
+                                  if m.isfile() and '..' not in pathlib.PurePosixPath(m.name).parts and not pathlib.PurePosixPath(m.name).is_absolute():
+                                      safe.append(m)
+                              tf.extractall(dest, members=safe, filter='data')
+                              unpacked = True
+                              break
+                      except Exception:
+                          pass
+                  if not unpacked:
+                      (dest / 'entry.bin').write_bytes(data)
+                      strings = re.findall(rb'[ -~]{8,}', data)
+                      (dest / 'strings.txt').write_bytes(b'\n'.join(strings[:20000]))
+                  if assess_dir(dest, f'build-cache:{p.name}'):
+                      recovered = True
+                      break
+
+          report = {
+              'gradle_home': str(home),
+              'build_cache_entries_inspected': inspected,
+              'binary_name_hits': hits,
+              'candidates': candidates,
+              'recovered': recovered,
+              'target_fingerprint': target,
+          }
+          (out/'report'/'gradle-cache-recovery.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write(f'recovered={str(recovered).lower()}\n')
+          if recovered:
+              files=list(corpus_root.iterdir())
+              (out/'corpus'/'FINGERPRINT.txt').write_text(fingerprint(files)+'\n', encoding='utf-8')
+              (out/'corpus'/'COUNTS.txt').write_text(
+                  f"total={len(files)}\nclub={sum(p.name.startswith('club_') for p in files)}\nfactual={sum(p.name.startswith('factual_') for p in files)}\n",
+                  encoding='utf-8')
+          PY
+
+      - name: Verify exact recovered corpus
+        if: steps.recover.outputs.recovered == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find recovery/corpus/club_crests -maxdepth 1 -type f | wc -l)" = "$EXPECTED_TOTAL"
+          test "$(find recovery/corpus/club_crests -maxdepth 1 -type f -name 'club_*' | wc -l)" = "$EXPECTED_CLUB"
+          test "$(find recovery/corpus/club_crests -maxdepth 1 -type f -name 'factual_*' | wc -l)" = "$EXPECTED_FACTUAL"
+          test "$(cat recovery/corpus/FINGERPRINT.txt)" = "$TARGET_FP"
+
+      - name: Upload byte-identical recovered corpus
+        if: steps.recover.outputs.recovered == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: audited-2524-crests-from-gradle-cache-${{ github.sha }}
+          path: recovery/corpus/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload cache recovery report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gradle-cache-crest-recovery-report-${{ github.sha }}
+          path: recovery/report/
+          if-no-files-found: error
+          retention-days: 3
