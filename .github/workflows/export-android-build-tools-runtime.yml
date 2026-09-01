@@ -1,0 +1,39 @@
+name: Export Android build-tools runtime
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-android-build-tools-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Export zipalign/aapt native runtime only
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          test -n "$bt"
+          mkdir -p runtime/build-tools/lib64
+          cp "$bt/zipalign" runtime/build-tools/
+          cp "$bt/aapt" runtime/build-tools/
+          cp "$bt/lib64/libc++.so" runtime/build-tools/lib64/
+          chmod +x runtime/build-tools/zipalign runtime/build-tools/aapt
+          printf 'build_tools=%s\n' "$(basename "$bt")" > runtime/BUILD_TOOLS.txt
+          sha256sum runtime/build-tools/zipalign runtime/build-tools/aapt runtime/build-tools/lib64/libc++.so > runtime/SHA256SUMS.txt
+
+      - name: Upload native runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-build-tools-runtime-${{ github.sha }}
+          path: runtime/
+          if-no-files-found: error
+          retention-days: 1
