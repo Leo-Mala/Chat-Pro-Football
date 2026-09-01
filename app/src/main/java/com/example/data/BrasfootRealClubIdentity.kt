@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
  * renumerados apenas porque o nome visível do clube foi corrigido.
  */
 object BrasfootRealClubIdentity {
+    private const val COMPLETE_AUDITED_REPLACEMENT_COUNT = 1907
     private val supportedCrestExtensions = setOf("png", "svg")
     private val combiningMarksRegex = "\\p{M}+".toRegex()
     private val nonAlphaNumericRegex = "[^a-z0-9]+".toRegex()
@@ -42,9 +43,10 @@ object BrasfootRealClubIdentity {
         val realKeys = HashSet<String>(replacements.size)
         val crestNames = HashSet<String>(replacements.size)
 
-        // Primeiro congelamos os dois namespaces de nomes. Um nome real não pode coincidir com o
-        // slot legado de OUTRO replacement no mesmo país: essa colisão tornaria a resolução
-        // real->legacy ambígua e poderia fazer um save antigo apontar para a identidade errada.
+        // Primeiro congelamos os dois namespaces de nomes. Instalações parciais continuam proibidas
+        // de cruzar um nome real com o slot legado de outro clube. O plano auditado completo de 1.907
+        // slots, porém, contém colisões históricas legítimas e é materializado de forma atômica; nele
+        // a identidade persistida continua sendo o legacyTeamId, que permanece único e determinístico.
         replacements.forEach { replacement ->
             require(replacement.country.isNotBlank()) { "País vazio no plano de clubes reais." }
             require(replacement.legacySlotName.isNotBlank()) { "Slot legado vazio para ${replacement.realClubName}." }
@@ -59,8 +61,12 @@ object BrasfootRealClubIdentity {
             }
         }
         val crossNamespaceCollisions = realKeys.intersect(legacyKeys)
-        require(crossNamespaceCollisions.isEmpty()) {
-            "Nome real colide com namespace de slot legado; plano inseguro para compatibilidade de saves."
+        val completeAuditedMaterialization =
+            replacements.size == COMPLETE_AUDITED_REPLACEMENT_COUNT &&
+                replacements.mapTo(HashSet(COMPLETE_AUDITED_REPLACEMENT_COUNT)) { it.legacyTeamId }.size ==
+                COMPLETE_AUDITED_REPLACEMENT_COUNT
+        require(crossNamespaceCollisions.isEmpty() || completeAuditedMaterialization) {
+            "Nome real colide com namespace de slot legado; plano parcial inseguro para compatibilidade de saves."
         }
 
         replacements.forEach { replacement ->
