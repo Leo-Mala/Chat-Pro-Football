@@ -1,3 +1,4 @@
+# CI-only trigger for the latest tested manual-test fixes.
 name: Build accelerated manual-test APK base
 
 on:
