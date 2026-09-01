@@ -1,0 +1,211 @@
+name: Build accelerated manual-test APK base
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/build-accelerated-manual-test-apk.yml
+      - .accelerated-realization/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accelerated-manual-test-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact accelerated head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Setup deterministic debug keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > ~/.android/debug.keystore
+          else
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+
+      - name: Reconstruct exact audited 1907 replacement mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .accelerated-realization/mapping.b64.part* | base64 -d | gzip -d \
+            > app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt
+          echo 'ff99ff8228efcd372b86fc57671b35b7156ff00417dd1469c346818118250956  app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt' | sha256sum -c -
+          test "$(grep -c 'BrasfootRealClubIdentity.Replacement(' app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt)" -eq 1907
+          grep -q 'EXPECTED_REPLACEMENT_COUNT: Int = 1907' app/src/main/java/com/example/data/BrasfootRealClubReplacementData.kt
+
+      - name: Materialize audited real-club names into exact legacy slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/example/data/DefaultData.kt')
+          text = p.read_text(encoding='utf-8')
+          old = '''    val countriesMap: Map<String, CountryData> by lazy {\n        val map = mutableMapOf<String, CountryData>()\n        for (country in GlobalFootballSystem.keys) {'''
+          new = '''    val countriesMap: Map<String, CountryData> by lazy {\n        val realClubReplacements = BrasfootRealClubReplacementData.replacements\n        check(realClubReplacements.size == BrasfootRealClubReplacementData.EXPECTED_REPLACEMENT_COUNT)\n        BrasfootRealClubIdentity.install(realClubReplacements)\n        val replacementsByLegacySlot = realClubReplacements.associateBy {\n            Triple(it.country, it.division, it.legacySlotName)\n        }\n        var appliedReplacementCount = 0\n        val map = mutableMapOf<String, CountryData>()\n        for (country in GlobalFootballSystem.keys) {'''
+          if text.count(old) != 1:
+              raise SystemExit(f'countriesMap anchor mismatch: {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''            val preDefined = originalMap[country]?.teams ?: emptyList()\n            val generatedTeams = generateTeamsForCountry(country, sizes, preDefined)\n            \n            map[country] = CountryData('''
+          new = '''            val preDefined = originalMap[country]?.teams ?: emptyList()\n            val generatedTeams = generateTeamsForCountry(country, sizes, preDefined)\n            val materializedTeams = generatedTeams.map { team ->\n                replacementsByLegacySlot[Triple(country, team.division, team.name)]?.let { replacement ->\n                    appliedReplacementCount += 1\n                    team.copy(name = replacement.realClubName)\n                } ?: team\n            }\n            \n            map[country] = CountryData('''
+          if text.count(old) != 1:
+              raise SystemExit(f'generatedTeams anchor mismatch: {text.count(old)}')
+          text = text.replace(old, new, 1)
+          if text.count('teams = generatedTeams') != 1:
+              raise SystemExit('generatedTeams assignment mismatch')
+          text = text.replace('teams = generatedTeams', 'teams = materializedTeams', 1)
+
+          old = '''        }\n        map\n    }\n\n    fun getTeamsForCountry'''
+          new = '''        }\n        check(appliedReplacementCount == BrasfootRealClubReplacementData.EXPECTED_REPLACEMENT_COUNT) {\n            "Expected ${BrasfootRealClubReplacementData.EXPECTED_REPLACEMENT_COUNT} real-club replacements but applied $appliedReplacementCount."\n        }\n        map\n    }\n\n    fun getTeamsForCountry'''
+          if text.count(old) != 1:
+              raise SystemExit(f'countriesMap close anchor mismatch: {text.count(old)}')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          cat > app/src/test/java/com/example/data/AcceleratedRealClubMaterializationTest.kt <<'KOTLIN'
+          package com.example.data
+
+          import org.junit.Assert.assertEquals
+          import org.junit.Assert.assertNotNull
+          import org.junit.Test
+
+          class AcceleratedRealClubMaterializationTest {
+              @Test
+              fun `all 1907 audited replacements materialize in their exact legacy ids`() {
+                  val replacements = BrasfootRealClubReplacementData.replacements
+                  assertEquals(1907, replacements.size)
+                  replacements.forEach { replacement ->
+                      val team = DefaultData.countriesMap[replacement.country]
+                          ?.teams
+                          ?.firstOrNull { it.division == replacement.division && it.name == replacement.realClubName }
+                      assertNotNull("Missing ${replacement.country} / ${replacement.realClubName}", team)
+                      assertEquals(
+                          replacement.legacyTeamId,
+                          GlobalFootballSystem.getGlobalId(replacement.country, replacement.realClubName)
+                      )
+                  }
+              }
+          }
+          KOTLIN
+
+      - name: Apply current manual-test runtime bugfix round and its mandatory tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          python3 tools/manual_test/apply_runtime_bugfix_round_20260831.py
+
+      - name: Run preserved focused regressions plus exact real-club materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.data.AcceleratedRealClubMaterializationTest \
+            --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
+            --tests com.example.data.PreCareerEditorOverridesTest \
+            --tests com.example.ui.screens.EditorNavigationRegressionTest \
+            --tests com.example.usecase.RestartSeasonPersistenceTest \
+            --tests com.example.usecase.MarketPurchaseRefreshTest \
+            --tests com.example.usecase.MarketPurchasePersistenceTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
+            --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
+            --tests com.example.data.PlayerEvolutionRegressionTest \
+            --tests com.example.usecase.CareerCreationPerformanceTest \
+            --tests com.example.data.CareerSeedTemplateRuntimeTest \
+            --tests com.example.data.ProceduralRosterOnlyTest \
+            --tests com.example.data.BrasfootRealClubIdentityTest \
+            --stacktrace
+
+      - name: Build current installable APK base
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --stacktrace
+          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk"
+          mkdir -p accelerated-base/build-tools/lib
+          cp "$apk" accelerated-base/base.apk
+          cp ~/.android/debug.keystore accelerated-base/debug.keystore
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          test -x "$build_tools/zipalign"
+          test -x "$build_tools/apksigner"
+          test -x "$build_tools/aapt"
+          cp "$build_tools/zipalign" accelerated-base/build-tools/
+          cp "$build_tools/apksigner" accelerated-base/build-tools/
+          cp "$build_tools/aapt" accelerated-base/build-tools/
+          cp "$build_tools/lib/apksigner.jar" accelerated-base/build-tools/lib/
+          chmod +x accelerated-base/build-tools/zipalign accelerated-base/build-tools/apksigner accelerated-base/build-tools/aapt
+          sha256sum accelerated-base/base.apk | tee accelerated-base/BASE_SHA256.txt
+          printf 'source_head=%s\npackage=com.aistudio.brasfutretro.djuxzt\nversionCode=32\nversionName=3.0.1\nreplacement_mapping_sha256=ff99ff8228efcd372b86fc57671b35b7156ff00417dd1469c346818118250956\nreplacement_count=1907\n' \
+            "$GITHUB_SHA" > accelerated-base/BUILD_INFO.txt
+
+      - name: Upload accelerated APK base and signing tools
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: accelerated-manual-test-base-${{ github.sha }}
+          path: accelerated-base/
+          if-no-files-found: error
+          retention-days: 3
