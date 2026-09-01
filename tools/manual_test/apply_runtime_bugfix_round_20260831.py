@@ -578,19 +578,23 @@ text = text.replace('                    Text("$winRate%", color = AccentGold, f
 # Restart confirmation stays open while domain transaction runs.
 text = text.replace("var showRestartConfirm by remember { mutableStateOf(false) }", "var showRestartConfirm by remember { mutableStateOf(false) }\n    var restartInProgress by remember { mutableStateOf(false) }", 1)
 text = text.replace("onDismissRequest = { showRestartConfirm = false }", "onDismissRequest = { if (!restartInProgress) showRestartConfirm = false }", 1)
-text = text.replace('''                        onClick = {
-                            viewModel.restartCurrentSeason()
-                            showRestartConfirm = false
-                        },
-''', '''                        onClick = {
-                            restartInProgress = true
-                            viewModel.restartCurrentSeason { success ->
-                                restartInProgress = false
-                                if (success) showRestartConfirm = false
-                            }
-                        },
+text = text.replace('''                                onClick = {
+                                    viewModel.restartCurrentSeason()
+                                    showRestartConfirm = false
+                                }
+''', '''                                onClick = {
+                                    restartInProgress = true
+                                    viewModel.restartCurrentSeason { success ->
+                                        restartInProgress = false
+                                        if (success) showRestartConfirm = false
+                                    }
+                                }
 ''', 1)
-text = text.replace('Text("RECOMEÇAR", fontWeight = FontWeight.Bold)', 'Text(if (restartInProgress) "REINICIANDO..." else "RECOMEÇAR", fontWeight = FontWeight.Bold)', 1)
+text = text.replace('Text("RECOMEÇAR", color = Color(0xFFD81B60), fontWeight = FontWeight.Bold)', 'Text(if (restartInProgress) "REINICIANDO..." else "RECOMEÇAR", color = Color(0xFFD81B60), fontWeight = FontWeight.Bold)', 1)
+if "viewModel.restartCurrentSeason { success ->" not in text:
+    raise RuntimeError("CoachScreen restart callback patch did not apply")
+if "REINICIANDO..." not in text:
+    raise RuntimeError("CoachScreen restart progress label patch did not apply")
 write(coach, text)
 
 # Technical disambiguation suffix stays persisted but is hidden in presentation.
@@ -706,7 +710,7 @@ class RestartSeasonEditorRosterRegressionTest {
         val block = repo.substringAfter("restartSeasonStateAtomically").substringBefore("suspend fun getActiveLoans")
         assertFalse(block.contains("saveTeams("))
         assertFalse(block.contains("deleteAllPlayers"))
-        assertTrue(block.contains("resetAllSeasonStats"))
+        assertTrue(block.contains("resetSeasonState()"))
         val coach = project("src/main/java/com/example/ui/screens/CoachScreen.kt").readText()
         assertTrue(coach.contains("restartInProgress = true"))
     }
