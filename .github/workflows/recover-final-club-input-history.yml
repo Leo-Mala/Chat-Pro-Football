@@ -16,77 +16,94 @@ jobs:
   recover:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TARGET_APK_SHA256: 8016420f4eecb9a60c510daebb0dc49966bb9935788e6122b37b7b9373da1652
     steps:
-      - name: Enumerate all retained build and source candidates
+      - name: Enumerate retained APK artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          all="$RUNNER_TEMP/all-retained-artifacts.tsv"
-          candidates="$RUNNER_TEMP/recovery-candidates.tsv"
+          out="$RUNNER_TEMP/apk-artifacts.tsv"
           gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
-            --jq '.artifacts[] | select(.expired == false) | [.id,.name,.size_in_bytes,.workflow_run.id,.created_at,.archive_download_url] | @tsv' \
-            | sort -k5,5r > "$all"
-          awk -F'\t' 'BEGIN{IGNORECASE=1} $2 ~ /(apk|source|crest|logo|football|manual|build|final)/ {print}' "$all" > "$candidates"
-          echo "all_retained=$(wc -l < "$all")"
-          echo "candidate_retained=$(wc -l < "$candidates")"
-          cat "$candidates"
+            --jq '.artifacts[] | select(.expired == false) | select(.name | ascii_downcase | test("apk|build")) | [.id,.name,.size_in_bytes,.workflow_run.id,.created_at] | @tsv' \
+            | sort -k5,5r > "$out"
+          echo "apk_artifacts=$(wc -l < "$out")"
+          cat "$out"
 
-      - name: Probe candidate artifact ZIPs for crest bundle evidence
+      - name: Open every retained APK and count exact crest assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          report="$RUNNER_TEMP/artifact-probe.tsv"
+          report="$RUNNER_TEMP/apk-crest-probe.tsv"
           : > "$report"
-          while IFS=$'\t' read -r id name size run created url; do
+          mkdir -p "$RUNNER_TEMP/target"
+          while IFS=$'\t' read -r id name size run created; do
             [ -n "$id" ] || continue
-            zip="$RUNNER_TEMP/artifact-$id.zip"
-            if ! gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$zip" 2>/dev/null; then
-              printf '%s\t%s\tDOWNLOAD_FAILED\n' "$id" "$name" >> "$report"
-              continue
-            fi
-            members="$RUNNER_TEMP/members-$id.txt"
-            unzip -Z1 "$zip" > "$members" 2>/dev/null || true
-            direct_club=$(grep -Ec '(^|/)club_crests/club_[^/]+\.(png|svg)$' "$members" || true)
-            direct_factual=$(grep -Ec '(^|/)club_crests/factual_[^/]+\.(png|svg)$' "$members" || true)
-            nested_apk=$(grep -Eci '\.apk$' "$members" || true)
-            nested_archive=$(grep -Eci '\.(zip|tar|tar\.gz|tgz|tar\.zst)$' "$members" || true)
-            manifest=$(grep -Eci 'crest-sha256\.csv$|validated-replacement-plan\.csv$|BrasfootRealClubReplacementData\.kt$' "$members" || true)
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$direct_club" "$direct_factual" "$nested_apk" "$nested_archive" "$manifest" >> "$report"
-            if [ "$direct_club" -gt 0 ] || [ "$nested_apk" -gt 0 ] || [ "$nested_archive" -gt 0 ] || [ "$manifest" -gt 0 ]; then
-              echo "candidate_hit id=$id name=$name direct_club=$direct_club factual=$direct_factual nested_apk=$nested_apk nested_archive=$nested_archive manifest=$manifest"
-              grep -Ei 'club_crests|crest-sha256|validated-replacement-plan|BrasfootRealClubReplacementData|\.apk$|\.tar|\.zip$' "$members" | head -80 || true
-            fi
-            rm -f "$zip" "$members"
-          done < "$RUNNER_TEMP/recovery-candidates.tsv"
-          echo 'artifact_probe_begin'
+            outer="$RUNNER_TEMP/artifact-$id.zip"
+            dir="$RUNNER_TEMP/artifact-$id"
+            rm -rf "$dir"; mkdir -p "$dir"
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$outer" 2>/dev/null || continue
+            unzip -qq "$outer" -d "$dir" || true
+            while IFS= read -r apk; do
+              [ -f "$apk" ] || continue
+              digest="$(sha256sum "$apk" | awk '{print $1}')"
+              members="$RUNNER_TEMP/apk-members.txt"
+              unzip -Z1 "$apk" > "$members" 2>/dev/null || true
+              club=$(grep -Ec '^assets/club_crests/club_[^/]+\.(png|svg)$' "$members" || true)
+              factual=$(grep -Ec '^assets/club_crests/factual_[^/]+\.(png|svg)$' "$members" || true)
+              total=$(grep -Ec '^assets/club_crests/[^/]+\.(png|svg)$' "$members" || true)
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$(basename "$apk")" "$digest" "$club" "$factual" "$total" >> "$report"
+              if [ "$digest" = "$TARGET_APK_SHA256" ]; then
+                cp "$apk" "$RUNNER_TEMP/target/target-checksum.apk"
+                echo "TARGET_APK_FOUND artifact=$id name=$name club=$club factual=$factual total=$total"
+              fi
+              if [ "$club" -gt 0 ]; then
+                echo "CREST_APK artifact=$id name=$name apk_sha=$digest club=$club factual=$factual total=$total"
+              fi
+            done < <(find "$dir" -type f -name '*.apk' -print)
+            rm -rf "$dir" "$outer"
+          done < "$RUNNER_TEMP/apk-artifacts.tsv"
+          echo 'apk_crest_probe_begin'
           cat "$report"
-          echo 'artifact_probe_end'
+          echo 'apk_crest_probe_end'
+          echo "target_matches=$(awk -F'\t' -v d="$TARGET_APK_SHA256" '$4==d{n++} END{print n+0}' "$report")"
+          echo "max_club_in_apk=$(awk -F'\t' 'BEGIN{m=0} $5>m{m=$5} END{print m}' "$report")"
 
-      - name: Record deterministic recovery evidence
+      - name: Extract exact 1907 crest APK if present
         shell: bash
         run: |
           set -euo pipefail
-          {
-            echo 'expected_source_revision=1b8e57c3ea3658001cafba18c4a6db730b420ad6'
-            echo 'expected_source_files=2853'
-            echo 'expected_archive_sha256=1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf'
-            echo 'expected_plan_rows=1907'
-            echo 'required_final_corpus=1907 club_ + 617 factual_ = 2524'
-            echo 'required_final_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90'
-          } > "$RUNNER_TEMP/recovery-evidence.txt"
+          candidate="$(awk -F'\t' '$5==1907 {print $4; exit}' "$RUNNER_TEMP/apk-crest-probe.tsv" || true)"
+          mkdir -p "$RUNNER_TEMP/extracted-candidate"
+          if [ -z "$candidate" ]; then
+            echo 'NO_RETAINED_APK_WITH_1907_CLUB_CRESTS' | tee "$RUNNER_TEMP/extracted-candidate/STATUS.txt"
+            exit 0
+          fi
+          row="$(awk -F'\t' -v d="$candidate" '$4==d {print; exit}' "$RUNNER_TEMP/apk-crest-probe.tsv")"
+          id="$(cut -f1 <<<"$row")"
+          outer="$RUNNER_TEMP/recover-$id.zip"
+          dir="$RUNNER_TEMP/recover-$id"
+          mkdir -p "$dir"
+          GH_TOKEN="${{ github.token }}" gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$outer"
+          unzip -qq "$outer" -d "$dir"
+          apk="$(find "$dir" -type f -name '*.apk' -print -quit)"
+          unzip -qq "$apk" 'assets/club_crests/*' -d "$RUNNER_TEMP/extracted-candidate"
+          find "$RUNNER_TEMP/extracted-candidate/assets/club_crests" -type f | sort | wc -l
+          sha256sum "$RUNNER_TEMP/extracted-candidate"/assets/club_crests/* | sort > "$RUNNER_TEMP/extracted-candidate/crest-files.sha256"
+          echo "$candidate" > "$RUNNER_TEMP/extracted-candidate/APK_SHA256.txt"
 
-      - name: Upload artifact recovery inventory
+      - name: Upload APK recovery probe
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: retained-build-source-probe-${{ github.sha }}
+          name: retained-apk-crest-probe-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/all-retained-artifacts.tsv
-            ${{ runner.temp }}/recovery-candidates.tsv
-            ${{ runner.temp }}/artifact-probe.tsv
-            ${{ runner.temp }}/recovery-evidence.txt
+            ${{ runner.temp }}/apk-artifacts.tsv
+            ${{ runner.temp }}/apk-crest-probe.tsv
+            ${{ runner.temp }}/target/
+            ${{ runner.temp }}/extracted-candidate/
           if-no-files-found: error
           retention-days: 7
