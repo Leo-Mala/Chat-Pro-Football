@@ -17,76 +17,76 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout full repository refs
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Scan every reachable commit for materialized crest corpus
+      - name: Enumerate all retained build and source candidates
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/crest-history.tsv"
-          : > "$out"
-          git rev-list --all | sort -u > "$RUNNER_TEMP/commits.txt"
-          echo "reachable_commits=$(wc -l < "$RUNNER_TEMP/commits.txt")"
-          while read -r sha; do
-            paths="$(git ls-tree -r --name-only "$sha")"
-            count="$(grep -Ec '^app/src/main/assets/club_crests/club_[^/]+\.(png|svg)$' <<<"$paths" || true)"
-            factual="$(grep -Ec '^app/src/main/assets/club_crests/factual_[^/]+\.(png|svg)$' <<<"$paths" || true)"
-            plan=0; manifest=0; replacement=0
-            grep -qx 'docs/club-realization/validated-replacement-plan.csv' <<<"$paths" && plan=1 || true
-            grep -qx 'docs/club-realization/crest-sha256.csv' <<<"$paths" && manifest=1 || true
-            grep -Eq 'BrasfootRealClubReplacementData\.kt$' <<<"$paths" && replacement=1 || true
-            if [ "$count" -gt 0 ] || [ "$plan" -eq 1 ] || [ "$manifest" -eq 1 ]; then
-              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sha" "$count" "$factual" "$plan" "$manifest" "$replacement" >> "$out"
+          all="$RUNNER_TEMP/all-retained-artifacts.tsv"
+          candidates="$RUNNER_TEMP/recovery-candidates.tsv"
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | [.id,.name,.size_in_bytes,.workflow_run.id,.created_at,.archive_download_url] | @tsv' \
+            | sort -k5,5r > "$all"
+          awk -F'\t' 'BEGIN{IGNORECASE=1} $2 ~ /(apk|source|crest|logo|football|manual|build|final)/ {print}' "$all" > "$candidates"
+          echo "all_retained=$(wc -l < "$all")"
+          echo "candidate_retained=$(wc -l < "$candidates")"
+          cat "$candidates"
+
+      - name: Probe candidate artifact ZIPs for crest bundle evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/artifact-probe.tsv"
+          : > "$report"
+          while IFS=$'\t' read -r id name size run created url; do
+            [ -n "$id" ] || continue
+            zip="$RUNNER_TEMP/artifact-$id.zip"
+            if ! gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$zip" 2>/dev/null; then
+              printf '%s\t%s\tDOWNLOAD_FAILED\n' "$id" "$name" >> "$report"
+              continue
             fi
-          done < "$RUNNER_TEMP/commits.txt"
-
-          echo 'sha club_count factual_count validated_plan crest_manifest replacement_data'
-          sort -t$'\t' -k2,2nr "$out" | head -100
-          max="$(awk -F'\t' 'BEGIN{m=0} $2>m{m=$2} END{print m}' "$out")"
-          echo "max_historical_club_crests=$max"
-          awk -F'\t' '$2==1907 || ($4==1 && $5==1) {print}' "$out" | tee "$RUNNER_TEMP/exact-candidates.tsv"
-
-      - name: Export strongest historical candidate if present
-        shell: bash
-        run: |
-          set -euo pipefail
-          candidate="$(awk -F'\t' '$2==1907 && $5==1 {print $1; exit}' "$RUNNER_TEMP/exact-candidates.tsv" || true)"
-          mkdir -p "$RUNNER_TEMP/candidate"
-          if [ -z "$candidate" ]; then
-            echo 'NO_EXACT_COMMITTED_1907_CANDIDATE' | tee "$RUNNER_TEMP/candidate/STATUS.txt"
-            exit 0
-          fi
-          echo "$candidate" | tee "$RUNNER_TEMP/candidate/COMMIT_SHA.txt"
-          git archive --format=tar "$candidate" \
-            app/src/main/assets/club_crests \
-            docs/club-realization \
-            2>/dev/null | tar -xf - -C "$RUNNER_TEMP/candidate"
-          find "$RUNNER_TEMP/candidate/app/src/main/assets/club_crests" -type f | sort | wc -l
-          sha256sum "$RUNNER_TEMP/candidate"/app/src/main/assets/club_crests/* | sort > "$RUNNER_TEMP/candidate/crest-files.sha256"
+            members="$RUNNER_TEMP/members-$id.txt"
+            unzip -Z1 "$zip" > "$members" 2>/dev/null || true
+            direct_club=$(grep -Ec '(^|/)club_crests/club_[^/]+\.(png|svg)$' "$members" || true)
+            direct_factual=$(grep -Ec '(^|/)club_crests/factual_[^/]+\.(png|svg)$' "$members" || true)
+            nested_apk=$(grep -Eci '\.apk$' "$members" || true)
+            nested_archive=$(grep -Eci '\.(zip|tar|tar\.gz|tgz|tar\.zst)$' "$members" || true)
+            manifest=$(grep -Eci 'crest-sha256\.csv$|validated-replacement-plan\.csv$|BrasfootRealClubReplacementData\.kt$' "$members" || true)
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$direct_club" "$direct_factual" "$nested_apk" "$nested_archive" "$manifest" >> "$report"
+            if [ "$direct_club" -gt 0 ] || [ "$nested_apk" -gt 0 ] || [ "$nested_archive" -gt 0 ] || [ "$manifest" -gt 0 ]; then
+              echo "candidate_hit id=$id name=$name direct_club=$direct_club factual=$direct_factual nested_apk=$nested_apk nested_archive=$nested_archive manifest=$manifest"
+              grep -Ei 'club_crests|crest-sha256|validated-replacement-plan|BrasfootRealClubReplacementData|\.apk$|\.tar|\.zip$' "$members" | head -80 || true
+            fi
+            rm -f "$zip" "$members"
+          done < "$RUNNER_TEMP/recovery-candidates.tsv"
+          echo 'artifact_probe_begin'
+          cat "$report"
+          echo 'artifact_probe_end'
 
       - name: Record deterministic recovery evidence
         shell: bash
         run: |
           set -euo pipefail
           {
+            echo 'expected_source_revision=1b8e57c3ea3658001cafba18c4a6db730b420ad6'
+            echo 'expected_source_files=2853'
             echo 'expected_archive_sha256=1c8c35e08715d030ea200d0f33d8095b0c165954e36bb8d65f812fe7b0788bdf'
             echo 'expected_plan_rows=1907'
             echo 'required_final_corpus=1907 club_ + 617 factual_ = 2524'
             echo 'required_final_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90'
-          } | tee "$RUNNER_TEMP/recovery-evidence.txt"
+          } > "$RUNNER_TEMP/recovery-evidence.txt"
 
-      - name: Upload recovery diagnostics
+      - name: Upload artifact recovery inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: committed-crest-history-${{ github.sha }}
+          name: retained-build-source-probe-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/crest-history.tsv
-            ${{ runner.temp }}/exact-candidates.tsv
-            ${{ runner.temp }}/candidate/
+            ${{ runner.temp }}/all-retained-artifacts.tsv
+            ${{ runner.temp }}/recovery-candidates.tsv
+            ${{ runner.temp }}/artifact-probe.tsv
             ${{ runner.temp }}/recovery-evidence.txt
           if-no-files-found: error
           retention-days: 7
