@@ -132,3 +132,5 @@ jobs:
             release-crest-inspection.json
           if-no-files-found: error
           retention-days: 3
+
+# Triggered intentionally to inspect only the existing v3.0.1 release assets for the exact certified 2,524-crest fingerprint.
