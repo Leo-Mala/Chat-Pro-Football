@@ -29,3 +29,4 @@ jobs:
             | sort -k5,5
 
 # Full retained-set inventory for the exact manual-test crest recovery.
+# Refreshed to locate a byte-identical 2,524-crest source after earlier artifact expiry.
