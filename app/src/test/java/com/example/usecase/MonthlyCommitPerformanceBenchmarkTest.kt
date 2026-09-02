@@ -7,6 +7,7 @@ import com.example.data.applyMonthlyEvolutionPlayerStates
 import com.example.data.consumePristineCareerSeedTemplate
 import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
+import com.example.data.insertMonthlyEvolutionHistoryRowsBulk
 import com.example.data.local.SlotDatabaseFactory
 import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.pristineCareerSeedTemplateOrNull
@@ -155,6 +156,22 @@ class MonthlyCommitPerformanceBenchmarkTest {
             }
         }
 
+        var bulkHistoryRows = 0
+        var tHistoryWritesBulkMillis = 0L
+        if (plan.historyLogs.isNotEmpty()) {
+            try {
+                repository.withTransaction {
+                    startedAtNs = System.nanoTime()
+                    bulkHistoryRows = repository.insertMonthlyEvolutionHistoryRowsBulk(plan.historyLogs)
+                    tHistoryWritesBulkMillis = elapsedMillis(startedAtNs)
+                    throw ProbeRollback()
+                }
+            } catch (_: ProbeRollback) {
+                // Same state as the Room probe; compare only the persistence strategy.
+            }
+        }
+        assertEquals(plan.historyLogs.size, bulkHistoryRows)
+
         println(
             "PERF_MONTHLY_COMMIT_STAGES " +
                 "T_HISTORY_LOOKUP=$tHistoryLookupMillis " +
@@ -164,10 +181,12 @@ class MonthlyCommitPerformanceBenchmarkTest {
                 "T_RESET_COUNTERS=$tResetCountersMillis " +
                 "T_PLAYER_WRITES=$tPlayerWritesMillis " +
                 "T_HISTORY_WRITES=$tHistoryWritesMillis " +
+                "T_HISTORY_WRITES_BULK=$tHistoryWritesBulkMillis " +
                 "SNAPSHOT_ROWS_COUNT=${currentInputs.size} " +
                 "RESET_ROWS_COUNT=$resetRows " +
                 "PLAYER_WRITES_COUNT=$playerWriteRows " +
-                "HISTORY_ROWS_COUNT=${plan.historyLogs.size}"
+                "HISTORY_ROWS_COUNT=${plan.historyLogs.size} " +
+                "BULK_HISTORY_ROWS_COUNT=$bulkHistoryRows"
         )
     }
 
