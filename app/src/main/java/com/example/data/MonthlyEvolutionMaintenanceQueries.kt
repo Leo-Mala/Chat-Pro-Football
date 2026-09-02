@@ -77,6 +77,13 @@ internal fun GameRepository.getMonthlyEvolutionPlayerCount(): Int =
         cursor.getInt(0)
     }
 
+private fun hashMapCapacityForSize(size: Int): Int {
+    if (size <= 0) return 16
+    // HashMap grows at a 0.75 load factor. Reserving for the complete monthly universe prevents
+    // repeated table rehash/copies while the weekly-close transaction scans ~60k player rows.
+    return ((size / 0.75f) + 1f).toInt().coerceAtLeast(16)
+}
+
 /**
  * Reads only the columns that participate in monthly evolution. The query is chunked below the
  * SQLite bind limit so a prepared plan can be validated without materializing full Player rows.
@@ -85,7 +92,7 @@ internal fun GameRepository.getMonthlyEvolutionInputSnapshots(
     playerIds: Collection<Long>
 ): Map<Long, MonthlyEvolutionInputSnapshot> {
     if (playerIds.isEmpty()) return emptyMap()
-    val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(playerIds.size)
+    val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(playerIds.size))
     val database = db.openHelper.writableDatabase
 
     playerIds.distinct().chunked(800).forEach { chunk ->
@@ -111,7 +118,8 @@ internal fun GameRepository.getMonthlyEvolutionInputSnapshots(
  * projection, not `SELECT *`, so detecting the exceptional subset remains cheap under the lock.
  */
 internal fun GameRepository.getAllMonthlyEvolutionInputSnapshots(): Map<Long, MonthlyEvolutionInputSnapshot> {
-    val result = HashMap<Long, MonthlyEvolutionInputSnapshot>()
+    val playerCount = getMonthlyEvolutionPlayerCount()
+    val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(playerCount))
     db.openHelper.writableDatabase.query(
         """
         SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
