@@ -15,6 +15,7 @@ import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
 import com.example.data.getMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionPlayerCount
+import com.example.data.insertMonthlyEvolutionHistoryRowsBulk
 import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.resetMonthlyEvolutionCounters
 import com.example.data.toMonthlyEvolutionInputSnapshot
@@ -329,7 +330,11 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 "Falha fail-closed ao persistir delta de evolução mensal."
             }
         }
-        if (historyToPersist.isNotEmpty()) repository.saveHistoricoEvolucaoList(historyToPersist)
+        if (historyToPersist.isNotEmpty()) {
+            check(repository.insertMonthlyEvolutionHistoryRowsBulk(historyToPersist) == historyToPersist.size) {
+                "Falha fail-closed ao persistir histórico da evolução mensal."
+            }
+        }
         true
     }
 
