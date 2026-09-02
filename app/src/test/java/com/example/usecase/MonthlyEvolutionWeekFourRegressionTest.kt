@@ -8,6 +8,7 @@ import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.Player
 import com.example.data.Team
+import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -36,13 +37,15 @@ class MonthlyEvolutionWeekFourRegressionTest {
     fun tearDown() = db.close()
 
     @Test
-    fun `week four production preparation crosses several bounded batches and remains committable`() = runTest {
+    fun `week four production preparation crosses bounded validation pages and remains committable`() = runTest {
         val team = Team(id = 1L, name = "Cruzeiro", city = "BH", state = "MG", division = 1, rating = 75)
         repository.saveTeams(listOf(team))
         val save = GameSave(currentSeason = 2026, currentWeek = 4, playerTeamId = team.id)
         repository.saveGameSave(save)
 
-        val playerCount = 2_100 // > 4 production batches; focused, not a long stress test.
+        // More than two 1,024-row keyset pages: this reproduces the CursorWindow validation path
+        // without turning the focused regression into the 60k-player stress suite.
+        val playerCount = 2_100
         repository.savePlayers(
             List(playerCount) { index ->
                 Player(
@@ -62,6 +65,10 @@ class MonthlyEvolutionWeekFourRegressionTest {
                 )
             }
         )
+
+        val validationSnapshots = repository.getAllMonthlyEvolutionInputSnapshots()
+        assertEquals(playerCount, validationSnapshots.size)
+        assertTrue(validationSnapshots.keys.containsAll(listOf(1L, 1_024L, 1_025L, 2_100L)))
 
         val useCase = PlayerEvolutionUseCase(repository)
         val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
