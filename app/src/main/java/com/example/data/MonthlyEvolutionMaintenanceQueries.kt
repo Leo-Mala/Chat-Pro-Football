@@ -164,7 +164,6 @@ private fun hashMapCapacityForSize(size: Int): Int {
  * world-player table grows.
  */
 private const val MONTHLY_VALIDATION_SCAN_BATCH_SIZE = 1024
-private const val MONTHLY_EVOLUTION_WRITE_BATCH_SIZE = 100
 
 /**
  * Reads only the columns that participate in monthly evolution. The query is chunked below the
@@ -291,51 +290,23 @@ private fun Cursor.readMonthlyEvolutionSnapshotsInto(
  * Applies only the four columns owned by monthly evolution. This prevents a prepared plan from
  * restoring an old contract, team, salary, fitness or transfer state through a full-entity update.
  * Callers must validate the input snapshots first while holding the same Room transaction.
- *
- * Rows are updated in bounded CASE batches rather than one executeUpdateDelete() call per player.
- * A 100-player batch binds 700 parameters (three id/value CASE expressions plus the WHERE ids),
- * safely below SQLite's legacy 999-variable ceiling while preserving the exact per-player values.
  */
 internal fun GameRepository.applyMonthlyEvolutionPlayerStates(players: Collection<Player>): Int {
     if (players.isEmpty()) return 0
-    val database = db.openHelper.writableDatabase
+    val statement = db.openHelper.writableDatabase.compileStatement(
+        """
+        UPDATE players
+        SET atributosJson = ?, force = ?, minutosJogados = 0, evolucaoMensal = ?
+        WHERE id = ?
+        """.trimIndent()
+    )
     var updated = 0
-
-    players.chunked(MONTHLY_EVOLUTION_WRITE_BATCH_SIZE).forEach { batch ->
-        val placeholders = List(batch.size) { "?" }.joinToString(",")
-        val cases = List(batch.size) { "WHEN ? THEN ?" }.joinToString(" ")
-        val statement = database.compileStatement(
-            """
-            UPDATE players
-            SET atributosJson = CASE id $cases ELSE atributosJson END,
-                force = CASE id $cases ELSE force END,
-                minutosJogados = 0,
-                evolucaoMensal = CASE id $cases ELSE evolucaoMensal END
-            WHERE id IN ($placeholders)
-            """.trimIndent()
-        )
-        var bindIndex = 1
-
-        batch.forEach { player ->
-            statement.bindLong(bindIndex++, player.id)
-            if (player.atributosJson == null) {
-                statement.bindNull(bindIndex++)
-            } else {
-                statement.bindString(bindIndex++, player.atributosJson)
-            }
-        }
-        batch.forEach { player ->
-            statement.bindLong(bindIndex++, player.id)
-            statement.bindLong(bindIndex++, player.force.toLong())
-        }
-        batch.forEach { player ->
-            statement.bindLong(bindIndex++, player.id)
-            statement.bindDouble(bindIndex++, player.evolucaoMensal)
-        }
-        batch.forEach { player ->
-            statement.bindLong(bindIndex++, player.id)
-        }
-
+    for (player in players) {
+        statement.clearBindings()
+        if (player.atributosJson == null) statement.bindNull(1) else statement.bindString(1, player.atributosJson)
+        statement.bindLong(2, player.force.toLong())
+        statement.bindDouble(3, player.evolucaoMensal)
+        statement.bindLong(4, player.id)
         updated += statement.executeUpdateDelete()
     }
     return updated
