@@ -5,7 +5,6 @@ path.write_text(r'''package com.example.usecase
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
-import com.example.data.GameRepository
 import com.example.data.HistoricoEvolucao
 import com.example.data.MonthlyEvolutionInputSnapshot
 import com.example.data.Player
@@ -14,6 +13,7 @@ import com.example.data.PlayerEvolutionResult
 import com.example.data.getMonthlyEvolutionPlayerCount
 import com.example.data.local.SlotDatabaseFactory
 import com.example.data.pristineCareerSeedTemplateOrNull
+import com.example.data.repository.GameSaveRepository
 import com.example.data.toMonthlyEvolutionInputSnapshot
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -34,9 +34,8 @@ class MonthlyPrepareBreakdownBenchmarkTest {
         val slotId = "4"
         val dbName = SlotDatabaseFactory.databaseNameForSlot(slotId)
         application.deleteDatabase(dbName)
-        val factory = SlotDatabaseFactory(application)
-        val db = factory.getDatabase(slotId)
-        val repository = GameRepository(db)
+        val saveRepository = GameSaveRepository(application, SlotDatabaseFactory(application))
+        val repository = saveRepository.getRepositoryForSlot(slotId)
         try {
             val marker = requireNotNull(repository.pristineCareerSeedTemplateOrNull())
             assertTrue(marker.playerCount >= 60_000)
@@ -96,7 +95,7 @@ class MonthlyPrepareBreakdownBenchmarkTest {
                     "HISTORY_ROWS=${historyLogs.size}"
             )
         } finally {
-            db.close()
+            runCatching { saveRepository.closeAllDatabases() }
             application.deleteDatabase(dbName)
             val file = application.getDatabasePath(dbName)
             listOf("", "-wal", "-shm", "-journal").forEach { suffix ->
