@@ -9,6 +9,7 @@ import com.example.data.Player
 import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
 import com.example.data.consumePristineCareerSeedTemplate
+import com.example.data.forEachMonthlyEvolutionPlayerBatch
 import com.example.data.getMonthlyEvolutionPlayerCount
 import com.example.data.getMonthlyEvolutionPlayersBatch
 import com.example.data.local.SlotDatabaseFactory
@@ -43,6 +44,34 @@ class MonthlyPreparePerformanceBenchmarkTest {
     fun tearDown() {
         runBlocking { runCatching { saveRepository.closeAllDatabases() } }
         clearSlot()
+    }
+
+    @Test
+    fun `single cursor preserves exact legacy paged player order`() = runBlocking {
+        val repository = saveRepository.getRepositoryForSlot(slotId)
+        val marker = requireNotNull(repository.pristineCareerSeedTemplateOrNull()) {
+            "Order regression precisa do career_seed_template.db canônico e intocado."
+        }
+        assertTrue(marker.playerCount >= 60_000)
+
+        val legacyIds = ArrayList<Long>(marker.playerCount)
+        var offset = 0
+        while (offset < marker.playerCount) {
+            val batch = repository.getMonthlyEvolutionPlayersBatch(BATCH_SIZE, offset)
+            check(batch.isNotEmpty()) {
+                "Legacy monthly scan ended at $offset of ${marker.playerCount} rows."
+            }
+            batch.mapTo(legacyIds) { it.id }
+            offset += batch.size
+        }
+
+        val streamingIds = ArrayList<Long>(marker.playerCount)
+        val processed = repository.forEachMonthlyEvolutionPlayerBatch(BATCH_SIZE) { batch ->
+            batch.mapTo(streamingIds) { it.id }
+        }
+
+        assertEquals(marker.playerCount, processed)
+        assertEquals(legacyIds, streamingIds)
     }
 
     @Test
@@ -85,21 +114,16 @@ class MonthlyPreparePerformanceBenchmarkTest {
         val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
         val referencedTeamIds = HashSet<Long>()
 
-        var tPlayerReadMillis = 0L
+        var playerReadNanos = 0L
         var tEngineMillis = 0L
         var tResultCollectMillis = 0L
         var tSnapshotBuildMillis = 0L
         var batchCount = 0
-        var offset = 0
 
-        while (offset < expectedPlayerCount) {
-            startedAtNs = System.nanoTime()
-            val batch = repository.getMonthlyEvolutionPlayersBatch(BATCH_SIZE, offset)
-            tPlayerReadMillis += elapsedMillis(startedAtNs)
-            check(batch.isNotEmpty()) {
-                "Monthly evolution player scan ended at $offset of $expectedPlayerCount rows."
-            }
-
+        val processed = repository.forEachMonthlyEvolutionPlayerBatch(
+            batchSize = BATCH_SIZE,
+            onBatchReadNanos = { playerReadNanos += it }
+        ) { batch ->
             startedAtNs = System.nanoTime()
             val batchResults = PlayerEvolutionMonthlyEngine.processChanged(batch, allTeams, PERIOD_DATE)
             tEngineMillis += elapsedMillis(startedAtNs)
@@ -120,10 +144,9 @@ class MonthlyPreparePerformanceBenchmarkTest {
                 player.teamId?.let(referencedTeamIds::add)
             }
             tSnapshotBuildMillis += elapsedMillis(startedAtNs)
-
-            offset += batch.size
             batchCount++
         }
+        val tPlayerReadMillis = playerReadNanos / 1_000_000L
 
         startedAtNs = System.nanoTime()
         val expectedTrainingLevels = referencedTeamIds.associateWith { teamId ->
@@ -133,7 +156,7 @@ class MonthlyPreparePerformanceBenchmarkTest {
         val tTotalPrepareMillis = elapsedMillis(totalStartedAtNs)
 
         assertEquals(expectedPlayerCount, expectedInputs.size)
-        assertEquals(expectedPlayerCount, offset)
+        assertEquals(expectedPlayerCount, processed)
         assertTrue(batchCount > 1)
         assertTrue(changedPlayers.isNotEmpty())
         assertTrue(historyLogs.isNotEmpty())
