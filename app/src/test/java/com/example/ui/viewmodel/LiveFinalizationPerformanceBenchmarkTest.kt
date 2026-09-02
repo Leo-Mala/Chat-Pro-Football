@@ -120,6 +120,9 @@ class LiveFinalizationPerformanceBenchmarkTest {
             youthAcademyUseCase = YouthAcademyUseCase(),
             tacticsUseCase = TacticsUseCase()
         )
+        // Production resolves `repo` exclusively through the selected save id. The benchmark uses
+        // the same session boundary instead of calling match-stat persistence on an unselected VM.
+        viewModel._currentSaveId.value = slotId
 
         val totalStartedAtNs = System.nanoTime()
         val matchPersistStartedAtNs = System.nanoTime()
