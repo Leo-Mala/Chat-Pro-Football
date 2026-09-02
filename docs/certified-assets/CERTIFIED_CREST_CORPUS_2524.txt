@@ -1,0 +1,40 @@
+CERTIFIED PRO FOOTBALL CREST CORPUS — IMMUTABLE BACKUP
+
+Purpose:
+Preserve the exact certified 2,524-crest corpus so it can be restored later without researching, downloading, converting, recompressing, remapping, or recreating any crest.
+
+Certified counts:
+club_*.webp=1907
+factual_*.webp=617
+total_webp=2524
+
+Required aggregate fingerprint SHA-256:
+d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+
+Backup archive:
+certified-club-crests-2524-d1e1d991.tar.zst
+
+Backup archive SHA-256:
+3b8419298e03a593f23c750a91fda7613f3af395dcd770c13c9f17278f265dc3
+
+Persistent backup location:
+ChatGPT Library: /Chat-Pro-Football/certified-assets/certified-club-crests-2524-d1e1d991.tar.zst
+Library file id: file_000000001ba8820eac7c8cf659a3b50a
+Library persistent id: libfile_f12b0c3483e08191a58db726d0d14034
+
+Source certified APK SHA-256:
+066db74de6148a559e807db946870b348a0ddc25f48c1f6dda6cc8f6e4216a2b
+
+Source code baseline when backup was produced:
+2afc8b1fcba80d891d3e18826d0d70095e0b49f3
+
+Rules for future restoration:
+1. Materialize the backup archive above.
+2. Verify the archive SHA-256 before extraction.
+3. Extract the WebPs without conversion or recompression.
+4. Verify exactly 1907 club_*.webp + 617 factual_*.webp = 2524.
+5. Recompute the aggregate fingerprint using the canonical assets/club_crests/<filename> algorithm.
+6. Accept the corpus only if the fingerprint equals d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90.
+7. Never alter the bytes merely to make counts or tests pass.
+
+The archive also contains CERTIFICATION.txt with the same certification metadata.
