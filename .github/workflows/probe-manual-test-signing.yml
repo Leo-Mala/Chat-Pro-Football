@@ -1,0 +1,53 @@
+name: Probe manual-test signing identity
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/probe-manual-test-signing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      EXPECTED_CERT_SHA256: 28ee293d63da9b2c3f3b8ab25c29f19464ab90431c440b4a1e71bf36c9bef741
+    steps:
+      - name: Probe certificate identity without exposing signing material
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ] || [ -z "${STORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ]; then
+            echo 'manual_test_signing_available=false'
+            exit 0
+          fi
+
+          work="$RUNNER_TEMP/manual-test-signing-probe"
+          rm -rf "$work"
+          mkdir -p "$work"
+          trap 'rm -rf "$work"' EXIT
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$work/signing.keystore"
+          chmod 600 "$work/signing.keystore"
+          keytool -exportcert \
+            -keystore "$work/signing.keystore" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -file "$work/cert.der" >/dev/null
+
+          cert_sha=$(sha256sum "$work/cert.der" | awk '{print $1}')
+          echo 'manual_test_signing_available=true'
+          echo "manual_test_signer_certificate_sha256=$cert_sha"
+          if [ "$cert_sha" = "$EXPECTED_CERT_SHA256" ]; then
+            echo 'manual_test_signer_matches_required_identity=true'
+          else
+            echo 'manual_test_signer_matches_required_identity=false'
+          fi
