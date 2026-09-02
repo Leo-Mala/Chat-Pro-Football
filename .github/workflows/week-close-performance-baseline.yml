@@ -6,19 +6,19 @@ on:
       - fix/3.0.1-manual-test-bugs
     paths:
       - .github/workflows/week-close-performance-baseline.yml
-      - tools/manual_test/apply_week_close_performance_metrics.py
       - tools/manual_test/fix_week_close_benchmark_seed.py
+      - tools/manual_test/add_monthly_prepare_breakdown_benchmark.py
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: week-close-performance-baseline-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  benchmark-test-commit:
+  benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -28,13 +28,13 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Apply metrics and canonical benchmark patch
+      - name: Apply canonical benchmark helpers
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          python3 tools/manual_test/apply_week_close_performance_metrics.py
           python3 tools/manual_test/fix_week_close_benchmark_seed.py
+          python3 tools/manual_test/add_monthly_prepare_breakdown_benchmark.py
           git diff --check
 
       - name: Set up JDK 17
@@ -54,12 +54,22 @@ jobs:
           {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
           EOF
 
-      - name: Run week-close correctness and canonical-world baseline
+      - name: Run canonical monthly prepare breakdown
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          set +e
+          ./gradlew testDebugUnitTest \
+            --tests com.example.usecase.MonthlyPrepareBreakdownBenchmarkTest \
+            --stacktrace
+          echo '--- monthly prepare breakdown ---'
+          grep -Rho 'PERF_MONTHLY_PREPARE_BREAKDOWN[^<]*' app/build/test-results/testDebugUnitTest || true
+          test "$(grep -Rho 'PERF_MONTHLY_PREPARE_BREAKDOWN[^<]*' app/build/test-results/testDebugUnitTest | wc -l)" -ge 1
+
+      - name: Run week-close correctness and canonical-world baseline
+        shell: bash
+        run: |
+          set -euo pipefail
           ./gradlew testDebugUnitTest \
             --tests com.example.usecase.WeekEightClosePerformanceBenchmarkTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
@@ -68,28 +78,6 @@ jobs:
             --tests com.example.InterruptedWeeklyCloseRecoveryTest \
             --tests com.example.ui.viewmodel.RecoveryTargetRepositoryIsolationRegressionTest \
             --stacktrace
-          gradle_status=$?
-          set -e
-          echo '--- benchmark xml diagnostics ---'
-          find app/build/test-results/testDebugUnitTest -name 'TEST-com.example.usecase.WeekEightClosePerformanceBenchmarkTest.xml' -print -exec cat {} \; || true
-          if [ "$gradle_status" -ne 0 ]; then
-            exit "$gradle_status"
-          fi
-          echo '--- measured baseline ---'
+          echo '--- measured week close ---'
           grep -Rho 'PERF_BASELINE_WEEK8[^<]*' app/build/test-results/testDebugUnitTest || true
           test "$(grep -Rho 'PERF_BASELINE_WEEK8[^<]*' app/build/test-results/testDebugUnitTest | wc -l)" -ge 1
-
-      - name: Commit tested instrumentation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin fix/3.0.1-manual-test-bugs
-          test "$(git rev-parse origin/fix/3.0.1-manual-test-bugs)" = "$GITHUB_SHA"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main/java/com/example/ui/viewmodel/WeekClosePerformanceMetrics.kt \
-                  app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt \
-                  app/src/test/java/com/example/usecase/WeekEightClosePerformanceBenchmarkTest.kt
-          git diff --cached --check
-          git commit -m 'perf: instrument weekly close stages'
-          git push origin HEAD:fix/3.0.1-manual-test-bugs
