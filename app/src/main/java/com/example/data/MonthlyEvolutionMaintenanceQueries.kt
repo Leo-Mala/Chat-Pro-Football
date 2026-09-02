@@ -77,6 +77,80 @@ internal fun GameRepository.getMonthlyEvolutionPlayerCount(): Int =
         cursor.getInt(0)
     }
 
+/**
+ * Compact production read for monthly planning.
+ *
+ * The normal Room Player query materializes every persisted column even though the compact monthly
+ * path only needs fields that influence evolution or its stale-plan snapshot. This projection keeps
+ * the canonical ORDER BY used by the legacy path while avoiding unrelated contract, market, career,
+ * fitness and scouting columns. It intentionally returns Player objects only because the existing
+ * monthly engine already encodes the audited evolution rules; compact callers persist through
+ * column-scoped writes, so unrelated default fields are never written back.
+ */
+internal fun GameRepository.getMonthlyEvolutionPlayersBatch(limit: Int, offset: Int): List<Player> {
+    require(limit > 0) { "Monthly evolution batch limit must be positive." }
+    require(offset >= 0) { "Monthly evolution batch offset cannot be negative." }
+
+    val result = ArrayList<Player>(limit)
+    db.openHelper.writableDatabase.query(
+        """
+        SELECT id, teamId, name, age, position, force,
+               finishing, passing, pace, strength, vision, defense,
+               atributosJson, atributos, potential, minutosJogados, mediaNotas, focoTreino
+        FROM players
+        ORDER BY force DESC, name ASC
+        LIMIT ? OFFSET ?
+        """.trimIndent(),
+        arrayOf<Any>(limit, offset)
+    ).use { cursor ->
+        val idIndex = cursor.getColumnIndexOrThrow("id")
+        val teamIdIndex = cursor.getColumnIndexOrThrow("teamId")
+        val nameIndex = cursor.getColumnIndexOrThrow("name")
+        val ageIndex = cursor.getColumnIndexOrThrow("age")
+        val positionIndex = cursor.getColumnIndexOrThrow("position")
+        val forceIndex = cursor.getColumnIndexOrThrow("force")
+        val finishingIndex = cursor.getColumnIndexOrThrow("finishing")
+        val passingIndex = cursor.getColumnIndexOrThrow("passing")
+        val paceIndex = cursor.getColumnIndexOrThrow("pace")
+        val strengthIndex = cursor.getColumnIndexOrThrow("strength")
+        val visionIndex = cursor.getColumnIndexOrThrow("vision")
+        val defenseIndex = cursor.getColumnIndexOrThrow("defense")
+        val atributosJsonIndex = cursor.getColumnIndexOrThrow("atributosJson")
+        val atributosIndex = cursor.getColumnIndexOrThrow("atributos")
+        val potentialIndex = cursor.getColumnIndexOrThrow("potential")
+        val minutesIndex = cursor.getColumnIndexOrThrow("minutosJogados")
+        val ratingIndex = cursor.getColumnIndexOrThrow("mediaNotas")
+        val focusIndex = cursor.getColumnIndexOrThrow("focoTreino")
+
+        while (cursor.moveToNext()) {
+            val atributosStorage = cursor.getString(atributosIndex)
+            result.add(
+                Player(
+                    id = cursor.getLong(idIndex),
+                    teamId = if (cursor.isNull(teamIdIndex)) null else cursor.getLong(teamIdIndex),
+                    name = cursor.getString(nameIndex),
+                    age = cursor.getInt(ageIndex),
+                    position = cursor.getString(positionIndex),
+                    force = cursor.getInt(forceIndex),
+                    finishing = cursor.getInt(finishingIndex),
+                    passing = cursor.getInt(passingIndex),
+                    pace = cursor.getInt(paceIndex),
+                    strength = cursor.getInt(strengthIndex),
+                    vision = cursor.getInt(visionIndex),
+                    defense = cursor.getInt(defenseIndex),
+                    atributosJson = if (cursor.isNull(atributosJsonIndex)) null else cursor.getString(atributosJsonIndex),
+                    atributos = AtributosConverter.jsonToAtributos(atributosStorage) ?: Atributos(),
+                    potential = cursor.getInt(potentialIndex),
+                    minutosJogados = cursor.getInt(minutesIndex),
+                    mediaNotas = cursor.getDouble(ratingIndex),
+                    focoTreino = if (cursor.isNull(focusIndex)) null else cursor.getString(focusIndex)
+                )
+            )
+        }
+    }
+    return result
+}
+
 private fun hashMapCapacityForSize(size: Int): Int {
     if (size <= 0) return 16
     // HashMap grows at a 0.75 load factor. Reserving for the complete monthly universe prevents
