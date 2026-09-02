@@ -818,45 +818,8 @@ class GameViewModel @Inject constructor(
                 return@launch
             }
             
-            val selectedStarters = mutableSetOf<Player>()
-            
-            // 1. Select Goalkeeper (GOL) - best by force * (energy / 100)
-            val bestGk = available.filter { it.position == "GOL" }
-                .maxByOrNull { it.force.toDouble() * (it.energy.toDouble() / 100.0) }
-            if (bestGk != null) {
-                selectedStarters.add(bestGk)
-            }
-            
-            // 2. Select field players according to formation roles
-            val roles = getFormationRoles(formation)
-            for (role in roles) {
-                val candidate = available.filter { it !in selectedStarters && it.position == role }
-                    .maxByOrNull { it.force.toDouble() * (it.energy.toDouble() / 100.0) }
-                if (candidate != null) {
-                    selectedStarters.add(candidate)
-                }
-            }
-            
-            // 3. Fallback: if we still don't have 11 players, fill with remaining field players
-            if (selectedStarters.size < 11) {
-                val remainingField = available.filter { it !in selectedStarters && it.position != "GOL" }
-                    .sortedByDescending { it.force.toDouble() * (it.energy.toDouble() / 100.0) }
-                for (player in remainingField) {
-                    if (selectedStarters.size >= 11) break
-                    selectedStarters.add(player)
-                }
-            }
-            
-            // 4. Fallback 2: if still < 11, fill with any remaining goalkeeper
-            if (selectedStarters.size < 11) {
-                val remainingAll = available.filter { it !in selectedStarters }
-                    .sortedByDescending { it.force.toDouble() * (it.energy.toDouble() / 100.0) }
-                for (player in remainingAll) {
-                    if (selectedStarters.size >= 11) break
-                    selectedStarters.add(player)
-                }
-            }
-            
+            val selectedStarters = tacticsUseCase.selectAutoLineup(available, formation).toSet()
+
             // 5. Update database: all unselected players in roster are bench (isStarter = false), selected are starters
             val updatedPlayers = mutableListOf<Player>()
             for (player in roster) {
