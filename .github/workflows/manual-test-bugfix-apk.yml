@@ -109,6 +109,10 @@ jobs:
             --tests com.example.usecase.InstallmentSaleBuyerCapacityRegressionTest \
             --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
+            --tests com.example.data.ManualStrengthPersistenceRegressionTest \
+            --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
+            --tests com.example.WeeklyFinalizationAtomicityTest \
             --tests com.example.usecase.CpuSquadManagementUseCaseTest \
             --tests com.example.usecase.SeasonSimulationRegressionTest \
             --tests com.example.usecase.MarketPurchaseRefreshTest \
