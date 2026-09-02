@@ -91,30 +91,41 @@ object PlayerEvolutionMonthlyEngine {
             val minutesFactor = PlayerEvolutionSystem.calculateMinutesFactor(player.minutosJogados)
             val ratingFactor = PlayerEvolutionSystem.calculateRatingFactor(player.mediaNotas)
             val targetPotential = player.potential.coerceIn(50, 99)
-            val historyLogs = ArrayList<HistoricoEvolucao>(4)
+            var historyLogs: ArrayList<HistoricoEvolucao>? = null
 
             if (ageFactor > 0) {
                 val primaryAttrList = primaryAttributesByPosition.getValue(posEnum)
-                val selectedList = LinkedHashSet<String>(4)
+                val selectedAttributes = arrayOfNulls<String>(3)
+                var selectedCount = 0
 
                 // Preserve the legacy exact-key behavior: focoTreino is lower-cased before this
                 // membership check, while camelCase attribute keys remain camelCase.
                 val focusCandidate = player.focoTreino?.lowercase()?.trim()
                 if (!focusCandidate.isNullOrBlank() && focusCandidate in selectableAttributeKeys) {
-                    selectedList.add(focusCandidate)
+                    selectedAttributes[selectedCount++] = focusCandidate
                 }
 
-                while (selectedList.size < 3) {
+                while (selectedCount < 3) {
                     val candidate = if (Random.nextDouble() < 0.6) {
                         primaryAttrList[Random.nextInt(primaryAttrList.size)]
                     } else {
                         selectableAttributeKeys[Random.nextInt(selectableAttributeKeys.size)]
                     }
-                    selectedList.add(candidate)
+                    var duplicate = false
+                    for (index in 0 until selectedCount) {
+                        if (selectedAttributes[index] == candidate) {
+                            duplicate = true
+                            break
+                        }
+                    }
+                    if (!duplicate) {
+                        selectedAttributes[selectedCount++] = candidate
+                    }
                 }
 
                 val trainingFactor = ctMult * ageFactor
-                for (attrName in selectedList) {
+                for (selectedIndex in 0 until selectedCount) {
+                    val attrName = selectedAttributes[selectedIndex]!!
                     val index = attributeIndex(attrName)
                     val currentVal = values[index]
                     if (currentVal < targetPotential) {
@@ -126,7 +137,8 @@ object PlayerEvolutionMonthlyEngine {
                         val newVal = (currentVal + gain.roundToInt()).coerceAtMost(targetPotential)
                         if (newVal != currentVal) {
                             values[index] = newVal
-                            historyLogs.add(
+                            val logs = historyLogs ?: ArrayList<HistoricoEvolucao>(4).also { historyLogs = it }
+                            logs.add(
                                 HistoricoEvolucao(
                                     jogadorId = player.id,
                                     data = periodDate,
@@ -149,7 +161,8 @@ object PlayerEvolutionMonthlyEngine {
                     val newVal = (currentVal - declineAmount).coerceAtLeast(1)
                     if (newVal != currentVal) {
                         values[index] = newVal
-                        historyLogs.add(
+                        val logs = historyLogs ?: ArrayList<HistoricoEvolucao>(4).also { historyLogs = it }
+                        logs.add(
                             HistoricoEvolucao(
                                 jogadorId = player.id,
                                 data = periodDate,
@@ -169,7 +182,7 @@ object PlayerEvolutionMonthlyEngine {
                 newAttributes = newAtributos
             )
             val netChange = (newPersistedForce - player.force).toDouble()
-            val hasPersistedDelta = historyLogs.isNotEmpty() || netChange != 0.0
+            val hasPersistedDelta = historyLogs != null || netChange != 0.0
 
             if (retainUnchangedResults || hasPersistedDelta) {
                 val newJson = serializeAttributes(newAtributos)
@@ -186,7 +199,7 @@ object PlayerEvolutionMonthlyEngine {
                         oldAttributes = oldAtributos,
                         newAttributes = newAtributos,
                         netChange = netChange,
-                        historyLogs = historyLogs
+                        historyLogs = historyLogs ?: emptyList()
                     )
                 )
             }
