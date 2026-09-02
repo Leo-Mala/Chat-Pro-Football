@@ -26,6 +26,7 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         const val MIN_SQUAD_SIZE = 16
         const val MAX_SQUAD_SIZE = 35
         private const val RENEWAL_WINDOW_WEEKS = 1
+        private const val PLAYER_ID_BATCH_SIZE = 800
     }
 
     data class ManagementReport(
@@ -326,9 +327,10 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
         if (activeLoans.isEmpty()) return 0
         val duplicateActiveLoans = activeLoans.size - activeLoans.map { it.playerId }.toSet().size
         val validTeamIds = allTeams.mapTo(mutableSetOf()) { it.id }
+        val playersById = loadPlayersByIds(activeLoans.map { it.playerId })
         var invalidLoanRows = 0
         for (loan in activeLoans) {
-            val player = repository.getPlayer(loan.playerId)
+            val player = playersById[loan.playerId]
             val invalidTemporalState = loan.remainingWeeks <= 0
             if (player == null ||
                 !player.isOnLoan ||
@@ -342,6 +344,22 @@ class CpuSquadManagementUseCase(private val repository: GameRepository) {
             }
         }
         return duplicateActiveLoans + invalidLoanRows
+    }
+
+    /**
+     * Validação semanal de empréstimos precisa de todos os jogadores envolvidos, mas não de uma
+     * SELECT separada por empréstimo. Ler IDs únicos em blocos mantém exatamente a mesma validação
+     * fail-closed e reduz N consultas dentro da transação para ceil(N/800).
+     */
+    private suspend fun loadPlayersByIds(playerIds: Collection<Long>): Map<Long, Player> {
+        val distinctIds = playerIds.distinct()
+        if (distinctIds.isEmpty()) return emptyMap()
+
+        val players = ArrayList<Player>(distinctIds.size)
+        distinctIds.chunked(PLAYER_ID_BATCH_SIZE).forEach { chunk ->
+            players.addAll(repository.db.playerBatchDao().getPlayersByIds(chunk))
+        }
+        return players.associateBy { it.id }
     }
 
     private fun retentionScore(player: WeeklyRenewalCandidate, team: Team): Int {
