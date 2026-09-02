@@ -28,12 +28,12 @@ jobs:
           git fetch origin fix/3.0.1-manual-test-bugs
           test "$(git rev-parse origin/fix/3.0.1-manual-test-bugs)" = "$GITHUB_SHA"
 
-      - name: Apply automatic-lineup formation fix
+      - name: Apply edited-force persistence fix
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile tools/manual_test/apply_auto_lineup_formation_fix.py
-          python3 tools/manual_test/apply_auto_lineup_formation_fix.py
+          python3 -m py_compile tools/manual_test/apply_force_persistence_fix.py
+          python3 tools/manual_test/apply_force_persistence_fix.py
           git diff --check
 
       - name: Set up JDK 17
@@ -57,14 +57,17 @@ jobs:
           }
           GOOGLE_EOF
 
-      - name: Run automatic-lineup focused regressions
+      - name: Run edited-force focused regressions
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew testDebugUnitTest -PexcludeStressTests=true \
-            --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
-            --tests com.example.usecase.LineupUseCaseTest \
+            --tests com.example.data.ManualStrengthPersistenceRegressionTest \
+            --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
+            --tests com.example.data.PlayerEvolutionRegressionTest \
+            --tests com.example.ui.viewmodel.ClubStrength99RosterConsistencyTest \
+            --tests com.example.ui.viewmodel.TeamStrength99PersistenceRegressionTest \
             --stacktrace
 
       - name: Recheck remote head and persist verified fix
@@ -76,9 +79,10 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
-            app/src/main/java/com/example/usecase/TacticsUseCase.kt \
+            app/src/main/java/com/example/data/PlayerEvolutionSystem.kt \
+            app/src/main/java/com/example/data/PlayerEvolutionMonthlyEngine.kt \
             app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
-            app/src/test/java/com/example/usecase/TacticsUseCaseAutoLineupTest.kt
+            app/src/test/java/com/example/data/ManualStrengthPersistenceRegressionTest.kt
           git diff --cached --check
-          git commit -m 'fix: keep automatic lineup faithful to formation roles'
+          git commit -m 'fix: preserve edited player force across evolution'
           git push origin HEAD:fix/3.0.1-manual-test-bugs
