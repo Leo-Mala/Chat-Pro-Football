@@ -14,6 +14,7 @@ import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
 import com.example.data.getMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionPlayerCount
+import com.example.data.getMonthlyEvolutionPlayersBatch
 import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.resetMonthlyEvolutionCounters
 import com.example.data.toMonthlyEvolutionInputSnapshot
@@ -118,11 +119,15 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val referencedTeamIds = HashSet<Long>()
 
         // Keep the exact ORDER BY force DESC, name ASC and call the same evolution engine in
-        // sequence. Kotlin Random.Default therefore sees the same uninterrupted call sequence;
-        // only the lifetime of each full Player batch changes.
+        // sequence. Compact weekly planning reads only evolution-relevant columns; detailed callers
+        // retain the full Player entity because their returned results expose all persisted fields.
         var offset = 0
         while (offset < expectedPlayerCount) {
-            val batch = repository.getAllPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
+            val batch = if (retainDetailedResults) {
+                repository.getAllPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
+            } else {
+                repository.getMonthlyEvolutionPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
+            }
             check(batch.isNotEmpty()) {
                 "Monthly evolution player scan ended at $offset of $expectedPlayerCount rows."
             }
