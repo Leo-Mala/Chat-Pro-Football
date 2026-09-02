@@ -37,9 +37,7 @@ object PlayerEvolutionMonthlyEngine {
         Posicao.ATACANTE to listOf("finalizacao", "velocidade", "aceleracao", "drible", "sangueFrio", "cabeceio")
     )
 
-    /**
-     * Compatibility path: returns a result for every processed player.
-     */
+    /** Compatibility path: returns a result for every processed player. */
     fun process(
         players: List<Player>,
         teamsMap: Map<Long, Team>,
@@ -174,6 +172,13 @@ object PlayerEvolutionMonthlyEngine {
                     }
                 }
             }
+
+            // processChanged never persists a force delta without an attribute delta: the force
+            // helper applies only (newIndex - oldIndex). Once all legacy RNG calls above have been
+            // consumed, a player with no logged attribute mutation is therefore guaranteed to be a
+            // no-op. Skip Atributos reconstruction plus the two technical-index calculations for
+            // that common case while leaving the compatibility process() path unchanged.
+            if (!retainUnchangedResults && historyLogs == null) continue
 
             val newAtributos = values.toAtributos()
             val newPersistedForce = PlayerEvolutionSystem.preserveEditedForceAcrossAttributeChange(
