@@ -54,7 +54,11 @@ class MonthlyEvolutionHistoryBulkWriterTest {
         }
         assertEquals(rows.size, inserted)
 
-        val persisted = (1L..7L).flatMap(repository::getHistoricoPorJogador)
+        val persisted = mutableListOf<HistoricoEvolucao>()
+        for (playerId in 1L..7L) {
+            persisted.addAll(repository.getHistoricoPorJogador(playerId))
+        }
+
         assertEquals(rows.size, persisted.size)
         assertTrue(persisted.all { it.id > 0L })
         assertEquals(rows.size, persisted.map { it.id }.toSet().size)
@@ -62,5 +66,14 @@ class MonthlyEvolutionHistoryBulkWriterTest {
             rows.mapTo(hashSetOf()) { it.monthlyEvolutionFingerprint() },
             persisted.mapTo(hashSetOf()) { it.monthlyEvolutionFingerprint() }
         )
+    }
+
+    private fun clearSlot() {
+        val name = SlotDatabaseFactory.databaseNameForSlot(slotId)
+        application.deleteDatabase(name)
+        val file = application.getDatabasePath(name)
+        listOf("", "-wal", "-shm", "-journal").forEach { suffix ->
+            java.io.File(file.path + suffix).delete()
+        }
     }
 }
