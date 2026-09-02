@@ -110,6 +110,7 @@ jobs:
             --tests com.example.usecase.InstallmentSaleBuyerCapacityRegressionTest \
             --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionCompactPlanMemoryRegressionTest \
             --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
             --tests com.example.data.MonthlyEvolutionHistoryBulkWriterTest \
             --tests com.example.data.ManualStrengthPersistenceRegressionTest \
@@ -119,6 +120,7 @@ jobs:
             --tests com.example.Phase106LifecycleRaceRegressionTest \
             --tests com.example.usecase.CpuSquadManagementUseCaseTest \
             --tests com.example.usecase.SeasonSimulationRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
             --tests com.example.usecase.MarketPurchaseRefreshTest \
             --tests com.example.usecase.MarketPurchasePersistenceTest \
             --tests com.example.usecase.MatchStatisticsIdempotencyTest \
@@ -131,6 +133,25 @@ jobs:
             --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
             --tests com.example.ui.screens.LiveMatchFeedOrderingRegressionTest \
             --stacktrace
+
+      - name: Prove monthly close and season simulation with bounded test heap
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/bounded-test-heap.gradle <<'EOF'
+          allprojects {
+            tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+              maxHeapSize = '512m'
+            }
+          }
+          EOF
+          ./gradlew -I /tmp/bounded-test-heap.gradle testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.usecase.MonthlyEvolutionCompactPlanMemoryRegressionTest \
+            --tests com.example.usecase.WeekEightClosePerformanceBenchmarkTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --rerun-tasks \
+            --stacktrace
+          grep -Rho 'PERF_BASELINE_WEEK8[^<]*' app/build/test-results/testDebugUnitTest || true
 
       - name: Commit tested production patch
         if: steps.patch.outputs.applied == 'true'
