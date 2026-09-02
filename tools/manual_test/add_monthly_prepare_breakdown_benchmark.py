@@ -11,6 +11,7 @@ import com.example.data.Player
 import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
 import com.example.data.getMonthlyEvolutionPlayerCount
+import com.example.data.getMonthlyEvolutionPlayersBatch
 import com.example.data.local.SlotDatabaseFactory
 import com.example.data.pristineCareerSeedTemplateOrNull
 import com.example.data.repository.GameSaveRepository
@@ -29,7 +30,7 @@ class MonthlyPrepareBreakdownBenchmarkTest {
     private fun elapsedMillis(start: Long): Long = (System.nanoTime() - start) / 1_000_000L
 
     @Test
-    fun `profile canonical monthly preparation stages`() = runBlocking {
+    fun `compact monthly projection preserves every evolution input and measures read cost`() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val slotId = "4"
         val dbName = SlotDatabaseFactory.databaseNameForSlot(slotId)
@@ -46,42 +47,44 @@ class MonthlyPrepareBreakdownBenchmarkTest {
             val allTeams = repository.getAllTeams().associateBy { it.id }
             val teamsMillis = elapsedMillis(teamsStart)
 
-            val legacyIds = ArrayList<Long>(expectedPlayerCount)
-            var legacyOffsetReadMillis = 0L
-            var legacyOffset = 0
-            while (legacyOffset < expectedPlayerCount) {
+            val legacyPlayers = ArrayList<Player>(expectedPlayerCount)
+            var legacyReadMillis = 0L
+            var offset = 0
+            while (offset < expectedPlayerCount) {
                 val stageStart = System.nanoTime()
-                val batch = repository.getAllPlayersBatch(4096, legacyOffset)
-                legacyOffsetReadMillis += elapsedMillis(stageStart)
+                val batch = repository.getAllPlayersBatch(4096, offset)
+                legacyReadMillis += elapsedMillis(stageStart)
                 check(batch.isNotEmpty())
-                for (player in batch) legacyIds.add(player.id)
-                legacyOffset += batch.size
+                legacyPlayers.addAll(batch)
+                offset += batch.size
             }
-            assertEquals(expectedPlayerCount, legacyIds.size)
-
-            val oneShotReadStart = System.nanoTime()
-            val allPlayers = repository.getAllPlayers()
-            val oneShotReadMillis = elapsedMillis(oneShotReadStart)
-            assertEquals(expectedPlayerCount, allPlayers.size)
-            assertEquals(
-                "Single ordered read must preserve the exact legacy LIMIT/OFFSET player sequence",
-                legacyIds,
-                allPlayers.map { it.id }
-            )
+            assertEquals(expectedPlayerCount, legacyPlayers.size)
 
             val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
             val changedPlayers = ArrayList<Player>()
             val historyLogs = ArrayList<HistoricoEvolucao>()
+            var compactReadMillis = 0L
             var calcMillis = 0L
             var collectMillis = 0L
             var snapshotMillis = 0L
-            var offset = 0
+            offset = 0
 
-            while (offset < allPlayers.size) {
-                val endExclusive = minOf(offset + 4096, allPlayers.size)
-                val batch = allPlayers.subList(offset, endExclusive)
-
+            while (offset < expectedPlayerCount) {
                 var stageStart = System.nanoTime()
+                val batch = repository.getMonthlyEvolutionPlayersBatch(4096, offset)
+                compactReadMillis += elapsedMillis(stageStart)
+                check(batch.isNotEmpty())
+
+                for (index in batch.indices) {
+                    val full = legacyPlayers[offset + index]
+                    val compact = batch[index]
+                    assertEquals("Compact projection must preserve global player order", full.id, compact.id)
+                    assertEquals("Compact projection must preserve player name/order key", full.name, compact.name)
+                    assertEquals("Compact projection must preserve effective evolution attributes", full.getAtributosObject(), compact.getAtributosObject())
+                    assertEquals("Compact projection must preserve stale-plan evolution snapshot", full.toMonthlyEvolutionInputSnapshot(), compact.toMonthlyEvolutionInputSnapshot())
+                }
+
+                stageStart = System.nanoTime()
                 val batchResults: List<PlayerEvolutionResult> = PlayerEvolutionMonthlyEngine.processChanged(
                     batch,
                     allTeams,
@@ -99,15 +102,15 @@ class MonthlyPrepareBreakdownBenchmarkTest {
                 stageStart = System.nanoTime()
                 for (player in batch) expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
                 snapshotMillis += elapsedMillis(stageStart)
-                offset = endExclusive
+                offset += batch.size
             }
 
             assertEquals(expectedPlayerCount, expectedInputs.size)
             println(
                 "PERF_MONTHLY_PREPARE_BREAKDOWN " +
                     "T_TEAMS_READ=$teamsMillis " +
-                    "T_PLAYER_READ_LEGACY_OFFSET=$legacyOffsetReadMillis " +
-                    "T_PLAYER_READ_ONESHOT=$oneShotReadMillis " +
+                    "T_PLAYER_READ_LEGACY_FULL=$legacyReadMillis " +
+                    "T_PLAYER_READ_COMPACT=$compactReadMillis " +
                     "T_ENGINE_CALC=$calcMillis " +
                     "T_RESULT_COLLECT=$collectMillis " +
                     "T_SNAPSHOT_CAPTURE=$snapshotMillis " +
