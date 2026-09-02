@@ -57,6 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
+          set +e
           ./gradlew testDebugUnitTest \
             --tests com.example.usecase.WeekEightClosePerformanceBenchmarkTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
@@ -65,6 +66,13 @@ jobs:
             --tests com.example.InterruptedWeeklyCloseRecoveryTest \
             --tests com.example.ui.viewmodel.RecoveryTargetRepositoryIsolationRegressionTest \
             --stacktrace
+          gradle_status=$?
+          set -e
+          echo '--- benchmark xml diagnostics ---'
+          find app/build/test-results/testDebugUnitTest -name 'TEST-com.example.usecase.WeekEightClosePerformanceBenchmarkTest.xml' -print -exec cat {} \; || true
+          if [ "$gradle_status" -ne 0 ]; then
+            exit "$gradle_status"
+          fi
           echo '--- measured baseline ---'
           grep -Rho 'PERF_BASELINE_WEEK8[^<]*' app/build/test-results/testDebugUnitTest || true
           test "$(grep -Rho 'PERF_BASELINE_WEEK8[^<]*' app/build/test-results/testDebugUnitTest | wc -l)" -ge 1
