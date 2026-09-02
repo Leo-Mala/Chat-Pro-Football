@@ -46,22 +46,42 @@ class MonthlyPrepareBreakdownBenchmarkTest {
             val allTeams = repository.getAllTeams().associateBy { it.id }
             val teamsMillis = elapsedMillis(teamsStart)
 
+            val legacyIds = ArrayList<Long>(expectedPlayerCount)
+            var legacyOffsetReadMillis = 0L
+            var legacyOffset = 0
+            while (legacyOffset < expectedPlayerCount) {
+                val stageStart = System.nanoTime()
+                val batch = repository.getAllPlayersBatch(4096, legacyOffset)
+                legacyOffsetReadMillis += elapsedMillis(stageStart)
+                check(batch.isNotEmpty())
+                for (player in batch) legacyIds.add(player.id)
+                legacyOffset += batch.size
+            }
+            assertEquals(expectedPlayerCount, legacyIds.size)
+
+            val oneShotReadStart = System.nanoTime()
+            val allPlayers = repository.getAllPlayers()
+            val oneShotReadMillis = elapsedMillis(oneShotReadStart)
+            assertEquals(expectedPlayerCount, allPlayers.size)
+            assertEquals(
+                "Single ordered read must preserve the exact legacy LIMIT/OFFSET player sequence",
+                legacyIds,
+                allPlayers.map { it.id }
+            )
+
             val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
             val changedPlayers = ArrayList<Player>()
             val historyLogs = ArrayList<HistoricoEvolucao>()
-            var readMillis = 0L
             var calcMillis = 0L
             var collectMillis = 0L
             var snapshotMillis = 0L
             var offset = 0
 
-            while (offset < expectedPlayerCount) {
-                var stageStart = System.nanoTime()
-                val batch = repository.getAllPlayersBatch(4096, offset)
-                readMillis += elapsedMillis(stageStart)
-                check(batch.isNotEmpty())
+            while (offset < allPlayers.size) {
+                val endExclusive = minOf(offset + 4096, allPlayers.size)
+                val batch = allPlayers.subList(offset, endExclusive)
 
-                stageStart = System.nanoTime()
+                var stageStart = System.nanoTime()
                 val batchResults: List<PlayerEvolutionResult> = PlayerEvolutionMonthlyEngine.processChanged(
                     batch,
                     allTeams,
@@ -79,14 +99,15 @@ class MonthlyPrepareBreakdownBenchmarkTest {
                 stageStart = System.nanoTime()
                 for (player in batch) expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
                 snapshotMillis += elapsedMillis(stageStart)
-                offset += batch.size
+                offset = endExclusive
             }
 
             assertEquals(expectedPlayerCount, expectedInputs.size)
             println(
                 "PERF_MONTHLY_PREPARE_BREAKDOWN " +
                     "T_TEAMS_READ=$teamsMillis " +
-                    "T_PLAYER_READ=$readMillis " +
+                    "T_PLAYER_READ_LEGACY_OFFSET=$legacyOffsetReadMillis " +
+                    "T_PLAYER_READ_ONESHOT=$oneShotReadMillis " +
                     "T_ENGINE_CALC=$calcMillis " +
                     "T_RESULT_COLLECT=$collectMillis " +
                     "T_SNAPSHOT_CAPTURE=$snapshotMillis " +
