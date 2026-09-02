@@ -3,7 +3,7 @@ package com.example.usecase
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.GameSave
-import com.example.data.applyMonthlyEvolutionPlayerStates
+import com.example.data.applyMonthlyEvolutionPlayerStateDeltas
 import com.example.data.consumePristineCareerSeedTemplate
 import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
@@ -133,7 +133,7 @@ class MonthlyCommitPerformanceBenchmarkTest {
         try {
             repository.withTransaction {
                 startedAtNs = System.nanoTime()
-                playerWriteRows = repository.applyMonthlyEvolutionPlayerStates(plan.updatedPlayerStates)
+                playerWriteRows = repository.applyMonthlyEvolutionPlayerStateDeltas(plan.updatedPlayerStates)
                 tPlayerWritesMillis = elapsedMillis(startedAtNs)
                 throw ProbeRollback()
             }
