@@ -1,4 +1,5 @@
 name: Manual Test Bugfix APK
+# Recertification checkpoint for the tested interrupted-week-close recovery.
 
 on:
   push:
