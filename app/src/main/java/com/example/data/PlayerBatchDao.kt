@@ -4,11 +4,10 @@ import androidx.room.Dao
 import androidx.room.Query
 
 /**
- * DAO estreito para leituras de elencos em lote usadas pelo fechamento da rodada.
+ * DAO estreito para leituras de jogadores em lote usadas pelo fechamento da rodada.
  *
- * Mantê-lo separado de PlayerDao permite acelerar o caminho quente de fixtures da CPU sem alterar
- * a semântica das consultas legadas por clube. O chamador fragmenta os ids abaixo do limite de
- * bind parameters do SQLite.
+ * Mantê-lo separado de PlayerDao permite acelerar os caminhos quentes sem alterar a semântica das
+ * consultas legadas. Os chamadores fragmentam os ids abaixo do limite de bind parameters do SQLite.
  */
 @Dao
 interface PlayerBatchDao {
@@ -20,4 +19,13 @@ interface PlayerBatchDao {
         """
     )
     suspend fun getPlayersByTeamIds(teamIds: List<Long>): List<Player>
+
+    @Query(
+        """
+        SELECT * FROM players
+        WHERE id IN (:playerIds)
+        ORDER BY id ASC
+        """
+    )
+    suspend fun getPlayersByIds(playerIds: List<Long>): List<Player>
 }
