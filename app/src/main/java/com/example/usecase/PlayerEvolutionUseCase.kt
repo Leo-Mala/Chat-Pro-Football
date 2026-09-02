@@ -10,11 +10,11 @@ import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
 import com.example.data.Team
 import com.example.data.applyMonthlyEvolutionPlayerStates
+import com.example.data.forEachMonthlyEvolutionPlayerBatch
 import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
 import com.example.data.getMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionPlayerCount
-import com.example.data.getMonthlyEvolutionPlayersBatch
 import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.resetMonthlyEvolutionCounters
 import com.example.data.toMonthlyEvolutionInputSnapshot
@@ -57,8 +57,8 @@ data class MonthlyEvolutionExecutionOutcome(
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
  * suspensões por cartão e renovação de contratos de atletas.
  */
-// 4,096 preserves the exact global ORDER BY and sequential RNG stream while avoiding
-// the pathological ~118 LIMIT/OFFSET scans observed at the week-four monthly boundary.
+// 4,096 preserves the exact global ORDER BY and sequential RNG stream while keeping each in-memory
+// working batch bounded. The compact path now obtains those batches from one ordered SQLite cursor.
 private const val MONTHLY_EVOLUTION_BATCH_SIZE = 4096
 
 class PlayerEvolutionUseCase(private val repository: GameRepository) {
@@ -118,20 +118,8 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
         val referencedTeamIds = HashSet<Long>()
 
-        // Keep the exact ORDER BY force DESC, name ASC and call the same evolution engine in
-        // sequence. Compact weekly planning reads only evolution-relevant columns; detailed callers
-        // retain the full Player entity because their returned results expose all persisted fields.
-        var offset = 0
-        while (offset < expectedPlayerCount) {
-            val batch = if (retainDetailedResults) {
-                repository.getAllPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
-            } else {
-                repository.getMonthlyEvolutionPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
-            }
-            check(batch.isNotEmpty()) {
-                "Monthly evolution player scan ended at $offset of $expectedPlayerCount rows."
-            }
-            val batchResults = if (retainDetailedResults) {
+        fun processBatch(batch: List<Player>, detailed: Boolean) {
+            val batchResults = if (detailed) {
                 PlayerEvolutionMonthlyEngine.process(batch, allTeams, periodDate)
             } else {
                 PlayerEvolutionMonthlyEngine.processChanged(batch, allTeams, periodDate)
@@ -146,8 +134,34 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
                 player.teamId?.let(referencedTeamIds::add)
             }
-            offset += batch.size
         }
+
+        // Keep the exact ORDER BY force DESC, name ASC and the same 4,096-player engine boundaries.
+        // Detailed callers retain the legacy Room pagination because their returned results expose
+        // full entities. The compact weekly path streams the same projection through one cursor so
+        // SQLite performs the global sort once instead of repeating it for every LIMIT/OFFSET page.
+        if (retainDetailedResults) {
+            var offset = 0
+            while (offset < expectedPlayerCount) {
+                val batch = repository.getAllPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
+                check(batch.isNotEmpty()) {
+                    "Monthly evolution player scan ended at $offset of $expectedPlayerCount rows."
+                }
+                processBatch(batch, detailed = true)
+                offset += batch.size
+            }
+            check(offset == expectedPlayerCount) {
+                "Monthly evolution detailed scan read $offset of $expectedPlayerCount players."
+            }
+        } else {
+            val processed = repository.forEachMonthlyEvolutionPlayerBatch(MONTHLY_EVOLUTION_BATCH_SIZE) { batch ->
+                processBatch(batch, detailed = false)
+            }
+            check(processed == expectedPlayerCount) {
+                "Monthly evolution compact scan read $processed of $expectedPlayerCount players."
+            }
+        }
+
         check(expectedInputs.size == expectedPlayerCount) {
             "Monthly evolution expected $expectedPlayerCount inputs but captured ${expectedInputs.size}."
         }
