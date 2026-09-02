@@ -1,4 +1,5 @@
 # CI-only trigger for the latest tested manual-test fixes.
+# Certified candidate after compact monthly delta benchmark and 512 MB season gate.
 name: Build recovered crest APK
 
 on:
