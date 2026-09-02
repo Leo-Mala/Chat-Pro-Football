@@ -164,7 +164,8 @@ return_new = '''            results = evolutionResults,
             expectedInputs = expectedInputs,
             expectedPlayerCount = expectedPlayerCount,
             expectedTrainingCenterLevels = expectedTrainingLevels,
-            updatedPlayerStates = changedPlayerStates ?: emptyList()
+            updatedPlayerStates = changedPlayerStates
+                ?: changedPlayers.orEmpty().map { it.toMonthlyEvolutionPlayerState() }
 '''
 usecase = replace_once(usecase, return_old, return_new, "plan construction")
 
