@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -308,6 +309,12 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
         }
 
         var selectedLiveTab by remember { mutableStateOf("LANCES") }
+        val liveEventListState = rememberLazyListState()
+        LaunchedEffect(events.size, selectedLiveTab) {
+            if (selectedLiveTab == "LANCES" && events.isNotEmpty()) {
+                liveEventListState.animateScrollToItem(events.lastIndex)
+            }
+        }
         LaunchedEffect(matchState) {
             if (matchState == GameViewModel.MatchState.FINISHED) {
                 selectedLiveTab = "RELATORIO"
@@ -363,13 +370,13 @@ fun LiveMatchScreen(viewModel: GameViewModel) {
         ) {
             if (selectedLiveTab == "LANCES") {
                 LazyColumn(
+                    state = liveEventListState,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    reverseLayout = true // keeps latest events at top
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(events.reversed(), key = { "${it.minute}_${it.description.hashCode()}" }) { event ->
+                    items(events, key = { "${it.minute}_${it.description.hashCode()}" }) { event ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
