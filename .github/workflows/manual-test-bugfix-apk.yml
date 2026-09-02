@@ -111,6 +111,7 @@ jobs:
             --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
             --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
+            --tests com.example.data.MonthlyEvolutionHistoryBulkWriterTest \
             --tests com.example.data.ManualStrengthPersistenceRegressionTest \
             --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
             --tests com.example.WeeklyFinalizationAtomicityTest \
@@ -128,6 +129,7 @@ jobs:
             --tests com.example.data.BrasfootRealClubIdentityTest \
             --tests com.example.data.BrasfootPatchCrestsTest \
             --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
+            --tests com.example.ui.screens.LiveMatchFeedOrderingRegressionTest \
             --stacktrace
 
       - name: Commit tested production patch
