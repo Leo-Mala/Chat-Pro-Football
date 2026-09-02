@@ -23,6 +23,7 @@ jobs:
       EXPECTED_FACTUAL_CRESTS: '617'
       EXPECTED_TOTAL_CRESTS: '2524'
       EXPECTED_CREST_FINGERPRINT: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+      EXPECTED_SIGNING_CERT_SHA256: 28ee293d63da9b2c3f3b8ab25c29f19464ab90431c440b4a1e71bf36c9bef741
     steps:
       - name: Checkout exact bugfix head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -194,7 +195,15 @@ jobs:
             --tests com.example.CoachAvatarPersistenceTest \
             --tests com.example.ui.viewmodel.LiveMatchSkipRegressionTest \
             --tests com.example.ui.viewmodel.LiveMatchPersistenceOrderingRegressionTest \
+            --tests com.example.ui.viewmodel.Post90FinalizationStateRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchFinalizationCannotBeCancelledRegressionTest \
+            --tests com.example.ui.viewmodel.LiveMatchFinalizationIdempotencyRegressionTest \
+            --tests com.example.ui.viewmodel.TeamStrength99RealEditorPathRegressionTest \
+            --tests com.example.ui.viewmodel.TeamStrength99PersistenceRegressionTest \
+            --tests com.example.ui.viewmodel.TeamRatingDoesNotDropAfter99EditRegressionTest \
+            --tests com.example.ui.viewmodel.EditorRosterNoFalseZeroRegressionTest \
             --tests com.example.ui.screens.ClubCrestUiIdentityRegressionTest \
+            --tests com.example.ui.screens.LiveMatchFeedOrderingRegressionTest \
             --tests com.example.usecase.CompletedFixtureDashboardRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
             --tests com.example.usecase.SeasonSimulationRegressionTest \
@@ -207,6 +216,19 @@ jobs:
             --tests com.example.ui.viewmodel.ClubStrengthReactiveUpdateTest \
             --tests com.example.ui.viewmodel.PlayerEditorReactiveUpdateTest \
             --tests com.example.data.PlayerEvolutionRegressionTest \
+            --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
+            --tests com.example.data.MonthlyEvolutionHistoryBulkWriterTest \
+            --tests com.example.data.ManualStrengthPersistenceRegressionTest \
+            --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
+            --tests com.example.WeeklyFinalizationAtomicityTest \
+            --tests com.example.InterruptedWeeklyCloseRecoveryTest \
+            --tests com.example.Phase106LifecycleRaceRegressionTest \
+            --tests com.example.usecase.CpuSquadManagementUseCaseTest \
+            --tests com.example.usecase.PlayerSaleBuyerCapacityRegressionTest \
+            --tests com.example.usecase.PlayerSaleImmediateRemovalRegressionTest \
+            --tests com.example.usecase.PlayerSalePersistenceRegressionTest \
+            --tests com.example.usecase.PlayerSaleNoDoubleCreditRegressionTest \
+            --tests com.example.usecase.InstallmentSaleBuyerCapacityRegressionTest \
             --tests com.example.usecase.CareerCreationPerformanceTest \
             --tests com.example.data.CareerSeedTemplateRuntimeTest \
             --tests com.example.data.ProceduralRosterOnlyTest \
@@ -235,7 +257,7 @@ jobs:
             printf 'source_crest_fingerprint=%s\n' '${{ steps.recover.outputs.source_crest_fingerprint }}'
           } > manual-test-apk/BUILD_INFO.txt
 
-      - name: Validate APK integrity signature identity and certified crest fingerprint
+      - name: Validate APK integrity signature 16K alignment and certified crest fingerprint
         shell: bash
         run: |
           set -euo pipefail
@@ -274,9 +296,25 @@ jobs:
 
           bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)
           test -n "$bt"
-          "$ANDROID_HOME/build-tools/$bt/zipalign" -c -v 4 "$apk" >/dev/null
-          "$ANDROID_HOME/build-tools/$bt/apksigner" verify --verbose "$apk" | tee manual-test-apk/SIGNATURE.txt
-          "$ANDROID_HOME/build-tools/$bt/aapt" dump badging "$apk" | tee manual-test-apk/BADGING.txt
+          zipalign="$ANDROID_HOME/build-tools/$bt/zipalign"
+          apksigner="$ANDROID_HOME/build-tools/$bt/apksigner"
+          aapt="$ANDROID_HOME/build-tools/$bt/aapt"
+          test -x "$zipalign"
+          test -x "$apksigner"
+          test -x "$aapt"
+
+          "$zipalign" -c -v 4 "$apk" >/dev/null
+          "$zipalign" -c -P 16 -v 4 "$apk" | tee manual-test-apk/ALIGNMENT_16K.txt
+          "$apksigner" verify --verbose --print-certs "$apk" | tee manual-test-apk/SIGNATURE.txt
+          cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' manual-test-apk/SIGNATURE.txt)
+          test -n "$cert_sha256"
+          actual_cert=$(printf '%s' "$cert_sha256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')
+          expected_cert=$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')
+          test "${#actual_cert}" -eq 64
+          test "$actual_cert" = "$expected_cert"
+          printf 'certificate_sha256=%s\n' "$actual_cert" | tee manual-test-apk/SIGNING_IDENTITY.txt
+
+          "$aapt" dump badging "$apk" | tee manual-test-apk/BADGING.txt
           grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" manual-test-apk/BADGING.txt
           printf 'crest_total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\n' \
             "$total" "$club" "$factual" "$fingerprint" | tee manual-test-apk/CREST_BUNDLE.txt
