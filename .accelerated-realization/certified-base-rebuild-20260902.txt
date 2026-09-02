@@ -1,0 +1,2 @@
+Trigger only: export the exact current tested manual-test APK base, deterministic debug keystore, and Android signing tools so the already-certified byte-identical 2,524-crest corpus can be assembled without regenerating or changing any crest bytes.
+Baseline before trigger: 9ecb8edbc8a1d1534bde34fbc4c1f2029314e6ec
