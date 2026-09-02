@@ -6,6 +6,7 @@ on:
       - fix/3.0.1-manual-test-bugs
     paths:
       - .github/workflows/apply-live-feed-autoscroll-fix.yml
+      - tools/manual_test/apply_live_feed_autoscroll_fix.py
   workflow_dispatch:
 
 permissions:
