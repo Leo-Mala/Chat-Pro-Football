@@ -73,7 +73,7 @@ class MonthlyCommitPerformanceBenchmarkTest {
             periodDate = "S2026_W8"
         )
         assertEquals(marker.playerCount, plan.expectedPlayerCount)
-        assertTrue(plan.updatedPlayers.isNotEmpty())
+        assertTrue(plan.updatedPlayerStates.isNotEmpty())
 
         var startedAtNs = System.nanoTime()
         val existingHistory = if (plan.historyLogs.isEmpty()) {
@@ -133,14 +133,14 @@ class MonthlyCommitPerformanceBenchmarkTest {
         try {
             repository.withTransaction {
                 startedAtNs = System.nanoTime()
-                playerWriteRows = repository.applyMonthlyEvolutionPlayerStates(plan.updatedPlayers)
+                playerWriteRows = repository.applyMonthlyEvolutionPlayerStates(plan.updatedPlayerStates)
                 tPlayerWritesMillis = elapsedMillis(startedAtNs)
                 throw ProbeRollback()
             }
         } catch (_: ProbeRollback) {
             // Deliberately rollback so the history probe and the real benchmark remain independent.
         }
-        assertEquals(plan.updatedPlayers.size, playerWriteRows)
+        assertEquals(plan.updatedPlayerStates.size, playerWriteRows)
 
         var tHistoryWritesMillis = 0L
         if (plan.historyLogs.isNotEmpty()) {
