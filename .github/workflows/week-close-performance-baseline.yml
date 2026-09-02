@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/week-close-performance-baseline.yml
       - tools/manual_test/apply_week_close_performance_metrics.py
+      - tools/manual_test/fix_week_close_benchmark_seed.py
   workflow_dispatch:
 
 permissions:
@@ -27,12 +28,13 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Apply metrics and benchmark patch
+      - name: Apply metrics and canonical benchmark patch
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 tools/manual_test/apply_week_close_performance_metrics.py
+          python3 tools/manual_test/fix_week_close_benchmark_seed.py
           git diff --check
 
       - name: Set up JDK 17
@@ -52,7 +54,7 @@ jobs:
           {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
           EOF
 
-      - name: Run week-close correctness and 60k baseline
+      - name: Run week-close correctness and canonical-world baseline
         shell: bash
         run: |
           set -euo pipefail
