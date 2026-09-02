@@ -247,8 +247,8 @@ class InterruptedWeeklyCloseRecoveryTest {
                     id = 402L,
                     season = 2026,
                     week = 1,
-                    homeTeamId = 2L,
-                    awayTeamId = 3L,
+                    homeTeamId = 3L,
+                    awayTeamId = 4L,
                     competitionType = "SERIE_A",
                     isPlayed = false
                 )
@@ -347,7 +347,8 @@ class InterruptedWeeklyCloseRecoveryTest {
     private fun testTeams() = listOf(
         Team(1L, "Usuário", "BH", "MG", "Brasil", 1, true, 75),
         Team(2L, "CPU A", "SP", "SP", "Brasil", 1, false, 70),
-        Team(3L, "CPU B", "RJ", "RJ", "Brasil", 1, false, 68)
+        Team(3L, "CPU B", "RJ", "RJ", "Brasil", 1, false, 68),
+        Team(4L, "CPU C", "POA", "RS", "Brasil", 1, false, 67)
     )
 }
 ''', encoding="utf-8")
