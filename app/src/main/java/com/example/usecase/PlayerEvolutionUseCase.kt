@@ -56,8 +56,10 @@ data class MonthlyEvolutionExecutionOutcome(
  * UseCase responsável pela recuperação física, evolução mensal, gestão de lesões,
  * suspensões por cartão e renovação de contratos de atletas.
  */
-// 4,096 preserves the exact global ORDER BY and sequential RNG stream while avoiding
-// the pathological ~118 LIMIT/OFFSET scans observed at the week-four monthly boundary.
+// The engine still consumes 4,096-player slices to keep temporary result allocation bounded, but
+// Room reads the ordered world only once. Repeated LIMIT/OFFSET scans were the measured bottleneck
+// at the week-eight boundary; in-memory slices preserve the exact force DESC, name ASC order and
+// therefore the same uninterrupted Random.Default call sequence.
 private const val MONTHLY_EVOLUTION_BATCH_SIZE = 4096
 
 class PlayerEvolutionUseCase(private val repository: GameRepository) {
@@ -109,6 +111,11 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
     ): MonthlyEvolutionPlan {
         val expectedPlayerCount = repository.getMonthlyEvolutionPlayerCount()
         val allTeams = repository.getAllTeams().associateBy { it.id }
+        val allPlayers = repository.getAllPlayers()
+        check(allPlayers.size == expectedPlayerCount) {
+            "Monthly evolution expected $expectedPlayerCount players but ordered read returned ${allPlayers.size}."
+        }
+
         val evolutionResults = ArrayList<PlayerEvolutionResult>(
             if (retainDetailedResults) expectedPlayerCount else minOf(expectedPlayerCount, 4096)
         )
@@ -117,15 +124,13 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
         val referencedTeamIds = HashSet<Long>()
 
-        // Keep the exact ORDER BY force DESC, name ASC and call the same evolution engine in
-        // sequence. Kotlin Random.Default therefore sees the same uninterrupted call sequence;
-        // only the lifetime of each full Player batch changes.
+        // Room already returns the canonical ORDER BY force DESC, name ASC once. Slice that same
+        // list in memory so the evolution engine sees the identical player sequence and RNG stream
+        // without paying increasingly expensive OFFSET scans for later pages.
         var offset = 0
-        while (offset < expectedPlayerCount) {
-            val batch = repository.getAllPlayersBatch(MONTHLY_EVOLUTION_BATCH_SIZE, offset)
-            check(batch.isNotEmpty()) {
-                "Monthly evolution player scan ended at $offset of $expectedPlayerCount rows."
-            }
+        while (offset < allPlayers.size) {
+            val endExclusive = minOf(offset + MONTHLY_EVOLUTION_BATCH_SIZE, allPlayers.size)
+            val batch = allPlayers.subList(offset, endExclusive)
             val batchResults = if (retainDetailedResults) {
                 PlayerEvolutionMonthlyEngine.process(batch, allTeams, periodDate)
             } else {
@@ -141,7 +146,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
                 player.teamId?.let(referencedTeamIds::add)
             }
-            offset += batch.size
+            offset = endExclusive
         }
         check(expectedInputs.size == expectedPlayerCount) {
             "Monthly evolution expected $expectedPlayerCount inputs but captured ${expectedInputs.size}."
