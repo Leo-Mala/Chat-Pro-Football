@@ -1398,6 +1398,9 @@ class GameViewModel @Inject constructor(
                         targetRepo.saveFixtures(newFixtures)
                     }
                 }
+
+                if (session.generation != sessionGeneration.get()) return@launch
+                recoverInterruptedWeeklyCloseIfNeeded(session)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

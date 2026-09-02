@@ -490,22 +490,22 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
     }
 }
 
-suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
-    val save = repo.getGameSave() ?: return
-    simulateWeekUseCase.simulateCpuMatchesForWeek(
+suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek(targetRepo: GameRepository = repo) {
+    val save = targetRepo.getGameSave() ?: return
+    com.example.usecase.SimulateWeekUseCase(targetRepo).simulateCpuMatchesForWeek(
         season = save.currentSeason,
         week = save.currentWeek,
         excludedTeamId = save.playerTeamId
     )
 }
 
-private suspend fun GameViewModel.prepareWeeklyIncomingOffer(): IncomingOffer? {
-    val save = repo.getGameSave() ?: return null
-    val userRoster = repo.getPlayersByTeam(save.playerTeamId)
+private suspend fun GameViewModel.prepareWeeklyIncomingOffer(targetRepo: GameRepository = repo): IncomingOffer? {
+    val save = targetRepo.getGameSave() ?: return null
+    val userRoster = targetRepo.getPlayersByTeam(save.playerTeamId)
     if (userRoster.size <= 16) return null
     val ownedCandidates = userRoster.filterNot { it.isOnLoan }
     if (ownedCandidates.isEmpty()) return null
-    val otherTeams = repo.getAllTeams().filter { it.id != save.playerTeamId }
+    val otherTeams = targetRepo.getAllTeams().filter { it.id != save.playerTeamId }
     if (otherTeams.isEmpty()) return null
 
     val seed = (save.currentSeason * 1000L + save.currentWeek * 10L + save.playerTeamId)
@@ -561,22 +561,22 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
  * esperado nunca escapa para viewModelScope: a semana permanece intacta e pode ser tentada de novo.
  * Falhas inesperadas continuam propagando normalmente.
  */
-suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
-    val requestedSave = repo.getGameSave() ?: return
+suspend fun GameViewModel.processWeekEndEconomicAndEvolution(targetRepo: GameRepository = repo) {
+    val requestedSave = targetRepo.getGameSave() ?: return
     val monthlyPeriod = if (requestedSave.currentWeek % 4 == 0) {
         "S${requestedSave.currentSeason}_W${requestedSave.currentWeek}"
     } else {
         null
     }
     val preparedMonthlyPlan = monthlyPeriod?.let { period ->
-        playerEvolutionUseCase.prepareMonthlyEvolution(requestedSave, period)
+        com.example.usecase.PlayerEvolutionUseCase(targetRepo).prepareMonthlyEvolution(requestedSave, period)
     }
     var stagedIncomingOffer: IncomingOffer? = null
     var weeklyCloseCommitted = false
 
     try {
-        repo.withTransaction {
-            val save = repo.getGameSave() ?: return@withTransaction
+        targetRepo.withTransaction {
+            val save = targetRepo.getGameSave() ?: return@withTransaction
             if (save.currentSeason != requestedSave.currentSeason ||
                 save.currentWeek != requestedSave.currentWeek ||
                 save.playerTeamId != requestedSave.playerTeamId
@@ -584,7 +584,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
                 return@withTransaction
             }
 
-            val currentWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+            val currentWeekFixtures = targetRepo.getFixturesForWeek(save.currentSeason, save.currentWeek)
             if (currentWeekFixtures.any { !it.isPlayed }) {
                 return@withTransaction
             }
@@ -599,17 +599,17 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
             val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
             cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
 
-            val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
-            val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
+            val userPlayers = targetRepo.getPlayersByTeam(save.playerTeamId)
+            val updatedSave = com.example.usecase.FinanceUseCase(targetRepo).processWeeklyFinances(save, isHomeMatch, userPlayers)
 
-            processTransfersUseCase.processWeeklyContractsAndLoans()
+            com.example.usecase.ProcessTransfersUseCase(targetRepo).processWeeklyContractsAndLoans()
             cpuSquadManagement.processWeeklyAfterContracts()
 
-            stagedIncomingOffer = prepareWeeklyIncomingOffer()
+            stagedIncomingOffer = prepareWeeklyIncomingOffer(targetRepo)
 
             if (monthlyPeriod != null) {
                 val committedPreparedPlan = preparedMonthlyPlan?.let { plan ->
-                    playerEvolutionUseCase.commitMonthlyEvolution(
+                    com.example.usecase.PlayerEvolutionUseCase(targetRepo).commitMonthlyEvolution(
                         plan = plan,
                         allowWeeklyRosterCorrections = true
                     )
@@ -623,10 +623,10 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
             SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
 
             if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
-                advanceToNextSeason(updatedSave)
+                advanceToNextSeason(updatedSave, targetRepo)
             } else {
                 val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
-                repo.saveGameSave(nextWeekSave)
+                targetRepo.saveGameSave(nextWeekSave)
             }
             weeklyCloseCommitted = true
         }
@@ -637,7 +637,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
         return
     }
 
-    if (weeklyCloseCommitted) {
+    if (weeklyCloseCommitted && activeSaveSession.value?.repository === targetRepo) {
         stagedIncomingOffer?.let { publishIncomingOffer(it) }
     }
 }
@@ -655,11 +655,11 @@ data class SeasonStandingRow(
     val gd: Int get() = gf - ga
 }
 
-suspend fun GameViewModel.advanceToNextSeason(save: GameSave) {
+suspend fun GameViewModel.advanceToNextSeason(save: GameSave, targetRepo: GameRepository = repo) {
     val transitionUseCase = com.example.usecase.SeasonTransitionUseCase(
-        repository = repo,
-        generateCalendarUseCase = generateCalendarUseCase,
-        databaseIntegrityUseCase = com.example.usecase.DatabaseIntegrityUseCase(repo)
+        repository = targetRepo,
+        generateCalendarUseCase = com.example.usecase.GenerateCalendarUseCase(targetRepo),
+        databaseIntegrityUseCase = com.example.usecase.DatabaseIntegrityUseCase(targetRepo)
     )
     transitionUseCase.advanceToNextSeason(save)
 }
