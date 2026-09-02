@@ -64,7 +64,11 @@ internal fun Player.toMonthlyEvolutionInputSnapshot(): MonthlyEvolutionInputSnap
  */
 internal fun GameRepository.resetMonthlyEvolutionCounters(): Int =
     db.openHelper.writableDatabase.compileStatement(
-        "UPDATE players SET minutosJogados = 0, evolucaoMensal = 0.0"
+        """
+        UPDATE players
+        SET minutosJogados = 0, evolucaoMensal = 0.0
+        WHERE minutosJogados != 0 OR evolucaoMensal != 0.0
+        """.trimIndent()
     ).executeUpdateDelete()
 
 internal fun GameRepository.getMonthlyEvolutionPlayerCount(): Int =
