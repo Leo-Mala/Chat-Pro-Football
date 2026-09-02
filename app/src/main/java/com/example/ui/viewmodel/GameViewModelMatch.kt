@@ -596,7 +596,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(targetRepo: GameRep
             // Snapshot loans use the main contract as their only trusted expiry signal. CPU owners
             // must make their normal sporting retention decision while that ownership relation is
             // still active, before FinanceUseCase closes a one-week contract as free agency.
-            val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
+            val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(targetRepo)
             cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
 
             val userPlayers = targetRepo.getPlayersByTeam(save.playerTeamId)
@@ -619,8 +619,8 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(targetRepo: GameRep
                 }
             }
 
-            CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
-            SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+            CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, targetRepo)
+            SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, targetRepo)
 
             if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
                 advanceToNextSeason(updatedSave, targetRepo)
