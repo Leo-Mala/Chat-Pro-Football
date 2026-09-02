@@ -118,8 +118,6 @@ internal fun GameRepository.getMonthlyEvolutionInputSnapshots(
  * projection, not `SELECT *`, so detecting the exceptional subset remains cheap under the lock.
  */
 internal fun GameRepository.getAllMonthlyEvolutionInputSnapshots(): Map<Long, MonthlyEvolutionInputSnapshot> {
-    val playerCount = getMonthlyEvolutionPlayerCount()
-    val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(playerCount))
     db.openHelper.writableDatabase.query(
         """
         SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
@@ -127,9 +125,12 @@ internal fun GameRepository.getAllMonthlyEvolutionInputSnapshots(): Map<Long, Mo
         FROM players
         """.trimIndent()
     ).use { cursor ->
+        // Reuse the result cursor's exact row count instead of issuing a second COUNT(*) query
+        // while the weekly-close transaction is already holding the database lock.
+        val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(cursor.count))
         cursor.readMonthlyEvolutionSnapshotsInto(result)
+        return result
     }
-    return result
 }
 
 private fun Cursor.readMonthlyEvolutionSnapshotsInto(
