@@ -165,9 +165,15 @@ class LiveFinalizationPerformanceBenchmarkTest {
             "PERF_LIVE_FINALIZATION " +
                 "T_MATCH_PERSIST=$matchPersistMillis " +
                 "T_CPU_FIXTURES=${measuredCpu.totalMillis} " +
-                "T_TOTAL_WEEK_CLOSE=${measuredWeekClose.tTotalWeekCloseMillis} " +
+                "T_WEEK_FINANCE=${measuredWeekClose.tWeekFinanceMillis} " +
+                "T_CONTRACTS=${measuredWeekClose.tContractsMillis} " +
+                "T_CPU_SQUAD=${measuredWeekClose.tCpuSquadMillis} " +
+                "T_TRANSFERS=${measuredWeekClose.tTransfersMillis} " +
                 "T_MONTHLY_PREPARE=${measuredWeekClose.tMonthlyPrepareMillis} " +
                 "T_MONTHLY_COMMIT=${measuredWeekClose.tMonthlyCommitMillis} " +
+                "T_CUPS=${measuredWeekClose.tCupsMillis} " +
+                "T_WEEK_ADVANCE=${measuredWeekClose.tWeekAdvanceMillis} " +
+                "T_TOTAL_WEEK_CLOSE=${measuredWeekClose.tTotalWeekCloseMillis} " +
                 "T_TOTAL_FINALIZATION=$totalFinalizationMillis " +
                 "CPU_FIXTURES_COUNT=${measuredCpu.fixtureCount} " +
                 "CPU_TEAM_COUNT=${measuredCpu.teamCount} " +
