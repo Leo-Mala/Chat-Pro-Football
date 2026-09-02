@@ -1,0 +1,2 @@
+production_fix_commit=79cdbc22d5de64c78327cd5bc0d291b775b35280
+purpose=export accelerated APK base after edited-force persistence and old-save repair
