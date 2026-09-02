@@ -33,33 +33,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 tools/manual_test/apply_interrupted_week_close_recovery.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('app/src/test/java/com/example/InterruptedWeeklyCloseRecoveryTest.kt')
-          text = p.read_text(encoding='utf-8')
-          old = '''    @After
-              fun tearDown() = runBlocking {
-                  runCatching { saveRepository.closeAllDatabases() }
-                  application.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
-                  application.deleteDatabase("${SlotDatabaseFactory.databaseNameForSlot(slotId)}_backup")
-              }
-          '''
-          # Keep JUnit lifecycle methods explicitly Unit. The generated expression-body version
-          # inherits Boolean from deleteDatabase() and JUnit rejects the class before tests run.
-          old = old.replace('              ', '')
-          new = '''    @After
-    fun tearDown() {
-        runBlocking {
-            runCatching { saveRepository.closeAllDatabases() }
-            application.deleteDatabase(SlotDatabaseFactory.databaseNameForSlot(slotId))
-            application.deleteDatabase("${SlotDatabaseFactory.databaseNameForSlot(slotId)}_backup")
-        }
-    }
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'tearDown lifecycle anchor count={text.count(old)}, expected=1')
-          p.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
+          python3 -c 'from pathlib import Path; p=Path("app/src/test/java/com/example/InterruptedWeeklyCloseRecoveryTest.kt"); t=p.read_text(encoding="utf-8"); a="    @After\n    fun tearDown() = runBlocking {\n"; b="    @After\n    fun tearDown() {\n        runBlocking {\n"; c="        application.deleteDatabase(\"${SlotDatabaseFactory.databaseNameForSlot(slotId)}_backup\")\n    }\n\n    @Test"; d="        application.deleteDatabase(\"${SlotDatabaseFactory.databaseNameForSlot(slotId)}_backup\")\n        }\n    }\n\n    @Test"; assert t.count(a)==1 and t.count(c)==1, (t.count(a), t.count(c)); p.write_text(t.replace(a,b,1).replace(c,d,1), encoding="utf-8")'
           git diff --check
 
       - name: Set up JDK 17
