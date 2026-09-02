@@ -1,0 +1,2 @@
+production_fix_commit=2420d45f4de63fd355f28f2701d522dd2a30ba7a
+purpose=export accelerated APK base after automatic-lineup formation fix
