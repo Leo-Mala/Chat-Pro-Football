@@ -1,5 +1,5 @@
 name: Manual Test Bugfix APK
-# Recertification checkpoint for the tested interrupted-week-close recovery.
+# Focused certification gate for the manual-test branch.
 
 on:
   push:
@@ -114,6 +114,8 @@ jobs:
             --tests com.example.data.ManualStrengthPersistenceRegressionTest \
             --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
             --tests com.example.WeeklyFinalizationAtomicityTest \
+            --tests com.example.InterruptedWeeklyCloseRecoveryTest \
+            --tests com.example.Phase106LifecycleRaceRegressionTest \
             --tests com.example.usecase.CpuSquadManagementUseCaseTest \
             --tests com.example.usecase.SeasonSimulationRegressionTest \
             --tests com.example.usecase.MarketPurchaseRefreshTest \
