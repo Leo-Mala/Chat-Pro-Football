@@ -78,6 +78,42 @@ object PlayerEvolutionSystem {
         return 0.7 + (level - 1) * 0.15
     }
 
+    /**
+     * Player.force is an editable persisted value, while CalculadoraNota is the technical-attribute
+     * index shown separately in the UI. Evolution must apply only the attribute-derived DELTA to
+     * the persisted force; replacing force with the raw index destroys explicit editor changes
+     * (for example 99 -> 68) on the next monthly/post-match tick.
+     *
+     * For ordinary unedited players whose force already equals the calculated index this is exactly
+     * equivalent to the historical calculation.
+     */
+    internal fun preserveEditedForceAcrossAttributeChange(
+        player: Player,
+        oldAttributes: Atributos,
+        newAttributes: Atributos
+    ): Int {
+        val position = Posicao.fromCode(player.position)
+        val oldIndex = CalculadoraNota.calcularNota(position, oldAttributes)
+        val newIndex = CalculadoraNota.calcularNota(position, newAttributes)
+        return (player.force + (newIndex - oldIndex)).coerceIn(1, 99)
+    }
+
+    /**
+     * One-time compatibility repair for careers saved by builds that had already collapsed an
+     * explicitly edited 99-strength controlled roster back to its attribute index. The strong
+     * majority guard distinguishes that historical corruption from a normal later transfer whose
+     * individual force legitimately differs from the rest of a 99 roster.
+     */
+    internal fun repairHistoricalControlledTeam99Roster(
+        team: Team,
+        roster: List<Player>
+    ): List<Player> {
+        if (!team.isPlayerControlled || team.rating != 99 || roster.isEmpty()) return emptyList()
+        val materiallyCollapsed = roster.count { it.force <= 94 }
+        if (materiallyCollapsed * 2 < roster.size) return emptyList()
+        return roster.filter { it.force != 99 }.map { it.copy(force = 99) }
+    }
+
     fun isPhysicalAttribute(attrName: String): Boolean {
         return attrName.lowercase() in physicalAttributeNames
     }
@@ -273,20 +309,25 @@ object PlayerEvolutionSystem {
             )
 
             val newJson = AtributosConverter.atributosToJson(newAtributos)
-            val newCalculatedForce = CalculadoraNota.calcularNota(posEnum, newAtributos)
+            val newPersistedForce = preserveEditedForceAcrossAttributeChange(
+                player = player,
+                oldAttributes = oldAtributos,
+                newAttributes = newAtributos
+            )
+            val forceDelta = (newPersistedForce - player.force).toDouble()
 
             val updatedPlayer = player.copy(
                 atributosJson = newJson,
-                force = newCalculatedForce,
+                force = newPersistedForce,
                 minutosJogados = 0, // reseta contador mensal
-                evolucaoMensal = (newCalculatedForce - player.force).toDouble()
+                evolucaoMensal = forceDelta
             )
 
             PlayerEvolutionResult(
                 player = updatedPlayer,
                 oldAttributes = oldAtributos,
                 newAttributes = newAtributos,
-                netChange = (newCalculatedForce - player.force).toDouble(),
+                netChange = forceDelta,
                 historyLogs = historyLogs
             )
         }
@@ -331,7 +372,11 @@ object PlayerEvolutionSystem {
                         "posicionamento" -> currentAttr.copy(posicionamento = updatedVal)
                         else -> currentAttr.copy(controleBola = updatedVal)
                     }
-                    val newForce = CalculadoraNota.calcularNota(posEnum, newAttrMap)
+                    val newForce = preserveEditedForceAcrossAttributeChange(
+                        player = player,
+                        oldAttributes = currentAttr,
+                        newAttributes = newAttrMap
+                    )
                     player.copy(
                         atributosJson = AtributosConverter.atributosToJson(newAttrMap),
                         force = newForce

@@ -1437,6 +1437,21 @@ class GameViewModel @Inject constructor(
             val targetRepo = session.repository
             val integrityUseCase = DatabaseIntegrityUseCase(targetRepo)
             integrityUseCase.repairDatabase()
+
+            val save = targetRepo.getGameSave()
+            if (save != null) {
+                val controlledTeam = targetRepo.getTeam(save.playerTeamId)
+                if (controlledTeam != null) {
+                    val currentRoster = targetRepo.getPlayersByTeam(controlledTeam.id)
+                    val repairedPlayers = PlayerEvolutionSystem.repairHistoricalControlledTeam99Roster(
+                        team = controlledTeam,
+                        roster = currentRoster
+                    )
+                    if (repairedPlayers.isNotEmpty()) {
+                        targetRepo.updatePlayers(repairedPlayers)
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e("GameViewModel", "Erro no autorreparo de elencos", e)
         }

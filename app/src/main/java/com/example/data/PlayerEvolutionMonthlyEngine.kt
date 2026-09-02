@@ -163,15 +163,19 @@ object PlayerEvolutionMonthlyEngine {
             }
 
             val newAtributos = values.toAtributos()
-            val newCalculatedForce = CalculadoraNota.calcularNota(posEnum, newAtributos)
-            val netChange = (newCalculatedForce - player.force).toDouble()
+            val newPersistedForce = PlayerEvolutionSystem.preserveEditedForceAcrossAttributeChange(
+                player = player,
+                oldAttributes = oldAtributos,
+                newAttributes = newAtributos
+            )
+            val netChange = (newPersistedForce - player.force).toDouble()
             val hasPersistedDelta = historyLogs.isNotEmpty() || netChange != 0.0
 
             if (retainUnchangedResults || hasPersistedDelta) {
                 val newJson = serializeAttributes(newAtributos)
                 val updatedPlayer = player.copy(
                     atributosJson = newJson,
-                    force = newCalculatedForce,
+                    force = newPersistedForce,
                     minutosJogados = 0,
                     evolucaoMensal = netChange
                 )
