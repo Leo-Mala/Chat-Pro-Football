@@ -561,16 +561,34 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
  * esperado nunca escapa para viewModelScope: a semana permanece intacta e pode ser tentada de novo.
  * Falhas inesperadas continuam propagando normalmente.
  */
-suspend fun GameViewModel.processWeekEndEconomicAndEvolution(targetRepo: GameRepository = repo) {
+suspend fun GameViewModel.processWeekEndEconomicAndEvolution(
+    targetRepo: GameRepository = repo,
+    metricsSink: (WeekClosePerformanceMetrics) -> Unit = {}
+) {
+    val totalStartedAtNs = System.nanoTime()
     val requestedSave = targetRepo.getGameSave() ?: return
     val monthlyPeriod = if (requestedSave.currentWeek % 4 == 0) {
         "S${requestedSave.currentSeason}_W${requestedSave.currentWeek}"
     } else {
         null
     }
+
+    var tMonthlyPrepareMillis = 0L
     val preparedMonthlyPlan = monthlyPeriod?.let { period ->
-        com.example.usecase.PlayerEvolutionUseCase(targetRepo).prepareMonthlyEvolution(requestedSave, period)
+        val startedAtNs = System.nanoTime()
+        val plan = com.example.usecase.PlayerEvolutionUseCase(targetRepo)
+            .prepareMonthlyEvolution(requestedSave, period)
+        tMonthlyPrepareMillis = (System.nanoTime() - startedAtNs) / 1_000_000L
+        plan
     }
+
+    var tWeekFinanceMillis = 0L
+    var tContractsMillis = 0L
+    var tCpuSquadMillis = 0L
+    var tTransfersMillis = 0L
+    var tMonthlyCommitMillis = 0L
+    var tCupsMillis = 0L
+    var tWeekAdvanceMillis = 0L
     var stagedIncomingOffer: IncomingOffer? = null
     var weeklyCloseCommitted = false
 
@@ -593,41 +611,64 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(targetRepo: GameRep
                 it.isPlayed && it.homeTeamId == save.playerTeamId
             }
 
-            // Snapshot loans use the main contract as their only trusted expiry signal. CPU owners
-            // must make their normal sporting retention decision while that ownership relation is
-            // still active, before FinanceUseCase closes a one-week contract as free agency.
             val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(targetRepo)
+            var stageStartedAtNs = System.nanoTime()
             cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
+            tContractsMillis += (System.nanoTime() - stageStartedAtNs) / 1_000_000L
 
             val userPlayers = targetRepo.getPlayersByTeam(save.playerTeamId)
-            val updatedSave = com.example.usecase.FinanceUseCase(targetRepo).processWeeklyFinances(save, isHomeMatch, userPlayers)
+            stageStartedAtNs = System.nanoTime()
+            val updatedSave = com.example.usecase.FinanceUseCase(targetRepo)
+                .processWeeklyFinances(save, isHomeMatch, userPlayers)
+            tWeekFinanceMillis = (System.nanoTime() - stageStartedAtNs) / 1_000_000L
 
+            stageStartedAtNs = System.nanoTime()
             com.example.usecase.ProcessTransfersUseCase(targetRepo).processWeeklyContractsAndLoans()
-            cpuSquadManagement.processWeeklyAfterContracts()
+            tContractsMillis += (System.nanoTime() - stageStartedAtNs) / 1_000_000L
 
+            stageStartedAtNs = System.nanoTime()
+            cpuSquadManagement.processWeeklyAfterContracts()
+            tCpuSquadMillis = (System.nanoTime() - stageStartedAtNs) / 1_000_000L
+
+            stageStartedAtNs = System.nanoTime()
             stagedIncomingOffer = prepareWeeklyIncomingOffer(targetRepo)
+            tTransfersMillis = (System.nanoTime() - stageStartedAtNs) / 1_000_000L
 
             if (monthlyPeriod != null) {
+                stageStartedAtNs = System.nanoTime()
                 val committedPreparedPlan = preparedMonthlyPlan?.let { plan ->
                     com.example.usecase.PlayerEvolutionUseCase(targetRepo).commitMonthlyEvolution(
                         plan = plan,
                         allowWeeklyRosterCorrections = true
                     )
                 } == true
+                tMonthlyCommitMillis = (System.nanoTime() - stageStartedAtNs) / 1_000_000L
                 if (!committedPreparedPlan) {
                     throw StaleWeeklyMonthlyEvolutionRollback()
                 }
             }
 
-            CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, targetRepo)
-            SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, targetRepo)
+            stageStartedAtNs = System.nanoTime()
+            CupCompetitionSystem.processProgression(
+                save.currentSeason,
+                save.currentWeek,
+                targetRepo
+            )
+            SuperMundialSystem.processProgression(
+                save.currentSeason,
+                save.currentWeek,
+                targetRepo
+            )
+            tCupsMillis = (System.nanoTime() - stageStartedAtNs) / 1_000_000L
 
+            stageStartedAtNs = System.nanoTime()
             if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
                 advanceToNextSeason(updatedSave, targetRepo)
             } else {
                 val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
                 targetRepo.saveGameSave(nextWeekSave)
             }
+            tWeekAdvanceMillis = (System.nanoTime() - stageStartedAtNs) / 1_000_000L
             weeklyCloseCommitted = true
         }
     } catch (_: StaleWeeklyMonthlyEvolutionRollback) {
@@ -635,6 +676,26 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(targetRepo: GameRep
             "O estado de treino mudou durante o fechamento semanal. A semana não foi avançada; tente novamente."
         )
         return
+    }
+
+    if (weeklyCloseCommitted) {
+        metricsSink(
+            WeekClosePerformanceMetrics(
+                season = requestedSave.currentSeason,
+                week = requestedSave.currentWeek,
+                tWeekFinanceMillis = tWeekFinanceMillis,
+                tContractsMillis = tContractsMillis,
+                tCpuSquadMillis = tCpuSquadMillis,
+                tTransfersMillis = tTransfersMillis,
+                tMonthlyPrepareMillis = tMonthlyPrepareMillis,
+                tMonthlyCommitMillis = tMonthlyCommitMillis,
+                tCupsMillis = tCupsMillis,
+                tWeekAdvanceMillis = tWeekAdvanceMillis,
+                tTotalWeekCloseMillis = (System.nanoTime() - totalStartedAtNs) / 1_000_000L,
+                monthlyPlayersCount = preparedMonthlyPlan?.expectedPlayerCount ?: 0,
+                playersUpdatedCount = preparedMonthlyPlan?.updatedPlayers?.size ?: 0
+            )
+        )
     }
 
     if (weeklyCloseCommitted && activeSaveSession.value?.repository === targetRepo) {
