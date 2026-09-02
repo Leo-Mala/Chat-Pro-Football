@@ -4,11 +4,13 @@ import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.HistoricoEvolucao
 import com.example.data.MonthlyEvolutionInputSnapshot
+import com.example.data.MonthlyEvolutionPlayerState
 import com.example.data.Player
 import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
 import com.example.data.PlayerEvolutionSystem
 import com.example.data.Team
+import com.example.data.applyMonthlyEvolutionPlayerStateDeltas
 import com.example.data.applyMonthlyEvolutionPlayerStates
 import com.example.data.forEachMonthlyEvolutionPlayerBatch
 import com.example.data.getAllMonthlyEvolutionInputSnapshots
@@ -19,6 +21,7 @@ import com.example.data.insertMonthlyEvolutionHistoryRowsBulk
 import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.resetMonthlyEvolutionCounters
 import com.example.data.toMonthlyEvolutionInputSnapshot
+import com.example.data.toMonthlyEvolutionPlayerState
 import kotlin.random.Random
 
 /**
@@ -40,7 +43,13 @@ data class MonthlyEvolutionPlan(
     /** Exact universe size at preparation; detects players inserted after a standalone plan. */
     val expectedPlayerCount: Int = expectedInputs.size,
     /** Training-center level influences evolution and therefore participates in stale validation. */
-    val expectedTrainingCenterLevels: Map<Long, Int> = emptyMap()
+    val expectedTrainingCenterLevels: Map<Long, Int> = emptyMap(),
+    /**
+     * Compact four-column persistence state for the weekly/season path. Existing detailed/manual
+     * plans remain source-compatible through the default conversion from [updatedPlayers].
+     */
+    val updatedPlayerStates: List<MonthlyEvolutionPlayerState> =
+        updatedPlayers.map { it.toMonthlyEvolutionPlayerState() }
 )
 
 /**
@@ -112,9 +121,10 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val expectedPlayerCount = repository.getMonthlyEvolutionPlayerCount()
         val allTeams = repository.getAllTeams().associateBy { it.id }
         val evolutionResults = ArrayList<PlayerEvolutionResult>(
-            if (retainDetailedResults) expectedPlayerCount else minOf(expectedPlayerCount, 4096)
+            if (retainDetailedResults) expectedPlayerCount else 0
         )
-        val changedPlayers = ArrayList<Player>()
+        val changedPlayers = if (retainDetailedResults) ArrayList<Player>() else null
+        val changedPlayerStates = if (retainDetailedResults) null else ArrayList<MonthlyEvolutionPlayerState>()
         val historyLogs = ArrayList<HistoricoEvolucao>()
         val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
         val referencedTeamIds = HashSet<Long>()
@@ -125,10 +135,16 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             } else {
                 PlayerEvolutionMonthlyEngine.processChanged(batch, allTeams, periodDate)
             }
-            evolutionResults.addAll(batchResults)
+            if (detailed) evolutionResults.addAll(batchResults)
 
             for (result in batchResults) {
-                if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) changedPlayers.add(result.player)
+                if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) {
+                    if (detailed) {
+                        changedPlayers!!.add(result.player)
+                    } else {
+                        changedPlayerStates!!.add(result.player.toMonthlyEvolutionPlayerState())
+                    }
+                }
                 if (result.historyLogs.isNotEmpty()) historyLogs.addAll(result.historyLogs)
             }
             for (player in batch) {
@@ -177,11 +193,13 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             expectedPlayerTeamId = save.playerTeamId,
             periodDate = periodDate,
             results = evolutionResults,
-            updatedPlayers = changedPlayers,
+            updatedPlayers = changedPlayers ?: emptyList(),
             historyLogs = historyLogs,
             expectedInputs = expectedInputs,
             expectedPlayerCount = expectedPlayerCount,
-            expectedTrainingCenterLevels = expectedTrainingLevels
+            expectedTrainingCenterLevels = expectedTrainingLevels,
+            updatedPlayerStates = changedPlayerStates
+                ?: changedPlayers.orEmpty().map { it.toMonthlyEvolutionPlayerState() }
         )
     }
 
@@ -284,7 +302,7 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             }
         }
 
-        var playersToPersist = plan.updatedPlayers
+        var playerStatesToPersist = plan.updatedPlayerStates
         var historyToPersist = plan.historyLogs
 
         if (correctionIds.isNotEmpty()) {
@@ -305,18 +323,18 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 teams,
                 plan.periodDate
             )
-            val correctedUpdatedPlayers = ArrayList<Player>()
+            val correctedPlayerStates = ArrayList<MonthlyEvolutionPlayerState>()
             val correctedHistory = ArrayList<HistoricoEvolucao>()
             for (result in correctedResults) {
                 if (result.historyLogs.isNotEmpty() || result.netChange != 0.0) {
-                    correctedUpdatedPlayers.add(result.player)
+                    correctedPlayerStates.add(result.player.toMonthlyEvolutionPlayerState())
                 }
                 if (result.historyLogs.isNotEmpty()) correctedHistory.addAll(result.historyLogs)
             }
 
-            playersToPersist = buildList {
-                addAll(plan.updatedPlayers.filter { it.id !in correctionIds })
-                addAll(correctedUpdatedPlayers)
+            playerStatesToPersist = buildList {
+                addAll(plan.updatedPlayerStates.filter { it.id !in correctionIds })
+                addAll(correctedPlayerStates)
             }
             historyToPersist = buildList {
                 addAll(plan.historyLogs.filter { it.jogadorId !in correctionIds })
@@ -325,8 +343,8 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         }
 
         repository.resetMonthlyEvolutionCounters()
-        if (playersToPersist.isNotEmpty()) {
-            check(repository.applyMonthlyEvolutionPlayerStates(playersToPersist) == playersToPersist.size) {
+        if (playerStatesToPersist.isNotEmpty()) {
+            check(repository.applyMonthlyEvolutionPlayerStateDeltas(playerStatesToPersist) == playerStatesToPersist.size) {
                 "Falha fail-closed ao persistir delta de evolução mensal."
             }
         }

@@ -40,6 +40,21 @@ data class MonthlyEvolutionInputSnapshot(
             atributosStorage == other.atributosStorage
 }
 
+data class MonthlyEvolutionPlayerState(
+    val id: Long,
+    val atributosJson: String?,
+    val force: Int,
+    val evolucaoMensal: Double
+)
+
+internal fun Player.toMonthlyEvolutionPlayerState(): MonthlyEvolutionPlayerState =
+    MonthlyEvolutionPlayerState(
+        id = id,
+        atributosJson = atributosJson,
+        force = force,
+        evolucaoMensal = evolucaoMensal
+    )
+
 internal fun Player.toMonthlyEvolutionInputSnapshot(): MonthlyEvolutionInputSnapshot =
     MonthlyEvolutionInputSnapshot(
         id = id,
@@ -307,6 +322,29 @@ internal fun GameRepository.applyMonthlyEvolutionPlayerStates(players: Collectio
         statement.bindLong(2, player.force.toLong())
         statement.bindDouble(3, player.evolucaoMensal)
         statement.bindLong(4, player.id)
+        updated += statement.executeUpdateDelete()
+    }
+    return updated
+}
+
+internal fun GameRepository.applyMonthlyEvolutionPlayerStateDeltas(
+    states: Collection<MonthlyEvolutionPlayerState>
+): Int {
+    if (states.isEmpty()) return 0
+    val statement = db.openHelper.writableDatabase.compileStatement(
+        """
+        UPDATE players
+        SET atributosJson = ?, force = ?, minutosJogados = 0, evolucaoMensal = ?
+        WHERE id = ?
+        """.trimIndent()
+    )
+    var updated = 0
+    for (state in states) {
+        statement.clearBindings()
+        if (state.atributosJson == null) statement.bindNull(1) else statement.bindString(1, state.atributosJson)
+        statement.bindLong(2, state.force.toLong())
+        statement.bindDouble(3, state.evolucaoMensal)
+        statement.bindLong(4, state.id)
         updated += statement.executeUpdateDelete()
     }
     return updated
