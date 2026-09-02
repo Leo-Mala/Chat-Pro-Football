@@ -7,10 +7,22 @@ import com.example.data.Player
 import kotlin.math.max
 import kotlin.random.Random
 
+/** Medição do caminho quente de fixtures CPU sem introduzir logging na build final. */
+data class CpuWeekSimulationMetrics(
+    val totalMillis: Long,
+    val fixtureCount: Int,
+    val teamCount: Int,
+    val playersReadCount: Int,
+    val rosterQueryCount: Int
+)
+
 /**
  * UseCase responsável por gerenciar a simulação de rodadas e cálculo de partidas.
  */
-class SimulateWeekUseCase(private val repository: GameRepository) {
+class SimulateWeekUseCase(
+    private val repository: GameRepository,
+    private val metricsSink: (CpuWeekSimulationMetrics) -> Unit = {}
+) {
 
     data class SimulationResult(
         val season: Int,
@@ -65,20 +77,33 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
         week: Int,
         excludedTeamId: Long? = null
     ): List<Fixture> {
+        val startedNanos = System.nanoTime()
         val unplayedFixtures = repository.getFixturesForWeek(season, week).filter { fixture ->
             !fixture.isPlayed &&
                 (excludedTeamId == null ||
                     (fixture.homeTeamId != excludedTeamId && fixture.awayTeamId != excludedTeamId))
         }
-        if (unplayedFixtures.isEmpty()) return emptyList()
+        if (unplayedFixtures.isEmpty()) {
+            metricsSink(
+                CpuWeekSimulationMetrics(
+                    totalMillis = nanosToMillis(System.nanoTime() - startedNanos),
+                    fixtureCount = 0,
+                    teamCount = 0,
+                    playersReadCount = 0,
+                    rosterQueryCount = 0
+                )
+            )
+            return emptyList()
+        }
 
         val teamMap = repository.getAllTeams().associateBy { it.id }
         val participatingTeamIds = unplayedFixtures
             .flatMap { listOf(it.homeTeamId, it.awayTeamId) }
             .distinct()
-        val rostersByTeam = participatingTeamIds.associateWith { teamId ->
-            repository.getPlayersByTeam(teamId)
-        }
+        val plannedRosterLoad = loadRostersByTeamIds(participatingTeamIds)
+        val rostersByTeam = plannedRosterLoad.first
+        var playersReadCount = plannedRosterLoad.second
+        var rosterQueryCount = plannedRosterLoad.third
 
         val plans = unplayedFixtures.map { fixture ->
             val homeTeam = teamMap[fixture.homeTeamId] ?: com.example.data.Team(
@@ -154,25 +179,28 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
             )
         }
 
-        return repository.withTransaction {
+        val committedFixtures = repository.withTransaction {
             val currentById = repository.getFixturesForWeek(season, week).associateBy { it.id }
             val pendingPlans = plans.filter { plan ->
                 currentById[plan.fixture.id]?.isPlayed == false
             }
             if (pendingPlans.isEmpty()) return@withTransaction emptyList()
 
-            // Releia os rosters já dentro da transação, depois de adquirir o banco. Um atleta
-            // transferido, lesionado ou suspenso depois do planejamento invalida somente o fixture
-            // que dependia daquele snapshot; assim nunca persistimos o placar sem seus participantes.
+            // Releia em lote os elencos já dentro da transação, depois de adquirir o banco. Um
+            // atleta transferido, lesionado ou suspenso depois do planejamento invalida somente o
+            // fixture que dependia daquele snapshot; assim nunca persistimos o placar sem seus
+            // participantes. Antes este trecho fazia uma SELECT por clube dentro da transação.
             val committedTeamIds = pendingPlans
                 .flatMap { listOf(it.fixture.homeTeamId, it.fixture.awayTeamId) }
                 .distinct()
-            val currentPlayersById = mutableMapOf<Long, Player>()
-            for (teamId in committedTeamIds) {
-                repository.getPlayersByTeam(teamId).forEach { player ->
-                    currentPlayersById[player.id] = player
-                }
-            }
+            val committedRosterLoad = loadRostersByTeamIds(committedTeamIds)
+            val currentPlayersById = committedRosterLoad.first.values
+                .asSequence()
+                .flatten()
+                .associateByTo(mutableMapOf()) { it.id }
+            playersReadCount += committedRosterLoad.second
+            rosterQueryCount += committedRosterLoad.third
+
             val committedPlans = pendingPlans.filter { plan ->
                 plan.participantTeamById.all { (playerId, plannedTeamId) ->
                     currentPlayersById[playerId]?.let { current ->
@@ -217,6 +245,40 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
 
             committedFixtures
         }
+
+        metricsSink(
+            CpuWeekSimulationMetrics(
+                totalMillis = nanosToMillis(System.nanoTime() - startedNanos),
+                fixtureCount = committedFixtures.size,
+                teamCount = participatingTeamIds.size,
+                playersReadCount = playersReadCount,
+                rosterQueryCount = rosterQueryCount
+            )
+        )
+        return committedFixtures
+    }
+
+    /**
+     * Carrega todos os elencos relevantes com no máximo uma consulta por bloco de 800 clubes.
+     * O limite fica abaixo dos 999 bind parameters presentes em builds SQLite Android antigas.
+     */
+    private suspend fun loadRostersByTeamIds(
+        teamIds: Collection<Long>
+    ): Triple<Map<Long, List<Player>>, Int, Int> {
+        val distinctIds = teamIds.distinct()
+        if (distinctIds.isEmpty()) return Triple(emptyMap(), 0, 0)
+
+        val players = ArrayList<Player>()
+        var queryCount = 0
+        distinctIds.chunked(CPU_ROSTER_QUERY_CHUNK_SIZE).forEach { chunk ->
+            players.addAll(repository.db.playerBatchDao().getPlayersByTeamIds(chunk))
+            queryCount++
+        }
+        return Triple(
+            players.groupBy { requireNotNull(it.teamId) },
+            players.size,
+            queryCount
+        )
     }
 
     private fun selectParticipants(players: List<Player>): List<Player> =
@@ -263,7 +325,10 @@ class SimulateWeekUseCase(private val repository: GameRepository) {
         }
     }
 
+    private fun nanosToMillis(nanos: Long): Long = nanos / 1_000_000L
+
     private companion object {
+        const val CPU_ROSTER_QUERY_CHUNK_SIZE = 800
         const val HOME_SCORER_SALT = 0x6A09E667F3BCC909L
         const val AWAY_SCORER_SALT = 0x3C6EF372FE94F82BL
     }

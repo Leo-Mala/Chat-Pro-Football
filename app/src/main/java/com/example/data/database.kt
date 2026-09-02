@@ -43,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun gameSaveDao(): GameSaveDao
     abstract fun teamDao(): TeamDao
     abstract fun playerDao(): PlayerDao
+    abstract fun playerBatchDao(): PlayerBatchDao
     abstract fun fixtureDao(): FixtureDao
     abstract fun clubLegendDao(): ClubLegendDao
     abstract fun historicalRecordDao(): HistoricalRecordDao
