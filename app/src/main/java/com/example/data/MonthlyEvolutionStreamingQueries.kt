@@ -69,7 +69,7 @@ internal fun GameRepository.forEachMonthlyEvolutionPlayerBatch(
                     vision = cursor.getInt(visionIndex),
                     defense = cursor.getInt(defenseIndex),
                     atributosJson = if (cursor.isNull(atributosJsonIndex)) null else cursor.getString(atributosJsonIndex),
-                    atributos = AtributosConverter.jsonToAtributos(atributosStorage) ?: Atributos(),
+                    atributos = MonthlyEvolutionAtributosDecoder.decode(atributosStorage) ?: Atributos(),
                     potential = cursor.getInt(potentialIndex),
                     minutosJogados = cursor.getInt(minutesIndex),
                     mediaNotas = cursor.getDouble(ratingIndex),
