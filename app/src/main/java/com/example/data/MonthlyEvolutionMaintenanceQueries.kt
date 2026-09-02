@@ -85,6 +85,13 @@ private fun hashMapCapacityForSize(size: Int): Int {
 }
 
 /**
+ * Keep validation pages small enough to stay bounded inside Android CursorWindow. Unlike
+ * LIMIT/OFFSET, keyset pagination does not repeatedly walk the already consumed prefix as the
+ * world-player table grows.
+ */
+private const val MONTHLY_VALIDATION_SCAN_BATCH_SIZE = 1024
+
+/**
  * Reads only the columns that participate in monthly evolution. The query is chunked below the
  * SQLite bind limit so a prepared plan can be validated without materializing full Player rows.
  */
@@ -114,28 +121,64 @@ internal fun GameRepository.getMonthlyEvolutionInputSnapshots(
 
 /**
  * Full-universe lightweight scan used only by the atomic weekly close when roster maintenance may
- * have moved or inserted players after the CPU-heavy plan was prepared. This is intentionally a
- * projection, not `SELECT *`, so detecting the exceptional subset remains cheap under the lock.
+ * have moved or inserted players after the CPU-heavy plan was prepared.
+ *
+ * Android's SQLiteCursor resolves getCount() by asking SQLiteQuery.fillWindow(...,
+ * countAllRows=true). On a ~60k-row projection that includes two sizeable attribute strings, a
+ * single unbounded cursor therefore enumerates the whole result before normal CursorWindow paging
+ * begins. Read the same complete universe with primary-key keyset pages instead. Every Player row
+ * is still validated exactly once; only the transport from SQLite to Kotlin is bounded.
  */
 internal fun GameRepository.getAllMonthlyEvolutionInputSnapshots(): Map<Long, MonthlyEvolutionInputSnapshot> {
-    db.openHelper.writableDatabase.query(
-        """
-        SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
-               focoTreino, atributosJson, atributos
-        FROM players
-        """.trimIndent()
-    ).use { cursor ->
-        // Reuse the result cursor's exact row count instead of issuing a second COUNT(*) query
-        // while the weekly-close transaction is already holding the database lock.
-        val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(cursor.count))
-        cursor.readMonthlyEvolutionSnapshotsInto(result)
-        return result
+    val expectedCount = getMonthlyEvolutionPlayerCount()
+    if (expectedCount == 0) return emptyMap()
+
+    val result = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(expectedCount))
+    val database = db.openHelper.writableDatabase
+    var lastSeenId: Long? = null
+
+    while (result.size < expectedCount) {
+        val query = if (lastSeenId == null) {
+            """
+            SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
+                   focoTreino, atributosJson, atributos
+            FROM players
+            ORDER BY id ASC
+            LIMIT $MONTHLY_VALIDATION_SCAN_BATCH_SIZE
+            """.trimIndent()
+        } else {
+            """
+            SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
+                   focoTreino, atributosJson, atributos
+            FROM players
+            WHERE id > ?
+            ORDER BY id ASC
+            LIMIT $MONTHLY_VALIDATION_SCAN_BATCH_SIZE
+            """.trimIndent()
+        }
+        val args = lastSeenId?.let { arrayOf<Any>(it) } ?: emptyArray()
+
+        val batchLastId = database.query(query, args).use { cursor ->
+            cursor.readMonthlyEvolutionSnapshotsInto(result)
+        }
+        check(batchLastId != null) {
+            "Monthly evolution validation scan ended at ${result.size} of $expectedCount rows."
+        }
+        check(lastSeenId == null || batchLastId > lastSeenId!!) {
+            "Monthly evolution validation keyset did not advance after player id $lastSeenId."
+        }
+        lastSeenId = batchLastId
     }
+
+    check(result.size == expectedCount) {
+        "Monthly evolution validation expected $expectedCount players but read ${result.size}."
+    }
+    return result
 }
 
 private fun Cursor.readMonthlyEvolutionSnapshotsInto(
     result: MutableMap<Long, MonthlyEvolutionInputSnapshot>
-) {
+): Long? {
     val idIndex = getColumnIndexOrThrow("id")
     val teamIdIndex = getColumnIndexOrThrow("teamId")
     val ageIndex = getColumnIndexOrThrow("age")
@@ -147,6 +190,7 @@ private fun Cursor.readMonthlyEvolutionSnapshotsInto(
     val focusIndex = getColumnIndexOrThrow("focoTreino")
     val jsonIndex = getColumnIndexOrThrow("atributosJson")
     val attributesIndex = getColumnIndexOrThrow("atributos")
+    var lastId: Long? = null
 
     while (moveToNext()) {
         val snapshot = MonthlyEvolutionInputSnapshot(
@@ -163,7 +207,9 @@ private fun Cursor.readMonthlyEvolutionSnapshotsInto(
             atributosStorage = getString(attributesIndex)
         )
         result[snapshot.id] = snapshot
+        lastId = snapshot.id
     }
+    return lastId
 }
 
 /**
