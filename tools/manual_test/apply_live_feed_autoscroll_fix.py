@@ -34,17 +34,17 @@ class LiveMatchFeedOrderingRegressionTest {
     @Test
     fun `live feed stays chronological and follows the latest event`() {
         val source = readProjectSource("src/main/java/com/example/ui/screens/MatchSimulationScreen.kt")
-        val start = source.indexOf("if (selectedLiveTab == \\"LANCES\\")")
-        val end = source.indexOf("} else {", start)
-        val body = source.substring(start, end)
+        val listStart = source.indexOf("LazyColumn(\\n                    state = liveEventListState")
+        assertTrue("live event LazyColumn must use the dedicated list state", listStart >= 0)
+        val listBody = source.substring(listStart, minOf(source.length, listStart + 1200))
 
         assertTrue(source.contains("val liveEventListState = rememberLazyListState()"))
         assertTrue(source.contains("LaunchedEffect(events.size, selectedLiveTab)"))
         assertTrue(source.contains("liveEventListState.animateScrollToItem(events.lastIndex)"))
-        assertTrue(body.contains("state = liveEventListState"))
-        assertTrue(body.contains("items(events,"))
-        check(!body.contains("events.reversed()"))
-        check(!body.contains("reverseLayout = true"))
+        assertTrue(listBody.contains("state = liveEventListState"))
+        assertTrue(listBody.contains("items(events,"))
+        check(!listBody.contains("events.reversed()"))
+        check(!listBody.contains("reverseLayout = true"))
     }
 
     private fun readProjectSource(relativeToApp: String): String {
