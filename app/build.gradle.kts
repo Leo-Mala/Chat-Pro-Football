@@ -187,9 +187,13 @@ if (providers.gradleProperty("excludeStressTests").isPresent) {
     // certification invocation. Keep only those direct-package classes out of the unfiltered core
     // pass; nested Phase106 tests (for example ui.viewmodel publication ordering) remain covered
     // by Core Regression instead of being dropped by an over-broad recursive pattern.
+    // BundledClubCrestsTest likewise depends on the certified 2,524-file runtime that is intentionally
+    // injected only by build-recovered-crest-apk.yml. It remains mandatory there and is excluded only
+    // from unfiltered base-runtime passes where app/src/main/assets/club_crests is deliberately absent.
     doFirst {
       if (filter.includePatterns.isEmpty()) {
         exclude("com/example/Phase106*")
+        exclude("com/example/data/BundledClubCrestsTest*")
       }
     }
   }
