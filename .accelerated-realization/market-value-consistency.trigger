@@ -2,3 +2,5 @@ manual_evidence=775035.mp4
 base_head=b21960672e85262bb0dd47dac06c8d3c95ebbd39
 scope=market-value-negotiation-buy-now-sale-filter-position
 crest_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+retry=2
+preserve_immediate_removal=true
