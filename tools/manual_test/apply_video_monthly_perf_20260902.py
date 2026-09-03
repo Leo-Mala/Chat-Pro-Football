@@ -236,9 +236,9 @@ class MonthlyEvolutionStreamingValidationRegressionTest {
             .allowMainThreadQueries().build()
         try {
             val repository = GameRepository(db)
-            repository.savePlayers(listOf(Player(id = 1L, name = "P1", age = 22, position = "MEI", force = 70)))
+            repository.savePlayers(listOf(Player(id = 1L, teamId = null, name = "P1", age = 22, position = "MEI", force = 70)))
             val expected = repository.getAllMonthlyEvolutionInputSnapshots().values.toList()
-            repository.savePlayers(listOf(Player(id = 2L, name = "P2", age = 18, position = "ATA", force = 55)))
+            repository.savePlayers(listOf(Player(id = 2L, teamId = null, name = "P2", age = 18, position = "ATA", force = 55)))
             val validation = repository.validateMonthlyEvolutionRosterInputs(expected, emptyMap(), emptyMap())
             assertTrue(validation.valid)
             assertEquals(setOf(2L), validation.correctionIds)
