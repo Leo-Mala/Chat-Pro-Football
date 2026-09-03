@@ -117,11 +117,79 @@ jobs:
             --tests com.example.data.MonthlyEvolutionDigestCompatibilityRegressionTest \
             --stacktrace
 
-      - name: Run all non-stress unit regressions
+      - name: Diagnose crest runtime materialization
         shell: bash
         run: |
           set -euo pipefail
+          echo "Tracked/source crest directory:"
+          if [ -d app/src/main/assets/club_crests ]; then
+            find app/src/main/assets/club_crests -maxdepth 1 -type f | wc -l
+          else
+            echo "absent"
+          fi
+          echo "Build/runtime candidates for the seven reported clubs:"
+          for id in 4009 4014 4002 4008 4017 4004 4018; do
+            printf 'id=%s\n' "$id"
+            find app/build -type f \( -name "factual_${id}.webp" -o -name "club_${id}.webp" \) -print 2>/dev/null | sort || true
+          done
+          python3 - <<'PY'
+          import hashlib
+          import pathlib
+
+          seen = set()
+          for directory in pathlib.Path('app/build').rglob('club_crests'):
+              if not directory.is_dir():
+                  continue
+              files = sorted(p for p in directory.iterdir() if p.is_file())
+              key = tuple((p.name, p.stat().st_size) for p in files)
+              if key in seen:
+                  continue
+              seen.add(key)
+              factual = [p for p in files if p.name.startswith('factual_') and p.suffix == '.webp']
+              club = [p for p in files if p.name.startswith('club_') and p.suffix == '.webp']
+              if not files:
+                  continue
+              print(f'CREST_BUILD_DIR path={directory} total={len(files)} factual={len(factual)} club={len(club)}')
+              if len(files) == 2524 and len(factual) == 617 and len(club) == 1907:
+                  h = hashlib.sha256()
+                  for p in files:
+                      canonical = f'assets/club_crests/{p.name}'
+                      h.update(canonical.encode('utf-8'))
+                      h.update(b'\0')
+                      h.update(hashlib.sha256(p.read_bytes()).digest())
+                  print(f'CREST_BUILD_FINGERPRINT {h.hexdigest()}')
+          PY
+
+      - name: Run all non-stress unit regressions
+        shell: bash
+        run: |
+          set +e
           ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "=== Phase 10.5 actual golden hashes ==="
+            if [ -d app/build/phase105-golden-actual ]; then
+              find app/build/phase105-golden-actual -type f -name '*.png' -print0 | sort -z | xargs -0 -r sha256sum
+            else
+              echo "No phase105 actual captures found"
+            fi
+            echo "=== JUnit failure records ==="
+            grep -R -n '<failure' app/build/test-results/testDebugUnitTest 2>/dev/null || true
+          fi
+          exit "$status"
+
+      - name: Upload failing full-suite evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: market-gate-failure-${{ github.sha }}
+          path: |
+            app/build/phase105-golden-actual
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: warn
+          retention-days: 2
 
       - name: Run monthly and finalization performance gates without cache
         shell: bash
