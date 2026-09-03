@@ -1,0 +1,4 @@
+purpose=build exact-head manual-test APK base after certified crest corpus recovery
+source_product_head=9b3fd0a9f5af098770c8f92231f6a22cc912e29d
+crest_corpus_sha256=3b8419298e03a593f23c750a91fda7613f3af395dcd770c13c9f17278f265dc3
+crest_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
