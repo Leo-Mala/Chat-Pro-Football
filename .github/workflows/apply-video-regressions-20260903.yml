@@ -1,0 +1,145 @@
+name: Apply physical video regressions 2026-09-03
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/apply-video-regressions-20260903.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: physical-video-regressions-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify remote has not advanced
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/fix/3.0.1-manual-test-bugs | awk '{print $1}')
+          test "$remote_head" = "$GITHUB_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > ~/.android/debug.keystore
+          else
+            keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, O=Android, C=US'
+          fi
+
+      - name: Apply video regression patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Two runner-only corrections to the patch generator itself: use Byte values and avoid
+          # an overloaded MutableList.add method reference. The tool file in Git is not committed
+          # again; only app source/tests produced by it are materialized.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tools/manual_test/apply_video_regressions_20260903.py')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace('selectedGoalkeeper?.let(startingXI::add)', 'selectedGoalkeeper?.let { startingXI.add(it) }')
+          text = text.replace('scratch[0] = if (value == null) 0 else 1', 'scratch[0] = if (value == null) 0.toByte() else 1.toByte()')
+          text = text.replace(
+              'private val monthlyEvolutionDigestScratch = ThreadLocal.withInitial {\\n    ByteArray(MONTHLY_EVOLUTION_DIGEST_SCRATCH_BYTES)\\n}',
+              'private val monthlyEvolutionDigestScratch = object : ThreadLocal<ByteArray>() {\\n    override fun initialValue(): ByteArray = ByteArray(MONTHLY_EVOLUTION_DIGEST_SCRATCH_BYTES)\\n}'
+          )
+          p.write_text(text, encoding='utf-8')
+          PY
+          python3 tools/manual_test/apply_video_regressions_20260903.py
+          git diff --check
+
+      - name: Run physical-evidence regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.SeasonSimulationContractGuardRegressionTest \
+            --tests com.example.data.EmergencyGoalkeeperSelectionRegressionTest \
+            --tests com.example.data.MonthlyEvolutionDigestCompatibilityRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionCompactCommitmentRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionCompactPlanMemoryRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --tests com.example.usecase.SeasonSimulationStopsAtTargetSeasonRegressionTest \
+            --tests com.example.usecase.SeasonWeekBoundsRegressionTest \
+            --tests com.example.ui.viewmodel.EditorExistingCareerRosterRegressionTest \
+            --tests com.example.usecase.CoachCareerStatsSeasonTransitionRegressionTest \
+            --tests com.example.data.ManualStrengthPersistenceRegressionTest \
+            --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
+            --tests com.example.InterruptedWeeklyCloseRecoveryTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --stacktrace
+
+      - name: Run unchanged monthly performance gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest \
+            -PexcludeStressTests=true \
+            --tests com.example.usecase.MonthlyPreparePerformanceBenchmarkTest \
+            --tests com.example.usecase.MonthlyCommitPerformanceBenchmarkTest \
+            --tests com.example.usecase.LiveMatchFinalizationPerformanceBenchmarkTest \
+            --no-build-cache \
+            --rerun-tasks \
+            --stacktrace
+
+      - name: Assemble debug candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Commit tested source only
+        shell: bash
+        env:
+          TARGET_BRANCH: fix/3.0.1-manual-test-bugs
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/${TARGET_BRANCH} | awk '{print $1}')
+          test "$remote_head" = "$GITHUB_SHA"
+          git config user.name 'Márcio Leandro de Almeida Malaquias'
+          git config user.email 'leomalaj10@gmail.com'
+          git add \
+            app/src/main/java/com/example/data/repository.kt \
+            app/src/main/java/com/example/data/GameEngine.kt \
+            app/src/main/java/com/example/data/MonthlyEvolutionUniverseCommitment.kt \
+            app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
+            app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt \
+            app/src/test/java/com/example/data/EmergencyGoalkeeperSelectionRegressionTest.kt \
+            app/src/test/java/com/example/data/MonthlyEvolutionDigestCompatibilityRegressionTest.kt
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'fix: protect simulated roster and emergency goalkeeper'
+          git push origin HEAD:${TARGET_BRANCH}
