@@ -3,8 +3,10 @@ package com.example.usecase
 import com.example.data.GameRepository
 import com.example.data.GameSave
 import com.example.data.HistoricoEvolucao
+import com.example.data.MonthlyEvolutionCommitmentBuilder
 import com.example.data.MonthlyEvolutionInputSnapshot
 import com.example.data.MonthlyEvolutionPlayerState
+import com.example.data.MonthlyEvolutionUniverseCommitment
 import com.example.data.Player
 import com.example.data.PlayerEvolutionMonthlyEngine
 import com.example.data.PlayerEvolutionResult
@@ -22,6 +24,7 @@ import com.example.data.resetMonthlyEvolutionCounters
 import com.example.data.toMonthlyEvolutionInputSnapshot
 import com.example.data.toMonthlyEvolutionPlayerState
 import com.example.data.validateMonthlyEvolutionRosterInputs
+import com.example.data.validateMonthlyEvolutionUniverseCommitment
 import kotlin.random.Random
 
 /**
@@ -38,8 +41,10 @@ data class MonthlyEvolutionPlan(
     /** Only players whose persisted evolution-owned state changed. */
     val updatedPlayers: List<Player>,
     val historyLogs: List<HistoricoEvolucao>,
-    /** Lightweight snapshots of every evolution input, used only for stale-plan validation. */
+    /** Detailed/legacy stale-plan snapshots. Compact production plans leave this empty. */
     val expectedInputs: List<MonthlyEvolutionInputSnapshot> = emptyList(),
+    /** Primitive-array SHA-256 proof retained by the compact production path. */
+    val expectedUniverseCommitment: MonthlyEvolutionUniverseCommitment? = null,
     /** Exact universe size at preparation; detects players inserted after a standalone plan. */
     val expectedPlayerCount: Int = expectedInputs.size,
     /** Training-center level influences evolution and therefore participates in stale validation. */
@@ -126,7 +131,12 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         val changedPlayers = if (retainDetailedResults) ArrayList<Player>() else null
         val changedPlayerStates = if (retainDetailedResults) null else ArrayList<MonthlyEvolutionPlayerState>()
         val historyLogs = ArrayList<HistoricoEvolucao>()
-        val expectedInputs = ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
+        val expectedInputs = if (retainDetailedResults) {
+            ArrayList<MonthlyEvolutionInputSnapshot>(expectedPlayerCount)
+        } else null
+        val commitmentBuilder = if (retainDetailedResults) null else {
+            MonthlyEvolutionCommitmentBuilder(expectedPlayerCount)
+        }
         val referencedTeamIds = HashSet<Long>()
 
         fun processBatch(batch: List<Player>, detailed: Boolean) {
@@ -148,7 +158,9 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 if (result.historyLogs.isNotEmpty()) historyLogs.addAll(result.historyLogs)
             }
             for (player in batch) {
-                expectedInputs.add(player.toMonthlyEvolutionInputSnapshot())
+                if (detailed) {
+                    expectedInputs!!.add(player.toMonthlyEvolutionInputSnapshot())
+                }
                 player.teamId?.let(referencedTeamIds::add)
             }
         }
@@ -171,7 +183,12 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                 "Monthly evolution detailed scan read $offset of $expectedPlayerCount players."
             }
         } else {
-            val processed = repository.forEachMonthlyEvolutionPlayerBatch(MONTHLY_EVOLUTION_BATCH_SIZE) { batch ->
+            val processed = repository.forEachMonthlyEvolutionPlayerBatch(
+                batchSize = MONTHLY_EVOLUTION_BATCH_SIZE,
+                onPlayerRead = { player, atributosStorage ->
+                    commitmentBuilder!!.add(player, atributosStorage)
+                }
+            ) { batch ->
                 processBatch(batch, detailed = false)
             }
             check(processed == expectedPlayerCount) {
@@ -179,8 +196,15 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             }
         }
 
-        check(expectedInputs.size == expectedPlayerCount) {
-            "Monthly evolution expected $expectedPlayerCount inputs but captured ${expectedInputs.size}."
+        val expectedUniverseCommitment = commitmentBuilder?.build()
+        if (retainDetailedResults) {
+            check(expectedInputs!!.size == expectedPlayerCount) {
+                "Monthly evolution expected $expectedPlayerCount detailed inputs but captured ${expectedInputs.size}."
+            }
+        } else {
+            check(expectedUniverseCommitment?.size == expectedPlayerCount) {
+                "Monthly evolution compact commitment size mismatch."
+            }
         }
 
         val expectedTrainingLevels = referencedTeamIds.associateWith { teamId ->
@@ -195,7 +219,8 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
             results = evolutionResults,
             updatedPlayers = changedPlayers ?: emptyList(),
             historyLogs = historyLogs,
-            expectedInputs = expectedInputs,
+            expectedInputs = expectedInputs ?: emptyList(),
+            expectedUniverseCommitment = expectedUniverseCommitment,
             expectedPlayerCount = expectedPlayerCount,
             expectedTrainingCenterLevels = expectedTrainingLevels,
             updatedPlayerStates = changedPlayerStates
@@ -259,7 +284,20 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
         }
 
         var correctionIds: Set<Long> = emptySet()
-        if (plan.expectedInputs.isNotEmpty()) {
+        val compactCommitment = plan.expectedUniverseCommitment
+        if (compactCommitment != null) {
+            val teams = currentTeamsById ?: repository.getAllTeams().associateBy { it.id }.also {
+                currentTeamsById = it
+            }
+            val validation = repository.validateMonthlyEvolutionUniverseCommitment(
+                expected = compactCommitment,
+                expectedTrainingCenterLevels = plan.expectedTrainingCenterLevels,
+                currentTrainingCenterLevels = teams.mapValues { it.value.trainingCenterLevel },
+                allowRosterCorrections = allowWeeklyRosterCorrections
+            )
+            if (!validation.valid) return@withTransaction false
+            correctionIds = validation.correctionIds
+        } else if (plan.expectedInputs.isNotEmpty()) {
             if (!allowWeeklyRosterCorrections) {
                 if (plan.expectedPlayerCount > 0 &&
                     repository.getMonthlyEvolutionPlayerCount() != plan.expectedPlayerCount

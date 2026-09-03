@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -39,7 +40,7 @@ class MonthlyEvolutionCompactPlanMemoryRegressionTest {
     fun tearDown() = db.close()
 
     @Test
-    fun `season monthly plan retains compact write states instead of full changed players and results`() = runTest {
+    fun `season monthly plan retains primitive commitment instead of full world snapshots`() = runTest {
         val playerCount = 256
         val team = Team(
             id = 1L,
@@ -73,16 +74,24 @@ class MonthlyEvolutionCompactPlanMemoryRegressionTest {
         )
 
         val plan = useCase.prepareMonthlyEvolution(save, "S2026_W12")
+        val commitment = plan.expectedUniverseCommitment
 
         assertEquals(playerCount, plan.expectedPlayerCount)
-        assertEquals(playerCount, plan.expectedInputs.size)
+        assertTrue("compact weekly plan must not retain full per-player input snapshots", plan.expectedInputs.isEmpty())
+        assertNotNull(commitment)
+        requireNotNull(commitment)
+        assertEquals(playerCount, commitment.size)
+        assertEquals(playerCount, commitment.playerIds.size)
+        assertEquals(playerCount, commitment.teamIds.size)
+        assertEquals(playerCount, commitment.digest0.size)
+        assertTrue(commitment.playerIds.asList().zipWithNext().all { (a, b) -> a < b })
         assertTrue("compact weekly plan must not retain full PlayerEvolutionResult objects", plan.results.isEmpty())
         assertTrue("compact weekly plan must not retain full changed Player entities", plan.updatedPlayers.isEmpty())
         assertTrue("changed players still need compact persistence state", plan.updatedPlayerStates.isNotEmpty())
         assertEquals(plan.updatedPlayerStates.size, plan.updatedPlayerStates.map { it.id }.distinct().size)
 
         val sentinelBefore = requireNotNull(repository.getPlayer(1L))
-        assertTrue(useCase.commitMonthlyEvolution(plan))
+        assertTrue("stable compact commitment must validate and commit", useCase.commitMonthlyEvolution(plan))
         val sentinelAfter = requireNotNull(repository.getPlayer(1L))
 
         assertEquals(99, sentinelAfter.force)
@@ -117,6 +126,8 @@ class MonthlyEvolutionCompactPlanMemoryRegressionTest {
         val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4", retainDetailedResults = true)
 
         assertEquals(12, plan.results.size)
+        assertEquals(12, plan.expectedInputs.size)
+        assertTrue(plan.expectedUniverseCommitment == null)
         assertTrue(plan.updatedPlayers.isNotEmpty())
         assertEquals(
             plan.updatedPlayers.map { it.id },

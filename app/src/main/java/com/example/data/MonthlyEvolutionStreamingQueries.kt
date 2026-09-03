@@ -15,6 +15,7 @@ package com.example.data
 internal fun GameRepository.forEachMonthlyEvolutionPlayerBatch(
     batchSize: Int,
     onBatchReadNanos: (Long) -> Unit = {},
+    onPlayerRead: (Player, String) -> Unit = { _, _ -> },
     consume: (List<Player>) -> Unit
 ): Int {
     require(batchSize > 0) { "Monthly evolution batch size must be positive." }
@@ -54,8 +55,7 @@ internal fun GameRepository.forEachMonthlyEvolutionPlayerBatch(
 
         while (cursor.moveToNext()) {
             val atributosStorage = cursor.getString(atributosIndex)
-            batch.add(
-                Player(
+            val player = Player(
                     id = cursor.getLong(idIndex),
                     teamId = if (cursor.isNull(teamIdIndex)) null else cursor.getLong(teamIdIndex),
                     name = cursor.getString(nameIndex),
@@ -75,7 +75,8 @@ internal fun GameRepository.forEachMonthlyEvolutionPlayerBatch(
                     mediaNotas = cursor.getDouble(ratingIndex),
                     focoTreino = if (cursor.isNull(focusIndex)) null else cursor.getString(focusIndex)
                 )
-            )
+            onPlayerRead(player, atributosStorage)
+            batch.add(player)
 
             if (batch.size == batchSize) {
                 onBatchReadNanos(System.nanoTime() - readStartedAtNs)

@@ -73,7 +73,8 @@ class MonthlyEvolutionWeekFourRegressionTest {
         val useCase = PlayerEvolutionUseCase(repository)
         val plan = useCase.prepareMonthlyEvolution(save, "S2026_W4")
         assertEquals(playerCount, plan.expectedPlayerCount)
-        assertEquals(playerCount, plan.expectedInputs.size)
+        assertTrue("production plan must not retain full monthly snapshots", plan.expectedInputs.isEmpty())
+        assertEquals(playerCount, requireNotNull(plan.expectedUniverseCommitment).size)
         assertTrue(useCase.commitMonthlyEvolution(plan))
 
         // The observed crash happened before the calendar could move beyond week 4.

@@ -5,7 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.GameSave
 import com.example.data.applyMonthlyEvolutionPlayerStateDeltas
 import com.example.data.consumePristineCareerSeedTemplate
-import com.example.data.getAllMonthlyEvolutionInputSnapshots
+import com.example.data.validateMonthlyEvolutionUniverseCommitment
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
 import com.example.data.insertMonthlyEvolutionHistoryRowsBulk
 import com.example.data.local.SlotDatabaseFactory
@@ -96,24 +96,23 @@ class MonthlyCommitPerformanceBenchmarkTest {
             }
         )
 
-        startedAtNs = System.nanoTime()
-        val currentInputs = repository.getAllMonthlyEvolutionInputSnapshots()
-        val tSnapshotReadMillis = elapsedMillis(startedAtNs)
+        val commitment = requireNotNull(plan.expectedUniverseCommitment) {
+            "Production monthly plan must retain the compact universe commitment."
+        }
+        assertTrue(plan.expectedInputs.isEmpty())
+        assertEquals(plan.expectedPlayerCount, commitment.size)
 
         startedAtNs = System.nanoTime()
-        val expectedById = plan.expectedInputs.associateBy { it.id }
-        assertEquals(plan.expectedPlayerCount, currentInputs.size)
-        assertEquals(plan.expectedPlayerCount, expectedById.size)
-        var inputMismatchCount = 0
-        var teamMoveCount = 0
-        for ((playerId, expected) in expectedById) {
-            val current = currentInputs.getValue(playerId)
-            if (!expected.sameEvolutionStateIgnoringTeam(current)) inputMismatchCount++
-            if (expected.teamId != current.teamId) teamMoveCount++
-        }
-        val tSnapshotCompareMillis = elapsedMillis(startedAtNs)
-        assertEquals(0, inputMismatchCount)
-        assertEquals(0, teamMoveCount)
+        val validation = repository.validateMonthlyEvolutionUniverseCommitment(
+            expected = commitment,
+            expectedTrainingCenterLevels = plan.expectedTrainingCenterLevels,
+            currentTrainingCenterLevels = teamsById.mapValues { it.value.trainingCenterLevel },
+            allowRosterCorrections = true
+        )
+        val tCommitmentValidationMillis = elapsedMillis(startedAtNs)
+        assertTrue(validation.valid)
+        assertTrue(validation.correctionIds.isEmpty())
+        assertEquals(plan.expectedPlayerCount, validation.currentPlayerCount)
 
         var resetRows = 0
         var tResetCountersMillis = 0L
@@ -176,13 +175,12 @@ class MonthlyCommitPerformanceBenchmarkTest {
             "PERF_MONTHLY_COMMIT_STAGES " +
                 "T_HISTORY_LOOKUP=$tHistoryLookupMillis " +
                 "T_TEAM_READ=$tTeamReadMillis " +
-                "T_SNAPSHOT_READ=$tSnapshotReadMillis " +
-                "T_SNAPSHOT_COMPARE=$tSnapshotCompareMillis " +
+                "T_COMMITMENT_VALIDATE=$tCommitmentValidationMillis " +
                 "T_RESET_COUNTERS=$tResetCountersMillis " +
                 "T_PLAYER_WRITES=$tPlayerWritesMillis " +
                 "T_HISTORY_WRITES=$tHistoryWritesMillis " +
                 "T_HISTORY_WRITES_BULK=$tHistoryWritesBulkMillis " +
-                "SNAPSHOT_ROWS_COUNT=${currentInputs.size} " +
+                "COMMITMENT_ROWS_COUNT=${commitment.size} " +
                 "RESET_ROWS_COUNT=$resetRows " +
                 "PLAYER_WRITES_COUNT=$playerWriteRows " +
                 "HISTORY_ROWS_COUNT=${plan.historyLogs.size} " +
