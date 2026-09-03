@@ -1,0 +1,126 @@
+name: Video regression exact-head certification
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/video-regression-exact-head.yml
+      - .accelerated-realization/video-regression-exact-head.trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-regression-exact-head-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Assert exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "CERTIFIED_HEAD=$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "dummy-project",
+              "storage_bucket": "dummy-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.brasfutretro.djuxzt"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyDummyKeyForBuildOnly123456" } ],
+                "services": { "appinvite_service": { "status": 1 } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GOOGLE_EOF
+
+      - name: Run video regressions and preserved focused suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.SeasonSimulationContractGuardRegressionTest \
+            --tests com.example.data.EmergencyGoalkeeperSelectionRegressionTest \
+            --tests com.example.data.MonthlyEvolutionDigestCompatibilityRegressionTest \
+            --tests com.example.usecase.SeasonSimulationStopsAtTargetSeasonRegressionTest \
+            --tests com.example.usecase.SeasonWeekBoundsRegressionTest \
+            --tests com.example.ui.viewmodel.EditorExistingCareerRosterRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionCompactCommitmentRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionCompactPlanMemoryRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --tests com.example.usecase.CoachCareerStatsSeasonTransitionRegressionTest \
+            --tests com.example.usecase.ManualStrengthPersistenceRegressionTest \
+            --tests com.example.usecase.TacticsUseCaseAutoLineupTest \
+            --tests com.example.ui.viewmodel.InterruptedWeeklyCloseRecoveryTest \
+            --tests com.example.usecase.MatchStatisticsIdempotencyTest \
+            --stacktrace
+
+      - name: Run monthly and finalization performance gates without cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.usecase.MonthlyPreparePerformanceBenchmarkTest \
+            --tests com.example.usecase.MonthlyCommitPerformanceBenchmarkTest \
+            --tests com.example.ui.viewmodel.LiveMatchFinalizationPerformanceBenchmarkTest \
+            --no-build-cache --rerun-tasks --stacktrace
+
+      - name: Assemble debug on certified head
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --stacktrace
+          test -n "$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+
+      - name: Record certification summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'certified_head=%s\nvideo_regressions=PASS\npreserved_focused_suite=PASS\nperformance_gates=PASS\nassembleDebug=PASS\n' "$GITHUB_SHA" > video-regression-certification.txt
+
+      - name: Upload exact-head certification summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: video-regression-certification-${{ github.sha }}
+          path: video-regression-certification.txt
+          if-no-files-found: error
+          retention-days: 3
