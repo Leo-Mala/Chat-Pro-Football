@@ -194,6 +194,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.AppDatabase
 import com.example.data.GameRepository
 import com.example.data.Player
+import com.example.data.Team
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -212,6 +213,9 @@ class EditorExistingCareerRosterRegressionTest {
             .allowMainThreadQueries().build()
         try {
             val repository = GameRepository(db)
+            // Real career players reference an existing persisted club. Preserve the same FK invariant
+            // in the regression fixture instead of relying on an impossible orphan roster.
+            repository.saveTeams(listOf(Team(id = 1L, name = "Test Club", city = "Test", state = "TS", division = 1)))
             repository.savePlayers((1L..23L).map { id ->
                 Player(id = id, teamId = 1L, name = "P$id", age = 24, position = "MEI", force = 99)
             })
