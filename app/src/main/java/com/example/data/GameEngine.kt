@@ -4,6 +4,40 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 
 object GameEngine {
+    /**
+     * Picks the goalkeeper used by the match engine. A natural eligible goalkeeper always wins.
+     * If none is available, the existing emergency-outfield fallback is preserved but made
+     * deterministic and skill-based instead of silently using the first player in list order.
+     * No persisted position or sporting data is changed.
+     */
+    internal fun selectMatchGoalkeeper(players: List<Player>): Player? {
+        val eligible = players.filter {
+            it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0
+        }
+        if (eligible.isEmpty()) return null
+
+        eligible
+            .asSequence()
+            .filter { it.position == "GOL" }
+            .sortedWith(compareByDescending<Player> { it.force }.thenBy { it.id })
+            .firstOrNull()
+            ?.let { return it }
+
+        return eligible.sortedWith(
+            compareByDescending<Player> { emergencyGoalkeeperScore(it) }
+                .thenByDescending { it.force }
+                .thenBy { it.id }
+        ).firstOrNull()
+    }
+
+    private fun emergencyGoalkeeperScore(player: Player): Double {
+        val attributes = player.getAtributosObject()
+        return attributes.reflexos * 0.35 +
+            attributes.posicionamento * 0.25 +
+            attributes.agilidade * 0.20 +
+            attributes.concentracao * 0.20
+    }
+
     // Classic formations and their tactical modifiers
     val formations = listOf(
         "4-4-2",
@@ -318,8 +352,8 @@ object GameEngine {
         val awayShots = (5 + (awayAttRatio * 4.0) + (awayPossessionPercent / 12.0) + rand.nextInt(0, 3)).toInt().coerceIn(3, 20)
 
         // 3. AVALIAÇÃO DE CHANCE DE GOL (AJUSTADA E REBALANCED)
-        val homeGK = activeHome.find { it.position == "GOL" } ?: activeHome.firstOrNull()
-        val awayGK = activeAway.find { it.position == "GOL" } ?: activeAway.firstOrNull()
+        val homeGK = selectMatchGoalkeeper(activeHome)
+        val awayGK = selectMatchGoalkeeper(activeAway)
 
         fun evalGoalAttempt(
             attacker: Player,

@@ -2,6 +2,12 @@ package com.example.data
 
 import java.security.MessageDigest
 
+private const val MONTHLY_EVOLUTION_VALIDATION_BATCH_SIZE = 4096
+private const val MONTHLY_EVOLUTION_DIGEST_SCRATCH_BYTES = 8192
+private val monthlyEvolutionDigestScratch = object : ThreadLocal<ByteArray>() {
+    override fun initialValue(): ByteArray = ByteArray(MONTHLY_EVOLUTION_DIGEST_SCRATCH_BYTES)
+}
+
 /**
  * Compact stale-plan proof for the production monthly path.
  *
@@ -159,7 +165,7 @@ internal fun GameRepository.validateMonthlyEvolutionUniverseCommitment(
                    focoTreino, atributosJson, atributos
             FROM players
             ORDER BY id ASC
-            LIMIT 1024
+            LIMIT $MONTHLY_EVOLUTION_VALIDATION_BATCH_SIZE
             """.trimIndent()
         } else {
             """
@@ -168,7 +174,7 @@ internal fun GameRepository.validateMonthlyEvolutionUniverseCommitment(
             FROM players
             WHERE id > ?
             ORDER BY id ASC
-            LIMIT 1024
+            LIMIT $MONTHLY_EVOLUTION_VALIDATION_BATCH_SIZE
             """.trimIndent()
         }
         val args = lastSeenId?.let { arrayOf<Any>(it) } ?: emptyArray()
@@ -246,7 +252,7 @@ internal fun GameRepository.validateMonthlyEvolutionUniverseCommitment(
             "Monthly evolution compact validation keyset did not advance after player id $lastSeenId."
         }
         lastSeenId = batchLastId
-        if (rowsInBatch < 1024) break
+        if (rowsInBatch < MONTHLY_EVOLUTION_VALIDATION_BATCH_SIZE) break
     }
 
     if (expectedIndex != expected.size) valid = false
@@ -286,38 +292,49 @@ private fun finishDigest(digest: MessageDigest, output: ByteArray) {
 }
 
 private fun MessageDigest.updateIntValue(value: Int) {
-    update((value ushr 24).toByte())
-    update((value ushr 16).toByte())
-    update((value ushr 8).toByte())
-    update(value.toByte())
+    val scratch = monthlyEvolutionDigestScratch.get()
+    scratch[0] = (value ushr 24).toByte()
+    scratch[1] = (value ushr 16).toByte()
+    scratch[2] = (value ushr 8).toByte()
+    scratch[3] = value.toByte()
+    update(scratch, 0, 4)
 }
 
 private fun MessageDigest.updateLongValue(value: Long) {
-    update((value ushr 56).toByte())
-    update((value ushr 48).toByte())
-    update((value ushr 40).toByte())
-    update((value ushr 32).toByte())
-    update((value ushr 24).toByte())
-    update((value ushr 16).toByte())
-    update((value ushr 8).toByte())
-    update(value.toByte())
+    val scratch = monthlyEvolutionDigestScratch.get()
+    scratch[0] = (value ushr 56).toByte()
+    scratch[1] = (value ushr 48).toByte()
+    scratch[2] = (value ushr 40).toByte()
+    scratch[3] = (value ushr 32).toByte()
+    scratch[4] = (value ushr 24).toByte()
+    scratch[5] = (value ushr 16).toByte()
+    scratch[6] = (value ushr 8).toByte()
+    scratch[7] = value.toByte()
+    update(scratch, 0, 8)
 }
 
 private fun MessageDigest.updateNullableStringValue(value: String?) {
-    if (value == null) {
-        update(0.toByte())
-    } else {
-        update(1.toByte())
-        updateStringValue(value)
-    }
+    val scratch = monthlyEvolutionDigestScratch.get()
+    scratch[0] = if (value == null) 0.toByte() else 1.toByte()
+    update(scratch, 0, 1)
+    if (value != null) updateStringValue(value)
 }
 
 private fun MessageDigest.updateStringValue(value: String) {
     updateIntValue(value.length)
-    for (char in value) {
-        val code = char.code
-        update((code ushr 8).toByte())
-        update(code.toByte())
+    if (value.isEmpty()) return
+
+    val scratch = monthlyEvolutionDigestScratch.get()
+    var charIndex = 0
+    while (charIndex < value.length) {
+        var byteIndex = 0
+        while (charIndex < value.length && byteIndex + 1 < scratch.size) {
+            val code = value[charIndex].code
+            scratch[byteIndex++] = (code ushr 8).toByte()
+            scratch[byteIndex++] = code.toByte()
+            charIndex++
+        }
+        update(scratch, 0, byteIndex)
     }
 }
 
