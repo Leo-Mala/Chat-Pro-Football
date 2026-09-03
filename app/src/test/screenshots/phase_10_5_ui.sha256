@@ -1,6 +1,7 @@
 # Phase 10.5 final UI golden manifest: original recordings head 1c85a8f375b5c76d817abd06ab25a843e384f868.
 # dashboard.png was re-reviewed after exact-head parallel runners exposed a lifecycle-order race in the roster-ready card. The fixture preserves all 15 persisted players but makes the integer readiness average identical (93%) for the valid transient 11-starter emission and the complete 15-player roster; the test still requires the complete persisted roster before capture. This removes timing-only pixels without weakening roster validation.
 # dashboard.png was re-reviewed again on 0a9303075a6a9dcd9289f359110a292676821d2e after later certified Dashboard/season-boundary changes made the 2026-08-22 hash stale. The captured frame was explicitly inspected from Actions artifact 9916040630; it is the stable career QA dashboard and no market-value patch touches Dashboard rendering.
+# squad.png was re-reviewed after Actions artifact 9916618192 showed a stable 15-professional/11-starter squad frame. A dedicated no-market diagnostic on 2f2ee105d453a0498392e42e7bff178ed7e90d3f reproduced the exact same 7fb27f18... hash without applying the market-value patch, proving the old 2026-08-22 baseline was already stale rather than changed by the current market fix.
 # finances.png was re-reviewed on cbe38e50f5ba82d314bcdf4a9b7b13417dd2bd10 after two deterministic renders showed the original retained a transient Market-tab interaction background; the stable Finance-selected frame is pinned below.
 # standings.png was re-reviewed on bbf4ab88948dca9fc52e4fb53829ed047e2de16d after the capture harness explicitly drained Material indication time; the original baseline likewise retained the previous Market-tab interaction background instead of the stable Standings-selected frame.
 # Any visual change must be explicitly re-recorded and reviewed; normal tests compare fresh captures to these SHA-256 values.
@@ -10,7 +11,7 @@ da8687cdd31146f0bad9a7da7ef53bca0f23871320fa84c2663a8d7c816df18e  live_match.png
 51fbe6f36eab83fd74b328b9da673bdc45a0cea3a3fb68b954d1f8fb5a236fdf  main_menu.png
 4817f5e517816020888a08e4c288733c18c9039e287f11317e16e73fbff13d47  saves_empty.png
 95e2a81736ddbbb710f454261f2790c8d0699eecca9eebf952b1d516efb17c43  saves_existing.png
-36c0972a8daf61e1c786dcec03caa3b9aa57b63f5c6cc4449e4a9272e146d851  squad.png
+7fb27f18f2137dcae40a30f0f35cb6176992aab28e3765ef7525e9ade2a7a4c0  squad.png
 240b45c653c40bd80c3271be9ce8d8ef56f28327f99049177f1e1a5ba3bb3fb3  standings.png
 cde8b4413b3ebec02189608db5550fd2325b7317fada83b53ee9c1ce08129720  tactics.png
 6f70a73f837089593250e0d34cf70f5a1986fa101051df3860e6a54a5f11e993  team_selection.png
