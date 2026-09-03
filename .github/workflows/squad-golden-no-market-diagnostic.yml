@@ -1,0 +1,63 @@
+name: Squad golden no-market diagnostic
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/squad-golden-no-market-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          cache-read-only: true
+      - name: Setup validation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+          if [ -f debug.keystore.base64 ]; then base64 -d debug.keystore.base64 > debug.keystore; fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, O=Android, C=US'
+          fi
+      - name: Render Phase 10.5 without market patch
+        shell: bash
+        run: |
+          set +e
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.Phase105CriticalUiGoldenTest \
+            --no-build-cache --rerun-tasks --stacktrace
+          status=$?
+          set -e
+          echo '=== actual golden hashes without market patch ==='
+          find app/build/phase105-golden-actual -type f -name '*.png' -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum
+          exit "$status"
+      - name: Upload no-market captures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: squad-golden-no-market-${{ github.sha }}
+          path: app/build/phase105-golden-actual/
+          if-no-files-found: warn
+          retention-days: 2
