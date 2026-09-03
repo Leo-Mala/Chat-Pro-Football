@@ -8,6 +8,7 @@ on:
       - 'tools/manual_test/apply_monthly_compact_commitment_20260903.py'
       - 'tools/manual_test/fix_monthly_compact_commitment_v2_20260903.py'
       - 'tools/manual_test/fix_monthly_commit_benchmark_v3_20260903.py'
+      - 'tools/manual_test/fix_monthly_week4_compact_expectation_v4_20260903.py'
       - '.github/workflows/monthly-compact-commitment-20260903.yml'
   workflow_dispatch:
 
@@ -57,9 +58,11 @@ jobs:
           python3 -m py_compile tools/manual_test/apply_monthly_compact_commitment_20260903.py
           python3 -m py_compile tools/manual_test/fix_monthly_compact_commitment_v2_20260903.py
           python3 -m py_compile tools/manual_test/fix_monthly_commit_benchmark_v3_20260903.py
+          python3 -m py_compile tools/manual_test/fix_monthly_week4_compact_expectation_v4_20260903.py
           python3 tools/manual_test/apply_monthly_compact_commitment_20260903.py
           python3 tools/manual_test/fix_monthly_compact_commitment_v2_20260903.py
           python3 tools/manual_test/fix_monthly_commit_benchmark_v3_20260903.py
+          python3 tools/manual_test/fix_monthly_week4_compact_expectation_v4_20260903.py
           python3 - <<'PY'
           from pathlib import Path
           p = Path('app/src/main/java/com/example/data/MonthlyEvolutionUniverseCommitment.kt')
@@ -113,7 +116,7 @@ jobs:
             --tests com.example.usecase.WeekEightClosePerformanceBenchmarkTest \
             --tests com.example.ui.viewmodel.LiveFinalizationPerformanceBenchmarkTest \
             --stacktrace
-          grep -RhoE 'PERF_(MONTHLY_PREPARE_STAGES|MONTHLY_COMMIT|WEEK_EIGHT_CLOSE|LIVE_FINALIZATION)[^<]*' \
+          grep -RhoE 'PERF_(MONTHLY_PREPARE_STAGES|MONTHLY_COMMIT|WEEK_EIGHT_CLOSE|LIVE_FINALIZATION|BASELINE_WEEK8)[^<]*' \
             app/build/test-results/testDebugUnitTest || true
 
       - name: Assemble debug APK
@@ -133,6 +136,7 @@ jobs:
             app/src/main/java/com/example/usecase/PlayerEvolutionUseCase.kt \
             app/src/test/java/com/example/usecase/MonthlyEvolutionCompactPlanMemoryRegressionTest.kt \
             app/src/test/java/com/example/usecase/MonthlyEvolutionCompactCommitmentRegressionTest.kt \
+            app/src/test/java/com/example/usecase/MonthlyEvolutionWeekFourRegressionTest.kt \
             app/src/test/java/com/example/usecase/MonthlyCommitPerformanceBenchmarkTest.kt
           git diff --cached --quiet && { echo 'No product source delta'; exit 0; }
           git diff --cached --check
