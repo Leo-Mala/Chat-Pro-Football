@@ -34,94 +34,110 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Recover exact certified 2524-crest runtime
+      - name: Recover exact certified runtime from permanent v3.0.1 release assets
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/certified-crest-source"
-          rm -rf "$work"
-          mkdir -p "$work"
+          work="$RUNNER_TEMP/certified-crest-release"
+          rm -rf "$work" app/src/main/assets/club_crests
+          mkdir -p "$work/assets" "$work/recovered" app/src/main/assets/club_crests
 
-          crest_fingerprint_apk() {
-            python3 - "$1" <<'PY'
+          gh release download v3.0.1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Pro-Football-3.0.1-vc32.apk' \
+            --pattern 'Pro-Football-3.0.1-vc32.aab' \
+            --dir "$work/assets"
+          sha256sum "$work"/assets/* | tee "$work/release-assets.sha256"
+
+          python3 - "$work" <<'PY'
           import hashlib
+          import json
+          import os
           import pathlib
           import sys
           import zipfile
 
-          apk = pathlib.Path(sys.argv[1])
-          with zipfile.ZipFile(apk) as z:
-              names = sorted(
-                  n for n in z.namelist()
-                  if n.startswith('assets/club_crests/') and not n.endswith('/')
-              )
-              h = hashlib.sha256()
-              for name in names:
-                  canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
-                  h.update(canonical.encode('utf-8'))
-                  h.update(b'\0')
-                  h.update(hashlib.sha256(z.read(name)).digest())
-              print(h.hexdigest())
-          PY
-          }
+          work = pathlib.Path(sys.argv[1])
+          target = os.environ['EXPECTED_CREST_FINGERPRINT']
+          expected_total = int(os.environ['EXPECTED_TOTAL_CRESTS'])
+          expected_club = int(os.environ['EXPECTED_CLUB_CRESTS'])
+          expected_factual = int(os.environ['EXPECTED_FACTUAL_CRESTS'])
+          report = []
+          recovered = False
 
-          found=0
-          while IFS=$'\t' read -r run_id run_number; do
-            [ -n "$run_id" ] || continue
-            while IFS=$'\t' read -r artifact_id artifact_name; do
-              [ -n "$artifact_id" ] || continue
-              artifact_zip="$work/artifact-${artifact_id}.zip"
-              artifact_dir="$work/artifact-${artifact_id}"
-              rm -rf "$artifact_dir" "$artifact_zip"
-              mkdir -p "$artifact_dir"
+          for path in sorted((work / 'assets').glob('*')):
+              if path.suffix not in {'.apk', '.aab'}:
+                  continue
+              with zipfile.ZipFile(path) as z:
+                  names = []
+                  prefix_used = None
+                  for prefix in ('assets/club_crests/', 'base/assets/club_crests/'):
+                      candidate = sorted(
+                          n for n in z.namelist()
+                          if n.startswith(prefix) and not n.endswith('/')
+                      )
+                      if candidate:
+                          names = candidate
+                          prefix_used = prefix
+                          break
 
-              curl -L --fail --retry 2 --silent --show-error \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
-                -o "$artifact_zip"
-              unzip -q "$artifact_zip" -d "$artifact_dir"
+                  club = sum(pathlib.PurePosixPath(n).name.startswith('club_') for n in names)
+                  factual = sum(pathlib.PurePosixPath(n).name.startswith('factual_') for n in names)
+                  digest = hashlib.sha256()
+                  for name in names:
+                      canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
+                      digest.update(canonical.encode('utf-8'))
+                      digest.update(b'\0')
+                      digest.update(hashlib.sha256(z.read(name)).digest())
+                  fingerprint = digest.hexdigest() if names else None
+                  row = {
+                      'file': path.name,
+                      'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                      'prefix': prefix_used,
+                      'total': len(names),
+                      'club': club,
+                      'factual': factual,
+                      'fingerprint': fingerprint,
+                  }
+                  report.append(row)
+                  print(json.dumps(row, sort_keys=True))
 
-              while IFS= read -r source_apk; do
-                [ -n "$source_apk" ] || continue
-                total=$(unzip -Z1 "$source_apk" | grep -c '^assets/club_crests/[^/]*$' || true)
-                club=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
-                factual=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
-                fingerprint=$(crest_fingerprint_apk "$source_apk")
-                echo "Candidate run=${run_id} #${run_number} artifact=${artifact_name}: total=${total} club=${club} factual=${factual} fingerprint=${fingerprint}"
-                if [ "$total" = "$EXPECTED_TOTAL_CRESTS" ] \
-                  && [ "$club" = "$EXPECTED_CLUB_CRESTS" ] \
-                  && [ "$factual" = "$EXPECTED_FACTUAL_CRESTS" ] \
-                  && [ "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT" ]; then
-                  cp "$source_apk" "$work/source-certified.apk"
-                  found=1
-                  break 3
-                fi
-              done < <(find "$artifact_dir" -type f -name '*.apk' -print)
-            done < <(
-              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
-                --jq '.artifacts[] | select(.expired == false) | select(.name | startswith("manual-test-apk-")) | [.id, .name] | @tsv'
-            )
-          done < <(
-            gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/343909110/runs?branch=fix%2F3.0.1-manual-test-bugs&per_page=100" \
-              --jq '.workflow_runs[] | select(.status == "completed") | select(.conclusion == "success") | [.id, .run_number] | @tsv'
+                  if (
+                      len(names) == expected_total
+                      and club == expected_club
+                      and factual == expected_factual
+                      and fingerprint == target
+                  ):
+                      out = work / 'recovered'
+                      for name in names:
+                          (out / pathlib.PurePosixPath(name).name).write_bytes(z.read(name))
+                      (out / 'SOURCE.txt').write_text(path.name + '\n', encoding='utf-8')
+                      (out / 'FINGERPRINT.txt').write_text(fingerprint + '\n', encoding='utf-8')
+                      recovered = True
+                      break
+
+          (work / 'release-crest-inspection.json').write_text(
+              json.dumps(report, indent=2), encoding='utf-8'
           )
+          if not recovered:
+              raise SystemExit(
+                  'No permanent v3.0.1 release asset proved the exact certified 2524-crest fingerprint.'
+              )
+          PY
 
-          test "$found" = 1
-          rm -rf app/src/main/assets/club_crests
-          mkdir -p app/src/main/assets/club_crests
-          unzip -jq "$work/source-certified.apk" 'assets/club_crests/*' -d app/src/main/assets/club_crests
+          test "$(find "$work/recovered" -maxdepth 1 -type f -name '*.webp' | wc -l)" = "$EXPECTED_TOTAL_CRESTS"
+          test "$(find "$work/recovered" -maxdepth 1 -type f -name 'club_*.webp' | wc -l)" = "$EXPECTED_CLUB_CRESTS"
+          test "$(find "$work/recovered" -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)" = "$EXPECTED_FACTUAL_CRESTS"
+          test "$(cat "$work/recovered/FINGERPRINT.txt")" = "$EXPECTED_CREST_FINGERPRINT"
 
-          total=$(find app/src/main/assets/club_crests -maxdepth 1 -type f | wc -l)
-          club=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'club_*.webp' | wc -l)
-          factual=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)
-          test "$total" = "$EXPECTED_TOTAL_CRESTS"
-          test "$club" = "$EXPECTED_CLUB_CRESTS"
-          test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
-          fingerprint=$(crest_fingerprint_apk "$work/source-certified.apk")
-          test "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT"
-          printf 'total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\n' "$total" "$club" "$factual" "$fingerprint" | tee "$RUNNER_TEMP/crest-runtime.txt"
+          cp "$work/recovered"/*.webp app/src/main/assets/club_crests/
+          printf 'total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\nsource=%s\n' \
+            "$EXPECTED_TOTAL_CRESTS" \
+            "$EXPECTED_CLUB_CRESTS" \
+            "$EXPECTED_FACTUAL_CRESTS" \
+            "$EXPECTED_CREST_FINGERPRINT" \
+            "$(cat "$work/recovered/SOURCE.txt")" \
+            | tee "$RUNNER_TEMP/crest-runtime.txt"
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
