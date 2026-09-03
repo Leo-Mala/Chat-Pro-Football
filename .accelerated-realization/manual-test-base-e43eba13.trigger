@@ -1,0 +1,4 @@
+purpose=build exact-head manual-test APK base after compact monthly commitment certification
+source_product_head=e43eba1311cd0da7ae0332b280e4cd6f77df95ef
+crest_corpus_source=Pro-Football-3.0.1-Teste-Manual-81bda14e-2524-Escudos-16K.apk
+crest_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
