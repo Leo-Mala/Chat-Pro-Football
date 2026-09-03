@@ -1,9 +1,10 @@
 # Phase 10.5 final UI golden manifest: original recordings head 1c85a8f375b5c76d817abd06ab25a843e384f868.
 # dashboard.png was re-reviewed after exact-head parallel runners exposed a lifecycle-order race in the roster-ready card. The fixture preserves all 15 persisted players but makes the integer readiness average identical (93%) for the valid transient 11-starter emission and the complete 15-player roster; the test still requires the complete persisted roster before capture. This removes timing-only pixels without weakening roster validation.
+# dashboard.png was re-reviewed again on 0a9303075a6a9dcd9289f359110a292676821d2e after later certified Dashboard/season-boundary changes made the 2026-08-22 hash stale. The captured frame was explicitly inspected from Actions artifact 9916040630; it is the stable career QA dashboard and no market-value patch touches Dashboard rendering.
 # finances.png was re-reviewed on cbe38e50f5ba82d314bcdf4a9b7b13417dd2bd10 after two deterministic renders showed the original retained a transient Market-tab interaction background; the stable Finance-selected frame is pinned below.
 # standings.png was re-reviewed on bbf4ab88948dca9fc52e4fb53829ed047e2de16d after the capture harness explicitly drained Material indication time; the original baseline likewise retained the previous Market-tab interaction background instead of the stable Standings-selected frame.
 # Any visual change must be explicitly re-recorded and reviewed; normal tests compare fresh captures to these SHA-256 values.
-0ba082953330f6883ec303e3d67743a6688992421a2cd7899fc99c02fc4cc521  dashboard.png
+6ec4ad7fb8b5452d9e94376b0d5f12e59062628e8b89fa78dfcec21010d9bd20  dashboard.png
 e046a1135af7d0146404fcf6aa58ebc3f09576a75995bad554963bbad64c5f2e  finances.png
 da8687cdd31146f0bad9a7da7ef53bca0f23871320fa84c2663a8d7c816df18e  live_match.png
 51fbe6f36eab83fd74b328b9da673bdc45a0cea3a3fb68b954d1f8fb5a236fdf  main_menu.png
