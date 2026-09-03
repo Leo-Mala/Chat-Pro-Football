@@ -1,0 +1,209 @@
+name: Certified crest Android decode
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/certified-crest-android-decode.yml
+      - .accelerated-realization/certified-crest-android-decode.trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: certified-crest-android-decode-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decode-certified-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_CLUB_CRESTS: '1907'
+      EXPECTED_FACTUAL_CRESTS: '617'
+      EXPECTED_TOTAL_CRESTS: '2524'
+      EXPECTED_CREST_FINGERPRINT: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+    steps:
+      - name: Checkout exact gate head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Recover exact certified 2524-crest runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/certified-crest-source"
+          rm -rf "$work"
+          mkdir -p "$work"
+
+          crest_fingerprint_apk() {
+            python3 - "$1" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import zipfile
+
+          apk = pathlib.Path(sys.argv[1])
+          with zipfile.ZipFile(apk) as z:
+              names = sorted(
+                  n for n in z.namelist()
+                  if n.startswith('assets/club_crests/') and not n.endswith('/')
+              )
+              h = hashlib.sha256()
+              for name in names:
+                  canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
+                  h.update(canonical.encode('utf-8'))
+                  h.update(b'\0')
+                  h.update(hashlib.sha256(z.read(name)).digest())
+              print(h.hexdigest())
+          PY
+          }
+
+          found=0
+          while IFS=$'\t' read -r run_id run_number; do
+            [ -n "$run_id" ] || continue
+            while IFS=$'\t' read -r artifact_id artifact_name; do
+              [ -n "$artifact_id" ] || continue
+              artifact_zip="$work/artifact-${artifact_id}.zip"
+              artifact_dir="$work/artifact-${artifact_id}"
+              rm -rf "$artifact_dir" "$artifact_zip"
+              mkdir -p "$artifact_dir"
+
+              curl -L --fail --retry 2 --silent --show-error \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+                -o "$artifact_zip"
+              unzip -q "$artifact_zip" -d "$artifact_dir"
+
+              while IFS= read -r source_apk; do
+                [ -n "$source_apk" ] || continue
+                total=$(unzip -Z1 "$source_apk" | grep -c '^assets/club_crests/[^/]*$' || true)
+                club=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
+                factual=$(unzip -Z1 "$source_apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
+                fingerprint=$(crest_fingerprint_apk "$source_apk")
+                echo "Candidate run=${run_id} #${run_number} artifact=${artifact_name}: total=${total} club=${club} factual=${factual} fingerprint=${fingerprint}"
+                if [ "$total" = "$EXPECTED_TOTAL_CRESTS" ] \
+                  && [ "$club" = "$EXPECTED_CLUB_CRESTS" ] \
+                  && [ "$factual" = "$EXPECTED_FACTUAL_CRESTS" ] \
+                  && [ "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT" ]; then
+                  cp "$source_apk" "$work/source-certified.apk"
+                  found=1
+                  break 3
+                fi
+              done < <(find "$artifact_dir" -type f -name '*.apk' -print)
+            done < <(
+              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+                --jq '.artifacts[] | select(.expired == false) | select(.name | startswith("manual-test-apk-")) | [.id, .name] | @tsv'
+            )
+          done < <(
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/343909110/runs?branch=fix%2F3.0.1-manual-test-bugs&per_page=100" \
+              --jq '.workflow_runs[] | select(.status == "completed") | select(.conclusion == "success") | [.id, .run_number] | @tsv'
+          )
+
+          test "$found" = 1
+          rm -rf app/src/main/assets/club_crests
+          mkdir -p app/src/main/assets/club_crests
+          unzip -jq "$work/source-certified.apk" 'assets/club_crests/*' -d app/src/main/assets/club_crests
+
+          total=$(find app/src/main/assets/club_crests -maxdepth 1 -type f | wc -l)
+          club=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'club_*.webp' | wc -l)
+          factual=$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)
+          test "$total" = "$EXPECTED_TOTAL_CRESTS"
+          test "$club" = "$EXPECTED_CLUB_CRESTS"
+          test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
+          fingerprint=$(crest_fingerprint_apk "$work/source-certified.apk")
+          test "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT"
+          printf 'total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\n' "$total" "$club" "$factual" "$fingerprint" | tee "$RUNNER_TEMP/crest-runtime.txt"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Prepare Android validation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+          mkdir -p ~/.android
+          if [ -f debug.keystore.base64 ]; then base64 -d debug.keystore.base64 > debug.keystore; fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, O=Android, C=US'
+          fi
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Run certified resolver and structural corpus regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.data.BundledClubCrestsTest \
+            --stacktrace
+
+      - name: Build target and AndroidTest APKs with certified corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
+          test -n "$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$(find app/build/outputs/apk/androidTest/debug -type f -name '*-androidTest.apk' -print -quit)"
+
+      - name: Enable KVM acceleration when available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "KVM device not exposed; emulator will use supported fallback."
+          fi
+
+      - name: Decode all 2524 certified crests on Android API 35
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            target_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+            test_apk=$(find app/build/outputs/apk/androidTest/debug -type f -name '*-androidTest.apk' -print -quit)
+            test -n "$target_apk"
+            test -n "$test_apk"
+            adb install -r "$target_apk"
+            adb install -r "$test_apk"
+            adb shell am instrument -w -r \
+              -e class com.example.data.BundledClubCrestsAndroidDecodeInstrumentedTest \
+              com.aistudio.brasfutretro.djuxzt.test/androidx.test.runner.AndroidJUnitRunner \
+              | tee "$RUNNER_TEMP/crest-android-decode.txt"
+            grep -q 'OK (1 test)' "$RUNNER_TEMP/crest-android-decode.txt"
+
+      - name: Upload crest decode evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: certified-crest-android-decode-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/crest-runtime.txt
+            ${{ runner.temp }}/crest-android-decode.txt
+          if-no-files-found: warn
+          retention-days: 7
