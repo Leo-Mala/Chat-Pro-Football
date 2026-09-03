@@ -13,7 +13,6 @@ import com.example.data.Team
 import com.example.data.applyMonthlyEvolutionPlayerStateDeltas
 import com.example.data.applyMonthlyEvolutionPlayerStates
 import com.example.data.forEachMonthlyEvolutionPlayerBatch
-import com.example.data.getAllMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionHistoryFingerprints
 import com.example.data.getMonthlyEvolutionInputSnapshots
 import com.example.data.getMonthlyEvolutionPlayerCount
@@ -22,6 +21,7 @@ import com.example.data.monthlyEvolutionFingerprint
 import com.example.data.resetMonthlyEvolutionCounters
 import com.example.data.toMonthlyEvolutionInputSnapshot
 import com.example.data.toMonthlyEvolutionPlayerState
+import com.example.data.validateMonthlyEvolutionRosterInputs
 import kotlin.random.Random
 
 /**
@@ -273,32 +273,16 @@ class PlayerEvolutionUseCase(private val repository: GameRepository) {
                     return@withTransaction false
                 }
             } else {
-                val currentInputs = repository.getAllMonthlyEvolutionInputSnapshots()
-                val expectedById = plan.expectedInputs.associateBy { it.id }
-
-                if (expectedById.keys.any { it !in currentInputs }) return@withTransaction false
-
                 val teams = currentTeamsById ?: repository.getAllTeams().associateBy { it.id }.also {
                     currentTeamsById = it
                 }
-                val corrections = linkedSetOf<Long>()
-
-                for ((playerId, expected) in expectedById) {
-                    val current = currentInputs.getValue(playerId)
-                    if (!expected.sameEvolutionStateIgnoringTeam(current)) {
-                        return@withTransaction false
-                    }
-                    if (expected.teamId != current.teamId) {
-                        val oldLevel = expected.teamId?.let { plan.expectedTrainingCenterLevels[it] } ?: 1
-                        val newLevel = current.teamId?.let { teams[it]?.trainingCenterLevel } ?: 1
-                        if (oldLevel != newLevel) corrections.add(playerId)
-                    }
-                }
-
-                for (playerId in currentInputs.keys) {
-                    if (playerId !in expectedById) corrections.add(playerId)
-                }
-                correctionIds = corrections
+                val validation = repository.validateMonthlyEvolutionRosterInputs(
+                    expectedInputs = plan.expectedInputs,
+                    expectedTrainingCenterLevels = plan.expectedTrainingCenterLevels,
+                    currentTrainingCenterLevels = teams.mapValues { it.value.trainingCenterLevel }
+                )
+                if (!validation.valid) return@withTransaction false
+                correctionIds = validation.correctionIds
             }
         }
 

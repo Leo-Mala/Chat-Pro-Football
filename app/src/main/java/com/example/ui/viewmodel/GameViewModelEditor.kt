@@ -278,16 +278,26 @@ private fun Flow<List<Player>>.asEditorPlayersLoadState(teamId: Long?): Flow<Edi
         EditorPlayersLoadState.Ready(teamId, players)
     }.onStart { emit(EditorPlayersLoadState.Loading(teamId)) }
 
+internal fun editorPlayersLoadStateFlow(
+    repositoryFlow: Flow<GameRepository?>,
+    teamId: Long?
+): Flow<EditorPlayersLoadState> =
+    repositoryFlow.flatMapLatest { repository ->
+        if (repository == null) {
+            flowOf(EditorPlayersLoadState.Loading(teamId))
+        } else {
+            val playersFlow = if (teamId == null) repository.allPlayersFlow
+            else repository.getPlayersForTeamFlow(teamId)
+            playersFlow.asEditorPlayersLoadState(teamId)
+        }
+    }
+
 fun GameViewModel.editorPlayersForEditorFlow(
     teamId: Long?,
     active: Boolean
 ): Flow<EditorPlayersLoadState> {
     if (!active) return flowOf(EditorPlayersLoadState.Inactive)
-    if (teamId == null) return allPlayers.asEditorPlayersLoadState(null)
-    return activeRepositoryFlow.flatMapLatest { repository ->
-        if (repository == null) flowOf(EditorPlayersLoadState.Loading(teamId))
-        else repository.getPlayersForTeamFlow(teamId).asEditorPlayersLoadState(teamId)
-    }
+    return editorPlayersLoadStateFlow(activeRepositoryFlow, teamId)
 }
 
 internal fun editorRosterCountOrNull(

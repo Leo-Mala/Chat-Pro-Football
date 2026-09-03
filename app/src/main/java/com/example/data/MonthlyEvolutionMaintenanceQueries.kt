@@ -301,6 +301,121 @@ private fun Cursor.readMonthlyEvolutionSnapshotsInto(
     return lastId
 }
 
+data class MonthlyEvolutionRosterValidation(
+    val valid: Boolean,
+    val correctionIds: Set<Long>,
+    val currentPlayerCount: Int
+)
+
+/**
+ * Full-universe weekly-close validation without materializing a second current-input HashMap.
+ * Every persisted evolution input is still checked. New rows are targeted for recalculation;
+ * removed or mutated expected rows invalidate the plan fail-closed.
+ */
+internal fun GameRepository.validateMonthlyEvolutionRosterInputs(
+    expectedInputs: List<MonthlyEvolutionInputSnapshot>,
+    expectedTrainingCenterLevels: Map<Long, Int>,
+    currentTrainingCenterLevels: Map<Long, Int>
+): MonthlyEvolutionRosterValidation {
+    if (expectedInputs.isEmpty()) {
+        val count = getMonthlyEvolutionPlayerCount()
+        return MonthlyEvolutionRosterValidation(count == 0, emptySet(), count)
+    }
+
+    val expectedById = HashMap<Long, MonthlyEvolutionInputSnapshot>(hashMapCapacityForSize(expectedInputs.size))
+    for (expected in expectedInputs) expectedById[expected.id] = expected
+
+    val corrections = linkedSetOf<Long>()
+    val database = db.openHelper.writableDatabase
+    var lastSeenId: Long? = null
+    var currentCount = 0
+    var matchedExpectedCount = 0
+    var valid = true
+
+    while (true) {
+        val query = if (lastSeenId == null) {
+            """
+            SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
+                   focoTreino, atributosJson, atributos
+            FROM players
+            ORDER BY id ASC
+            LIMIT $MONTHLY_VALIDATION_SCAN_BATCH_SIZE
+            """.trimIndent()
+        } else {
+            """
+            SELECT id, teamId, age, position, force, potential, minutosJogados, mediaNotas,
+                   focoTreino, atributosJson, atributos
+            FROM players
+            WHERE id > ?
+            ORDER BY id ASC
+            LIMIT $MONTHLY_VALIDATION_SCAN_BATCH_SIZE
+            """.trimIndent()
+        }
+        val args = lastSeenId?.let { arrayOf<Any>(it) } ?: emptyArray()
+        var rowsInBatch = 0
+        var batchLastId: Long? = null
+
+        database.query(query, args).use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow("id")
+            val teamIdIndex = cursor.getColumnIndexOrThrow("teamId")
+            val ageIndex = cursor.getColumnIndexOrThrow("age")
+            val positionIndex = cursor.getColumnIndexOrThrow("position")
+            val forceIndex = cursor.getColumnIndexOrThrow("force")
+            val potentialIndex = cursor.getColumnIndexOrThrow("potential")
+            val minutesIndex = cursor.getColumnIndexOrThrow("minutosJogados")
+            val ratingIndex = cursor.getColumnIndexOrThrow("mediaNotas")
+            val focusIndex = cursor.getColumnIndexOrThrow("focoTreino")
+            val jsonIndex = cursor.getColumnIndexOrThrow("atributosJson")
+            val attributesIndex = cursor.getColumnIndexOrThrow("atributos")
+
+            while (cursor.moveToNext()) {
+                val current = MonthlyEvolutionInputSnapshot(
+                    id = cursor.getLong(idIndex),
+                    teamId = if (cursor.isNull(teamIdIndex)) null else cursor.getLong(teamIdIndex),
+                    age = cursor.getInt(ageIndex),
+                    position = cursor.getString(positionIndex),
+                    force = cursor.getInt(forceIndex),
+                    potential = cursor.getInt(potentialIndex),
+                    minutosJogados = cursor.getInt(minutesIndex),
+                    mediaNotas = cursor.getDouble(ratingIndex),
+                    focoTreino = if (cursor.isNull(focusIndex)) null else cursor.getString(focusIndex),
+                    atributosJson = if (cursor.isNull(jsonIndex)) null else cursor.getString(jsonIndex),
+                    atributosStorage = cursor.getString(attributesIndex)
+                )
+                currentCount++
+                rowsInBatch++
+                batchLastId = current.id
+
+                val expected = expectedById[current.id]
+                if (expected == null) {
+                    corrections.add(current.id)
+                    continue
+                }
+                matchedExpectedCount++
+                if (!expected.sameEvolutionStateIgnoringTeam(current)) {
+                    valid = false
+                    continue
+                }
+                if (expected.teamId != current.teamId) {
+                    val oldLevel = expected.teamId?.let { expectedTrainingCenterLevels[it] } ?: 1
+                    val newLevel = current.teamId?.let { currentTrainingCenterLevels[it] } ?: 1
+                    if (oldLevel != newLevel) corrections.add(current.id)
+                }
+            }
+        }
+
+        if (rowsInBatch == 0) break
+        check(lastSeenId == null || requireNotNull(batchLastId) > lastSeenId!!) {
+            "Monthly evolution validation keyset did not advance after player id $lastSeenId."
+        }
+        lastSeenId = batchLastId
+        if (rowsInBatch < MONTHLY_VALIDATION_SCAN_BATCH_SIZE) break
+    }
+
+    if (matchedExpectedCount != expectedById.size) valid = false
+    return MonthlyEvolutionRosterValidation(valid, corrections, currentCount)
+}
+
 /**
  * Applies only the four columns owned by monthly evolution. This prevents a prepared plan from
  * restoring an old contract, team, salary, fitness or transfer state through a full-entity update.

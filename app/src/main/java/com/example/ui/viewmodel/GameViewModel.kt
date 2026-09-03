@@ -37,6 +37,9 @@ data class IncomingOffer(
     val durationWeeks: Int = 0 // For loan, 0 for buy
 )
 
+internal fun shouldStopSeasonSimulation(targetSeason: Int, currentSeason: Int): Boolean =
+    currentSeason != targetSeason
+
 @HiltViewModel
 class GameViewModel @Inject constructor(
     application: Application,
@@ -963,13 +966,20 @@ class GameViewModel @Inject constructor(
                 simulationMutex.withLock {
                     try {
                         val initialSave = repo.getGameSave()
-                        if (initialSave != null) {
-                            cleanupDuplicateUnplayedFixtures(initialSave.currentSeason)
+                        if (initialSave == null) {
+                            _isSimulatingSeason.value = false
+                            return@withLock
                         }
+                        val targetSeason = initialSave.currentSeason
+                        cleanupDuplicateUnplayedFixtures(targetSeason)
+
                         while (_isSimulatingSeason.value) {
                             val save = repo.getGameSave()
                             if (save == null) {
                                 _isSimulatingSeason.value = false
+                                break
+                            }
+                            if (shouldStopSeasonSimulation(targetSeason, save.currentSeason)) {
                                 break
                             }
                             
@@ -1022,10 +1032,13 @@ class GameViewModel @Inject constructor(
                             processWeekEndEconomicAndEvolution()
                             
                             val updatedSave = repo.getGameSave() ?: break
-                            if (updatedSave.currentWeek == 1 && currentWeekNum >= GameCalendar.WEEKS_PER_SEASON) {
-                                val nextLog = "🏆 Temporada ${save.currentSeason} finalizada com sucesso! Iniciando Temporada ${updatedSave.currentSeason}..."
+                            if (shouldStopSeasonSimulation(targetSeason, updatedSave.currentSeason)) {
+                                val nextLog = "🏆 Temporada $targetSeason finalizada com sucesso! Temporada ${updatedSave.currentSeason} preparada."
                                 _simulationLogs.value = (listOf(nextLog) + _simulationLogs.value).take(25)
-                                delay(1500)
+                                _simulationCompetitionName.value = "Temporada $targetSeason concluída"
+                                _simulationMatchInfo.value = "Temporada ${updatedSave.currentSeason} preparada."
+                                delay(600)
+                                break
                             }
                         }
                     } catch (e: Exception) {

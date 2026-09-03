@@ -55,6 +55,42 @@ class SeasonTransitionUseCase(
         val currentUserCountry = allTeams.firstOrNull { it.id == sourceSave.playerTeamId }?.country
             ?: "Brasil"
 
+        // Snapshot the controlled club's completed season before fixtures are purged. Because the
+        // whole transition is one Room transaction, these career counters commit atomically with
+        // the rollover and roll back together on any later failure.
+        val completedUserFixtures = seasonFixtures.filter { fixture ->
+            fixture.isPlayed &&
+                fixture.homeScore != null && fixture.awayScore != null &&
+                (fixture.homeTeamId == sourceSave.playerTeamId || fixture.awayTeamId == sourceSave.playerTeamId)
+        }
+        var seasonWins = 0
+        var seasonDraws = 0
+        var seasonLosses = 0
+        var seasonGoalsScored = 0
+        var seasonGoalsConceded = 0
+        for (fixture in completedUserFixtures) {
+            val homeGoals = requireNotNull(fixture.homeScore)
+            val awayGoals = requireNotNull(fixture.awayScore)
+            val userIsHome = fixture.homeTeamId == sourceSave.playerTeamId
+            val userGoals = if (userIsHome) homeGoals else awayGoals
+            val opponentGoals = if (userIsHome) awayGoals else homeGoals
+            seasonGoalsScored += userGoals
+            seasonGoalsConceded += opponentGoals
+            when {
+                userGoals > opponentGoals -> seasonWins++
+                userGoals < opponentGoals -> seasonLosses++
+                else -> seasonDraws++
+            }
+        }
+        val sourceSaveWithCareerStats = sourceSave.copy(
+            careerMatches = sourceSave.careerMatches + completedUserFixtures.size,
+            careerWins = sourceSave.careerWins + seasonWins,
+            careerDraws = sourceSave.careerDraws + seasonDraws,
+            careerLosses = sourceSave.careerLosses + seasonLosses,
+            careerGoalsScored = sourceSave.careerGoalsScored + seasonGoalsScored,
+            careerGoalsConceded = sourceSave.careerGoalsConceded + seasonGoalsConceded
+        )
+
         val globalStandings = measuredStage("final-classification") {
             globalLeagueSimulationUseCase.buildSeasonStandings(
                 season = currentSeason,
@@ -262,7 +298,7 @@ class SeasonTransitionUseCase(
             repository.saveFixtures(newFixtures)
         }
 
-        val updatedSave = sourceSave.copy(
+        val updatedSave = sourceSaveWithCareerStats.copy(
             currentSeason = nextSeason,
             currentWeek = 1
         )

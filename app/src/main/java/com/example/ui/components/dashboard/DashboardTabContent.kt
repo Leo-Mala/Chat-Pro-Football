@@ -32,6 +32,9 @@ import com.example.ui.screens.TeamBadge
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.*
 
+internal fun simulationWeekProgressText(week: Int): String =
+    "Semana $week de ${GameCalendar.WEEKS_PER_SEASON}"
+
 @Composable
 fun DashboardTab(
     viewModel: GameViewModel,
@@ -160,7 +163,7 @@ fun DashboardTab(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "Semana $simWeek de 45",
+                        text = simulationWeekProgressText(simWeek),
                         color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 18.sp
@@ -455,7 +458,7 @@ fun DashboardTab(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Simulando Semana $simWeek de 45...",
+                                    text = "Simulando ${simulationWeekProgressText(simWeek)}...",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
                                     color = AccentLime
