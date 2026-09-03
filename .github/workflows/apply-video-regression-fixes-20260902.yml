@@ -76,17 +76,18 @@ jobs:
             --tests com.example.ui.screens.SeasonWeekBoundsRegressionTest \
             --tests com.example.ui.viewmodel.EditorExistingCareerRosterRegressionTest \
             --tests com.example.data.MonthlyEvolutionStreamingValidationRegressionTest \
-            --tests com.example.ui.viewmodel.EditorRosterNoFalseZeroRegressionTest \
-            --tests com.example.ui.viewmodel.TeamStrength99PersistenceRegressionTest \
+            --tests com.example.ui.viewmodel.ManualTestEditorAndMatchRegressionTest \
+            --tests com.example.ui.viewmodel.ClubStrength99RosterConsistencyTest \
+            --tests com.example.data.ManualStrengthPersistenceRegressionTest \
             --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
             --tests com.example.usecase.SeasonSimulationRegressionTest \
             --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
             --tests com.example.usecase.MonthlyEvolutionCompactPlanMemoryRegressionTest \
-            --tests com.example.usecase.PlayerEvolutionMonthlyEngineRegressionTest \
-            --tests com.example.usecase.MonthlyEvolutionHistoryBulkWriterTest \
-            --tests com.example.usecase.InterruptedWeeklyCloseRecoveryTest \
-            --tests com.example.usecase.Phase106LifecycleRaceRegressionTest \
+            --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
+            --tests com.example.data.MonthlyEvolutionHistoryBulkWriterTest \
+            --tests com.example.InterruptedWeeklyCloseRecoveryTest \
+            --tests com.example.Phase106LifecycleRaceRegressionTest \
             --tests com.example.usecase.MatchStatisticsIdempotencyTest \
             --stacktrace
 
