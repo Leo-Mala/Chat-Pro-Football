@@ -7,6 +7,7 @@ on:
     paths:
       - 'tools/manual_test/apply_monthly_compact_commitment_20260903.py'
       - 'tools/manual_test/fix_monthly_compact_commitment_v2_20260903.py'
+      - 'tools/manual_test/fix_monthly_commit_benchmark_v3_20260903.py'
       - '.github/workflows/monthly-compact-commitment-20260903.yml'
   workflow_dispatch:
 
@@ -55,8 +56,10 @@ jobs:
           set -euo pipefail
           python3 -m py_compile tools/manual_test/apply_monthly_compact_commitment_20260903.py
           python3 -m py_compile tools/manual_test/fix_monthly_compact_commitment_v2_20260903.py
+          python3 -m py_compile tools/manual_test/fix_monthly_commit_benchmark_v3_20260903.py
           python3 tools/manual_test/apply_monthly_compact_commitment_20260903.py
           python3 tools/manual_test/fix_monthly_compact_commitment_v2_20260903.py
+          python3 tools/manual_test/fix_monthly_commit_benchmark_v3_20260903.py
           python3 - <<'PY'
           from pathlib import Path
           p = Path('app/src/main/java/com/example/data/MonthlyEvolutionUniverseCommitment.kt')
@@ -129,7 +132,8 @@ jobs:
             app/src/main/java/com/example/data/MonthlyEvolutionStreamingQueries.kt \
             app/src/main/java/com/example/usecase/PlayerEvolutionUseCase.kt \
             app/src/test/java/com/example/usecase/MonthlyEvolutionCompactPlanMemoryRegressionTest.kt \
-            app/src/test/java/com/example/usecase/MonthlyEvolutionCompactCommitmentRegressionTest.kt
+            app/src/test/java/com/example/usecase/MonthlyEvolutionCompactCommitmentRegressionTest.kt \
+            app/src/test/java/com/example/usecase/MonthlyCommitPerformanceBenchmarkTest.kt
           git diff --cached --quiet && { echo 'No product source delta'; exit 0; }
           git diff --cached --check
           git diff --cached --exit-code -- app/src/main/assets/club_crests
