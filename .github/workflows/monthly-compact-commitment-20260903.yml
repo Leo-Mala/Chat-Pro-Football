@@ -1,0 +1,134 @@
+name: Monthly Compact Commitment 2026-09-03
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - 'tools/manual_test/apply_monthly_compact_commitment_20260903.py'
+      - '.github/workflows/monthly-compact-commitment-20260903.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: monthly-compact-commitment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose-fix-test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: fix/3.0.1-manual-test-bugs
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+          keytool -genkeypair -keystore debug.keystore -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=Android Debug,O=Android,C=US' >/dev/null 2>&1
+
+      - name: Apply compact monthly commitment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/manual_test/apply_monthly_compact_commitment_20260903.py
+          python3 tools/manual_test/apply_monthly_compact_commitment_20260903.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/example/data/MonthlyEvolutionUniverseCommitment.kt')
+          s = p.read_text(encoding='utf-8')
+          old = 'internal data class MonthlyEvolutionUniverseCommitment('
+          if old not in s:
+              raise SystemExit('expected commitment visibility marker missing')
+          p.write_text(s.replace(old, 'data class MonthlyEvolutionUniverseCommitment(', 1), encoding='utf-8')
+          PY
+          git diff --check
+          git diff --exit-code -- app/src/main/assets/club_crests
+
+      - name: Test compact memory contract
+        run: ./gradlew testDebugUnitTest -PexcludeStressTests=true --tests com.example.usecase.MonthlyEvolutionCompactPlanMemoryRegressionTest --stacktrace
+
+      - name: Test compact stale-plan commitment
+        run: ./gradlew testDebugUnitTest -PexcludeStressTests=true --tests com.example.usecase.MonthlyEvolutionCompactCommitmentRegressionTest --stacktrace
+
+      - name: Test monthly streaming and evolution semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.data.MonthlyEvolutionStreamingValidationRegressionTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.data.PlayerEvolutionMonthlyEngineRegressionTest \
+            --tests com.example.data.MonthlyEvolutionHistoryBulkWriterTest \
+            --stacktrace
+
+      - name: Run preserved lifecycle regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.data.ManualStrengthPersistenceRegressionTest \
+            --tests com.example.InterruptedWeeklyCloseRecoveryTest \
+            --tests com.example.Phase106LifecycleRaceRegressionTest \
+            --tests com.example.usecase.SeasonSimulationStopsAtTargetSeasonRegressionTest \
+            --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
+            --tests com.example.usecase.CoachCareerStatsSeasonTransitionRegressionTest \
+            --tests com.example.ui.viewmodel.EditorExistingCareerRosterRegressionTest \
+            --stacktrace
+
+      - name: Measure monthly performance
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.usecase.MonthlyPreparePerformanceBenchmarkTest \
+            --tests com.example.usecase.MonthlyCommitPerformanceBenchmarkTest \
+            --tests com.example.usecase.WeekEightClosePerformanceBenchmarkTest \
+            --tests com.example.ui.viewmodel.LiveFinalizationPerformanceBenchmarkTest \
+            --stacktrace
+          grep -RhoE 'PERF_(MONTHLY_PREPARE_STAGES|MONTHLY_COMMIT|WEEK_EIGHT_CLOSE|LIVE_FINALIZATION)[^<]*' \
+            app/build/test-results/testDebugUnitTest || true
+
+      - name: Assemble debug APK
+        run: |
+          ./gradlew assembleDebug --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Commit tested source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            app/src/main/java/com/example/data/MonthlyEvolutionUniverseCommitment.kt \
+            app/src/main/java/com/example/usecase/PlayerEvolutionUseCase.kt \
+            app/src/test/java/com/example/usecase/MonthlyEvolutionCompactPlanMemoryRegressionTest.kt \
+            app/src/test/java/com/example/usecase/MonthlyEvolutionCompactCommitmentRegressionTest.kt
+          git diff --cached --quiet && { echo 'No product source delta'; exit 0; }
+          git diff --cached --check
+          git diff --cached --exit-code -- app/src/main/assets/club_crests
+          git commit -m 'perf: compact monthly stale-plan commitment'
+          git pull --ff-only origin fix/3.0.1-manual-test-bugs
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
