@@ -5,6 +5,7 @@ on:
     branches:
       - fix/3.0.1-manual-test-bugs
     paths:
+      - 'tools/manual_test/apply_video_core_regressions_20260902.py'
       - 'tools/manual_test/apply_coach_career_stats_rollover_fix.py'
       - '.github/workflows/continue-video-regression-fixes-20260903.yml'
   workflow_dispatch:
