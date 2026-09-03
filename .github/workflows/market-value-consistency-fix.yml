@@ -88,6 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/manual_test/apply_market_value_consistency_20260903.py
+          python3 tools/manual_test/apply_market_value_consistency_followup_20260903.py
           git diff --check
           if ! git diff --quiet -- app/src/main/assets/club_crests; then
             echo "Certified crest corpus was modified" >&2
