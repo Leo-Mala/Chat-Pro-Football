@@ -1,5 +1,6 @@
 package com.example
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -37,7 +38,7 @@ class MainMenuScreenshotTest {
 
         composeTestRule.onNodeWithTag("new_game_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("open_saves_button").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("open_editor_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("open_editor_button").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/main_menu.png")
     }
 }
