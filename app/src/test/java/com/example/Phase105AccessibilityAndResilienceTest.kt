@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -58,7 +59,7 @@ class Phase105AccessibilityAndResilienceTest {
 
         composeTestRule.onNodeWithTag("new_game_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("open_saves_button").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithTag("open_editor_button").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("open_editor_button").assertDoesNotExist()
     }
 
     @Test
