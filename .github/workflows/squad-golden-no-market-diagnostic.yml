@@ -1,6 +1,7 @@
 name: Squad golden no-market diagnostic
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - fix/3.0.1-manual-test-bugs
