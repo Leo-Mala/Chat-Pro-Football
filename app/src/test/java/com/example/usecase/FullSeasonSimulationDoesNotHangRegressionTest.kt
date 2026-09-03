@@ -66,6 +66,7 @@ class FullSeasonSimulationDoesNotHangRegressionTest {
             PlayerEvolutionUseCase(repository).prepareMonthlyEvolution(save, "S2026_W4")
         }
         assertEquals(playerCount, plan.expectedPlayerCount)
-        assertEquals(playerCount, plan.expectedInputs.size)
+        assertEquals(0, plan.expectedInputs.size)
+        assertEquals(playerCount, requireNotNull(plan.expectedUniverseCommitment).size)
     }
 }
