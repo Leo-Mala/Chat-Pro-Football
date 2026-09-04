@@ -62,3 +62,5 @@ jobs:
           path: app/build/phase105-golden-actual/
           if-no-files-found: warn
           retention-days: 2
+
+# transfer-golden-proof rerun: 2026-09-04
