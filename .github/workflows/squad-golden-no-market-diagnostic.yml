@@ -64,3 +64,4 @@ jobs:
           retention-days: 2
 
 # transfer-golden-proof rerun: 2026-09-04
+# finances-golden-proof rerun: 2026-09-04
