@@ -32,6 +32,48 @@ import com.example.ui.viewmodel.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal data class MarketSearchCriteria(
+    val query: String,
+    val position: String,
+    val minimumForce: Int,
+    val maximumAge: Int,
+    val maximumPrice: Long,
+    val sortBy: String
+)
+
+internal data class MarketSearchKey(
+    val criteria: MarketSearchCriteria,
+    val playerTeamId: Long?,
+    val locallyPurchasedIds: Set<Long>
+)
+
+internal data class MarketSearchResult(
+    val key: MarketSearchKey,
+    val players: List<Player>
+)
+
+internal fun filterAndSortMarketPlayers(
+    candidates: List<Player>,
+    criteria: MarketSearchCriteria
+): List<Player> = candidates.filter { player ->
+    (criteria.query.isBlank() || player.name.contains(criteria.query, ignoreCase = true)) &&
+        (criteria.position == "TODOS" || player.position == criteria.position) &&
+        player.force >= criteria.minimumForce &&
+        player.age <= criteria.maximumAge &&
+        (criteria.maximumPrice >= 500_000_000L || player.calculateMarketValue() <= criteria.maximumPrice)
+}.let { filtered ->
+    when (criteria.sortBy) {
+        "FORCA_DESC" -> filtered.sortedByDescending { it.force }
+        "FORCA_ASC" -> filtered.sortedBy { it.force }
+        "IDADE_ASC" -> filtered.sortedBy { it.age }
+        "IDADE_DESC" -> filtered.sortedByDescending { it.age }
+        "NOME" -> filtered.sortedBy { it.name }
+        "VALOR_ASC" -> filtered.sortedBy { it.calculateMarketValue() }
+        "VALOR_DESC" -> filtered.sortedByDescending { it.calculateMarketValue() }
+        else -> filtered
+    }
+}.take(80)
+
 @Composable
 fun MarketTab(viewModel: GameViewModel) {
     val allPlayers by viewModel.allPlayers.collectAsStateWithLifecycle()
@@ -53,40 +95,44 @@ fun MarketTab(viewModel: GameViewModel) {
     val isWindowOpen = save?.let { GameCalendar.isTransferWindowOpen(it.currentSeason, it.currentWeek) } ?: false
     val currentDateStr = save?.let { GameCalendar.getLongFormattedDate(it.currentSeason, it.currentWeek) } ?: ""
 
-    var availablePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
-    LaunchedEffect(
-        allPlayers,
-        save?.playerTeamId,
-        searchQuery,
-        searchPos,
-        searchMinForce,
-        searchMaxAge,
-        searchMaxPrice,
-        searchSortBy,
-        locallyPurchasedIds
+    val searchCriteria = remember(
+        searchQuery, searchPos, searchMinForce, searchMaxAge, searchMaxPrice, searchSortBy
     ) {
-        availablePlayers = withContext(Dispatchers.Default) {
-            allPlayers.filter { player ->
+        MarketSearchCriteria(
+            query = searchQuery,
+            position = searchPos,
+            minimumForce = searchMinForce,
+            maximumAge = searchMaxAge,
+            maximumPrice = searchMaxPrice,
+            sortBy = searchSortBy
+        )
+    }
+    val searchKey = remember(searchCriteria, save?.playerTeamId, locallyPurchasedIds) {
+        MarketSearchKey(searchCriteria, save?.playerTeamId, locallyPurchasedIds.toSet())
+    }
+    var marketSearchResult by remember {
+        mutableStateOf(MarketSearchResult(searchKey, emptyList()))
+    }
+    LaunchedEffect(allPlayers, searchKey) {
+        val requestedKey = searchKey
+        // Never show a previous filter's rows under the newly-selected filter chip.
+        marketSearchResult = MarketSearchResult(requestedKey, emptyList())
+        val computed = withContext(Dispatchers.Default) {
+            val candidates = allPlayers.filter { player ->
+                // Preserve the immediate local-removal invariant before Room/Flow reconciliation.
+                // The LaunchedEffect is keyed by locallyPurchasedIds, so this captured set belongs
+                // to the same requested search generation represented by requestedKey.
                 player.id !in locallyPurchasedIds &&
-                player.isTransferMarketCandidateFor(save?.playerTeamId) &&
-                (searchQuery.isBlank() || player.name.contains(searchQuery, ignoreCase = true)) &&
-                (searchPos == "TODOS" || player.position == searchPos) &&
-                player.force >= searchMinForce &&
-                player.age <= searchMaxAge &&
-                (searchMaxPrice >= 500_000_000L || viewModel.getDynamicPlayerPrice(player) <= searchMaxPrice)
-            }.let { filtered ->
-                when (searchSortBy) {
-                    "FORCA_DESC" -> filtered.sortedByDescending { it.force }
-                    "FORCA_ASC" -> filtered.sortedBy { it.force }
-                    "IDADE_ASC" -> filtered.sortedBy { it.age }
-                    "IDADE_DESC" -> filtered.sortedByDescending { it.age }
-                    "NOME" -> filtered.sortedBy { it.name }
-                    "VALOR_ASC" -> filtered.sortedBy { viewModel.getDynamicPlayerPrice(it) }
-                    "VALOR_DESC" -> filtered.sortedByDescending { viewModel.getDynamicPlayerPrice(it) }
-                    else -> filtered
-                }
-            }.take(80)
+                    player.isTransferMarketCandidateFor(requestedKey.playerTeamId)
+            }
+            filterAndSortMarketPlayers(candidates, requestedKey.criteria)
         }
+        marketSearchResult = MarketSearchResult(requestedKey, computed)
+    }
+    val availablePlayers = if (marketSearchResult.key == searchKey) {
+        marketSearchResult.players
+    } else {
+        emptyList()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {

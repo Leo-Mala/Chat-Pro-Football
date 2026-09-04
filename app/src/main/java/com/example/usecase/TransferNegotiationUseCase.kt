@@ -54,15 +54,6 @@ class TransferNegotiationUseCase(
     }
 
     companion object {
-        fun calculateDynamicPlayerPrice(player: Player): Long {
-            val base = player.force * 150_000L + player.potential * 100_000L
-            val ageFactor = when {
-                player.age < 21 -> 1.5
-                player.age < 28 -> 1.2
-                player.age < 32 -> 0.9
-                else -> 0.6
-            }
-            return (base * ageFactor).toLong().coerceAtLeast(100_000L)
-        }
+        fun calculateDynamicPlayerPrice(player: Player): Long = player.calculateMarketValue()
     }
 }

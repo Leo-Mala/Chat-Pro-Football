@@ -74,9 +74,7 @@ fun PlayerActionDialog(
     val posEnum = remember(player.position) { Posicao.fromCode(player.position) }
     val atributos = remember(player.atributosJson, player.force, player.position) { player.getAtributosObject() }
     val notaGeral = remember(posEnum, atributos) { CalculadoraNota.calcularNota(posEnum, atributos) }
-    val valorMercado = remember(player.market_value, player) {
-        if (player.market_value > 0) player.market_value else player.calculateMarketValue()
-    }
+    val valorMercado = remember(player) { player.calculateMarketValue() }
     var selectedAttrTab by remember { mutableIntStateOf(0) }
 
     Dialog(onDismissRequest = onDismiss) {

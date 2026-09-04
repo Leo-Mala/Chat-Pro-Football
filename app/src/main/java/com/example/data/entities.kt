@@ -216,21 +216,22 @@ data class Player(
         }
     }
 
+    /**
+     * Canonical market value used by every transfer surface.
+     *
+     * This preserves the price formula that already powered the Market list, sorting, price filter,
+     * negotiation decisions and instant purchase. Keeping the rule here prevents UI surfaces from
+     * silently recomputing a second, incompatible value for the same player.
+     */
     fun calculateMarketValue(): Long {
-        val baseValue = when {
-            force < 40 -> force * 12000L
-            force < 60 -> 40 * 12000L + (force - 40) * 60000L
-            force < 75 -> 40 * 12000L + 20 * 60000L + (force - 60) * 450000L
-            force < 85 -> 40 * 12000L + 20 * 60000L + 15 * 450000L + (force - 75) * 1800000L
-            else -> 40 * 12000L + 20 * 60000L + 15 * 450000L + 10 * 1800000L + (force - 85) * 6000000L
-        }
+        val baseValue = force * 150_000L + potential * 100_000L
         val ageFactor = when {
-            age < 23 -> 0.8 + (age - 15) * 0.025
-            age in 23..29 -> 1.0
-            age in 30..33 -> 1.0 - (age - 29) * 0.07
-            else -> (0.72 - (age - 33) * 0.07).coerceAtLeast(0.12)
+            age < 21 -> 1.5
+            age < 28 -> 1.2
+            age < 32 -> 0.9
+            else -> 0.6
         }
-        return (baseValue * ageFactor).toLong().coerceAtLeast(40000L)
+        return (baseValue * ageFactor).toLong().coerceAtLeast(100_000L)
     }
 
     fun getMinPrice(): Long {

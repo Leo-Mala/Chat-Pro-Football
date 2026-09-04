@@ -26,6 +26,21 @@ import com.example.data.isInRosterLoanConversionFor
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.*
 
+internal data class PurchaseOfferRange(
+    val marketValue: Long,
+    val minimum: Long,
+    val maximum: Long
+)
+
+internal fun purchaseOfferRange(player: Player): PurchaseOfferRange {
+    val marketValue = player.calculateMarketValue()
+    return PurchaseOfferRange(
+        marketValue = marketValue,
+        minimum = (marketValue * 0.5).toLong().coerceAtLeast(10_000L),
+        maximum = (marketValue * 1.5).toLong()
+    )
+}
+
 @Composable
 fun PurchaseNegotiationDialog(
     player: Player,
@@ -39,11 +54,12 @@ fun PurchaseNegotiationDialog(
     val balance = save?.bankBalance ?: 0L
     val isInRosterLoanConversion = player.isInRosterLoanConversionFor(save?.playerTeamId)
 
-    val marketValue = player.calculateMarketValue()
-    val minOffer = (marketValue * 0.5).toLong().coerceAtLeast(10000L)
-    val maxOffer = (marketValue * 1.5).toLong()
+    val editableRange = remember(player) { purchaseOfferRange(player) }
+    val marketValue = editableRange.marketValue
+    val minOffer = editableRange.minimum
+    val maxOffer = editableRange.maximum
 
-    var sliderValue by remember { mutableFloatStateOf(marketValue.toFloat()) }
+    var sliderValue by remember(player.id, marketValue) { mutableFloatStateOf(marketValue.toFloat()) }
     val offeredPrice = sliderValue.toLong()
 
     var offerResult by remember { mutableStateOf<GameViewModel.IAOfferResult?>(null) }
