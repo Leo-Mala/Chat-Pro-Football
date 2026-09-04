@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+          ./gradlew testDebugUnitTest \
             --tests com.example.data.BundledClubCrestsTest \
             --stacktrace
 
