@@ -5,6 +5,7 @@
 # finances.png was re-reviewed on cbe38e50f5ba82d314bcdf4a9b7b13417dd2bd10 after two deterministic renders showed the original retained a transient Market-tab interaction background; the stable Finance-selected frame is pinned below.
 # standings.png was re-reviewed on bbf4ab88948dca9fc52e4fb53829ed047e2de16d after the capture harness explicitly drained Material indication time; the original baseline likewise retained the previous Market-tab interaction background instead of the stable Standings-selected frame.
 # tactics.png was re-reviewed on a2734648276966e5f5fd18a3754f4f39b1fa77f1. The dedicated no-market diagnostic reproduced 7e3a3ffd... exactly, matching the separately reviewed Market-gate capture and proving the old tactics baseline was stale rather than changed by the market-value patch.
+# transfers.png was re-reviewed on f01e40d8f031305b03b5649e47644814a7b6ab35. The dedicated no-market diagnostic reproduced ede69a378b431f917d420078e0bfec7e15adbd4b37e0f9bd7f18acb50fa78b90 exactly, matching the separately reviewed Market-gate capture and proving the old transfers baseline was stale rather than changed by the market-value patch.
 # Any visual change must be explicitly re-recorded and reviewed; normal tests compare fresh captures to these SHA-256 values.
 6ec4ad7fb8b5452d9e94376b0d5f12e59062628e8b89fa78dfcec21010d9bd20  dashboard.png
 e046a1135af7d0146404fcf6aa58ebc3f09576a75995bad554963bbad64c5f2e  finances.png
@@ -16,4 +17,4 @@ da8687cdd31146f0bad9a7da7ef53bca0f23871320fa84c2663a8d7c816df18e  live_match.png
 240b45c653c40bd80c3271be9ce8d8ef56f28327f99049177f1e1a5ba3bb3fb3  standings.png
 7e3a3ffdc30e8c7ade7d3e0ffcde325d510a07b43dca5067d90abf73f01f0557  tactics.png
 6f70a73f837089593250e0d34cf70f5a1986fa101051df3860e6a54a5f11e993  team_selection.png
-9b340afc31532a2282cc05b173e7f6069fba386c62ac74f7d623fb5b23939500  transfers.png
+ede69a378b431f917d420078e0bfec7e15adbd4b37e0f9bd7f18acb50fa78b90  transfers.png
