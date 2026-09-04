@@ -1,4 +1,5 @@
 name: Recover audited crest corpus from Gradle cache
+# 2026-09-04: retry exact certified d1e1 corpus recovery from retained Gradle state.
 
 on:
   push:
@@ -115,12 +116,10 @@ jobs:
                   if not p.is_file() or p.stat().st_size < 256:
                       continue
                   inspected += 1
-                  data = None
                   try:
                       raw = p.read_bytes()
                   except OSError:
                       continue
-                  # Gradle's directory build-cache entries are commonly gzip-packed.
                   try:
                       data = gzip.decompress(raw)
                   except Exception:
