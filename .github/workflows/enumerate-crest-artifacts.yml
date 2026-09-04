@@ -30,3 +30,4 @@ jobs:
 
 # Full retained-set inventory for the exact manual-test crest recovery.
 # Refreshed interactively to identify every retained internal artifact that could contain the certified corpus.
+# 2026-09-04: refresh retained artifact inventory after Gradle-cache recovery produced no certified corpus.
