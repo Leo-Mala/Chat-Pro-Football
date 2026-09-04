@@ -3,18 +3,18 @@
 # dashboard.png was re-reviewed again on 0a9303075a6a9dcd9289f359110a292676821d2e after later certified Dashboard/season-boundary changes made the 2026-08-22 hash stale. The captured frame was explicitly inspected from Actions artifact 9916040630; it is the stable career QA dashboard and no market-value patch touches Dashboard rendering.
 # squad.png was re-reviewed after Actions artifact 9916618192 showed a stable 15-professional/11-starter squad frame. A dedicated no-market diagnostic on 2f2ee105d453a0498392e42e7bff178ed7e90d3f reproduced the exact same 7fb27f18... hash without applying the market-value patch, proving the old 2026-08-22 baseline was already stale rather than changed by the current market fix.
 # finances.png was re-reviewed on 9996a0d46928d4ef1ff28af94571841b15f87c1b. The dedicated no-market diagnostic reproduced d3b4daa4429c25494ced0944f4a5e4db4861236eaa97e7cded6a3729bbf2315a exactly, matching the separately reviewed Market-gate capture and proving the old finances baseline was stale rather than changed by the market-value patch.
-# standings.png was re-reviewed on bbf4ab88948dca9fc52e4fb53829ed047e2de16d after the capture harness explicitly drained Material indication time; the original baseline likewise retained the previous Market-tab interaction background instead of the stable Standings-selected frame.
+# standings.png was re-reviewed on 7bc5337fac569372d3b28add46c3834b3a804cdc. The dedicated no-market diagnostic reproduced 61edcfd165b951b4d3d80113f48da4a2fde3f5665fc8d585f8bd629c023ad420 exactly and the capture was byte-identical to the separately reviewed Market-gate capture, proving the old standings baseline was stale rather than changed by the market-value patch.
 # tactics.png was re-reviewed on a2734648276966e5f5fd18a3754f4f39b1fa77f1. The dedicated no-market diagnostic reproduced 7e3a3ffd... exactly, matching the separately reviewed Market-gate capture and proving the old tactics baseline was stale rather than changed by the market-value patch.
 # transfers.png was re-reviewed on f01e40d8f031305b03b5649e47644814a7b6ab35. The dedicated no-market diagnostic reproduced ede69a378b431f917d420078e0bfec7e15adbd4b37e0f9bd7f18acb50fa78b90 exactly, matching the separately reviewed Market-gate capture and proving the old transfers baseline was stale rather than changed by the market-value patch.
 # Any visual change must be explicitly re-recorded and reviewed; normal tests compare fresh captures to these SHA-256 values.
 6ec4ad7fb8b5452d9e94376b0d5f12e59062628e8b89fa78dfcec21010d9bd20  dashboard.png
 d3b4daa4429c25494ced0944f4a5e4db4861236eaa97e7cded6a3729bbf2315a  finances.png
 da8687cdd31146f0bad9a7da7ef53bca0f23871320fa84c2663a8d7c816df18e  live_match.png
-51fbe6f36eab83fd74b328b9da673bdc45a0cea3a3fb68b954d1f8fbff13d47  main_menu.png
+51fbe6f36eab83fd74b328b9da673bdc45a0cea3a3fb68b954d1f8fb5a236fdf  main_menu.png
 4817f5e517816020888a08e4c288733c18c9039e287f11317e16e73fbff13d47  saves_empty.png
 95e2a81736ddbbb710f454261f2790c8d0699eecca9eebf952b1d516efb17c43  saves_existing.png
 7fb27f18f2137dcae40a30f0f35cb6176992aab28e3765ef7525e9ade2a7a4c0  squad.png
-240b45c653c40bd80c3271be9ce8d8ef56f28327f99049177f1e1a5ba3bb3fb3  standings.png
+61edcfd165b951b4d3d80113f48da4a2fde3f5665fc8d585f8bd629c023ad420  standings.png
 7e3a3ffdc30e8c7ade7d3e0ffcde325d510a07b43dca5067d90abf73f01f0557  tactics.png
 6f70a73f837089593250e0d34cf70f5a1986fa101051df3860e6a54a5f11e993  team_selection.png
 ede69a378b431f917d420078e0bfec7e15adbd4b37e0f9bd7f18acb50fa78b90  transfers.png
