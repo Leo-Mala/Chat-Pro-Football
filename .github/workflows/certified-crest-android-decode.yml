@@ -22,7 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      GH_TOKEN: ${{ github.token }}
+      CERTIFIED_CREST_DRIVE_FILE_ID: 1fPuUUDmaIut5gapYztvujNWHeRSRbtF3
+      EXPECTED_ARCHIVE_SIZE: '11751550'
+      EXPECTED_ARCHIVE_SHA256: 3b8419298e03a593f23c750a91fda7613f3af395dcd770c13c9f17278f265dc3
       EXPECTED_CLUB_CRESTS: '1907'
       EXPECTED_FACTUAL_CRESTS: '617'
       EXPECTED_TOTAL_CRESTS: '2524'
@@ -34,109 +36,79 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Recover exact certified runtime from permanent v3.0.1 release assets
+      - name: Recover exact certified runtime from durable Drive backup
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/certified-crest-release"
+          work="$RUNNER_TEMP/certified-crest-drive"
+          archive="$work/certified-club-crests-2524-d1e1d991.tar.zst"
+          recovered="$work/recovered"
           rm -rf "$work" app/src/main/assets/club_crests
-          mkdir -p "$work/assets" "$work/recovered" app/src/main/assets/club_crests
+          mkdir -p "$recovered" app/src/main/assets/club_crests
 
-          gh release download v3.0.1 \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'Pro-Football-3.0.1-vc32.apk' \
-            --pattern 'Pro-Football-3.0.1-vc32.aab' \
-            --dir "$work/assets"
-          sha256sum "$work"/assets/* | tee "$work/release-assets.sha256"
+          url="https://drive.usercontent.google.com/download?id=${CERTIFIED_CREST_DRIVE_FILE_ID}&export=download&confirm=t"
+          curl --fail --location --show-error --silent \
+            --retry 3 --retry-all-errors \
+            "$url" \
+            --output "$archive"
 
-          python3 - "$work" <<'PY'
+          actual_size="$(stat -c '%s' "$archive")"
+          actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
+          printf 'archive_size=%s\narchive_sha256=%s\n' "$actual_size" "$actual_sha" | tee "$work/archive-identity.txt"
+          test "$actual_size" = "$EXPECTED_ARCHIVE_SIZE"
+          test "$actual_sha" = "$EXPECTED_ARCHIVE_SHA256"
+
+          tar --zstd -xf "$archive" -C "$recovered"
+          source_dir="$recovered/club_crests"
+          test -d "$source_dir"
+          test "$(find "$source_dir" -maxdepth 1 -type f -name 'club_*.webp' | wc -l)" = "$EXPECTED_CLUB_CRESTS"
+          test "$(find "$source_dir" -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)" = "$EXPECTED_FACTUAL_CRESTS"
+          test "$(find "$source_dir" -maxdepth 1 -type f -name '*.webp' | wc -l)" = "$EXPECTED_TOTAL_CRESTS"
+
+          python3 - "$source_dir" <<'PY'
           import hashlib
-          import json
           import os
           import pathlib
           import sys
-          import zipfile
 
-          work = pathlib.Path(sys.argv[1])
-          target = os.environ['EXPECTED_CREST_FINGERPRINT']
-          expected_total = int(os.environ['EXPECTED_TOTAL_CRESTS'])
-          expected_club = int(os.environ['EXPECTED_CLUB_CRESTS'])
-          expected_factual = int(os.environ['EXPECTED_FACTUAL_CRESTS'])
-          report = []
-          recovered = False
-
-          for path in sorted((work / 'assets').glob('*')):
-              if path.suffix not in {'.apk', '.aab'}:
-                  continue
-              with zipfile.ZipFile(path) as z:
-                  names = []
-                  prefix_used = None
-                  for prefix in ('assets/club_crests/', 'base/assets/club_crests/'):
-                      candidate = sorted(
-                          n for n in z.namelist()
-                          if n.startswith(prefix) and not n.endswith('/')
-                      )
-                      if candidate:
-                          names = candidate
-                          prefix_used = prefix
-                          break
-
-                  club = sum(pathlib.PurePosixPath(n).name.startswith('club_') for n in names)
-                  factual = sum(pathlib.PurePosixPath(n).name.startswith('factual_') for n in names)
-                  digest = hashlib.sha256()
-                  for name in names:
-                      canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
-                      digest.update(canonical.encode('utf-8'))
-                      digest.update(b'\0')
-                      digest.update(hashlib.sha256(z.read(name)).digest())
-                  fingerprint = digest.hexdigest() if names else None
-                  row = {
-                      'file': path.name,
-                      'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                      'prefix': prefix_used,
-                      'total': len(names),
-                      'club': club,
-                      'factual': factual,
-                      'fingerprint': fingerprint,
-                  }
-                  report.append(row)
-                  print(json.dumps(row, sort_keys=True))
-
-                  if (
-                      len(names) == expected_total
-                      and club == expected_club
-                      and factual == expected_factual
-                      and fingerprint == target
-                  ):
-                      out = work / 'recovered'
-                      for name in names:
-                          (out / pathlib.PurePosixPath(name).name).write_bytes(z.read(name))
-                      (out / 'SOURCE.txt').write_text(path.name + '\n', encoding='utf-8')
-                      (out / 'FINGERPRINT.txt').write_text(fingerprint + '\n', encoding='utf-8')
-                      recovered = True
-                      break
-
-          (work / 'release-crest-inspection.json').write_text(
-              json.dumps(report, indent=2), encoding='utf-8'
-          )
-          if not recovered:
-              raise SystemExit(
-                  'No permanent v3.0.1 release asset proved the exact certified 2524-crest fingerprint.'
-              )
+          source = pathlib.Path(sys.argv[1])
+          expected = os.environ['EXPECTED_CREST_FINGERPRINT']
+          files = sorted(source.glob('*.webp'), key=lambda p: p.name)
+          digest = hashlib.sha256()
+          for path in files:
+              canonical = 'assets/club_crests/' + path.name
+              digest.update(canonical.encode('utf-8'))
+              digest.update(b'\0')
+              digest.update(hashlib.sha256(path.read_bytes()).digest())
+          actual = digest.hexdigest()
+          print(f'crest_fingerprint={actual}')
+          if actual != expected:
+              raise SystemExit(f'Certified crest fingerprint mismatch: {actual} != {expected}')
           PY
 
-          test "$(find "$work/recovered" -maxdepth 1 -type f -name '*.webp' | wc -l)" = "$EXPECTED_TOTAL_CRESTS"
-          test "$(find "$work/recovered" -maxdepth 1 -type f -name 'club_*.webp' | wc -l)" = "$EXPECTED_CLUB_CRESTS"
-          test "$(find "$work/recovered" -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)" = "$EXPECTED_FACTUAL_CRESTS"
-          test "$(cat "$work/recovered/FINGERPRINT.txt")" = "$EXPECTED_CREST_FINGERPRINT"
+          cat > "$work/critical-crests.sha256" <<'EOF'
+          65ca6430af87241277c2bc6c25264b60d1d7b4697ff7b1b0fd7e51a52479509c  factual_4009.webp
+          e07d74e4519b4eb2ab49a8e87a992b13b4b0817f366c7712183e281530a1d530  factual_4014.webp
+          a9843c342c2149147e0413248643f9ed62d2a462ad70093512be95dbfff6212e  factual_4002.webp
+          3cc63888b2f1a21d8d80d19dc46299b4bfef95e8c221442569169b18075ccd32  factual_4008.webp
+          6f1413f8d8a6b7ba3893c764bd7b1dd81ec3442479549eee68de30d8c06271c8  factual_4017.webp
+          aa567ebbaaf2b3b84bbf27b8b8f417f9d6039fa7eff6f11187b597565c17484f  factual_4004.webp
+          4ce17fb59fe799fa82a6d4a2ad03a97a226fe75c86b0b5d5f8c06f0d16f11b2a  factual_4018.webp
+          EOF
+          (
+            cd "$source_dir"
+            sha256sum -c "$work/critical-crests.sha256"
+          )
 
-          cp "$work/recovered"/*.webp app/src/main/assets/club_crests/
-          printf 'total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\nsource=%s\n' \
+          cp "$source_dir"/*.webp app/src/main/assets/club_crests/
+          printf 'total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\narchive_sha256=%s\narchive_size=%s\nsource=google-drive:%s\n' \
             "$EXPECTED_TOTAL_CRESTS" \
             "$EXPECTED_CLUB_CRESTS" \
             "$EXPECTED_FACTUAL_CRESTS" \
             "$EXPECTED_CREST_FINGERPRINT" \
-            "$(cat "$work/recovered/SOURCE.txt")" \
+            "$EXPECTED_ARCHIVE_SHA256" \
+            "$EXPECTED_ARCHIVE_SIZE" \
+            "$CERTIFIED_CREST_DRIVE_FILE_ID" \
             | tee "$RUNNER_TEMP/crest-runtime.txt"
 
       - name: Set up JDK 17
