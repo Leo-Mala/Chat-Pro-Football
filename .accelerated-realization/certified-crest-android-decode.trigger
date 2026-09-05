@@ -1,4 +1,4 @@
 certified-crest-android-decode exact-candidate gate
-candidate-parent=34a83640db2a9e1308bed82e3a5126b952604dce
-candidate-reason=native-android-certified-crest-render
-candidate-sequence=20260905-native-android-crest-render
+candidate-parent=b276c7d868ee32484c9aad0db91a0c176893ff50
+candidate-reason=preserve-host-golden-native-android-crests
+candidate-sequence=20260905-host-golden-native-android-crests
