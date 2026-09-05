@@ -178,7 +178,19 @@ jobs:
           test -n "$apk"
           mkdir -p manual-test-apk
           out="manual-test-apk/Pro-Football-3.0.1-Teste-Manual-${GITHUB_SHA}.apk"
-          cp "$apk" "$out"
+          bt="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)"
+          apksigner="$ANDROID_HOME/build-tools/$bt/apksigner"
+          test -x "$apksigner"
+          "$apksigner" sign \
+            --ks "$KEYSTORE_PATH" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$STORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --v1-signing-enabled false \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$out" \
+            "$apk"
           sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
           stat -c 'size_bytes=%s' "$out" | tee manual-test-apk/APK_SIZE.txt
           printf 'commit=%s\nbranch=%s\nsource_archive_sha256=%s\nsource_archive_size=%s\nsource_crest_fingerprint=%s\nhistorical_keystore_sha256=%s\nsigning_certificate_sha256=%s\n' \
