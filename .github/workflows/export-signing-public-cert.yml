@@ -1,0 +1,48 @@
+name: Export signing transport public certificate
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/export-signing-public-cert.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-public-cert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Materialize current Actions signing keystore and export public certificate only
+        shell: bash
+        env:
+          PRODUCTION_KEYSTORE_BASE64: ${{ secrets.PRODUCTION_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.PRODUCTION_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PRODUCTION_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_KEYSTORE_BASE64"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          ks="$RUNNER_TEMP/current-actions-signing.jks"
+          printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$ks"
+          chmod 600 "$ks"
+          mkdir -p signing-public-cert
+          keytool -exportcert -rfc -keystore "$ks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" \
+            -file signing-public-cert/current-actions-signing-cert.pem
+          keytool -list -v -keystore "$ks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" \
+            | awk -F': ' '/SHA256:/ {print $2; exit}' \
+            | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]' \
+            | tee signing-public-cert/CERT_SHA256.txt
+          test "$(cat signing-public-cert/CERT_SHA256.txt)" = "c632ae8fc103cdd882496164b6e691cfdb312b256bba5984ccdaba686e1acf4c"
+
+      - name: Upload public certificate transport material
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: current-actions-signing-public-cert-${{ github.sha }}
+          path: signing-public-cert/
+          if-no-files-found: error
+          retention-days: 1
