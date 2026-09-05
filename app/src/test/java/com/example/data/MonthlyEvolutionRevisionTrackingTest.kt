@@ -169,7 +169,7 @@ class MonthlyEvolutionRevisionTrackingTest {
     }
 
     @Test
-    fun `insert and delete are both visible to roster epoch`() = runTest {
+    fun `insert and delete advance both football universe and roster epochs`() = runTest {
         val before = requireNotNull(repository.prepareMonthlyEvolutionRevisionSnapshot())
 
         repository.savePlayers(
@@ -186,14 +186,31 @@ class MonthlyEvolutionRevisionTrackingTest {
         )
         val afterInsert =
             requireNotNull(repository.currentMonthlyEvolutionRevisionSnapshotOrNull())
-        assertEquals(before.footballRevision, afterInsert.footballRevision)
+        assertTrue(afterInsert.footballRevision > before.footballRevision)
         assertTrue(afterInsert.rosterRevision > before.rosterRevision)
 
         repository.deletePlayer(12L)
         val afterDelete =
             requireNotNull(repository.currentMonthlyEvolutionRevisionSnapshotOrNull())
-        assertEquals(afterInsert.footballRevision, afterDelete.footballRevision)
+        assertTrue(afterDelete.footballRevision > afterInsert.footballRevision)
         assertTrue(afterDelete.rosterRevision > afterInsert.rosterRevision)
+    }
+
+    @Test
+    fun `insert or replace same player cannot bypass football epoch`() = runTest {
+        val before = requireNotNull(repository.prepareMonthlyEvolutionRevisionSnapshot())
+        val rowBefore = requireNotNull(repository.getPlayer(10L))
+
+        // Exercise actual SQLite REPLACE semantics with the exact existing row. Even if SQLite does
+        // not route the conflict through an UPDATE trigger, AFTER INSERT must advance both epochs.
+        db.openHelper.writableDatabase.execSQL(
+            "INSERT OR REPLACE INTO players SELECT * FROM players WHERE id = 10"
+        )
+
+        val after = requireNotNull(repository.currentMonthlyEvolutionRevisionSnapshotOrNull())
+        assertTrue(after.footballRevision > before.footballRevision)
+        assertTrue(after.rosterRevision > before.rosterRevision)
+        assertEquals(rowBefore, repository.getPlayer(10L))
     }
 
     @Test

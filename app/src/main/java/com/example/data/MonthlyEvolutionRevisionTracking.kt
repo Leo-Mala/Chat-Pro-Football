@@ -23,22 +23,30 @@ private const val ROSTER_TRIGGER = "monthly_player_revision_after_roster_change"
 private const val FOOTBALL_TRIGGER = "monthly_player_revision_after_football_change"
 private const val ROSTER_VALIDATION_BATCH_SIZE = 4096
 
+/**
+ * Row creation changes both roster identity and the football-input universe. Advancing both epochs
+ * also makes INSERT OR REPLACE safe even when SQLite resolves a same-primary-key replacement
+ * without an UPDATE trigger firing.
+ */
 private val INSERT_TRIGGER_SQL = """
     CREATE TRIGGER $INSERT_TRIGGER
     AFTER INSERT ON players
     BEGIN
         UPDATE $REVISION_STATE_TABLE
-        SET rosterRevision = rosterRevision + 1
+        SET footballRevision = footballRevision + 1,
+            rosterRevision = rosterRevision + 1
         WHERE id = 1;
     END
 """.trimIndent()
 
+/** Row removal changes both roster identity and the football-input universe. */
 private val DELETE_TRIGGER_SQL = """
     CREATE TRIGGER $DELETE_TRIGGER
     AFTER DELETE ON players
     BEGIN
         UPDATE $REVISION_STATE_TABLE
-        SET rosterRevision = rosterRevision + 1
+        SET footballRevision = footballRevision + 1,
+            rosterRevision = rosterRevision + 1
         WHERE id = 1;
     END
 """.trimIndent()
@@ -120,46 +128,46 @@ private fun SupportSQLiteDatabase.installMonthlyEvolutionRevisionTracking() {
 private fun SupportSQLiteDatabase.hasIntactMonthlyEvolutionRevisionTracking(): Boolean {
     return try {
         val columns = linkedMapOf<String, Pair<String, Int>>()
-    query("PRAGMA table_info($REVISION_STATE_TABLE)").use { cursor ->
-        val nameIndex = cursor.getColumnIndexOrThrow("name")
-        val typeIndex = cursor.getColumnIndexOrThrow("type")
-        val pkIndex = cursor.getColumnIndexOrThrow("pk")
-        while (cursor.moveToNext()) {
-            columns[cursor.getString(nameIndex)] =
-                cursor.getString(typeIndex).uppercase() to cursor.getInt(pkIndex)
+        query("PRAGMA table_info($REVISION_STATE_TABLE)").use { cursor ->
+            val nameIndex = cursor.getColumnIndexOrThrow("name")
+            val typeIndex = cursor.getColumnIndexOrThrow("type")
+            val pkIndex = cursor.getColumnIndexOrThrow("pk")
+            while (cursor.moveToNext()) {
+                columns[cursor.getString(nameIndex)] =
+                    cursor.getString(typeIndex).uppercase() to cursor.getInt(pkIndex)
+            }
         }
-    }
-    if (columns.keys != setOf("id", "footballRevision", "rosterRevision")) return false
-    if (columns.values.any { (type, _) -> type != "INTEGER" }) return false
-    if (columns["id"]?.second != 1) return false
+        if (columns.keys != setOf("id", "footballRevision", "rosterRevision")) return false
+        if (columns.values.any { (type, _) -> type != "INTEGER" }) return false
+        if (columns["id"]?.second != 1) return false
 
-    val stateRowCount = query("SELECT COUNT(*) FROM $REVISION_STATE_TABLE").use { cursor ->
-        cursor.moveToFirst() && cursor.getInt(0) == 1
-    }
-    if (!stateRowCount) return false
-
-    val actualTriggers = linkedMapOf<String, String>()
-    query(
-        """
-        SELECT name, sql
-        FROM sqlite_master
-        WHERE type = 'trigger'
-          AND tbl_name = 'players'
-          AND name GLOB 'monthly_player_revision_*'
-        ORDER BY name ASC
-        """.trimIndent()
-    ).use { cursor ->
-        while (cursor.moveToNext()) {
-            actualTriggers[cursor.getString(0)] =
-                if (cursor.isNull(1)) "" else cursor.getString(1)
+        val stateRowCount = query("SELECT COUNT(*) FROM $REVISION_STATE_TABLE").use { cursor ->
+            cursor.moveToFirst() && cursor.getInt(0) == 1
         }
-    }
+        if (!stateRowCount) return false
 
-    if (actualTriggers.keys != REQUIRED_TRIGGER_SQL.keys.toSet()) return false
-    for ((name, expectedSql) in REQUIRED_TRIGGER_SQL) {
-        val actualSql = actualTriggers[name] ?: return false
-        if (normalizeSql(actualSql) != normalizeSql(expectedSql)) return false
-    }
+        val actualTriggers = linkedMapOf<String, String>()
+        query(
+            """
+            SELECT name, sql
+            FROM sqlite_master
+            WHERE type = 'trigger'
+              AND tbl_name = 'players'
+              AND name GLOB 'monthly_player_revision_*'
+            ORDER BY name ASC
+            """.trimIndent()
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                actualTriggers[cursor.getString(0)] =
+                    if (cursor.isNull(1)) "" else cursor.getString(1)
+            }
+        }
+
+        if (actualTriggers.keys != REQUIRED_TRIGGER_SQL.keys.toSet()) return false
+        for ((name, expectedSql) in REQUIRED_TRIGGER_SQL) {
+            val actualSql = actualTriggers[name] ?: return false
+            if (normalizeSql(actualSql) != normalizeSql(expectedSql)) return false
+        }
 
         query(
             "SELECT footballRevision, rosterRevision FROM $REVISION_STATE_TABLE WHERE id = 1"
