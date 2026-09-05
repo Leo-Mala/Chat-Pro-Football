@@ -90,6 +90,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
+            bash <<'BASH'
             set -euo pipefail
             target_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
             test_apk=$(find app/build/outputs/apk/androidTest/debug -type f -name '*-androidTest.apk' -print -quit)
@@ -111,6 +112,7 @@ jobs:
             test "$instrument_status" -eq 0
             grep -q '^INSTRUMENTATION_CODE: -1' android-monthly-benchmark-artifacts/instrumentation.txt
             grep -q 'PERF_ANDROID_MONTHLY_COMMIT_STAGES' android-monthly-benchmark-artifacts/logcat.txt
+            BASH
 
       - name: Upload Android monthly benchmark evidence
         if: always()
