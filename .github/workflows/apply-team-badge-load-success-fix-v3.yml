@@ -1,3 +1,4 @@
+# Registered after initial workflow creation so GitHub Actions evaluates the push trigger.
 name: Apply proven crest load-state fix v3
 
 on:
