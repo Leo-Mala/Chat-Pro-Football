@@ -6,6 +6,7 @@ on:
       - diagnostics/android-monthly-benchmark-3160bf7
     paths:
       - app/src/androidTest/java/com/example/usecase/MonthlyCommitPerformanceAndroidBenchmarkTest.kt
+      - .github/scripts/android_monthly_benchmark_diagnostic.sh
       - .github/workflows/android-monthly-benchmark-diagnostic.yml
   workflow_dispatch:
 
@@ -89,30 +90,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: |
-            bash <<'BASH'
-            set -euo pipefail
-            target_apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
-            test_apk=$(find app/build/outputs/apk/androidTest/debug -type f -name '*-androidTest.apk' -print -quit)
-            test -n "$target_apk" && test -n "$test_apk"
-            adb install -r "$target_apk"
-            adb install -r "$test_apk"
-            adb logcat -c
-            set +e
-            adb shell am instrument -w -r \
-              -e class com.example.usecase.MonthlyCommitPerformanceAndroidBenchmarkTest \
-              com.aistudio.brasfutretro.djuxzt.test/androidx.test.runner.AndroidJUnitRunner \
-              | tee android-monthly-benchmark-artifacts/instrumentation.txt
-            instrument_status=${PIPESTATUS[0]}
-            set -e
-            adb logcat -d -v threadtime \
-              | grep -E 'MonthlyCommitBenchmark|PERF_ANDROID_MONTHLY_' \
-              | tee android-monthly-benchmark-artifacts/logcat.txt || true
-            echo "INSTRUMENT_STATUS=${instrument_status}" >> android-monthly-benchmark-artifacts/environment.txt
-            test "$instrument_status" -eq 0
-            grep -q '^INSTRUMENTATION_CODE: -1' android-monthly-benchmark-artifacts/instrumentation.txt
-            grep -q 'PERF_ANDROID_MONTHLY_COMMIT_STAGES' android-monthly-benchmark-artifacts/logcat.txt
-            BASH
+          script: bash .github/scripts/android_monthly_benchmark_diagnostic.sh
 
       - name: Upload Android monthly benchmark evidence
         if: always()
