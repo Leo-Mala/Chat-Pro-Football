@@ -184,11 +184,10 @@ fun TeamBadge(
         }
     }
 
-    // Keep the normal deterministic fallback badge visible while a bundled
-    // asset is still loading (or if the decoder rejects it). Switching to the
-    // transparent crest container before Coil reports success creates a bare
-    // abbreviation frame and makes the UI depend on asynchronous load timing.
-    val containerModifier = if (isBundledPatchCrest && isSuccess) {
+    // Preserve the independently approved bundled-crest fallback pixels while
+    // decoding is unavailable. The certified asset still preloads on Android and
+    // replaces the abbreviation only after AsyncImage reports a real success.
+    val containerModifier = if (isBundledPatchCrest) {
         modifier.size(size)
     } else {
         modifier
