@@ -161,7 +161,11 @@ fun TeamBadge(
         BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
     }
 
-    val containerModifier = if (isBundledPatchCrest) {
+    // Keep the normal deterministic fallback badge visible while a bundled
+    // asset is still loading (or if the decoder rejects it). Switching to the
+    // transparent crest container before Coil reports success creates a bare
+    // abbreviation frame and makes the UI depend on asynchronous load timing.
+    val containerModifier = if (isBundledPatchCrest && isSuccess) {
         modifier.size(size)
     } else {
         modifier
