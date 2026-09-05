@@ -161,9 +161,10 @@ fun TeamBadge(
         BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
     }
 
-    // Keep the previously approved fallback pixels until the exact visual request
-    // has decoded successfully. Bundled crests drop the fallback only after the
-    // same painter that will be drawn reports success.
+    // Keep the normal deterministic fallback badge visible while a bundled
+    // asset is still loading (or if the decoder rejects it). Switching to the
+    // transparent crest container before Coil reports success creates a bare
+    // abbreviation frame and makes the UI depend on asynchronous load timing.
     val containerModifier = if (isBundledPatchCrest && isSuccess) {
         modifier.size(size)
     } else {
@@ -188,31 +189,23 @@ fun TeamBadge(
         val abbrev = teamName.take(2).uppercase()
 
         if (!resolvedUrl.isNullOrEmpty()) {
-            val imageRequest = remember(resolvedUrl, isBundledPatchCrest) {
+            val imageRequest = remember(resolvedUrl) {
                 coil.request.ImageRequest.Builder(context)
                     .data(resolvedUrl)
-                    .apply {
-                        if (isBundledPatchCrest) {
-                            size(coil.size.Size.ORIGINAL)
-                        }
-                    }
                     .crossfade(!isBundledPatchCrest)
                     .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                     .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                     .build()
             }
+
             val painter = rememberAsyncImagePainter(
                 model = imageRequest,
                 onSuccess = { isSuccess = true },
                 onError = { isSuccess = false }
             )
-
-            // The Image must stay composed so Coil owns one continuous request.
-            // Before success it is transparent behind the deterministic fallback;
-            // Android WebP success atomically reveals this same painter. JVM/
-            // Roborazzi decode failure therefore leaves the approved pixels intact.
-            Image(
-                painter = painter,
+            if (isSuccess) {
+                Image(
+                    painter = painter,
                 contentDescription = teamName,
                 contentScale = ContentScale.Fit,
                 modifier = if (isBundledPatchCrest) {
@@ -221,9 +214,9 @@ fun TeamBadge(
                     Modifier
                         .size(size * 0.8f)
                         .clip(CircleShape)
-                },
-                alpha = if (isSuccess) 1f else 0f
-            )
+                }
+                )
+            }
         }
 
         if (!isSuccess) {
