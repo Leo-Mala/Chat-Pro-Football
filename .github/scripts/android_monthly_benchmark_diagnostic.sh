@@ -27,4 +27,9 @@ echo "INSTRUMENT_STATUS=${instrument_status}" >> android-monthly-benchmark-artif
 
 test "$instrument_status" -eq 0
 grep -q '^INSTRUMENTATION_CODE: -1' android-monthly-benchmark-artifacts/instrumentation.txt
+grep -Eq '^OK \([0-9]+ tests?\)$' android-monthly-benchmark-artifacts/instrumentation.txt
+if grep -q '^FAILURES!!!' android-monthly-benchmark-artifacts/instrumentation.txt; then
+  echo "JUnit instrumentation reported failures." >&2
+  exit 1
+fi
 grep -q 'PERF_ANDROID_MONTHLY_COMMIT_STAGES' android-monthly-benchmark-artifacts/logcat.txt
