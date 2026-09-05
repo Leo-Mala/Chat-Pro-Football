@@ -124,10 +124,9 @@ jobs:
           STORE_PASSWORD: ${{ secrets.PRODUCTION_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.PRODUCTION_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.PRODUCTION_KEY_PASSWORD }}
-          PRODUCTION_SIGNING_CERT_SHA256: ${{ secrets.PRODUCTION_SIGNING_CERT_SHA256 }}
         run: |
           set -euo pipefail
-          test -n "$PRODUCTION_KEYSTORE_BASE64"; test -n "$STORE_PASSWORD"; test -n "$KEY_ALIAS"; test -n "$KEY_PASSWORD"; test -n "$PRODUCTION_SIGNING_CERT_SHA256"
+          test -n "$PRODUCTION_KEYSTORE_BASE64"; test -n "$STORE_PASSWORD"; test -n "$KEY_ALIAS"; test -n "$KEY_PASSWORD"
           release_keystore="$RUNNER_TEMP/pro-football-manual-test.jks"
           printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"
           chmod 600 "$release_keystore"; test -s "$release_keystore"
@@ -135,10 +134,9 @@ jobs:
           cert_sha="$(keytool -list -v -keystore "$release_keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/ {print $2; exit}')"
           test -n "$cert_sha"
           actual_cert="$(printf '%s' "$cert_sha" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
-          secret_cert="$(printf '%s' "$PRODUCTION_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
           expected_cert="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
-          test "${#actual_cert}" -eq 64; test "${#secret_cert}" -eq 64
-          test "$actual_cert" = "$expected_cert"; test "$secret_cert" = "$expected_cert"
+          test "${#actual_cert}" -eq 64
+          test "$actual_cert" = "$expected_cert"
           echo "KEYSTORE_PATH=$release_keystore" >> "$GITHUB_ENV"
           echo "ACTIONS_KEYSTORE_CONTAINER_SHA256=$actual_keystore_sha" >> "$GITHUB_ENV"
           echo "SIGNING_CERT_SHA256=$actual_cert" >> "$GITHUB_ENV"
