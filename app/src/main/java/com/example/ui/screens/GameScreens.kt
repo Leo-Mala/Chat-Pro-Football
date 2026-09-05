@@ -203,8 +203,9 @@ fun TeamBadge(
                 onSuccess = { isSuccess = true },
                 onError = { isSuccess = false }
             )
-            Image(
-                painter = painter,
+            if (isSuccess) {
+                Image(
+                    painter = painter,
                 contentDescription = teamName,
                 contentScale = ContentScale.Fit,
                 modifier = if (isBundledPatchCrest) {
@@ -214,7 +215,8 @@ fun TeamBadge(
                         .size(size * 0.8f)
                         .clip(CircleShape)
                 }
-            )
+                )
+            }
         }
 
         if (!isSuccess) {
