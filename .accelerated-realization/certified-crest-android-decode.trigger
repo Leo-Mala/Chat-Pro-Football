@@ -1,4 +1,4 @@
 certified-crest-android-decode exact-candidate gate
-candidate-head=b254695437dafdcefbb9afdf5f7d556dd651e3bc
-candidate-reason=certify-render-crest-only-after-load-success
-candidate-sequence=20260905-0424
+candidate-head=08ae91c2b2c060f59644f1db3792979a2ee42d07
+candidate-reason=certify-v2-v3-signed-manual-apk
+candidate-sequence=20260905-0512
