@@ -33,7 +33,7 @@ class MonthlyEvolutionBatchWriteRegressionTest {
     }
 
     @Test
-    fun `batched monthly writes preserve exact owned columns across chunk boundaries`() = runTest {
+    fun `set based monthly delta writes preserve owned columns triggers and chunk boundaries`() = runTest {
         repository.saveTeams(
             listOf(
                 Team(id = 1L, name = "A", city = "A", state = "AA", division = 1),
@@ -65,11 +65,20 @@ class MonthlyEvolutionBatchWriteRegressionTest {
                 evolucaoMensal = (player.id % 17L).toDouble() / 10.0
             )
         }
+        val plannedStates = planned.map { it.toMonthlyEvolutionPlayerState() }
+        val beforeRevision = requireNotNull(repository.prepareMonthlyEvolutionRevisionSnapshot())
 
         val updated = repository.withTransaction {
-            repository.applyMonthlyEvolutionPlayerStates(planned)
+            repository.applyMonthlyEvolutionPlayerStateDeltas(plannedStates)
         }
-        assertEquals(planned.size, updated)
+        assertEquals(plannedStates.size, updated)
+
+        val afterRevision = requireNotNull(repository.currentMonthlyEvolutionRevisionSnapshotOrNull())
+        assertEquals(
+            beforeRevision.footballRevision + plannedStates.size,
+            afterRevision.footballRevision
+        )
+        assertEquals(beforeRevision.rosterRevision, afterRevision.rosterRevision)
 
         val plannedById = planned.associateBy { it.id }
         val originalsById = originals.associateBy { it.id }
@@ -87,10 +96,18 @@ class MonthlyEvolutionBatchWriteRegressionTest {
         assertEquals(99, repository.getPlayer(1L)?.force)
         assertNull(repository.getPlayer(5L)?.atributosJson)
 
-        val nonexistent = planned.first().copy(id = 999_999L)
+        val nonexistent = plannedStates.first().copy(id = 999_999L)
         val missingUpdates = repository.withTransaction {
-            repository.applyMonthlyEvolutionPlayerStates(listOf(nonexistent))
+            repository.applyMonthlyEvolutionPlayerStateDeltas(listOf(nonexistent))
         }
         assertEquals(0, missingUpdates)
+
+        // The scratch table must not leak a missing-id row into the next invocation.
+        val retryState = plannedStates.first().copy(force = 98)
+        val retryUpdates = repository.withTransaction {
+            repository.applyMonthlyEvolutionPlayerStateDeltas(listOf(retryState))
+        }
+        assertEquals(1, retryUpdates)
+        assertEquals(98, repository.getPlayer(retryState.id)?.force)
     }
 }
