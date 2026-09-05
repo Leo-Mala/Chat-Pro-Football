@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import com.example.ui.viewmodel.*
 
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -156,15 +159,35 @@ fun TeamBadge(
     val resolvedUrl = remember(context, teamId, fallbackUrl) {
         BundledClubCrests.resolve(context, teamId, fallbackUrl)
     }
-    var isSuccess by remember(resolvedUrl) { mutableStateOf(false) }
     val isBundledPatchCrest = remember(resolvedUrl) {
         BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
     }
+    var remoteSuccess by remember(resolvedUrl) { mutableStateOf(false) }
+    val bundledBitmap by produceState<ImageBitmap?>(
+        initialValue = null,
+        key1 = resolvedUrl,
+        key2 = isBundledPatchCrest,
+    ) {
+        if (!isBundledPatchCrest || resolvedUrl.isNullOrEmpty()) {
+            value = null
+            return@produceState
+        }
 
-    // Keep the normal deterministic fallback badge visible while a bundled
-    // asset is still loading (or if the decoder rejects it). Switching to the
-    // transparent crest container before Coil reports success creates a bare
-    // abbreviation frame and makes the UI depend on asynchronous load timing.
+        value = withContext(Dispatchers.IO) {
+            val assetPath = resolvedUrl.removePrefix("file:///android_asset/")
+            runCatching {
+                context.assets.open(assetPath).use { input ->
+                    BitmapFactory.decodeStream(input)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+    val isSuccess = if (isBundledPatchCrest) bundledBitmap != null else remoteSuccess
+
+    // Bundled certified WebPs use Android's native decoder directly. The deterministic
+    // fallback remains visible until decode succeeds; environments whose decoder cannot
+    // open the asset keep the same fallback pixels rather than entering a Coil lifecycle
+    // dependency where Image composition is required before success can be reported.
     val containerModifier = if (isBundledPatchCrest && isSuccess) {
         modifier.size(size)
     } else {
@@ -188,11 +211,20 @@ fun TeamBadge(
     ) {
         val abbrev = teamName.take(2).uppercase()
 
-        if (!resolvedUrl.isNullOrEmpty()) {
+        if (isBundledPatchCrest) {
+            bundledBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = teamName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(size),
+                )
+            }
+        } else if (!resolvedUrl.isNullOrEmpty()) {
             val imageRequest = remember(resolvedUrl) {
                 coil.request.ImageRequest.Builder(context)
                     .data(resolvedUrl)
-                    .crossfade(!isBundledPatchCrest)
+                    .crossfade(true)
                     .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                     .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                     .build()
@@ -200,21 +232,17 @@ fun TeamBadge(
 
             val painter = rememberAsyncImagePainter(
                 model = imageRequest,
-                onSuccess = { isSuccess = true },
-                onError = { isSuccess = false }
+                onSuccess = { remoteSuccess = true },
+                onError = { remoteSuccess = false }
             )
-            if (isSuccess) {
+            if (remoteSuccess) {
                 Image(
                     painter = painter,
-                contentDescription = teamName,
-                contentScale = ContentScale.Fit,
-                modifier = if (isBundledPatchCrest) {
-                    Modifier.size(size)
-                } else {
-                    Modifier
+                    contentDescription = teamName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
                         .size(size * 0.8f)
                         .clip(CircleShape)
-                }
                 )
             }
         }
