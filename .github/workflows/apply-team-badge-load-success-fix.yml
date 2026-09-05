@@ -1,0 +1,191 @@
+name: Apply verified crest load-state fix
+
+on:
+  push:
+    branches:
+      - fix/3.0.1-manual-test-bugs
+    paths:
+      - .github/workflows/apply-team-badge-load-success-fix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-team-badge-load-success-fix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CERTIFIED_CREST_DRIVE_FILE_ID: 1fPuUUDmaIut5gapYztvujNWHeRSRbtF3
+      EXPECTED_ARCHIVE_SIZE: '11751550'
+      EXPECTED_ARCHIVE_SHA256: 3b8419298e03a593f23c750a91fda7613f3af395dcd770c13c9f17278f265dc3
+      EXPECTED_CLUB_CRESTS: '1907'
+      EXPECTED_FACTUAL_CRESTS: '617'
+      EXPECTED_TOTAL_CRESTS: '2524'
+      EXPECTED_CREST_FINGERPRINT: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+    steps:
+      - name: Checkout exact patch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - name: Apply exact TeamBadge state fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/com/example/ui/screens/GameScreens.kt')
+          text = path.read_text()
+          old = '''            Image(
+                painter = painter,
+                contentDescription = teamName,
+                contentScale = ContentScale.Fit,
+                modifier = if (isBundledPatchCrest) {
+                    Modifier.size(size)
+                } else {
+                    Modifier
+                        .size(size * 0.8f)
+                        .clip(CircleShape)
+                }
+            )'''
+          new = '''            if (isSuccess) {
+                Image(
+                    painter = painter,
+                    contentDescription = teamName,
+                    contentScale = ContentScale.Fit,
+                    modifier = if (isBundledPatchCrest) {
+                        Modifier.size(size)
+                    } else {
+                        Modifier
+                            .size(size * 0.8f)
+                            .clip(CircleShape)
+                    }
+                )
+            }'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one TeamBadge Image block, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- app/src/main/java/com/example/ui/screens/GameScreens.kt
+
+      - name: Recover and certify exact crest corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/certified-crests"
+          archive="$work/certified-club-crests-2524-d1e1d991.tar.zst"
+          recovered="$work/recovered"
+          rm -rf "$work" app/src/main/assets/club_crests
+          mkdir -p "$recovered" app/src/main/assets/club_crests
+          curl --fail --location --show-error --silent --retry 3 --retry-all-errors \
+            "https://drive.usercontent.google.com/download?id=${CERTIFIED_CREST_DRIVE_FILE_ID}&export=download&confirm=t" --output "$archive"
+          test "$(stat -c '%s' "$archive")" = "$EXPECTED_ARCHIVE_SIZE"
+          test "$(sha256sum "$archive" | awk '{print $1}')" = "$EXPECTED_ARCHIVE_SHA256"
+          tar --zstd -xf "$archive" -C "$recovered"
+          source_dir="$recovered/club_crests"
+          test "$(find "$source_dir" -maxdepth 1 -type f -name 'club_*.webp' | wc -l)" = "$EXPECTED_CLUB_CRESTS"
+          test "$(find "$source_dir" -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)" = "$EXPECTED_FACTUAL_CRESTS"
+          test "$(find "$source_dir" -maxdepth 1 -type f -name '*.webp' | wc -l)" = "$EXPECTED_TOTAL_CRESTS"
+          fingerprint="$(python3 - "$source_dir" <<'PY'
+          import hashlib, pathlib, sys
+          source=pathlib.Path(sys.argv[1]); h=hashlib.sha256()
+          for path in sorted(source.glob('*.webp'), key=lambda p:p.name):
+              h.update(('assets/club_crests/'+path.name).encode()); h.update(b'\0'); h.update(hashlib.sha256(path.read_bytes()).digest())
+          print(h.hexdigest())
+          PY
+          )"
+          test "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT"
+          cp "$source_dir"/*.webp app/src/main/assets/club_crests/
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Prepare Android validation file
+        shell: bash
+        run: |
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+
+      - name: Compile patched production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew compileDebugKotlin --stacktrace
+
+      - name: Capture patched Phase 10.5 evidence
+        id: golden
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest --tests com.example.Phase105CriticalUiGoldenTest.criticalProductScreens_matchPersistedCareerFixture --stacktrace
+
+      - name: Prove only team selection golden changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app')
+          manifest={}
+          for line in (root/'src/test/screenshots/phase_10_5_ui.sha256').read_text().splitlines():
+              line=line.strip()
+              if not line or line.startswith('#'): continue
+              sha,name=line.split(None,1)
+              manifest[name]=sha
+          actual=root/'build/phase105-golden-actual'
+          names=['dashboard.png','squad.png','tactics.png','transfers.png','finances.png','standings.png','team_selection.png']
+          for name in names:
+              p=actual/name
+              if not p.is_file(): raise SystemExit(f'missing capture {name}')
+              got=hashlib.sha256(p.read_bytes()).hexdigest()
+              print(f'{got}  {name}')
+              if name != 'team_selection.png' and got != manifest[name]:
+                  raise SystemExit(f'unrelated golden changed: {name}: {got} != {manifest[name]}')
+          team=hashlib.sha256((actual/'team_selection.png').read_bytes()).hexdigest()
+          if team == manifest['team_selection.png']:
+              raise SystemExit('team selection did not exercise intended certified crest visual change')
+          (Path('team-selection-new.sha256')).write_text(team+'  team_selection.png\n')
+          PY
+
+      - name: Publish patched capture evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: patched-team-selection-${{ github.sha }}
+          path: |
+            app/build/phase105-golden-actual/
+            app/build/reports/tests/testDebugUnitTest/
+            team-selection-new.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit only verified production fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf app/src/main/assets/club_crests app/google-services.json
+          git rm .github/workflows/apply-team-badge-load-success-fix.yml
+          git add app/src/main/java/com/example/ui/screens/GameScreens.kt
+          mapfile -t changed < <(git status --short)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: render crest only after load success'
+          git push origin HEAD:fix/3.0.1-manual-test-bugs
