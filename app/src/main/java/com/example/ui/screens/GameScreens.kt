@@ -57,8 +57,7 @@ import com.example.data.ParsedJsonResult
 import com.example.R
 import com.example.data.*
 import com.example.ui.viewmodel.GameViewModel
-import coil.compose.AsyncImage
-import coil.imageLoader
+import coil.compose.rememberAsyncImagePainter
 
 fun resolveLogoUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
@@ -158,36 +157,14 @@ fun TeamBadge(
         BundledClubCrests.resolve(context, teamId, fallbackUrl)
     }
     var isSuccess by remember(resolvedUrl) { mutableStateOf(false) }
-    var bundledPreloadReady by remember(resolvedUrl) { mutableStateOf(false) }
     val isBundledPatchCrest = remember(resolvedUrl) {
         BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
     }
 
-    // A bundled crest needs an explicit-sized request before the visual image is
-    // composed. This breaks the previous circular dependency (waiting for Image
-    // composition to obtain a size before Coil can report success) while keeping
-    // the deterministic fallback tree pixel-identical on JVM/Roborazzi, whose
-    // decoder intentionally cannot decode these Android WebP assets.
-    LaunchedEffect(resolvedUrl, isBundledPatchCrest) {
-        bundledPreloadReady = false
-        if (isBundledPatchCrest && !resolvedUrl.isNullOrEmpty()) {
-            val preloadRequest = coil.request.ImageRequest.Builder(context)
-                .data(resolvedUrl)
-                .size(coil.size.Size.ORIGINAL)
-                .crossfade(false)
-                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .build()
-            bundledPreloadReady = runCatching {
-                context.imageLoader.execute(preloadRequest) is coil.request.SuccessResult
-            }.getOrDefault(false)
-        }
-    }
-
-    // Preserve the independently approved bundled-crest fallback pixels while
-    // decoding is unavailable. The certified asset still preloads on Android and
-    // replaces the abbreviation only after AsyncImage reports a real success.
-    val containerModifier = if (isBundledPatchCrest) {
+    // Keep the previously approved fallback pixels until the exact visual request
+    // has decoded successfully. Bundled crests drop the fallback only after the
+    // same painter that will be drawn reports success.
+    val containerModifier = if (isBundledPatchCrest && isSuccess) {
         modifier.size(size)
     } else {
         modifier
@@ -211,38 +188,42 @@ fun TeamBadge(
         val abbrev = teamName.take(2).uppercase()
 
         if (!resolvedUrl.isNullOrEmpty()) {
-            val imageRequest = remember(resolvedUrl) {
+            val imageRequest = remember(resolvedUrl, isBundledPatchCrest) {
                 coil.request.ImageRequest.Builder(context)
                     .data(resolvedUrl)
+                    .apply {
+                        if (isBundledPatchCrest) {
+                            size(coil.size.Size.ORIGINAL)
+                        }
+                    }
                     .crossfade(!isBundledPatchCrest)
                     .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                     .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                     .build()
             }
+            val painter = rememberAsyncImagePainter(
+                model = imageRequest,
+                onSuccess = { isSuccess = true },
+                onError = { isSuccess = false }
+            )
 
-            val shouldComposeImage = !isBundledPatchCrest || bundledPreloadReady
-            if (shouldComposeImage) {
-                // On Android, the explicit preload proves that the certified WebP can
-                // decode before this measured AsyncImage enters the tree. Until its own
-                // onSuccess fires, keep it transparent behind the fallback. On JVM,
-                // preload fails closed and AsyncImage is never composed, preserving the
-                // independently approved golden pixels exactly.
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = teamName,
-                    contentScale = ContentScale.Fit,
-                    modifier = if (isBundledPatchCrest) {
-                        Modifier.size(size)
-                    } else {
-                        Modifier
-                            .size(size * 0.8f)
-                            .clip(CircleShape)
-                    },
-                    alpha = if (isBundledPatchCrest && !isSuccess) 0f else 1f,
-                    onSuccess = { isSuccess = true },
-                    onError = { isSuccess = false }
-                )
-            }
+            // The Image must stay composed so Coil owns one continuous request.
+            // Before success it is transparent behind the deterministic fallback;
+            // Android WebP success atomically reveals this same painter. JVM/
+            // Roborazzi decode failure therefore leaves the approved pixels intact.
+            Image(
+                painter = painter,
+                contentDescription = teamName,
+                contentScale = ContentScale.Fit,
+                modifier = if (isBundledPatchCrest) {
+                    Modifier.size(size)
+                } else {
+                    Modifier
+                        .size(size * 0.8f)
+                        .clip(CircleShape)
+                },
+                alpha = if (isSuccess) 1f else 0f
+            )
         }
 
         if (!isSuccess) {
