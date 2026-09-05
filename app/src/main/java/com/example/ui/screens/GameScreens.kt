@@ -58,6 +58,7 @@ import com.example.R
 import com.example.data.*
 import com.example.ui.viewmodel.GameViewModel
 import coil.compose.AsyncImage
+import coil.imageLoader
 
 fun resolveLogoUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
@@ -157,8 +158,30 @@ fun TeamBadge(
         BundledClubCrests.resolve(context, teamId, fallbackUrl)
     }
     var isSuccess by remember(resolvedUrl) { mutableStateOf(false) }
+    var bundledPreloadReady by remember(resolvedUrl) { mutableStateOf(false) }
     val isBundledPatchCrest = remember(resolvedUrl) {
         BrasfootPatchCrests.isBundledAssetUri(resolvedUrl)
+    }
+
+    // A bundled crest needs an explicit-sized request before the visual image is
+    // composed. This breaks the previous circular dependency (waiting for Image
+    // composition to obtain a size before Coil can report success) while keeping
+    // the deterministic fallback tree pixel-identical on JVM/Roborazzi, whose
+    // decoder intentionally cannot decode these Android WebP assets.
+    LaunchedEffect(resolvedUrl, isBundledPatchCrest) {
+        bundledPreloadReady = false
+        if (isBundledPatchCrest && !resolvedUrl.isNullOrEmpty()) {
+            val preloadRequest = coil.request.ImageRequest.Builder(context)
+                .data(resolvedUrl)
+                .size(coil.size.Size.ORIGINAL)
+                .crossfade(false)
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .build()
+            bundledPreloadReady = runCatching {
+                context.imageLoader.execute(preloadRequest) is coil.request.SuccessResult
+            }.getOrDefault(false)
+        }
     }
 
     // Keep the normal deterministic fallback badge visible while a bundled
@@ -198,26 +221,29 @@ fun TeamBadge(
                     .build()
             }
 
-            // AsyncImage stays measured and participates in Coil's request lifecycle
-            // even while the deterministic fallback visually covers a bundled crest.
-            // This avoids the circular "wait for success before composing the image"
-            // bug while keeping JVM/golden output identical when WebP decoding is not
-            // available. The real crest becomes visible only after onSuccess.
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = teamName,
-                contentScale = ContentScale.Fit,
-                modifier = if (isBundledPatchCrest) {
-                    Modifier.size(size)
-                } else {
-                    Modifier
-                        .size(size * 0.8f)
-                        .clip(CircleShape)
-                },
-                alpha = if (isBundledPatchCrest && !isSuccess) 0f else 1f,
-                onSuccess = { isSuccess = true },
-                onError = { isSuccess = false }
-            )
+            val shouldComposeImage = !isBundledPatchCrest || bundledPreloadReady
+            if (shouldComposeImage) {
+                // On Android, the explicit preload proves that the certified WebP can
+                // decode before this measured AsyncImage enters the tree. Until its own
+                // onSuccess fires, keep it transparent behind the fallback. On JVM,
+                // preload fails closed and AsyncImage is never composed, preserving the
+                // independently approved golden pixels exactly.
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = teamName,
+                    contentScale = ContentScale.Fit,
+                    modifier = if (isBundledPatchCrest) {
+                        Modifier.size(size)
+                    } else {
+                        Modifier
+                            .size(size * 0.8f)
+                            .clip(CircleShape)
+                    },
+                    alpha = if (isBundledPatchCrest && !isSuccess) 0f else 1f,
+                    onSuccess = { isSuccess = true },
+                    onError = { isSuccess = false }
+                )
+            }
         }
 
         if (!isSuccess) {
