@@ -1,4 +1,4 @@
 certified-crest-android-decode exact-candidate gate
-candidate-parent=91a4af05043f8056c7f74bb67ccd6254a56fb57f
-candidate-reason=preserve-approved-bundled-crest-fallback-pixels
-candidate-sequence=20260905-0758
+candidate-parent=3b5c45fbf4bc930950fc7ab6507b003d73b48009
+candidate-reason=single-request-crest-fallback-until-painter-success
+candidate-sequence=20260905-single-request
