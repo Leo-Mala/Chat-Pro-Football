@@ -53,15 +53,12 @@ jobs:
           recovered="$work/recovered"
           rm -rf "$work" app/src/main/assets/club_crests
           mkdir -p "$recovered" app/src/main/assets/club_crests
-
           url="https://drive.usercontent.google.com/download?id=${CERTIFIED_CREST_DRIVE_FILE_ID}&export=download&confirm=t"
           curl --fail --location --show-error --silent --retry 3 --retry-all-errors "$url" --output "$archive"
-
           actual_size="$(stat -c '%s' "$archive")"
           actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
           test "$actual_size" = "$EXPECTED_ARCHIVE_SIZE"
           test "$actual_sha" = "$EXPECTED_ARCHIVE_SHA256"
-
           tar --zstd -xf "$archive" -C "$recovered"
           source_dir="$recovered/club_crests"
           test -d "$source_dir"
@@ -71,7 +68,6 @@ jobs:
           test "$club" = "$EXPECTED_CLUB_CRESTS"
           test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
           test "$total" = "$EXPECTED_TOTAL_CRESTS"
-
           fingerprint="$(python3 - "$source_dir" <<'PY'
           import hashlib, pathlib, sys
           source = pathlib.Path(sys.argv[1])
@@ -126,17 +122,42 @@ jobs:
           KEY_PASSWORD: ${{ secrets.PRODUCTION_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$PRODUCTION_KEYSTORE_BASE64"; test -n "$STORE_PASSWORD"; test -n "$KEY_ALIAS"; test -n "$KEY_PASSWORD"
+          for var in PRODUCTION_KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::missing required signing secret: ${var}"
+              exit 21
+            fi
+          done
           release_keystore="$RUNNER_TEMP/pro-football-manual-test.jks"
-          printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"
-          chmod 600 "$release_keystore"; test -s "$release_keystore"
+          if ! printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"; then
+            echo '::error::PRODUCTION_KEYSTORE_BASE64 is not valid base64'
+            exit 22
+          fi
+          chmod 600 "$release_keystore"
+          if [ ! -s "$release_keystore" ]; then
+            echo '::error::decoded production keystore is empty'
+            exit 22
+          fi
           actual_keystore_sha="$(sha256sum "$release_keystore" | awk '{print $1}')"
-          cert_sha="$(keytool -list -v -keystore "$release_keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/ {print $2; exit}')"
-          test -n "$cert_sha"
+          if ! keytool -list -v -keystore "$release_keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > "$RUNNER_TEMP/keytool-signing.txt" 2>/dev/null; then
+            echo '::error::historical signing keystore could not be opened with configured store password/alias'
+            exit 23
+          fi
+          cert_sha="$(awk -F': ' '/SHA256:/ {print $2; exit}' "$RUNNER_TEMP/keytool-signing.txt")"
+          if [ -z "$cert_sha" ]; then
+            echo '::error::SHA-256 certificate fingerprint was not found in the configured keystore alias'
+            exit 24
+          fi
           actual_cert="$(printf '%s' "$cert_sha" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
           expected_cert="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
-          test "${#actual_cert}" -eq 64
-          test "$actual_cert" = "$expected_cert"
+          if [ "${#actual_cert}" -ne 64 ]; then
+            echo "::error::invalid normalized signing certificate fingerprint length: ${#actual_cert}"
+            exit 24
+          fi
+          if [ "$actual_cert" != "$expected_cert" ]; then
+            echo "::error::signing certificate mismatch: actual=${actual_cert} expected=${expected_cert}"
+            exit 25
+          fi
           echo "KEYSTORE_PATH=$release_keystore" >> "$GITHUB_ENV"
           echo "ACTIONS_KEYSTORE_CONTAINER_SHA256=$actual_keystore_sha" >> "$GITHUB_ENV"
           echo "SIGNING_CERT_SHA256=$actual_cert" >> "$GITHUB_ENV"
