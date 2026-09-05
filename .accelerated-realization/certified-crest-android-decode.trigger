@@ -1,2 +1,3 @@
 certified-crest-android-decode exact-candidate gate
-candidate-reason=historical-signing-identity-final
+candidate-reason=wrapped-historical-signing-final
+candidate-sequence=20260905-0319
