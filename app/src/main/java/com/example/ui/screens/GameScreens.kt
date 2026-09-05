@@ -57,7 +57,7 @@ import com.example.data.ParsedJsonResult
 import com.example.R
 import com.example.data.*
 import com.example.ui.viewmodel.GameViewModel
-import coil.compose.rememberAsyncImagePainter
+import coil.compose.AsyncImage
 
 fun resolveLogoUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
@@ -198,13 +198,13 @@ fun TeamBadge(
                     .build()
             }
 
-            val painter = rememberAsyncImagePainter(
+            // AsyncImage stays measured and participates in Coil's request lifecycle
+            // even while the deterministic fallback visually covers a bundled crest.
+            // This avoids the circular "wait for success before composing the image"
+            // bug while keeping JVM/golden output identical when WebP decoding is not
+            // available. The real crest becomes visible only after onSuccess.
+            AsyncImage(
                 model = imageRequest,
-                onSuccess = { isSuccess = true },
-                onError = { isSuccess = false }
-            )
-            Image(
-                painter = painter,
                 contentDescription = teamName,
                 contentScale = ContentScale.Fit,
                 modifier = if (isBundledPatchCrest) {
@@ -213,7 +213,10 @@ fun TeamBadge(
                     Modifier
                         .size(size * 0.8f)
                         .clip(CircleShape)
-                }
+                },
+                alpha = if (isBundledPatchCrest && !isSuccess) 0f else 1f,
+                onSuccess = { isSuccess = true },
+                onError = { isSuccess = false }
             )
         }
 
