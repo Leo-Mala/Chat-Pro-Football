@@ -26,7 +26,7 @@ jobs:
       EXPECTED_FACTUAL_CRESTS: '617'
       EXPECTED_TOTAL_CRESTS: '2524'
       EXPECTED_CREST_FINGERPRINT: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
-      EXPECTED_KEYSTORE_SHA256: 7756e107979e85159c83c9f1c42ed34f6c8ae3613f40739c5a593a545530a9e2
+      HISTORICAL_KEYSTORE_BACKUP_SHA256: 7756e107979e85159c83c9f1c42ed34f6c8ae3613f40739c5a593a545530a9e2
       EXPECTED_SIGNING_CERT_SHA256: 28ee293d63da9b2c3f3b8ab25c29f19464ab90431c440b4a1e71bf36c9bef741
       EXPECTED_NATIVE_SO_COUNT: '8'
     steps:
@@ -55,10 +55,7 @@ jobs:
           mkdir -p "$recovered" app/src/main/assets/club_crests
 
           url="https://drive.usercontent.google.com/download?id=${CERTIFIED_CREST_DRIVE_FILE_ID}&export=download&confirm=t"
-          curl --fail --location --show-error --silent \
-            --retry 3 --retry-all-errors \
-            "$url" \
-            --output "$archive"
+          curl --fail --location --show-error --silent --retry 3 --retry-all-errors "$url" --output "$archive"
 
           actual_size="$(stat -c '%s' "$archive")"
           actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
@@ -68,7 +65,6 @@ jobs:
           tar --zstd -xf "$archive" -C "$recovered"
           source_dir="$recovered/club_crests"
           test -d "$source_dir"
-
           club="$(find "$source_dir" -maxdepth 1 -type f -name 'club_*.webp' | wc -l)"
           factual="$(find "$source_dir" -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)"
           total="$(find "$source_dir" -maxdepth 1 -type f -name '*.webp' | wc -l)"
@@ -77,23 +73,16 @@ jobs:
           test "$total" = "$EXPECTED_TOTAL_CRESTS"
 
           fingerprint="$(python3 - "$source_dir" <<'PY'
-          import hashlib
-          import pathlib
-          import sys
-
+          import hashlib, pathlib, sys
           source = pathlib.Path(sys.argv[1])
-          files = sorted(source.glob('*.webp'), key=lambda p: p.name)
-          digest = hashlib.sha256()
-          for path in files:
+          h = hashlib.sha256()
+          for path in sorted(source.glob('*.webp'), key=lambda p: p.name):
               canonical = 'assets/club_crests/' + path.name
-              digest.update(canonical.encode('utf-8'))
-              digest.update(b'\0')
-              digest.update(hashlib.sha256(path.read_bytes()).digest())
-          print(digest.hexdigest())
+              h.update(canonical.encode()); h.update(b'\0'); h.update(hashlib.sha256(path.read_bytes()).digest())
+          print(h.hexdigest())
           PY
           )"
           test "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT"
-
           cat > "$work/critical-crests.sha256" <<'EOF'
           65ca6430af87241277c2bc6c25264b60d1d7b4697ff7b1b0fd7e51a52479509c  factual_4009.webp
           e07d74e4519b4eb2ab49a8e87a992b13b4b0817f366c7712183e281530a1d530  factual_4014.webp
@@ -103,19 +92,13 @@ jobs:
           aa567ebbaaf2b3b84bbf27b8b8f417f9d6039fa7eff6f11187b597565c17484f  factual_4004.webp
           4ce17fb59fe799fa82a6d4a2ad03a97a226fe75c86b0b5d5f8c06f0d16f11b2a  factual_4018.webp
           EOF
-          (
-            cd "$source_dir"
-            sha256sum -c "$work/critical-crests.sha256"
-          )
-
+          (cd "$source_dir" && sha256sum -c "$work/critical-crests.sha256")
           cp "$source_dir"/*.webp app/src/main/assets/club_crests/
           test "$(find app/src/main/assets/club_crests -maxdepth 1 -type f -name '*.webp' | wc -l)" = "$EXPECTED_TOTAL_CRESTS"
-
           echo "source_drive_file_id=${CERTIFIED_CREST_DRIVE_FILE_ID}" >> "$GITHUB_OUTPUT"
           echo "source_archive_sha256=${actual_sha}" >> "$GITHUB_OUTPUT"
           echo "source_archive_size=${actual_size}" >> "$GITHUB_OUTPUT"
           echo "source_crest_fingerprint=${fingerprint}" >> "$GITHUB_OUTPUT"
-          echo "Recovered certified runtime from Drive: ${club} club + ${factual} factual = ${total}; fingerprint=${fingerprint}"
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
@@ -134,7 +117,7 @@ jobs:
           {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
           EOF
 
-      - name: Materialize and verify historical signing key
+      - name: Materialize and verify historical signing identity
         shell: bash
         env:
           PRODUCTION_KEYSTORE_BASE64: ${{ secrets.PRODUCTION_KEYSTORE_BASE64 }}
@@ -144,51 +127,34 @@ jobs:
           PRODUCTION_SIGNING_CERT_SHA256: ${{ secrets.PRODUCTION_SIGNING_CERT_SHA256 }}
         run: |
           set -euo pipefail
-          test -n "$PRODUCTION_KEYSTORE_BASE64"
-          test -n "$STORE_PASSWORD"
-          test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
-          test -n "$PRODUCTION_SIGNING_CERT_SHA256"
-
+          test -n "$PRODUCTION_KEYSTORE_BASE64"; test -n "$STORE_PASSWORD"; test -n "$KEY_ALIAS"; test -n "$KEY_PASSWORD"; test -n "$PRODUCTION_SIGNING_CERT_SHA256"
           release_keystore="$RUNNER_TEMP/pro-football-manual-test.jks"
           printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"
-          chmod 600 "$release_keystore"
-          test -s "$release_keystore"
-
+          chmod 600 "$release_keystore"; test -s "$release_keystore"
           actual_keystore_sha="$(sha256sum "$release_keystore" | awk '{print $1}')"
-          test "$actual_keystore_sha" = "$EXPECTED_KEYSTORE_SHA256"
-
-          cert_sha="$(keytool -list -v \
-            -keystore "$release_keystore" \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/ {print $2; exit}')"
+          cert_sha="$(keytool -list -v -keystore "$release_keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/ {print $2; exit}')"
           test -n "$cert_sha"
           actual_cert="$(printf '%s' "$cert_sha" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
           secret_cert="$(printf '%s' "$PRODUCTION_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
           expected_cert="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
-          test "${#actual_cert}" -eq 64
-          test "${#secret_cert}" -eq 64
-          test "$actual_cert" = "$expected_cert"
-          test "$secret_cert" = "$expected_cert"
-
+          test "${#actual_cert}" -eq 64; test "${#secret_cert}" -eq 64
+          test "$actual_cert" = "$expected_cert"; test "$secret_cert" = "$expected_cert"
           echo "KEYSTORE_PATH=$release_keystore" >> "$GITHUB_ENV"
-          echo "HISTORICAL_KEYSTORE_SHA256=$actual_keystore_sha" >> "$GITHUB_ENV"
+          echo "ACTIONS_KEYSTORE_CONTAINER_SHA256=$actual_keystore_sha" >> "$GITHUB_ENV"
+          echo "SIGNING_CERT_SHA256=$actual_cert" >> "$GITHUB_ENV"
 
       - name: Run real crest resolver regression
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew testDebugUnitTest \
-            --tests com.example.data.BundledClubCrestsTest \
-            --stacktrace
+          ./gradlew testDebugUnitTest --tests com.example.data.BundledClubCrestsTest --stacktrace
 
       - name: Run mandatory current manual-test regressions
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew testDebugUnitTest \
-            -PexcludeStressTests=true \
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
             --tests com.example.ui.viewmodel.PostGameReturnToCentralRegressionTest \
             --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
             --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
@@ -240,8 +206,7 @@ jobs:
             --tests com.example.data.CareerSeedTemplateRuntimeTest \
             --tests com.example.data.ProceduralRosterOnlyTest \
             --tests com.example.data.BrasfootRealClubIdentityTest \
-            --tests com.example.data.BrasfootPatchCrestsTest \
-            --stacktrace
+            --tests com.example.data.BrasfootPatchCrestsTest --stacktrace
 
       - name: Build historical-key installable manual-test APK
         shell: bash
@@ -252,111 +217,67 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew assembleRelease -PrequireProductionSigning=true --stacktrace
-          apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
-          test -n "$apk"
+          apk=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit); test -n "$apk"
           mkdir -p manual-test-apk
           out="manual-test-apk/Pro-Football-3.0.1-manual-test-${GITHUB_SHA}.apk"
           cp "$apk" "$out"
           sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
           stat -c 'size_bytes=%s' "$out" | tee manual-test-apk/APK_SIZE.txt
           {
-            printf 'commit=%s\n' "$GITHUB_SHA"
-            printf 'branch=%s\n' "$GITHUB_REF_NAME"
+            printf 'commit=%s\n' "$GITHUB_SHA"; printf 'branch=%s\n' "$GITHUB_REF_NAME"
             printf 'source_drive_file_id=%s\n' '${{ steps.recover.outputs.source_drive_file_id }}'
             printf 'source_archive_sha256=%s\n' '${{ steps.recover.outputs.source_archive_sha256 }}'
             printf 'source_archive_size=%s\n' '${{ steps.recover.outputs.source_archive_size }}'
             printf 'source_crest_fingerprint=%s\n' '${{ steps.recover.outputs.source_crest_fingerprint }}'
-            printf 'keystore_sha256=%s\n' "$HISTORICAL_KEYSTORE_SHA256"
+            printf 'historical_keystore_backup_sha256=%s\n' "$HISTORICAL_KEYSTORE_BACKUP_SHA256"
+            printf 'actions_keystore_container_sha256=%s\n' "$ACTIONS_KEYSTORE_CONTAINER_SHA256"
+            printf 'signing_certificate_sha256=%s\n' "$SIGNING_CERT_SHA256"
           } > manual-test-apk/BUILD_INFO.txt
 
       - name: Validate APK integrity signature 16K alignment and certified crest fingerprint
         shell: bash
         run: |
           set -euo pipefail
-          apk=$(find manual-test-apk -maxdepth 1 -name '*.apk' -print -quit)
-          test -n "$apk"
+          apk=$(find manual-test-apk -maxdepth 1 -name '*.apk' -print -quit); test -n "$apk"
           unzip -t "$apk" >/dev/null
-
           total=$(unzip -Z1 "$apk" | grep -c '^assets/club_crests/[^/]*$' || true)
           club=$(unzip -Z1 "$apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)
           factual=$(unzip -Z1 "$apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)
-          test "$total" = "$EXPECTED_TOTAL_CRESTS"
-          test "$club" = "$EXPECTED_CLUB_CRESTS"
-          test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
-
+          test "$total" = "$EXPECTED_TOTAL_CRESTS"; test "$club" = "$EXPECTED_CLUB_CRESTS"; test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
           fingerprint=$(python3 - "$apk" <<'PY'
-          import hashlib
-          import pathlib
-          import sys
-          import zipfile
-
+          import hashlib, pathlib, sys, zipfile
           with zipfile.ZipFile(sys.argv[1]) as z:
-              names = sorted(
-                  n for n in z.namelist()
-                  if n.startswith('assets/club_crests/') and not n.endswith('/')
-              )
-              h = hashlib.sha256()
-              for name in names:
-                  canonical = 'assets/club_crests/' + pathlib.PurePosixPath(name).name
-                  h.update(canonical.encode('utf-8'))
-                  h.update(b'\0')
-                  h.update(hashlib.sha256(z.read(name)).digest())
+              names=sorted(n for n in z.namelist() if n.startswith('assets/club_crests/') and not n.endswith('/'))
+              h=hashlib.sha256()
+              for n in names:
+                  c='assets/club_crests/'+pathlib.PurePosixPath(n).name; h.update(c.encode()); h.update(b'\0'); h.update(hashlib.sha256(z.read(n)).digest())
               print(h.hexdigest())
           PY
           )
           test "$fingerprint" = "$EXPECTED_CREST_FINGERPRINT"
-
           python3 - "$apk" <<'PY'
-          import hashlib
-          import sys
-          import zipfile
-
-          expected = {
-              'assets/club_crests/factual_4009.webp': '65ca6430af87241277c2bc6c25264b60d1d7b4697ff7b1b0fd7e51a52479509c',
-              'assets/club_crests/factual_4014.webp': 'e07d74e4519b4eb2ab49a8e87a992b13b4b0817f366c7712183e281530a1d530',
-              'assets/club_crests/factual_4002.webp': 'a9843c342c2149147e0413248643f9ed62d2a462ad70093512be95dbfff6212e',
-              'assets/club_crests/factual_4008.webp': '3cc63888b2f1a21d8d80d19dc46299b4bfef95e8c221442569169b18075ccd32',
-              'assets/club_crests/factual_4017.webp': '6f1413f8d8a6b7ba3893c764bd7b1dd81ec3442479549eee68de30d8c06271c8',
-              'assets/club_crests/factual_4004.webp': 'aa567ebbaaf2b3b84bbf27b8b8f417f9d6039fa7eff6f11187b597565c17484f',
-              'assets/club_crests/factual_4018.webp': '4ce17fb59fe799fa82a6d4a2ad03a97a226fe75c86b0b5d5f8c06f0d16f11b2a',
-          }
+          import hashlib,sys,zipfile
+          e={'assets/club_crests/factual_4009.webp':'65ca6430af87241277c2bc6c25264b60d1d7b4697ff7b1b0fd7e51a52479509c','assets/club_crests/factual_4014.webp':'e07d74e4519b4eb2ab49a8e87a992b13b4b0817f366c7712183e281530a1d530','assets/club_crests/factual_4002.webp':'a9843c342c2149147e0413248643f9ed62d2a462ad70093512be95dbfff6212e','assets/club_crests/factual_4008.webp':'3cc63888b2f1a21d8d80d19dc46299b4bfef95e8c221442569169b18075ccd32','assets/club_crests/factual_4017.webp':'6f1413f8d8a6b7ba3893c764bd7b1dd81ec3442479549eee68de30d8c06271c8','assets/club_crests/factual_4004.webp':'aa567ebbaaf2b3b84bbf27b8b8f417f9d6039fa7eff6f11187b597565c17484f','assets/club_crests/factual_4018.webp':'4ce17fb59fe799fa82a6d4a2ad03a97a226fe75c86b0b5d5f8c06f0d16f11b2a'}
           with zipfile.ZipFile(sys.argv[1]) as z:
-              for name, wanted in expected.items():
-                  got = hashlib.sha256(z.read(name)).hexdigest()
-                  if got != wanted:
-                      raise SystemExit(f'critical crest digest mismatch: {name}: {got}')
+              for n,w in e.items():
+                  if hashlib.sha256(z.read(n)).hexdigest()!=w: raise SystemExit('critical crest mismatch: '+n)
           PY
-
-          so_count=$(unzip -Z1 "$apk" | grep -Ec '^lib/[^/]+/[^/]+\.so$' || true)
-          test "$so_count" = "$EXPECTED_NATIVE_SO_COUNT"
+          so_count=$(unzip -Z1 "$apk" | grep -Ec '^lib/[^/]+/[^/]+\.so$' || true); test "$so_count" = "$EXPECTED_NATIVE_SO_COUNT"
           printf 'native_so_count=%s\n' "$so_count" | tee manual-test-apk/NATIVE_LIBS.txt
-
-          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)
-          test -n "$bt"
-          zipalign="$ANDROID_HOME/build-tools/$bt/zipalign"
-          apksigner="$ANDROID_HOME/build-tools/$bt/apksigner"
-          aapt="$ANDROID_HOME/build-tools/$bt/aapt"
-          test -x "$zipalign"
-          test -x "$apksigner"
-          test -x "$aapt"
-
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1); test -n "$bt"
+          zipalign="$ANDROID_HOME/build-tools/$bt/zipalign"; apksigner="$ANDROID_HOME/build-tools/$bt/apksigner"; aapt="$ANDROID_HOME/build-tools/$bt/aapt"
           "$zipalign" -c -v 4 "$apk" >/dev/null
           "$zipalign" -c -P 16 -v 4 "$apk" | tee manual-test-apk/ALIGNMENT_16K.txt
           "$apksigner" verify --verbose --print-certs "$apk" | tee manual-test-apk/SIGNATURE.txt
           grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' manual-test-apk/SIGNATURE.txt
           grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): true' manual-test-apk/SIGNATURE.txt
-          cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' manual-test-apk/SIGNATURE.txt)
-          test -n "$cert_sha256"
-          actual_cert=$(printf '%s' "$cert_sha256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')
-          expected_cert=$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')
-          test "${#actual_cert}" -eq 64
+          cert_sha256=$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' manual-test-apk/SIGNATURE.txt); test -n "$cert_sha256"
+          actual_cert=$(printf '%s' "$cert_sha256"|tr -cd '[:xdigit:]'|tr '[:upper:]' '[:lower:]'); expected_cert=$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256"|tr -cd '[:xdigit:]'|tr '[:upper:]' '[:lower:]')
           test "$actual_cert" = "$expected_cert"
           printf 'certificate_sha256=%s\n' "$actual_cert" | tee manual-test-apk/SIGNING_IDENTITY.txt
-
           "$aapt" dump badging "$apk" | tee manual-test-apk/BADGING.txt
           grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" manual-test-apk/BADGING.txt
-          printf 'crest_total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\n' \
-            "$total" "$club" "$factual" "$fingerprint" | tee manual-test-apk/CREST_BUNDLE.txt
+          printf 'crest_total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\n' "$total" "$club" "$factual" "$fingerprint" | tee manual-test-apk/CREST_BUNDLE.txt
 
       - name: Upload exact installable APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

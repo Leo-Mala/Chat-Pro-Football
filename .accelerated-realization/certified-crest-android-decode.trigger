@@ -1,6 +1,2 @@
-production_head=56c72eed84e90b84a2f382332cc3a9547febbcf4
-purpose=post-market-production-certified-crest-android-validation
-expected_total=2524
-expected_club=1907
-expected_factual=617
-expected_fingerprint=d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+certified-crest-android-decode exact-candidate gate
+candidate-reason=historical-signing-identity-final
