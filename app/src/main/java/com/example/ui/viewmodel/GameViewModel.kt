@@ -40,8 +40,6 @@ data class IncomingOffer(
 internal fun shouldStopSeasonSimulation(targetSeason: Int, currentSeason: Int): Boolean =
     currentSeason != targetSeason
 
-internal fun shouldPauseSeasonSimulationForExpiringContracts(expiringContractCount: Int): Boolean =
-    expiringContractCount > 0
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
@@ -1009,24 +1007,6 @@ class GameViewModel @Inject constructor(
                             
                             val currentWeekNum = save.currentWeek
                             _simulationCurrentWeek.value = currentWeekNum
-
-                            // Auto-simulation must never make a contract-renewal decision for the
-                            // human manager. Stop before playing/closing the week so no fixture,
-                            // finance or contract mutation for this week has been committed yet.
-                            val expiringControlledContracts =
-                                repo.getControlledRosterExpiringContractCount(save.playerTeamId)
-                            if (shouldPauseSeasonSimulationForExpiringContracts(expiringControlledContracts)) {
-                                val contractLabel = if (expiringControlledContracts == 1) "contrato vence" else "contratos vencem"
-                                val pauseMessage =
-                                    "$expiringControlledContracts $contractLabel ao fim da semana. Renove os contratos ou avance a semana manualmente."
-                                _simulationCompetitionName.value = "Simulação pausada"
-                                _simulationMatchInfo.value = pauseMessage
-                                _simulationLogs.value = (
-                                    listOf("Temp. ${save.currentSeason} | Sem. $currentWeekNum | Simulação pausada: $pauseMessage") +
-                                        _simulationLogs.value
-                                    ).take(25)
-                                break
-                            }
                             
                             val weekFixtures = repo.getFixturesForWeek(save.currentSeason, currentWeekNum)
                             val userUnplayedFixtures = weekFixtures.filter { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
@@ -1074,10 +1054,9 @@ class GameViewModel @Inject constructor(
                             }
                         }
                     } catch (e: Exception) {
-                        if (com.example.BuildConfig.DEBUG) {
-                            android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
-                        }
+                        android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
                         _simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value
+                        _toastMessage.emit("Simulação interrompida: ${e.localizedMessage ?: "Erro desconhecido"}")
                     } finally {
                         _isSimulatingSeason.value = false
                         if (_autoSaveEnabled.value) {
