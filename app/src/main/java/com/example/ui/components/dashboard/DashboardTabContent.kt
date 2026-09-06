@@ -61,6 +61,7 @@ fun DashboardTab(
     val simCompName by viewModel.simulationCompetitionName.collectAsStateWithLifecycle()
     val simMatchInfo by viewModel.simulationMatchInfo.collectAsStateWithLifecycle()
     val simLogs by viewModel.simulationLogs.collectAsStateWithLifecycle()
+    val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()
 
     val s = saveState
     val pTeam = playerTeam
@@ -129,6 +130,65 @@ fun DashboardTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        lastSimulationError?.let { error ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("season_simulation_error_card"),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                ),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.65f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                text = "SIMULAÇÃO INTERROMPIDA",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.8.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { viewModel.dismissLastSimulationError() },
+                            modifier = Modifier.testTag("dismiss_season_simulation_error_button")
+                        ) {
+                            Text(
+                                text = "DISPENSAR",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
         if (isSimulatingSeason) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
