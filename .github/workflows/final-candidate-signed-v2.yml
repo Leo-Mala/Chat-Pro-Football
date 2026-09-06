@@ -1,5 +1,6 @@
 name: Validate signed season simulation candidate v2
 
+# Historical signer source: published v3.0.1 production evidence.
 on:
   push:
     branches: [diagnostics/final-candidate-7188b09d]
