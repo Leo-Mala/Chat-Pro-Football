@@ -1,0 +1,77 @@
+name: Validate season repair 7188b09d
+
+on:
+  push:
+    branches:
+      - diagnostics/validate-season-repair-7188b09d
+    paths:
+      - .github/workflows/validate-season-repair-7188b09d.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact validation branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: diagnostics/validate-season-repair-7188b09d
+          fetch-depth: 0
+
+      - name: Verify exact repaired parent
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "7188b09d1d2d77dbb48649818718cd9b4c698252"
+          git diff --quiet 7188b09d1d2d77dbb48649818718cd9b4c698252 HEAD -- app/src/main app/src/test app/build.gradle.kts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Verify regression invariants
+        run: |
+          set -euo pipefail
+          ! grep -R -n -E 'shouldPauseSeasonSimulationForExpiringContracts|getControlledRosterExpiringContractCount' app/src/main app/src/test
+          grep -n 'Erro durante a simulação de temporada' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          grep -n 'Simulação interrompida' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          git diff --check 4df4987bd9fe284acdd6c8fb081f5969e568ddc1..7188b09d1d2d77dbb48649818718cd9b4c698252
+
+      - name: Compile repaired sources
+        run: ./gradlew kspDebugKotlin compileDebugKotlin --stacktrace
+
+      - name: Focused season simulation regression
+        run: ./gradlew testDebugUnitTest --tests com.example.ui.viewmodel.SeasonSimulationContinuousRegressionTest --stacktrace
+
+      - name: Broad regression suite without certified stress tests
+        run: ./gradlew testDebugUnitTest -PexcludeStressTests --stacktrace
+
+      - name: Create ephemeral CI debug keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname 'CN=Android Debug,O=Android,C=US' \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Record APK integrity
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' -type f | head -n 1)
+          test -n "$APK"
+          sha256sum "$APK"
+          ls -lh "$APK"
