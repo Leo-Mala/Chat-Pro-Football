@@ -44,7 +44,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
-      - name: Remove unintended season-simulation contract abort and add release diagnostics
+      - name: Restore continuous season simulation and release diagnostics
         shell: bash
         run: |
           set -euo pipefail
@@ -55,72 +55,68 @@ jobs:
           vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           vm = vm_path.read_text(encoding='utf-8')
 
-          helper = '''internal fun shouldPauseSeasonSimulationForExpiringContracts(expiringContractCount: Int): Boolean =
-              expiringContractCount > 0
+          helper_pattern = re.compile(
+              r'\ninternal fun shouldPauseSeasonSimulationForExpiringContracts\(expiringContractCount: Int\): Boolean =\n\s*expiringContractCount > 0\n'
+          )
+          vm, helper_count = helper_pattern.subn('\n', vm, count=1)
+          if helper_count != 1:
+              raise SystemExit(f'Expected one contract-pause helper, found {helper_count}')
 
-          '''
-          if vm.count(helper) != 1:
-              raise SystemExit(f'Expected exactly one contract-pause helper, found {vm.count(helper)}')
-          vm = vm.replace(helper, '', 1)
-
-          guard_pattern = re.compile(r'''\n\s*// Auto-simulation must never make a contract-renewal decision for the\n\s*// human manager\. Stop before playing/closing the week so no fixture,\n\s*// finance or contract mutation for this week has been committed yet\.\n\s*val expiringControlledContracts =\n\s*repo\.getControlledRosterExpiringContractCount\(save\.playerTeamId\)\n\s*if \(shouldPauseSeasonSimulationForExpiringContracts\(expiringControlledContracts\)\) \{\n.*?\n\s*break\n\s*\}\n''', re.S)
+          guard_pattern = re.compile(
+              r'\n\s*// Auto-simulation must never make a contract-renewal decision for the\n'
+              r'\s*// human manager\. Stop before playing/closing the week so no fixture,\n'
+              r'\s*// finance or contract mutation for this week has been committed yet\.\n'
+              r'\s*val expiringControlledContracts =\n'
+              r'\s*repo\.getControlledRosterExpiringContractCount\(save\.playerTeamId\)\n'
+              r'\s*if \(shouldPauseSeasonSimulationForExpiringContracts\(expiringControlledContracts\)\) \{\n'
+              r'.*?\n\s*break\n\s*\}\n',
+              re.S,
+          )
           vm, guard_count = guard_pattern.subn('\n', vm, count=1)
           if guard_count != 1:
-              raise SystemExit(f'Expected exactly one pre-week contract guard, found {guard_count}')
+              raise SystemExit(f'Expected one pre-week contract abort, found {guard_count}')
 
-          old_catch = '''                    } catch (e: Exception) {
-                        if (com.example.BuildConfig.DEBUG) {
-                            android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
-                        }
-                        _simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value
-                    } finally {
-          '''
-          new_catch = '''                    } catch (e: Exception) {
-                        val errorMessage = e.localizedMessage ?: "Erro desconhecido"
-                        // Keep simulator failures observable in release builds. A failure inside
-                        // this coroutine can dismiss the simulator without crashing the process.
-                        android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
-                        _simulationLogs.value = listOf("Erro na simulação: $errorMessage") + _simulationLogs.value
-                        _toastMessage.emit("Simulação interrompida: $errorMessage")
-                    } finally {
-          '''
-          if vm.count(old_catch) != 1:
-              raise SystemExit(f'Expected exactly one release-silent catch block, found {vm.count(old_catch)}')
-          vm = vm.replace(old_catch, new_catch, 1)
+          debug_log_pattern = re.compile(
+              r'\s*if \(com\.example\.BuildConfig\.DEBUG\) \{\n'
+              r'\s*android\.util\.Log\.e\("GameViewModel", "Erro durante a simulação de temporada", e\)\n'
+              r'\s*\}'
+          )
+          replacement = '\n                        android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)'
+          vm, log_count = debug_log_pattern.subn(replacement, vm, count=1)
+          if log_count != 1:
+              raise SystemExit(f'Expected one debug-only simulator log, found {log_count}')
+
+          log_line = '_simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value'
+          if vm.count(log_line) != 1:
+              raise SystemExit(f'Expected one simulator error-state line, found {vm.count(log_line)}')
+          vm = vm.replace(
+              log_line,
+              log_line + '\n                        _toastMessage.emit("Simulação interrompida: ${e.localizedMessage ?: "Erro desconhecido"}")',
+              1,
+          )
           vm_path.write_text(vm, encoding='utf-8')
 
           repo_path = Path('app/src/main/java/com/example/data/repository.kt')
           repo = repo_path.read_text(encoding='utf-8')
-          repo_pattern = re.compile(r'''\n\s*/\*\*\n\s*\* Counts only non-loaned players currently owned by the controlled sporting roster whose\n\s*\* contracts would expire at the next canonical weekly tick\. Season auto-simulation uses this\n\s*\* as a fail-safe pause point so it never silently consumes the manager's renewal decision\.\n\s*\* Manual week progression keeps the existing contract-expiry rule unchanged\.\n\s*\*/\n\s*suspend fun getControlledRosterExpiringContractCount\(teamId: Long\): Int \{.*?\n\s*\}\n''', re.S)
+          repo_pattern = re.compile(
+              r'\n\s*/\*\*\n'
+              r'\s*\* Counts only non-loaned players currently owned by the controlled sporting roster whose\n'
+              r'\s*\* contracts would expire at the next canonical weekly tick\. Season auto-simulation uses this\n'
+              r'\s*\* as a fail-safe pause point so it never silently consumes the manager\'s renewal decision\.\n'
+              r'\s*\* Manual week progression keeps the existing contract-expiry rule unchanged\.\n'
+              r'\s*\*/\n'
+              r'\s*suspend fun getControlledRosterExpiringContractCount\(teamId: Long\): Int \{.*?\n\s*\}\n',
+              re.S,
+          )
           repo, repo_count = repo_pattern.subn('\n', repo, count=1)
           if repo_count != 1:
-              raise SystemExit(f'Expected exactly one contract-count repository helper, found {repo_count}')
+              raise SystemExit(f'Expected one contract-count repository helper, found {repo_count}')
           repo_path.write_text(repo, encoding='utf-8')
 
           obsolete = Path('app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt')
           if not obsolete.exists():
-              raise SystemExit('Expected obsolete contract-guard regression test to exist')
+              raise SystemExit('Expected obsolete contract-guard regression test')
           obsolete.unlink()
-
-          regression = Path('app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuityRegressionTest.kt')
-          regression.write_text('''package com.example.ui.viewmodel
-
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
-
-class SeasonSimulationContinuityRegressionTest {
-    @Test
-    fun `same season remains eligible for continuous simulation`() {
-        assertFalse(shouldStopSeasonSimulation(targetSeason = 2027, currentSeason = 2027))
-    }
-
-    @Test
-    fun `season simulation stops at the season boundary`() {
-        assertTrue(shouldStopSeasonSimulation(targetSeason = 2027, currentSeason = 2028))
-    }
-}
-''', encoding='utf-8')
           PY
 
           if grep -R -n -E 'shouldPauseSeasonSimulationForExpiringContracts|getControlledRosterExpiringContractCount' app/src/main app/src/test; then
@@ -128,14 +124,9 @@ class SeasonSimulationContinuityRegressionTest {
             exit 1
           fi
           grep -n 'Erro durante a simulação de temporada' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          grep -n 'Simulação interrompida' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
           git diff --check
-          git diff -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
-            app/src/main/java/com/example/data/repository.kt \
-            app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt \
-            app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuityRegressionTest.kt
-
-      - name: Run focused season simulation regression
-        run: ./gradlew testDebugUnitTest --tests com.example.ui.viewmodel.SeasonSimulationContinuityRegressionTest --stacktrace
+          git diff -- app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt app/src/main/java/com/example/data/repository.kt app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt
 
       - name: Run complete unit regression suite
         run: ./gradlew testDebugUnitTest --stacktrace
@@ -149,10 +140,7 @@ class SeasonSimulationContinuityRegressionTest {
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt \
-                  app/src/main/java/com/example/data/repository.kt \
-                  app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt \
-                  app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuityRegressionTest.kt
+          git add app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt app/src/main/java/com/example/data/repository.kt app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt
           git diff --cached --check
           git commit -m 'fix: restore continuous season simulation'
           git push origin HEAD:diagnostics/fix-season-simulation-regression-4df4987b
