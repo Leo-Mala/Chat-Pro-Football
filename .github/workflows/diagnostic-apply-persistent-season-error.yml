@@ -38,177 +38,52 @@ jobs:
           vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
           vm = vm_path.read_text()
 
-          old_states = '''    internal val _simulationLogs = MutableStateFlow<List<String>>(emptyList())
-              val simulationLogs: StateFlow<List<String>> = _simulationLogs.asStateFlow()
-          '''
-          new_states = '''    internal val _simulationLogs = MutableStateFlow<List<String>>(emptyList())
-              val simulationLogs: StateFlow<List<String>> = _simulationLogs.asStateFlow()
-
-              internal val _lastSimulationError = MutableStateFlow<String?>(null)
-              val lastSimulationError: StateFlow<String?> = _lastSimulationError.asStateFlow()
-
-              fun dismissLastSimulationError() {
-                  _lastSimulationError.value = null
-              }
-          '''
-          if old_states not in vm:
+          state_anchor = '    val simulationLogs: StateFlow<List<String>> = _simulationLogs.asStateFlow()\n'
+          if state_anchor not in vm:
               raise SystemExit('GameViewModel simulation state anchor not found')
-          vm = vm.replace(old_states, new_states, 1)
+          vm = vm.replace(
+              state_anchor,
+              state_anchor + '''\n    internal val _lastSimulationError = MutableStateFlow<String?>(null)\n    val lastSimulationError: StateFlow<String?> = _lastSimulationError.asStateFlow()\n\n    fun dismissLastSimulationError() {\n        _lastSimulationError.value = null\n    }\n''',
+              1,
+          )
 
-          old_start = '''        _isSimulatingSeason.value = true
-              _simulationLogs.value = emptyList()
-              _simulationCompetitionName.value = "Iniciando simulação..."
-          '''
-          new_start = '''        _isSimulatingSeason.value = true
-              _simulationLogs.value = emptyList()
-              _lastSimulationError.value = null
-              _simulationCompetitionName.value = "Iniciando simulação..."
-          '''
-          if old_start not in vm:
+          start_anchor = '        _simulationLogs.value = emptyList()\n        _simulationCompetitionName.value = "Iniciando simulação..."\n'
+          if start_anchor not in vm:
               raise SystemExit('GameViewModel simulation start anchor not found')
-          vm = vm.replace(old_start, new_start, 1)
+          vm = vm.replace(
+              start_anchor,
+              '        _simulationLogs.value = emptyList()\n        _lastSimulationError.value = null\n        _simulationCompetitionName.value = "Iniciando simulação..."\n',
+              1,
+          )
 
-          old_catch = '''                    } catch (e: Exception) {
-                                  android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
-                                  _simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value
-                                  _toastMessage.emit("Simulação interrompida: ${e.localizedMessage ?: "Erro desconhecido"}")
-                              } finally {
-          '''
-          new_catch = '''                    } catch (e: Exception) {
-                                  android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
-                                  val errorSave = runCatching { repo.getGameSave() }.getOrNull()
-                                  val errorSeason = errorSave?.currentSeason ?: gameSave.value?.currentSeason
-                                  val errorWeek = errorSave?.currentWeek ?: _simulationCurrentWeek.value
-                                  val errorType = e.javaClass.simpleName.ifBlank { e.javaClass.name }
-                                  val errorMessage = e.localizedMessage ?: "Erro desconhecido"
-                                  val errorDetail = "Temp. ${errorSeason ?: "?"} | Sem. $errorWeek | $errorType: $errorMessage"
-                                  _lastSimulationError.value = errorDetail
-                                  _simulationLogs.value = listOf("Erro na simulação: $errorDetail") + _simulationLogs.value
-                                  _toastMessage.emit("Simulação interrompida: $errorMessage")
-                              } finally {
-          '''
-          if old_catch not in vm:
+          catch_anchor = '''                        android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)\n                        _simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value\n                        _toastMessage.emit("Simulação interrompida: ${e.localizedMessage ?: "Erro desconhecido"}")\n'''
+          if catch_anchor not in vm:
               raise SystemExit('GameViewModel catch anchor not found')
-          vm = vm.replace(old_catch, new_catch, 1)
+          catch_replacement = '''                        android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)\n                        val errorSave = runCatching { repo.getGameSave() }.getOrNull()\n                        val errorSeason = errorSave?.currentSeason ?: gameSave.value?.currentSeason\n                        val errorWeek = errorSave?.currentWeek ?: _simulationCurrentWeek.value\n                        val errorType = e.javaClass.simpleName.ifBlank { e.javaClass.name }\n                        val errorMessage = e.localizedMessage ?: "Erro desconhecido"\n                        val errorDetail = "Temp. ${errorSeason ?: "?"} | Sem. $errorWeek | $errorType: $errorMessage"\n                        _lastSimulationError.value = errorDetail\n                        _simulationLogs.value = listOf("Erro na simulação: $errorDetail") + _simulationLogs.value\n                        _toastMessage.emit("Simulação interrompida: $errorMessage")\n'''
+          vm = vm.replace(catch_anchor, catch_replacement, 1)
           vm_path.write_text(vm)
 
           dashboard_path = Path('app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt')
           dashboard = dashboard_path.read_text()
 
-          old_collect = '''    val simLogs by viewModel.simulationLogs.collectAsStateWithLifecycle()
-          '''
-          new_collect = '''    val simLogs by viewModel.simulationLogs.collectAsStateWithLifecycle()
-              val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()
-          '''
-          if old_collect not in dashboard:
+          collect_anchor = '    val simLogs by viewModel.simulationLogs.collectAsStateWithLifecycle()\n'
+          if collect_anchor not in dashboard:
               raise SystemExit('Dashboard simulation state anchor not found')
-          dashboard = dashboard.replace(old_collect, new_collect, 1)
+          dashboard = dashboard.replace(
+              collect_anchor,
+              collect_anchor + '    val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()\n',
+              1,
+          )
 
-          old_column = '''    Column(
-                  modifier = Modifier
-                      .fillMaxSize()
-                      .verticalScroll(rememberScrollState()),
-                  verticalArrangement = Arrangement.spacedBy(16.dp)
-              ) {
-                  if (isSimulatingSeason) {
-          '''
-          new_column = '''    Column(
-                  modifier = Modifier
-                      .fillMaxSize()
-                      .verticalScroll(rememberScrollState()),
-                  verticalArrangement = Arrangement.spacedBy(16.dp)
-              ) {
-                  lastSimulationError?.let { error ->
-                      Card(
-                          modifier = Modifier
-                              .fillMaxWidth()
-                              .testTag("season_simulation_error_card"),
-                          colors = CardDefaults.cardColors(
-                              containerColor = MaterialTheme.colorScheme.errorContainer
-                          ),
-                          shape = RoundedCornerShape(20.dp),
-                          border = BorderStroke(
-                              1.dp,
-                              MaterialTheme.colorScheme.error.copy(alpha = 0.65f)
-                          )
-                      ) {
-                          Column(modifier = Modifier.padding(16.dp)) {
-                              Row(
-                                  modifier = Modifier.fillMaxWidth(),
-                                  horizontalArrangement = Arrangement.SpaceBetween,
-                                  verticalAlignment = Alignment.CenterVertically
-                              ) {
-                                  Row(
-                                      verticalAlignment = Alignment.CenterVertically,
-                                      horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                  ) {
-                                      Icon(
-                                          imageVector = Icons.Default.Warning,
-                                          contentDescription = null,
-                                          tint = MaterialTheme.colorScheme.error
-                                      )
-                                      Text(
-                                          text = "SIMULAÇÃO INTERROMPIDA",
-                                          color = MaterialTheme.colorScheme.onErrorContainer,
-                                          fontSize = 12.sp,
-                                          fontWeight = FontWeight.Black,
-                                          letterSpacing = 0.8.sp
-                                      )
-                                  }
-                                  TextButton(
-                                      onClick = { viewModel.dismissLastSimulationError() },
-                                      modifier = Modifier.testTag("dismiss_season_simulation_error_button")
-                                  ) {
-                                      Text(
-                                          text = "DISPENSAR",
-                                          color = MaterialTheme.colorScheme.error,
-                                          fontWeight = FontWeight.Bold
-                                      )
-                                  }
-                              }
-                              Spacer(modifier = Modifier.height(8.dp))
-                              Text(
-                                  text = error,
-                                  color = MaterialTheme.colorScheme.onErrorContainer,
-                                  fontSize = 12.sp,
-                                  fontWeight = FontWeight.Medium
-                              )
-                          }
-                      }
-                  }
-
-                  if (isSimulatingSeason) {
-          '''
-          if old_column not in dashboard:
+          top_anchor = '''    ) {\n        if (isSimulatingSeason) {\n'''
+          if top_anchor not in dashboard:
               raise SystemExit('Dashboard top-level simulation anchor not found')
-          dashboard = dashboard.replace(old_column, new_column, 1)
+          persistent_card = '''    ) {\n        lastSimulationError?.let { error ->\n            Card(\n                modifier = Modifier\n                    .fillMaxWidth()\n                    .testTag("season_simulation_error_card"),\n                colors = CardDefaults.cardColors(\n                    containerColor = MaterialTheme.colorScheme.errorContainer\n                ),\n                shape = RoundedCornerShape(20.dp),\n                border = BorderStroke(\n                    1.dp,\n                    MaterialTheme.colorScheme.error.copy(alpha = 0.65f)\n                )\n            ) {\n                Column(modifier = Modifier.padding(16.dp)) {\n                    Row(\n                        modifier = Modifier.fillMaxWidth(),\n                        horizontalArrangement = Arrangement.SpaceBetween,\n                        verticalAlignment = Alignment.CenterVertically\n                    ) {\n                        Row(\n                            verticalAlignment = Alignment.CenterVertically,\n                            horizontalArrangement = Arrangement.spacedBy(8.dp)\n                        ) {\n                            Icon(\n                                imageVector = Icons.Default.Warning,\n                                contentDescription = null,\n                                tint = MaterialTheme.colorScheme.error\n                            )\n                            Text(\n                                text = "SIMULAÇÃO INTERROMPIDA",\n                                color = MaterialTheme.colorScheme.onErrorContainer,\n                                fontSize = 12.sp,\n                                fontWeight = FontWeight.Black,\n                                letterSpacing = 0.8.sp\n                            )\n                        }\n                        TextButton(\n                            onClick = { viewModel.dismissLastSimulationError() },\n                            modifier = Modifier.testTag("dismiss_season_simulation_error_button")\n                        ) {\n                            Text(\n                                text = "DISPENSAR",\n                                color = MaterialTheme.colorScheme.error,\n                                fontWeight = FontWeight.Bold\n                            )\n                        }\n                    }\n                    Spacer(modifier = Modifier.height(8.dp))\n                    Text(\n                        text = error,\n                        color = MaterialTheme.colorScheme.onErrorContainer,\n                        fontSize = 12.sp,\n                        fontWeight = FontWeight.Medium\n                    )\n                }\n            }\n        }\n\n        if (isSimulatingSeason) {\n'''
+          dashboard = dashboard.replace(top_anchor, persistent_card, 1)
           dashboard_path.write_text(dashboard)
 
           test_path = Path('app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuousRegressionTest.kt')
-          test = test_path.read_text()
-          anchor = '''        assertFalse(source.contains("if (com.example.BuildConfig.DEBUG) {\\n                            android.util.Log.e(\\"GameViewModel\\", \\"Erro durante a simulação de temporada\\", e)"))
-              }
-          }
-          '''
-          replacement = '''        assertFalse(source.contains("if (com.example.BuildConfig.DEBUG) {\\n                            android.util.Log.e(\\"GameViewModel\\", \\"Erro durante a simulação de temporada\\", e)"))
-                  assertTrue(source.contains("internal val _lastSimulationError = MutableStateFlow<String?>(null)"))
-                  assertTrue(source.contains("_lastSimulationError.value = null"))
-                  assertTrue(source.contains("val errorSave = runCatching { repo.getGameSave() }.getOrNull()"))
-                  assertTrue(source.contains("_lastSimulationError.value = errorDetail"))
-
-                  val dashboard = File("src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt").readText()
-                  assertTrue(dashboard.contains("val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()"))
-                  assertTrue(dashboard.contains("lastSimulationError?.let { error ->"))
-                  assertTrue(dashboard.contains("SIMULAÇÃO INTERROMPIDA"))
-                  assertTrue(dashboard.contains("viewModel.dismissLastSimulationError()"))
-                  assertTrue(dashboard.contains("season_simulation_error_card"))
-              }
-          }
-          '''
-          if anchor not in test:
-              raise SystemExit('SeasonSimulationContinuousRegressionTest anchor not found')
-          test = test.replace(anchor, replacement, 1)
-          test_path.write_text(test)
+          test_path.write_text('''package com.example.ui.viewmodel\n\nimport java.io.File\nimport org.junit.Assert.assertFalse\nimport org.junit.Assert.assertTrue\nimport org.junit.Test\n\nclass SeasonSimulationContinuousRegressionTest {\n    @Test\n    fun seasonSimulationDoesNotStopForExpiringControlledContracts() {\n        val source = File("src/main/java/com/example/ui/viewmodel/GameViewModel.kt").readText()\n        assertFalse(source.contains("shouldPauseSeasonSimulationForExpiringContracts"))\n        assertFalse(source.contains("getControlledRosterExpiringContractCount"))\n        assertFalse(source.contains("Stop before playing/closing the week"))\n    }\n\n    @Test\n    fun simulationFailureRemainsDiagnosableAfterReturningToIdle() {\n        val source = File("src/main/java/com/example/ui/viewmodel/GameViewModel.kt").readText()\n        assertTrue(source.contains("android.util.Log.e(\\\"GameViewModel\\\", \\\"Erro durante a simulação de temporada\\\", e)"))\n        assertTrue(source.contains("_toastMessage.emit(\\\"Simulação interrompida: $errorMessage\\\")"))\n        assertFalse(source.contains("if (com.example.BuildConfig.DEBUG) {\\n                            android.util.Log.e(\\\"GameViewModel\\\", \\\"Erro durante a simulação de temporada\\\", e)"))\n        assertTrue(source.contains("internal val _lastSimulationError = MutableStateFlow<String?>(null)"))\n        assertTrue(source.contains("val lastSimulationError: StateFlow<String?> = _lastSimulationError.asStateFlow()"))\n        assertTrue(source.contains("fun dismissLastSimulationError()"))\n        assertTrue(source.contains("_lastSimulationError.value = null"))\n        assertTrue(source.contains("val errorSave = runCatching { repo.getGameSave() }.getOrNull()"))\n        assertTrue(source.contains("val errorDetail = \\\"Temp. ${errorSeason ?: \\\"?\\\"} | Sem. $errorWeek | $errorType: $errorMessage\\\""))\n        assertTrue(source.contains("_lastSimulationError.value = errorDetail"))\n\n        val dashboard = File("src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt").readText()\n        assertTrue(dashboard.contains("val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()"))\n        assertTrue(dashboard.contains("lastSimulationError?.let { error ->"))\n        assertTrue(dashboard.contains("SIMULAÇÃO INTERROMPIDA"))\n        assertTrue(dashboard.contains("viewModel.dismissLastSimulationError()"))\n        assertTrue(dashboard.contains("season_simulation_error_card"))\n    }\n}\n''')
           PY
 
       - name: Run focused regression and compile
