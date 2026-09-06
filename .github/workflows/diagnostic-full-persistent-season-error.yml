@@ -1,0 +1,38 @@
+name: Diagnostic full persistent season error certification
+
+on:
+  push:
+    branches:
+      - diagnostics/persistent-season-error-7188b09d
+
+permissions:
+  contents: write
+
+jobs:
+  full-unit-certification:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Full non-stress unit suite
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest
+      - name: Remove temporary certification workflow
+        if: success()
+        run: |
+          rm -f .github/workflows/diagnostic-full-persistent-season-error.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "ci: remove persistent error certification workflow"
+          git push origin HEAD:diagnostics/persistent-season-error-7188b09d
