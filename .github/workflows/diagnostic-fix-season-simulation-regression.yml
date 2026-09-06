@@ -98,19 +98,23 @@ jobs:
 
           repo_path = Path('app/src/main/java/com/example/data/repository.kt')
           repo = repo_path.read_text(encoding='utf-8')
-          repo_pattern = re.compile(
-              r'\n\s*/\*\*\n'
-              r'\s*\* Counts only non-loaned players currently owned by the controlled sporting roster whose\n'
-              r'\s*\* contracts would expire at the next canonical weekly tick\. Season auto-simulation uses this\n'
-              r'\s*\* as a fail-safe pause point so it never silently consumes the manager\'s renewal decision\.\n'
-              r'\s*\* Manual week progression keeps the existing contract-expiry rule unchanged\.\n'
-              r'\s*\*/\n'
-              r'\s*suspend fun getControlledRosterExpiringContractCount\(teamId: Long\): Int \{.*?\n\s*\}\n',
-              re.S,
-          )
-          repo, repo_count = repo_pattern.subn('\n', repo, count=1)
-          if repo_count != 1:
-              raise SystemExit(f'Expected one contract-count repository helper, found {repo_count}')
+          start_marker = '''    /**
+     * Counts only non-loaned players currently owned by the controlled sporting roster whose
+     * contracts would expire at the next canonical weekly tick. Season auto-simulation uses this
+'''
+          end_marker = '    suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()\n'
+          start = repo.find(start_marker)
+          if start < 0:
+              raise SystemExit('Expected contract-count repository helper start marker')
+          end = repo.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('Expected getFreeAgents marker after contract-count repository helper')
+          removed = repo[start:end]
+          if removed.count('suspend fun getControlledRosterExpiringContractCount') != 1:
+              raise SystemExit('Repository removal range did not contain exactly one contract-count helper')
+          if 'suspend fun getFreeAgents' in removed or 'processWeeklyPlayerContractTick' in removed:
+              raise SystemExit('Repository removal range crossed an unrelated function boundary')
+          repo = repo[:start] + repo[end:]
           repo_path.write_text(repo, encoding='utf-8')
 
           obsolete = Path('app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContractGuardRegressionTest.kt')
@@ -125,6 +129,8 @@ jobs:
           fi
           grep -n 'Erro durante a simulação de temporada' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
           grep -n 'Simulação interrompida' app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          grep -n 'suspend fun getFreeAgents' app/src/main/java/com/example/data/repository.kt
+          grep -n 'suspend fun processWeeklyPlayerContractTick' app/src/main/java/com/example/data/repository.kt
           git diff --check
 
       - name: Run complete unit regression suite
@@ -142,8 +148,12 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -f season-simulation-unit-test-output.log
-          git commit -m 'test: capture season simulation regression failure'
-          git push origin HEAD:diagnostics/fix-season-simulation-regression-4df4987b
+          if git diff --cached --quiet; then
+            echo 'Failure log unchanged; evidence already persisted.'
+          else
+            git commit -m 'test: capture season simulation regression failure'
+            git push origin HEAD:diagnostics/fix-season-simulation-regression-4df4987b
+          fi
 
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
