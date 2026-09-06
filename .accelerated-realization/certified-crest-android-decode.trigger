@@ -1,4 +1,4 @@
 certified-crest-android-decode exact-candidate gate
-candidate-parent=b276c7d868ee32484c9aad0db91a0c176893ff50
-candidate-reason=preserve-host-golden-native-android-crests
-candidate-sequence=20260905-host-golden-native-android-crests
+candidate-parent=b2a029c046decd05daa29b697afcaf32ed18968d
+candidate-reason=persistent-season-simulation-error-diagnostics
+candidate-sequence=20260906-persistent-season-simulation-error
