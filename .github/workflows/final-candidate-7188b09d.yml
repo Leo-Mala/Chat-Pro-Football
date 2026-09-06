@@ -114,7 +114,12 @@ jobs:
           cert_sha="$(awk -F': ' '/SHA256:/ {print $2; exit}' "$RUNNER_TEMP/keytool-signing.txt")"
           actual_cert="$(printf '%s' "$cert_sha" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
           expected_cert="$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
-          test "$actual_cert" = "$expected_cert"
+          echo "actual signing cert sha256=$actual_cert"
+          echo "expected signing cert sha256=$expected_cert"
+          if [ "$actual_cert" != "$expected_cert" ]; then
+            echo "::error::signing certificate mismatch"
+            exit 22
+          fi
           echo "KEYSTORE_PATH=$release_keystore" >> "$GITHUB_ENV"
           echo "SIGNING_CERT_SHA256=$actual_cert" >> "$GITHUB_ENV"
 
