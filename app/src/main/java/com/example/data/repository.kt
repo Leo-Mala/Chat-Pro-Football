@@ -187,29 +187,6 @@ class GameRepository(internal val db: AppDatabase) {
     suspend fun getPlayersByTeam(teamId: Long?): List<Player> = db.playerDao().getPlayersByTeam(teamId)
     suspend fun getPlayerCountByTeam(teamId: Long?): Int = db.playerDao().getPlayerCountByTeam(teamId)
 
-    /**
-     * Counts only non-loaned players currently owned by the controlled sporting roster whose
-     * contracts would expire at the next canonical weekly tick. Season auto-simulation uses this
-     * as a fail-safe pause point so it never silently consumes the manager's renewal decision.
-     * Manual week progression keeps the existing contract-expiry rule unchanged.
-     */
-    suspend fun getControlledRosterExpiringContractCount(teamId: Long): Int {
-        if (teamId <= 0L) return 0
-        return db.openHelper.readableDatabase.query(
-            """
-            SELECT COUNT(*) AS expiringCount
-            FROM players
-            WHERE teamId = ?
-              AND isOnLoan = 0
-              AND contractDurationWeeks = 1
-            """.trimIndent(),
-            arrayOf<Any>(teamId)
-        ).use { cursor ->
-            check(cursor.moveToFirst())
-            cursor.getInt(cursor.getColumnIndexOrThrow("expiringCount"))
-        }
-    }
-
     suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()
     suspend fun getPlayer(id: Long): Player? = db.playerDao().getPlayer(id)
 
