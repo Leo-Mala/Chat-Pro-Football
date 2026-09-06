@@ -1,0 +1,162 @@
+name: Validate signed season simulation candidate v2
+
+on:
+  push:
+    branches: [diagnostics/final-candidate-7188b09d]
+    paths: [.github/workflows/final-candidate-signed-v2.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_BASE_SHA: 7188b09d1d2d77dbb48649818718cd9b4c698252
+      CERTIFIED_CREST_DRIVE_FILE_ID: 1fPuUUDmaIut5gapYztvujNWHeRSRbtF3
+      EXPECTED_ARCHIVE_SIZE: '11751550'
+      EXPECTED_ARCHIVE_SHA256: 3b8419298e03a593f23c750a91fda7613f3af395dcd770c13c9f17278f265dc3
+      EXPECTED_CLUB_CRESTS: '1907'
+      EXPECTED_FACTUAL_CRESTS: '617'
+      EXPECTED_TOTAL_CRESTS: '2524'
+      EXPECTED_CREST_FINGERPRINT: d1e1d99114739fe4827a5aa37af2e0f7b71829dd87966ba406ddc622d6050e90
+      EXPECTED_SIGNING_CERT_SHA256: c632ae8fc103cdd882496164b6e691cfdb312b256bba5984ccdaba686e1acf4c
+      EXPECTED_NATIVE_SO_COUNT: '8'
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Prove app tree is exact official candidate
+        shell: bash
+        run: git diff --exit-code "$EXPECTED_BASE_SHA" -- app/src/main app/src/test app/build.gradle.kts
+
+      - name: Recover and verify exact certified crest runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/crests"; archive="$work/crests.tar.zst"; recovered="$work/recovered"
+          rm -rf "$work" app/src/main/assets/club_crests
+          mkdir -p "$recovered" app/src/main/assets/club_crests
+          curl --fail --location --show-error --silent --retry 3 --retry-all-errors \
+            "https://drive.usercontent.google.com/download?id=${CERTIFIED_CREST_DRIVE_FILE_ID}&export=download&confirm=t" -o "$archive"
+          test "$(stat -c '%s' "$archive")" = "$EXPECTED_ARCHIVE_SIZE"
+          test "$(sha256sum "$archive" | awk '{print $1}')" = "$EXPECTED_ARCHIVE_SHA256"
+          tar --zstd -xf "$archive" -C "$recovered"
+          src="$recovered/club_crests"
+          test "$(find "$src" -maxdepth 1 -type f -name 'club_*.webp' | wc -l)" = "$EXPECTED_CLUB_CRESTS"
+          test "$(find "$src" -maxdepth 1 -type f -name 'factual_*.webp' | wc -l)" = "$EXPECTED_FACTUAL_CRESTS"
+          test "$(find "$src" -maxdepth 1 -type f -name '*.webp' | wc -l)" = "$EXPECTED_TOTAL_CRESTS"
+          fp="$(python3 - "$src" <<'PY'
+          import hashlib,pathlib,sys
+          h=hashlib.sha256(); root=pathlib.Path(sys.argv[1])
+          for p in sorted(root.glob('*.webp'),key=lambda p:p.name):
+              h.update(('assets/club_crests/'+p.name).encode()); h.update(b'\0'); h.update(hashlib.sha256(p.read_bytes()).digest())
+          print(h.hexdigest())
+          PY
+          )"
+          test "$fp" = "$EXPECTED_CREST_FINGERPRINT"
+          cp "$src"/*.webp app/src/main/assets/club_crests/
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Prepare Android validation files
+        shell: bash
+        run: |
+          cat > app/google-services.json <<'EOF'
+          {"project_info":{"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],"configuration_version":"1"}
+          EOF
+          chmod +x gradlew
+
+      - name: Verify published 3.0.1 signing identity
+        shell: bash
+        env:
+          PRODUCTION_KEYSTORE_BASE64: ${{ secrets.PRODUCTION_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.PRODUCTION_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PRODUCTION_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PRODUCTION_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for var in PRODUCTION_KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do test -n "${!var:-}"; done
+          ks="$RUNNER_TEMP/pro-football-manual-test.jks"
+          printf '%s' "$PRODUCTION_KEYSTORE_BASE64" | base64 --decode > "$ks"; chmod 600 "$ks"
+          cert="$(keytool -list -v -keystore "$ks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/ {print $2; exit}' | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"
+          test "$cert" = "$EXPECTED_SIGNING_CERT_SHA256"
+          echo "KEYSTORE_PATH=$ks" >> "$GITHUB_ENV"
+          echo "SIGNING_CERT_SHA256=$cert" >> "$GITHUB_ENV"
+
+      - name: Run season simulation regression tests
+        shell: bash
+        run: |
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.SeasonSimulationContinuousRegressionTest \
+            --tests com.example.usecase.SeasonSimulationCompletionRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest --stacktrace
+
+      - name: Run broad regression suite without certified stress benchmarks
+        shell: bash
+        run: ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+
+      - name: Build historical-key release APK
+        shell: bash
+        env:
+          STORE_PASSWORD: ${{ secrets.PRODUCTION_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PRODUCTION_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PRODUCTION_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease -PrequireProductionSigning=true --stacktrace
+          apk="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"; test -n "$apk"
+          mkdir -p manual-test-apk
+          out="manual-test-apk/Pro-Football-3.0.1-Teste-Manual-Simulacao-Temporada-${EXPECTED_BASE_SHA}.apk"
+          cp "$apk" "$out"; sha256sum "$out" | tee manual-test-apk/SHA256SUMS.txt
+
+      - name: Validate installable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find manual-test-apk -name '*.apk' -print -quit)"; unzip -t "$apk" >/dev/null
+          total="$(unzip -Z1 "$apk" | grep -c '^assets/club_crests/[^/]*$' || true)"
+          club="$(unzip -Z1 "$apk" | grep -Ec '^assets/club_crests/club_[0-9]+\.webp$' || true)"
+          factual="$(unzip -Z1 "$apk" | grep -Ec '^assets/club_crests/factual_[0-9]+\.webp$' || true)"
+          test "$total" = "$EXPECTED_TOTAL_CRESTS"; test "$club" = "$EXPECTED_CLUB_CRESTS"; test "$factual" = "$EXPECTED_FACTUAL_CRESTS"
+          fp="$(python3 - "$apk" <<'PY'
+          import hashlib,pathlib,sys,zipfile
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              names=sorted(n for n in z.namelist() if n.startswith('assets/club_crests/') and not n.endswith('/')); h=hashlib.sha256()
+              for n in names:
+                  h.update(('assets/club_crests/'+pathlib.PurePosixPath(n).name).encode()); h.update(b'\0'); h.update(hashlib.sha256(z.read(n)).digest())
+              print(h.hexdigest())
+          PY
+          )"
+          test "$fp" = "$EXPECTED_CREST_FINGERPRINT"
+          test "$(unzip -Z1 "$apk" | grep -Ec '^lib/[^/]+/[^/]+\.so$' || true)" = "$EXPECTED_NATIVE_SO_COUNT"
+          bt="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)"
+          "$ANDROID_HOME/build-tools/$bt/zipalign" -c -P 16 -v 4 "$apk" | tee manual-test-apk/ALIGNMENT_16K.txt
+          "$ANDROID_HOME/build-tools/$bt/apksigner" verify --verbose --print-certs "$apk" | tee manual-test-apk/SIGNATURE.txt
+          grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' manual-test-apk/SIGNATURE.txt
+          cert="$(awk -F': ' '/certificate SHA-256 digest/ {print $NF; exit}' manual-test-apk/SIGNATURE.txt | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')"; test "$cert" = "$SIGNING_CERT_SHA256"
+          "$ANDROID_HOME/build-tools/$bt/aapt" dump badging "$apk" | tee manual-test-apk/BADGING.txt
+          grep -q "package: name='com.aistudio.brasfutretro.djuxzt' versionCode='32' versionName='3.0.1'" manual-test-apk/BADGING.txt
+          printf 'commit=%s\ncrest_total=%s\nclub=%s\nfactual=%s\nfingerprint=%s\nsigning_certificate_sha256=%s\n' "$EXPECTED_BASE_SHA" "$total" "$club" "$factual" "$fp" "$cert" | tee manual-test-apk/VALIDATION.txt
+
+      - name: Upload installable candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pro-football-3.0.1-season-simulation-signed-${{ github.sha }}
+          path: manual-test-apk/
+          if-no-files-found: error
+          retention-days: 7
