@@ -98,10 +98,7 @@ jobs:
 
           repo_path = Path('app/src/main/java/com/example/data/repository.kt')
           repo = repo_path.read_text(encoding='utf-8')
-          start_marker = '''    /**
-     * Counts only non-loaned players currently owned by the controlled sporting roster whose
-     * contracts would expire at the next canonical weekly tick. Season auto-simulation uses this
-'''
+          start_marker = '    /**\n     * Counts only non-loaned players currently owned by the controlled sporting roster whose\n     * contracts would expire at the next canonical weekly tick. Season auto-simulation uses this\n'
           end_marker = '    suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()\n'
           start = repo.find(start_marker)
           if start < 0:
