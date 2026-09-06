@@ -704,6 +704,13 @@ class GameViewModel @Inject constructor(
     internal val _simulationLogs = MutableStateFlow<List<String>>(emptyList())
     val simulationLogs: StateFlow<List<String>> = _simulationLogs.asStateFlow()
 
+    internal val _lastSimulationError = MutableStateFlow<String?>(null)
+    val lastSimulationError: StateFlow<String?> = _lastSimulationError.asStateFlow()
+
+    fun dismissLastSimulationError() {
+        _lastSimulationError.value = null
+    }
+
     val dashboardUiState: StateFlow<DashboardUiState> = combine(
         gameSave,
         playerTeam,
@@ -969,6 +976,7 @@ class GameViewModel @Inject constructor(
         if (_isSimulatingSeason.value) return
         _isSimulatingSeason.value = true
         _simulationLogs.value = emptyList()
+        _lastSimulationError.value = null
         _simulationCompetitionName.value = "Iniciando simulação..."
         _simulationMatchInfo.value = "Processando rodada..."
         gameSave.value?.let { _simulationCurrentWeek.value = it.currentWeek }
@@ -1055,8 +1063,15 @@ class GameViewModel @Inject constructor(
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
-                        _simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value
-                        _toastMessage.emit("Simulação interrompida: ${e.localizedMessage ?: "Erro desconhecido"}")
+                        val errorSave = runCatching { repo.getGameSave() }.getOrNull()
+                        val errorSeason = errorSave?.currentSeason ?: gameSave.value?.currentSeason
+                        val errorWeek = errorSave?.currentWeek ?: _simulationCurrentWeek.value
+                        val errorType = e.javaClass.simpleName.ifBlank { e.javaClass.name }
+                        val errorMessage = e.localizedMessage ?: "Erro desconhecido"
+                        val errorDetail = "Temp. ${errorSeason ?: "?"} | Sem. $errorWeek | $errorType: $errorMessage"
+                        _lastSimulationError.value = errorDetail
+                        _simulationLogs.value = listOf("Erro na simulação: $errorDetail") + _simulationLogs.value
+                        _toastMessage.emit("Simulação interrompida: $errorMessage")
                     } finally {
                         _isSimulatingSeason.value = false
                         if (_autoSaveEnabled.value) {
