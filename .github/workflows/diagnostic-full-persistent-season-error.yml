@@ -1,4 +1,4 @@
-name: Diagnostic exact 454345 persistent season error certification
+name: Diagnostic exact clean persistent season error certification
 
 on:
   push:
@@ -9,22 +9,22 @@ permissions:
   contents: read
 
 jobs:
-  exact-nonstress-unit-certification:
+  exact-clean-nonstress-unit-certification:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - name: Checkout exact diagnostic patch commit
+      - name: Checkout exact clean candidate commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: 454345032f32fa4e14aba9fbb3ee08f0b10de5f0
+          ref: b2a029c046decd05daa29b697afcaf32ed18968d
           fetch-depth: 1
 
       - name: Verify exact candidate SHA
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "454345032f32fa4e14aba9fbb3ee08f0b10de5f0"
+          test "$(git rev-parse HEAD)" = "b2a029c046decd05daa29b697afcaf32ed18968d"
 
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
