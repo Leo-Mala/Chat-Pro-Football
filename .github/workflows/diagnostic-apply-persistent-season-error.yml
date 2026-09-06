@@ -1,0 +1,229 @@
+name: Diagnostic apply persistent season error
+
+on:
+  push:
+    branches:
+      - diagnostics/persistent-season-error-7188b09d
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply persistent simulation error patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          vm_path = Path('app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt')
+          vm = vm_path.read_text()
+
+          old_states = '''    internal val _simulationLogs = MutableStateFlow<List<String>>(emptyList())
+              val simulationLogs: StateFlow<List<String>> = _simulationLogs.asStateFlow()
+          '''
+          new_states = '''    internal val _simulationLogs = MutableStateFlow<List<String>>(emptyList())
+              val simulationLogs: StateFlow<List<String>> = _simulationLogs.asStateFlow()
+
+              internal val _lastSimulationError = MutableStateFlow<String?>(null)
+              val lastSimulationError: StateFlow<String?> = _lastSimulationError.asStateFlow()
+
+              fun dismissLastSimulationError() {
+                  _lastSimulationError.value = null
+              }
+          '''
+          if old_states not in vm:
+              raise SystemExit('GameViewModel simulation state anchor not found')
+          vm = vm.replace(old_states, new_states, 1)
+
+          old_start = '''        _isSimulatingSeason.value = true
+              _simulationLogs.value = emptyList()
+              _simulationCompetitionName.value = "Iniciando simulação..."
+          '''
+          new_start = '''        _isSimulatingSeason.value = true
+              _simulationLogs.value = emptyList()
+              _lastSimulationError.value = null
+              _simulationCompetitionName.value = "Iniciando simulação..."
+          '''
+          if old_start not in vm:
+              raise SystemExit('GameViewModel simulation start anchor not found')
+          vm = vm.replace(old_start, new_start, 1)
+
+          old_catch = '''                    } catch (e: Exception) {
+                                  android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
+                                  _simulationLogs.value = listOf("Erro na simulação: ${e.localizedMessage ?: "Erro desconhecido"}") + _simulationLogs.value
+                                  _toastMessage.emit("Simulação interrompida: ${e.localizedMessage ?: "Erro desconhecido"}")
+                              } finally {
+          '''
+          new_catch = '''                    } catch (e: Exception) {
+                                  android.util.Log.e("GameViewModel", "Erro durante a simulação de temporada", e)
+                                  val errorSave = runCatching { repo.getGameSave() }.getOrNull()
+                                  val errorSeason = errorSave?.currentSeason ?: gameSave.value?.currentSeason
+                                  val errorWeek = errorSave?.currentWeek ?: _simulationCurrentWeek.value
+                                  val errorType = e.javaClass.simpleName.ifBlank { e.javaClass.name }
+                                  val errorMessage = e.localizedMessage ?: "Erro desconhecido"
+                                  val errorDetail = "Temp. ${errorSeason ?: "?"} | Sem. $errorWeek | $errorType: $errorMessage"
+                                  _lastSimulationError.value = errorDetail
+                                  _simulationLogs.value = listOf("Erro na simulação: $errorDetail") + _simulationLogs.value
+                                  _toastMessage.emit("Simulação interrompida: $errorMessage")
+                              } finally {
+          '''
+          if old_catch not in vm:
+              raise SystemExit('GameViewModel catch anchor not found')
+          vm = vm.replace(old_catch, new_catch, 1)
+          vm_path.write_text(vm)
+
+          dashboard_path = Path('app/src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt')
+          dashboard = dashboard_path.read_text()
+
+          old_collect = '''    val simLogs by viewModel.simulationLogs.collectAsStateWithLifecycle()
+          '''
+          new_collect = '''    val simLogs by viewModel.simulationLogs.collectAsStateWithLifecycle()
+              val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()
+          '''
+          if old_collect not in dashboard:
+              raise SystemExit('Dashboard simulation state anchor not found')
+          dashboard = dashboard.replace(old_collect, new_collect, 1)
+
+          old_column = '''    Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .verticalScroll(rememberScrollState()),
+                  verticalArrangement = Arrangement.spacedBy(16.dp)
+              ) {
+                  if (isSimulatingSeason) {
+          '''
+          new_column = '''    Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .verticalScroll(rememberScrollState()),
+                  verticalArrangement = Arrangement.spacedBy(16.dp)
+              ) {
+                  lastSimulationError?.let { error ->
+                      Card(
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .testTag("season_simulation_error_card"),
+                          colors = CardDefaults.cardColors(
+                              containerColor = MaterialTheme.colorScheme.errorContainer
+                          ),
+                          shape = RoundedCornerShape(20.dp),
+                          border = BorderStroke(
+                              1.dp,
+                              MaterialTheme.colorScheme.error.copy(alpha = 0.65f)
+                          )
+                      ) {
+                          Column(modifier = Modifier.padding(16.dp)) {
+                              Row(
+                                  modifier = Modifier.fillMaxWidth(),
+                                  horizontalArrangement = Arrangement.SpaceBetween,
+                                  verticalAlignment = Alignment.CenterVertically
+                              ) {
+                                  Row(
+                                      verticalAlignment = Alignment.CenterVertically,
+                                      horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                  ) {
+                                      Icon(
+                                          imageVector = Icons.Default.Warning,
+                                          contentDescription = null,
+                                          tint = MaterialTheme.colorScheme.error
+                                      )
+                                      Text(
+                                          text = "SIMULAÇÃO INTERROMPIDA",
+                                          color = MaterialTheme.colorScheme.onErrorContainer,
+                                          fontSize = 12.sp,
+                                          fontWeight = FontWeight.Black,
+                                          letterSpacing = 0.8.sp
+                                      )
+                                  }
+                                  TextButton(
+                                      onClick = { viewModel.dismissLastSimulationError() },
+                                      modifier = Modifier.testTag("dismiss_season_simulation_error_button")
+                                  ) {
+                                      Text(
+                                          text = "DISPENSAR",
+                                          color = MaterialTheme.colorScheme.error,
+                                          fontWeight = FontWeight.Bold
+                                      )
+                                  }
+                              }
+                              Spacer(modifier = Modifier.height(8.dp))
+                              Text(
+                                  text = error,
+                                  color = MaterialTheme.colorScheme.onErrorContainer,
+                                  fontSize = 12.sp,
+                                  fontWeight = FontWeight.Medium
+                              )
+                          }
+                      }
+                  }
+
+                  if (isSimulatingSeason) {
+          '''
+          if old_column not in dashboard:
+              raise SystemExit('Dashboard top-level simulation anchor not found')
+          dashboard = dashboard.replace(old_column, new_column, 1)
+          dashboard_path.write_text(dashboard)
+
+          test_path = Path('app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuousRegressionTest.kt')
+          test = test_path.read_text()
+          anchor = '''        assertFalse(source.contains("if (com.example.BuildConfig.DEBUG) {\\n                            android.util.Log.e(\\"GameViewModel\\", \\"Erro durante a simulação de temporada\\", e)"))
+              }
+          }
+          '''
+          replacement = '''        assertFalse(source.contains("if (com.example.BuildConfig.DEBUG) {\\n                            android.util.Log.e(\\"GameViewModel\\", \\"Erro durante a simulação de temporada\\", e)"))
+                  assertTrue(source.contains("internal val _lastSimulationError = MutableStateFlow<String?>(null)"))
+                  assertTrue(source.contains("_lastSimulationError.value = null"))
+                  assertTrue(source.contains("val errorSave = runCatching { repo.getGameSave() }.getOrNull()"))
+                  assertTrue(source.contains("_lastSimulationError.value = errorDetail"))
+
+                  val dashboard = File("src/main/java/com/example/ui/components/dashboard/DashboardTabContent.kt").readText()
+                  assertTrue(dashboard.contains("val lastSimulationError by viewModel.lastSimulationError.collectAsStateWithLifecycle()"))
+                  assertTrue(dashboard.contains("lastSimulationError?.let { error ->"))
+                  assertTrue(dashboard.contains("SIMULAÇÃO INTERROMPIDA"))
+                  assertTrue(dashboard.contains("viewModel.dismissLastSimulationError()"))
+                  assertTrue(dashboard.contains("season_simulation_error_card"))
+              }
+          }
+          '''
+          if anchor not in test:
+              raise SystemExit('SeasonSimulationContinuousRegressionTest anchor not found')
+          test = test.replace(anchor, replacement, 1)
+          test_path.write_text(test)
+          PY
+
+      - name: Run focused regression and compile
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest --tests com.example.ui.viewmodel.SeasonSimulationContinuousRegressionTest assembleDebug
+
+      - name: Remove temporary workflow and commit patch
+        if: success()
+        shell: bash
+        run: |
+          rm -f .github/workflows/diagnostic-apply-persistent-season-error.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: persist season simulation failures"
+          git push origin HEAD:diagnostics/persistent-season-error-7188b09d
