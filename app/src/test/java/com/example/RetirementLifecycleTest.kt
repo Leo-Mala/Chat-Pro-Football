@@ -13,6 +13,7 @@ import com.example.support.RelationalIntegrityAssertions
 import com.example.usecase.DatabaseIntegrityUseCase
 import com.example.usecase.GenerateCalendarUseCase
 import com.example.usecase.SeasonTransitionUseCase
+import com.example.usecase.SyntheticPlayerNameGenerator
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -112,15 +113,20 @@ class RetirementLifecycleTest {
 
         assertNull("Retired identity must be removed", repository.getPlayer(retiringPlayer.id))
 
+        val expectedReplacementName = SyntheticPlayerNameGenerator.forStableIdentity(
+            country = retiringPlayer.nationality,
+            stableKey = retiringPlayer.id * 31L + save.currentSeason.toLong()
+        )
         val replacement = repository.getAllPlayers().single { player ->
             player.id != retiringPlayer.id &&
                 player.teamId == owner.id &&
-                player.name.startsWith("Novo Prospecto ") &&
+                player.name == expectedReplacementName &&
                 player.age == 18 &&
                 player.position == retiringPlayer.position
         }
         assertNotEquals(retiringPlayer.id, replacement.id)
         assertEquals(owner.id, replacement.teamId)
+        assertEquals(expectedReplacementName, replacement.name)
         assertEquals(18, replacement.age)
         assertEquals("ATA", replacement.position)
         assertEquals("Brasil", replacement.nationality)
