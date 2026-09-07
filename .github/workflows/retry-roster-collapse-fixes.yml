@@ -6,6 +6,7 @@ on:
       - fix/roster-collapse-suspension-monthly-latency-43497e24
     paths:
       - .github/workflows/retry-roster-collapse-fixes.yml
+      - app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuousRegressionTest.kt
 
 permissions:
   contents: write
