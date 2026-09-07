@@ -1,0 +1,279 @@
+name: Apply roster collapse and availability fixes
+
+on:
+  push:
+    branches:
+      - fix/roster-collapse-suspension-monthly-latency-43497e24
+    paths:
+      - .github/workflows/apply-roster-collapse-fixes.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-roster-collapse-fixes-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact bootstrap head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact source parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "43497e24e8f9e278f7a13586df8ce07e40b68ceb"
+          git fetch origin fix/roster-collapse-suspension-monthly-latency-43497e24
+          test "$(git rev-parse origin/fix/roster-collapse-suspension-monthly-latency-43497e24)" = "$GITHUB_SHA"
+
+      - name: Apply exact production fixes and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f'{path}: anchor count {found}, expected {count}: {old[:180]!r}')
+              p.write_text(text.replace(old, new, count), encoding='utf-8')
+
+          repo = 'app/src/main/java/com/example/data/repository.kt'
+          replace(repo,
+          '''    suspend fun getPlayersByTeam(teamId: Long?): List<Player> = db.playerDao().getPlayersByTeam(teamId)\n    suspend fun getPlayerCountByTeam(teamId: Long?): Int = db.playerDao().getPlayerCountByTeam(teamId)\n\n    suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()\n''',
+          '''    suspend fun getPlayersByTeam(teamId: Long?): List<Player> = db.playerDao().getPlayersByTeam(teamId)\n    suspend fun getPlayerCountByTeam(teamId: Long?): Int = db.playerDao().getPlayerCountByTeam(teamId)\n\n    /**\n     * Read-only fail-safe used by full-season simulation. The controlled club must never lose\n     * expiring owned players merely because automatic simulation crossed a weekly contract tick.\n     * Manual week progression keeps the existing expiry rule unchanged.\n     */\n    suspend fun getControlledRosterExpiringContractCount(teamId: Long): Int {\n        if (teamId <= 0L) return 0\n        return db.openHelper.readableDatabase.query(\n            \"\"\"\n            SELECT COUNT(*) AS expiringCount\n            FROM players\n            WHERE teamId = ?\n              AND isOnLoan = 0\n              AND contractDurationWeeks = 1\n            \"\"\".trimIndent(),\n            arrayOf<Any>(teamId)\n        ).use { cursor ->\n            check(cursor.moveToFirst())\n            cursor.getInt(cursor.getColumnIndexOrThrow(\"expiringCount\"))\n        }\n    }\n\n    suspend fun getFreeAgents(): List<Player> = db.playerDao().getFreeAgents()\n''')
+
+          vm = 'app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt'
+          replace(vm,
+          '''internal fun shouldStopSeasonSimulation(targetSeason: Int, currentSeason: Int): Boolean =\n    currentSeason != targetSeason\n\n\n@HiltViewModel\n''',
+          '''internal fun shouldStopSeasonSimulation(targetSeason: Int, currentSeason: Int): Boolean =\n    currentSeason != targetSeason\n\ninternal fun shouldPauseSeasonSimulationForExpiringContracts(expiringContractCount: Int): Boolean =\n    expiringContractCount > 0\n\ninternal fun controlledRosterEligibleCount(players: List<Player>): Int = players.count { player ->\n    player.injuryWeeksRemaining == 0 && player.suspensionWeeksRemaining == 0\n}\n\ninternal fun shouldPauseSeasonSimulationForIncompleteLineup(eligiblePlayerCount: Int): Boolean =\n    eligiblePlayerCount < 11\n\ninternal fun seasonSimulationContractPauseMessage(expiringCount: Int): String {\n    val label = if (expiringCount == 1) \"contrato vence\" else \"contratos vencem\"\n    return \"$expiringCount $label ao fim desta semana. Renove os contratos ou avance a semana manualmente.\"\n}\n\ninternal fun seasonSimulationLineupPauseMessage(rosterSize: Int, eligibleCount: Int): String =\n    \"Elenco sem 11 atletas disponíveis: $eligibleCount aptos de $rosterSize no clube. Ajuste o elenco antes de continuar a simulação automática.\"\n\n\n@HiltViewModel\n''')
+          replace(vm,
+          '''                            val currentWeekNum = save.currentWeek\n                            _simulationCurrentWeek.value = currentWeekNum\n                            \n                            val weekFixtures = repo.getFixturesForWeek(save.currentSeason, currentWeekNum)\n''',
+          '''                            val currentWeekNum = save.currentWeek\n                            _simulationCurrentWeek.value = currentWeekNum\n\n                            // Full-season simulation must never make a contract-renewal decision for\n                            // the human manager. Pause before playing or closing the week so no\n                            // fixture, finance or contract mutation for this week has been committed.\n                            val expiringControlledContracts =\n                                repo.getControlledRosterExpiringContractCount(save.playerTeamId)\n                            if (shouldPauseSeasonSimulationForExpiringContracts(expiringControlledContracts)) {\n                                val pauseMessage = seasonSimulationContractPauseMessage(expiringControlledContracts)\n                                val detail = \"Temp. ${save.currentSeason} | Sem. $currentWeekNum | $pauseMessage\"\n                                _lastSimulationError.value = detail\n                                _simulationCompetitionName.value = \"Simulação pausada\"\n                                _simulationMatchInfo.value = pauseMessage\n                                _simulationLogs.value = (\n                                    listOf(\"Simulação pausada: $detail\") + _simulationLogs.value\n                                ).take(25)\n                                break\n                            }\n\n                            // Fail closed instead of silently playing a controlled-club fixture with\n                            // fewer than eleven eligible persisted athletes. No procedural player is\n                            // created and no existing player/save row is modified by this guard.\n                            val controlledRoster = repo.getPlayersByTeam(save.playerTeamId)\n                            val eligibleControlledPlayers = controlledRosterEligibleCount(controlledRoster)\n                            if (shouldPauseSeasonSimulationForIncompleteLineup(eligibleControlledPlayers)) {\n                                val pauseMessage = seasonSimulationLineupPauseMessage(\n                                    rosterSize = controlledRoster.size,\n                                    eligibleCount = eligibleControlledPlayers\n                                )\n                                val detail = \"Temp. ${save.currentSeason} | Sem. $currentWeekNum | $pauseMessage\"\n                                _lastSimulationError.value = detail\n                                _simulationCompetitionName.value = \"Simulação pausada\"\n                                _simulationMatchInfo.value = pauseMessage\n                                _simulationLogs.value = (\n                                    listOf(\"Simulação pausada: $detail\") + _simulationLogs.value\n                                ).take(25)\n                                break\n                            }\n                            \n                            val weekFixtures = repo.getFixturesForWeek(save.currentSeason, currentWeekNum)\n''')
+
+          match = 'app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt'
+          replace(match,
+          '''private class StaleWeeklyMonthlyEvolutionRollback : RuntimeException()\n\ninternal class LiveMatchFinalizationGate {\n''',
+          '''private class StaleWeeklyMonthlyEvolutionRollback : RuntimeException()\n\n/**\n * Match events are persisted before the canonical end-of-week recovery tick. Store one extra\n * counter step for a newly created absence so that the same week's tick does not consume the\n * suspension/injury that must still be served in following weeks.\n */\ninternal fun persistedAbsenceCounterForNewMatchStatus(servedWeeks: Int): Int {\n    require(servedWeeks > 0)\n    return servedWeeks + 1\n}\n\ninternal class LiveMatchFinalizationGate {\n''')
+          replace(match,
+          '''                    if (yellow >= 3) {\n                        yellow = 0\n                        isSuspended = 1\n                    }\n                }\n                \"CARD_RED\" -> {\n                    isSuspended = 1\n                }\n                \"INJURY\" -> {\n                    injury = (1..4).random()\n                }\n''',
+          '''                    if (yellow >= 3) {\n                        yellow = 0\n                        isSuspended = maxOf(\n                            isSuspended,\n                            persistedAbsenceCounterForNewMatchStatus(1)\n                        )\n                    }\n                }\n                \"CARD_RED\" -> {\n                    isSuspended = maxOf(\n                        isSuspended,\n                        persistedAbsenceCounterForNewMatchStatus(1)\n                    )\n                }\n                \"INJURY\" -> {\n                    injury = maxOf(\n                        injury,\n                        persistedAbsenceCounterForNewMatchStatus((1..4).random())\n                    )\n                }\n''')
+          replace(match,
+          '''    val totalStartedAtNs = System.nanoTime()\n    val requestedSave = targetRepo.getGameSave() ?: return\n    val monthlyPeriod = if (requestedSave.currentWeek % 4 == 0) {\n''',
+          '''    val totalStartedAtNs = System.nanoTime()\n    val requestedSave = targetRepo.getGameSave() ?: return\n\n    // Do not pay the world-scale monthly preparation cost until the week is actually closable.\n    // The same invariant is rechecked under the write transaction below for concurrency safety.\n    val requestedWeekFixtures = targetRepo.getFixturesForWeek(\n        requestedSave.currentSeason,\n        requestedSave.currentWeek\n    )\n    if (requestedWeekFixtures.any { !it.isPlayed }) return\n\n    val monthlyPeriod = if (requestedSave.currentWeek % 4 == 0) {\n''')
+          replace(match,
+          '''            val userPlayers = targetRepo.getPlayersByTeam(save.playerTeamId)\n            stageStartedAtNs = System.nanoTime()\n            val updatedSave = com.example.usecase.FinanceUseCase(targetRepo)\n                .processWeeklyFinances(save, isHomeMatch, userPlayers)\n''',
+          '''            val userPlayersBeforeRecovery = targetRepo.getPlayersByTeam(save.playerTeamId)\n            val trainingCenterLevel = targetRepo.getTeam(save.playerTeamId)?.trainingCenterLevel ?: 1\n            val userPlayers = com.example.usecase.PlayerEvolutionUseCase(targetRepo)\n                .processPostMatchRecovery(\n                    save = save,\n                    userPlayers = userPlayersBeforeRecovery,\n                    trainingCenterLevel = trainingCenterLevel,\n                    infiniteStamina =\n                        activeSaveSession.value?.repository === targetRepo && _infiniteStaminaEnabled.value\n                )\n            stageStartedAtNs = System.nanoTime()\n            val updatedSave = com.example.usecase.FinanceUseCase(targetRepo)\n                .processWeeklyFinances(save, isHomeMatch, userPlayers)\n''')
+          replace(match,
+          '''    if (weeklyCloseCommitted) {\n        metricsSink(\n            WeekClosePerformanceMetrics(\n                season = requestedSave.currentSeason,\n                week = requestedSave.currentWeek,\n                tWeekFinanceMillis = tWeekFinanceMillis,\n                tContractsMillis = tContractsMillis,\n                tCpuSquadMillis = tCpuSquadMillis,\n                tTransfersMillis = tTransfersMillis,\n                tMonthlyPrepareMillis = tMonthlyPrepareMillis,\n                tMonthlyCommitMillis = tMonthlyCommitMillis,\n                tCupsMillis = tCupsMillis,\n                tWeekAdvanceMillis = tWeekAdvanceMillis,\n                tTotalWeekCloseMillis = (System.nanoTime() - totalStartedAtNs) / 1_000_000L,\n                monthlyPlayersCount = preparedMonthlyPlan?.expectedPlayerCount ?: 0,\n                playersUpdatedCount = preparedMonthlyPlan?.updatedPlayers?.size ?: 0\n            )\n        )\n    }\n''',
+          '''    if (weeklyCloseCommitted) {\n        val metrics = WeekClosePerformanceMetrics(\n            season = requestedSave.currentSeason,\n            week = requestedSave.currentWeek,\n            tWeekFinanceMillis = tWeekFinanceMillis,\n            tContractsMillis = tContractsMillis,\n            tCpuSquadMillis = tCpuSquadMillis,\n            tTransfersMillis = tTransfersMillis,\n            tMonthlyPrepareMillis = tMonthlyPrepareMillis,\n            tMonthlyCommitMillis = tMonthlyCommitMillis,\n            tCupsMillis = tCupsMillis,\n            tWeekAdvanceMillis = tWeekAdvanceMillis,\n            tTotalWeekCloseMillis = (System.nanoTime() - totalStartedAtNs) / 1_000_000L,\n            monthlyPlayersCount = preparedMonthlyPlan?.expectedPlayerCount ?: 0,\n            playersUpdatedCount = preparedMonthlyPlan?.updatedPlayerStates?.size ?: 0\n        )\n        metricsSink(metrics)\n        if (monthlyPeriod != null) {\n            android.util.Log.i(\n                \"WeekClosePerf\",\n                \"MONTHLY_CLOSE season=${metrics.season} week=${metrics.week} \" +\n                    \"prepare=${metrics.tMonthlyPrepareMillis}ms commit=${metrics.tMonthlyCommitMillis}ms \" +\n                    \"finance=${metrics.tWeekFinanceMillis}ms contracts=${metrics.tContractsMillis}ms \" +\n                    \"cpu=${metrics.tCpuSquadMillis}ms transfers=${metrics.tTransfersMillis}ms \" +\n                    \"cups=${metrics.tCupsMillis}ms advance=${metrics.tWeekAdvanceMillis}ms \" +\n                    \"total=${metrics.tTotalWeekCloseMillis}ms players=${metrics.monthlyPlayersCount} \" +\n                    \"changed=${metrics.playersUpdatedCount}\"\n            )\n        }\n    }\n''')
+
+          test = Path('app/src/test/java/com/example/ui/viewmodel/RosterCollapseAndAvailabilityRegressionTest.kt')
+          test.write_text(r'''package com.example.ui.viewmodel
+
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.data.AppDatabase
+import com.example.data.GameRepository
+import com.example.data.GameSave
+import com.example.data.Player
+import com.example.data.Team
+import com.example.usecase.PlayerEvolutionUseCase
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
+
+@RunWith(AndroidJUnit4::class)
+@Config(manifest = Config.NONE)
+class RosterCollapseAndAvailabilityRegressionTest {
+    private lateinit var db: AppDatabase
+    private lateinit var repository: GameRepository
+
+    @Before
+    fun setup() {
+        db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            AppDatabase::class.java
+        ).allowMainThreadQueries().build()
+        repository = GameRepository(db)
+    }
+
+    @After
+    fun tearDown() = db.close()
+
+    @Test
+    fun `season simulation contract guard is read only and ignores loaned expiry`() = runTest {
+        val user = Team(
+            id = 1L,
+            name = "Usuário",
+            city = "BH",
+            state = "MG",
+            division = 1,
+            isPlayerControlled = true
+        )
+        val owner = Team(id = 2L, name = "Proprietário", city = "SP", state = "SP", division = 1)
+        repository.saveTeams(listOf(user, owner))
+        repository.savePlayers(
+            listOf(
+                Player(id = 101L, teamId = user.id, name = "Expira", age = 25, position = "ZAG", force = 80, contractDurationWeeks = 1),
+                Player(id = 102L, teamId = user.id, name = "Seguro", age = 25, position = "MEI", force = 80, contractDurationWeeks = 2),
+                Player(id = 103L, teamId = user.id, name = "Emprestado", age = 25, position = "ATA", force = 80, contractDurationWeeks = 1, isOnLoan = true, originalTeamId = owner.id)
+            )
+        )
+
+        val before = repository.getPlayersByTeam(user.id).associateBy { it.id }
+        val expiring = repository.getControlledRosterExpiringContractCount(user.id)
+
+        assertEquals(1, expiring)
+        assertTrue(shouldPauseSeasonSimulationForExpiringContracts(expiring))
+        assertFalse(shouldPauseSeasonSimulationForExpiringContracts(0))
+        assertEquals(before, repository.getPlayersByTeam(user.id).associateBy { it.id })
+    }
+
+    @Test
+    fun `season simulation pauses instead of playing with five eligible athletes`() {
+        val roster = (1L..22L).map { id ->
+            Player(
+                id = id,
+                teamId = 1L,
+                name = "P$id",
+                age = 24,
+                position = if (id == 1L) "GOL" else "MEI",
+                force = 70,
+                suspensionWeeksRemaining = if (id <= 5L) 0 else 1
+            )
+        }
+
+        val eligible = controlledRosterEligibleCount(roster)
+        assertEquals(5, eligible)
+        assertTrue(shouldPauseSeasonSimulationForIncompleteLineup(eligible))
+        assertFalse(shouldPauseSeasonSimulationForIncompleteLineup(11))
+        assertTrue(seasonSimulationLineupPauseMessage(roster.size, eligible).contains("5 aptos"))
+    }
+
+    @Test
+    fun `new suspension survives current week tick and clears after served week`() = runTest {
+        val team = Team(id = 1L, name = "Time", city = "BH", state = "MG", division = 1)
+        repository.saveTeams(listOf(team))
+        val save = GameSave(id = 1, playerTeamId = team.id)
+        repository.saveGameSave(save)
+        val player = Player(
+            id = 1L,
+            teamId = team.id,
+            name = "Suspenso",
+            age = 25,
+            position = "MEI",
+            force = 75,
+            suspensionWeeksRemaining = persistedAbsenceCounterForNewMatchStatus(1)
+        )
+        repository.savePlayers(listOf(player))
+        val useCase = PlayerEvolutionUseCase(repository)
+
+        val afterCurrentWeek = useCase.processPostMatchRecovery(save, listOf(player)).single()
+        assertEquals(1, afterCurrentWeek.suspensionWeeksRemaining)
+
+        val afterServedWeek = useCase.processPostMatchRecovery(
+            save,
+            listOf(requireNotNull(repository.getPlayer(player.id)))
+        ).single()
+        assertEquals(0, afterServedWeek.suspensionWeeksRemaining)
+    }
+
+    @Test
+    fun `new four week injury remains four weeks after same week recovery tick`() = runTest {
+        val team = Team(id = 1L, name = "Time", city = "BH", state = "MG", division = 1)
+        repository.saveTeams(listOf(team))
+        val save = GameSave(id = 1, playerTeamId = team.id)
+        repository.saveGameSave(save)
+        val player = Player(
+            id = 2L,
+            teamId = team.id,
+            name = "Lesionado",
+            age = 25,
+            position = "ZAG",
+            force = 75,
+            injuryWeeksRemaining = persistedAbsenceCounterForNewMatchStatus(4)
+        )
+        repository.savePlayers(listOf(player))
+
+        val recovered = PlayerEvolutionUseCase(repository)
+            .processPostMatchRecovery(save, listOf(player))
+            .single()
+
+        assertEquals(4, recovered.injuryWeeksRemaining)
+    }
+}
+''', encoding='utf-8')
+          PY
+          git diff --check
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Setup validation google-services.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat << 'GOOGLE_EOF' > app/google-services.json
+          {
+            "project_info": {"project_number":"1234567890","project_id":"dummy-project","storage_bucket":"dummy-project.appspot.com"},
+            "client": [{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.aistudio.brasfutretro.djuxzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForBuildOnly123456"}],"services":{"appinvite_service":{"status":1}}}],
+            "configuration_version":"1"
+          }
+          GOOGLE_EOF
+
+      - name: Run focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true \
+            --tests com.example.ui.viewmodel.RosterCollapseAndAvailabilityRegressionTest \
+            --tests com.example.usecase.PlayerEvolutionUseCaseTest \
+            --tests com.example.usecase.MonthlyEvolutionWeekFourRegressionTest \
+            --tests com.example.usecase.SeasonSimulationRegressionTest \
+            --tests com.example.usecase.FullSeasonSimulationDoesNotHangRegressionTest \
+            --stacktrace
+
+      - name: Run complete non-stress regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew testDebugUnitTest -PexcludeStressTests=true --stacktrace
+
+      - name: Commit exact tested patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin fix/roster-collapse-suspension-monthly-latency-43497e24
+          test "$(git rev-parse origin/fix/roster-collapse-suspension-monthly-latency-43497e24)" = "$GITHUB_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/apply-roster-collapse-fixes.yml
+          git add app/src/main app/src/test
+          git diff --cached --check
+          git commit -m "fix: preserve roster and weekly availability lifecycle"
+          git push origin HEAD:fix/roster-collapse-suspension-monthly-latency-43497e24
