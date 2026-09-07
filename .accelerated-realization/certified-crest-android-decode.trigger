@@ -1,4 +1,4 @@
 certified-crest-android-decode exact-candidate gate
-candidate-parent=dd2149d5cfc731756dc684f8e8d85975309e418e
-candidate-reason=continuous-season-contract-expiry-and-roster-contract-visibility-certification
-candidate-sequence=20260907-continuous-season-contract-dd2149d5
+candidate-parent=dbba93f6d7042079d77b8ecc4f6c7aa9b03b0e8a
+candidate-reason=main-squad-contract-duration-visibility-manual-test-certification
+candidate-sequence=20260907-squad-contract-visibility-dbba93f6
