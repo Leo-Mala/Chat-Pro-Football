@@ -185,8 +185,81 @@ fun PlayerListScreen(
                     items = filteredPlayers,
                     key = { player -> player.id }
                 ) { player ->
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val contract = contractPresentation(player.contractDurationWeeks)
+                    val contractHighlightColor = when (contract.attention) {
+                        ContractAttention.REGULAR -> Color.Transparent
+                        ContractAttention.LAST_YEAR -> Color(0xFFFF9800)
+                        ContractAttention.EXPIRING_THIS_WEEK -> Color(0xFFE53935)
+                    }
+                    val isHighlighted = contract.attention != ContractAttention.REGULAR
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = if (isHighlighted) {
+                                    contractHighlightColor.copy(alpha = 0.20f)
+                                } else {
+                                    Color.Transparent
+                                },
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .padding(if (isHighlighted) 3.dp else 0.dp)
+                            .testTag(
+                                "player_contract_${contract.attention.name.lowercase()}_${player.id}"
+                            ),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         RetroPlayerCard(player = player)
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("contract_weeks_${player.id}"),
+                            color = if (isHighlighted) {
+                                contractHighlightColor.copy(alpha = 0.18f)
+                            } else {
+                                CardSurfaceDark
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "CONTRATO",
+                                        color = Color.Gray,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Text(
+                                        text = contract.weeksText,
+                                        color = if (isHighlighted) contractHighlightColor else Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                contract.badgeText?.let { badgeText ->
+                                    Surface(
+                                        color = contractHighlightColor.copy(alpha = 0.24f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            color = contractHighlightColor,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         if (player.isOwnedLoanedOutBy(save?.playerTeamId)) {
                             Button(
                                 onClick = { viewModel.renewContract(player, 52) },
