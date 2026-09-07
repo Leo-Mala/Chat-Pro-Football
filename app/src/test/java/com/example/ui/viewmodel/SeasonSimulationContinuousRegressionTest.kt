@@ -14,7 +14,7 @@ class SeasonSimulationContinuousRegressionTest {
         assertTrue(source.contains("seasonSimulationContractPauseMessage"))
         assertTrue(source.contains("_simulationCompetitionName.value = \"Simulação pausada\""))
         assertTrue(source.contains("_lastSimulationError.value = detail"))
-        assertTrue(source.contains("listOf(\"Simulação pausada: $detail\")"))
+        assertTrue(source.contains("listOf(\"Simulação pausada: \$detail\")"))
     }
 
     @Test
