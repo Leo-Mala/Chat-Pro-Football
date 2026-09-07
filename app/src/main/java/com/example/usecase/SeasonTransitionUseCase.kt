@@ -238,7 +238,10 @@ class SeasonTransitionUseCase(
 
             Player(
                 teamId = replacementTeamId,
-                name = "Novo Prospecto ${player.name.takeLast(6)}",
+                name = SyntheticPlayerNameGenerator.forStableIdentity(
+                    country = player.nationality,
+                    stableKey = player.id * 31L + currentSeason.toLong()
+                ),
                 age = 18,
                 nationality = player.nationality,
                 position = player.position,
