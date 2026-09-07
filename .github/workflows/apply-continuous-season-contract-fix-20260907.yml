@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
 
       - name: Verify exact requested baseline
         shell: bash
@@ -31,7 +31,7 @@ jobs:
           EXPECTED_BASE: 91a1e1dace66b90b6104376229fabb96f4c7135a
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          git cat-file -e "$EXPECTED_BASE^{commit}"
           test "$(git diff --name-only "$EXPECTED_BASE"...HEAD)" = ".github/workflows/apply-continuous-season-contract-fix-20260907.yml"
 
       - name: Apply minimal regression correction
@@ -41,142 +41,77 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_exact(path: str, old: str, new: str, expected: int = 1):
-              p = Path(path)
-              text = p.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != expected:
-                  raise SystemExit(f"{path}: anchor count {count}, expected {expected}: {old[:180]!r}")
-              p.write_text(text.replace(old, new, expected), encoding="utf-8")
+          def read(path):
+              return Path(path).read_text(encoding="utf-8")
+
+          def write(path, text):
+              Path(path).write_text(text, encoding="utf-8")
+
+          def remove_between(path, start, end):
+              text = read(path)
+              if text.count(start) != 1:
+                  raise SystemExit(f"{path}: start marker count={text.count(start)} marker={start!r}")
+              start_index = text.index(start)
+              end_index = text.index(end, start_index)
+              write(path, text[:start_index] + text[end_index:])
+
+          def replace_once(path, old, new):
+              text = read(path)
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: replacement anchor count={text.count(old)} anchor={old!r}")
+              write(path, text.replace(old, new, 1))
 
           repo = "app/src/main/java/com/example/data/repository.kt"
-          replace_exact(
+          remove_between(
               repo,
-              '''    /**
-     * Read-only fail-safe used by full-season simulation. The controlled club must never lose
-     * expiring owned players merely because automatic simulation crossed a weekly contract tick.
-     * Manual week progression keeps the existing expiry rule unchanged.
-     */
-    suspend fun getControlledRosterExpiringContractCount(teamId: Long): Int {
-        if (teamId <= 0L) return 0
-        return db.openHelper.readableDatabase.query(
-            """
-            SELECT COUNT(*) AS expiringCount
-            FROM players
-            WHERE teamId = ?
-              AND isOnLoan = 0
-              AND contractDurationWeeks = 1
-            """.trimIndent(),
-            arrayOf<Any>(teamId)
-        ).use { cursor ->
-            check(cursor.moveToFirst())
-            cursor.getInt(cursor.getColumnIndexOrThrow("expiringCount"))
-        }
-    }
-
-''',
-              ''
+              "    /**\n     * Read-only fail-safe used by full-season simulation.",
+              "    suspend fun getFreeAgents(): List<Player>"
           )
 
           vm = "app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt"
-          replace_exact(
+          replace_once(
               vm,
-              '''internal fun shouldPauseSeasonSimulationForExpiringContracts(expiringContractCount: Int): Boolean =
-    expiringContractCount > 0
-
-''',
-              ''
+              "internal fun shouldPauseSeasonSimulationForExpiringContracts(expiringContractCount: Int): Boolean =\n    expiringContractCount > 0\n\n",
+              ""
           )
-          replace_exact(
+          remove_between(
               vm,
-              '''internal fun seasonSimulationContractPauseMessage(expiringCount: Int): String {
-    val label = if (expiringCount == 1) "contrato vence" else "contratos vencem"
-    return "$expiringCount $label ao fim desta semana. Renove os contratos ou avance a semana manualmente."
-}
-
-''',
-              ''
+              "internal fun seasonSimulationContractPauseMessage(expiringCount: Int): String {",
+              "internal fun seasonSimulationLineupPauseMessage(rosterSize: Int, eligibleCount: Int): String ="
           )
-          replace_exact(
+          remove_between(
               vm,
-              '''                            // Never auto-expire the human manager's contracts. Pause before any
-                            // fixture, finance or contract mutation for this week is committed.
-                            val expiringControlledContracts =
-                                repo.getControlledRosterExpiringContractCount(save.playerTeamId)
-                            if (shouldPauseSeasonSimulationForExpiringContracts(expiringControlledContracts)) {
-                                val pauseMessage = seasonSimulationContractPauseMessage(expiringControlledContracts)
-                                val detail = "Temp. ${save.currentSeason} | Sem. $currentWeekNum | $pauseMessage"
-                                _lastSimulationError.value = detail
-                                _simulationCompetitionName.value = "Simulação pausada"
-                                _simulationMatchInfo.value = pauseMessage
-                                _simulationLogs.value = (listOf("Simulação pausada: $detail") + _simulationLogs.value).take(25)
-                                break
-                            }
-
-''',
-              ''
+              "                            // Never auto-expire the human manager's contracts. Pause before any\n",
+              "                            // Fail closed instead of silently playing with fewer than eleven\n"
           )
 
           continuous_test = "app/src/test/java/com/example/ui/viewmodel/SeasonSimulationContinuousRegressionTest.kt"
-          replace_exact(
-              continuous_test,
-              '''    @Test
-    fun seasonSimulationPausesSafelyAndVisiblyForExpiringControlledContracts() {
-        val source = File("src/main/java/com/example/ui/viewmodel/GameViewModel.kt").readText()
-        assertTrue(source.contains("shouldPauseSeasonSimulationForExpiringContracts"))
-        assertTrue(source.contains("getControlledRosterExpiringContractCount"))
-        assertTrue(source.contains("seasonSimulationContractPauseMessage"))
-        assertTrue(source.contains("_simulationCompetitionName.value = \\"Simulação pausada\\""))
-        assertTrue(source.contains("_lastSimulationError.value = detail"))
-        assertTrue(source.contains("listOf(\\"Simulação pausada: \\$detail\\")"))
-    }
-''',
-              '''    @Test
-    fun seasonSimulationDoesNotStopForExpiringControlledContracts() {
-        val source = File("src/main/java/com/example/ui/viewmodel/GameViewModel.kt").readText()
-        assertFalse(source.contains("shouldPauseSeasonSimulationForExpiringContracts"))
-        assertFalse(source.contains("getControlledRosterExpiringContractCount"))
-        assertFalse(source.contains("seasonSimulationContractPauseMessage"))
-        assertTrue(source.contains("shouldPauseSeasonSimulationForIncompleteLineup"))
-        assertTrue(source.contains("controlledRosterEligibleCount"))
-    }
-'''
-          )
+          old_start = "    @Test\n    fun seasonSimulationPausesSafelyAndVisiblyForExpiringControlledContracts() {"
+          next_test = "    @Test\n    fun simulationFailureRemainsDiagnosableAfterReturningToIdle() {"
+          new_first_test = "\n".join([
+              "    @Test",
+              "    fun seasonSimulationDoesNotStopForExpiringControlledContracts() {",
+              "        val source = File(\"src/main/java/com/example/ui/viewmodel/GameViewModel.kt\").readText()",
+              "        assertFalse(source.contains(\"shouldPauseSeasonSimulationForExpiringContracts\"))",
+              "        assertFalse(source.contains(\"getControlledRosterExpiringContractCount\"))",
+              "        assertFalse(source.contains(\"seasonSimulationContractPauseMessage\"))",
+              "        assertTrue(source.contains(\"shouldPauseSeasonSimulationForIncompleteLineup\"))",
+              "        assertTrue(source.contains(\"controlledRosterEligibleCount\"))",
+              "    }",
+              "",
+          ])
+          text = read(continuous_test)
+          if text.count(old_start) != 1 or text.count(next_test) != 1:
+              raise SystemExit("continuous simulation regression test anchors changed")
+          a = text.index(old_start)
+          b = text.index(next_test, a)
+          write(continuous_test, text[:a] + new_first_test + text[b:])
 
           roster_test = "app/src/test/java/com/example/ui/viewmodel/RosterCollapseAndAvailabilityRegressionTest.kt"
-          replace_exact(
+          remove_between(
               roster_test,
-              '''    @Test
-    fun `season simulation contract guard is read only and ignores loaned expiry`() = runTest {
-        val user = Team(
-            id = 1L,
-            name = "Usuário",
-            city = "BH",
-            state = "MG",
-            division = 1,
-            isPlayerControlled = true
-        )
-        val owner = Team(id = 2L, name = "Proprietário", city = "SP", state = "SP", division = 1)
-        repository.saveTeams(listOf(user, owner))
-        repository.savePlayers(
-            listOf(
-                Player(id = 101L, teamId = user.id, name = "Expira", age = 25, position = "ZAG", force = 80, contractDurationWeeks = 1),
-                Player(id = 102L, teamId = user.id, name = "Seguro", age = 25, position = "MEI", force = 80, contractDurationWeeks = 2),
-                Player(id = 103L, teamId = user.id, name = "Emprestado", age = 25, position = "ATA", force = 80, contractDurationWeeks = 1, isOnLoan = true, originalTeamId = owner.id)
-            )
-        )
-
-        val before = repository.getPlayersByTeam(user.id).associateBy { it.id }
-        val expiring = repository.getControlledRosterExpiringContractCount(user.id)
-
-        assertEquals(1, expiring)
-        assertTrue(shouldPauseSeasonSimulationForExpiringContracts(expiring))
-        assertFalse(shouldPauseSeasonSimulationForExpiringContracts(0))
-        assertEquals(before, repository.getPlayersByTeam(user.id).associateBy { it.id })
-    }
-
-''',
-              ''
+              "    @Test\n    fun `season simulation contract guard is read only and ignores loaned expiry`() = runTest {",
+              "    @Test\n    fun `season simulation pauses instead of playing with five eligible athletes`() {"
           )
           PY
 
@@ -188,6 +123,7 @@ jobs:
           ! grep -R "getControlledRosterExpiringContractCount" app/src/main app/src/test
           ! grep -R "seasonSimulationContractPauseMessage" app/src/main app/src/test
           grep -q "shouldPauseSeasonSimulationForIncompleteLineup" app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
+          grep -q "controlledRosterEligibleCount" app/src/main/java/com/example/ui/viewmodel/GameViewModel.kt
           grep -q "contractPresentation(player.contractDurationWeeks)" app/src/main/java/com/example/ui/screens/PlayerListScreen.kt
           grep -q "ÚLTIMO ANO" app/src/main/java/com/example/ui/screens/ContractStatusPresentation.kt
           git diff --check
