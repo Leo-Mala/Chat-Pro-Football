@@ -39,6 +39,8 @@ jobs:
       - name: Trace suspension and injury lifecycle
         run: |
           set -euo pipefail
+          echo '=== processPostMatchRecovery all callers/tests ==='
+          git grep -n -C 6 'processPostMatchRecovery' -- 'app/src/**/*.kt' || true
           echo '=== suspensionWeeksRemaining all production usages ==='
           git grep -n 'suspensionWeeksRemaining' -- 'app/src/main/**/*.kt' || true
           echo '=== injuryWeeksRemaining all production usages ==='
