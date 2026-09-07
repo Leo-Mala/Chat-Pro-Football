@@ -7,16 +7,14 @@ import org.junit.Test
 
 class SeasonSimulationContinuousRegressionTest {
     @Test
-    fun seasonSimulationPausesSafelyAndVisiblyForExpiringControlledContracts() {
+    fun seasonSimulationDoesNotStopForExpiringControlledContracts() {
         val source = File("src/main/java/com/example/ui/viewmodel/GameViewModel.kt").readText()
-        assertTrue(source.contains("shouldPauseSeasonSimulationForExpiringContracts"))
-        assertTrue(source.contains("getControlledRosterExpiringContractCount"))
-        assertTrue(source.contains("seasonSimulationContractPauseMessage"))
-        assertTrue(source.contains("_simulationCompetitionName.value = \"Simulação pausada\""))
-        assertTrue(source.contains("_lastSimulationError.value = detail"))
-        assertTrue(source.contains("listOf(\"Simulação pausada: \$detail\")"))
+        assertFalse(source.contains("shouldPauseSeasonSimulationForExpiringContracts"))
+        assertFalse(source.contains("getControlledRosterExpiringContractCount"))
+        assertFalse(source.contains("seasonSimulationContractPauseMessage"))
+        assertTrue(source.contains("shouldPauseSeasonSimulationForIncompleteLineup"))
+        assertTrue(source.contains("controlledRosterEligibleCount"))
     }
-
     @Test
     fun simulationFailureRemainsDiagnosableAfterReturningToIdle() {
         val source = File("src/main/java/com/example/ui/viewmodel/GameViewModel.kt").readText()

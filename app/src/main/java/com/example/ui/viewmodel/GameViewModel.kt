@@ -40,20 +40,12 @@ data class IncomingOffer(
 internal fun shouldStopSeasonSimulation(targetSeason: Int, currentSeason: Int): Boolean =
     currentSeason != targetSeason
 
-internal fun shouldPauseSeasonSimulationForExpiringContracts(expiringContractCount: Int): Boolean =
-    expiringContractCount > 0
-
 internal fun controlledRosterEligibleCount(players: List<Player>): Int = players.count { player ->
     player.injuryWeeksRemaining == 0 && player.suspensionWeeksRemaining == 0
 }
 
 internal fun shouldPauseSeasonSimulationForIncompleteLineup(eligiblePlayerCount: Int): Boolean =
     eligiblePlayerCount < 11
-
-internal fun seasonSimulationContractPauseMessage(expiringCount: Int): String {
-    val label = if (expiringCount == 1) "contrato vence" else "contratos vencem"
-    return "$expiringCount $label ao fim desta semana. Renove os contratos ou avance a semana manualmente."
-}
 
 internal fun seasonSimulationLineupPauseMessage(rosterSize: Int, eligibleCount: Int): String =
     "Elenco sem 11 atletas disponíveis: $eligibleCount aptos de $rosterSize no clube. Ajuste o elenco antes de continuar a simulação automática."
@@ -1033,20 +1025,6 @@ class GameViewModel @Inject constructor(
                             
                             val currentWeekNum = save.currentWeek
                             _simulationCurrentWeek.value = currentWeekNum
-
-                            // Never auto-expire the human manager's contracts. Pause before any
-                            // fixture, finance or contract mutation for this week is committed.
-                            val expiringControlledContracts =
-                                repo.getControlledRosterExpiringContractCount(save.playerTeamId)
-                            if (shouldPauseSeasonSimulationForExpiringContracts(expiringControlledContracts)) {
-                                val pauseMessage = seasonSimulationContractPauseMessage(expiringControlledContracts)
-                                val detail = "Temp. ${save.currentSeason} | Sem. $currentWeekNum | $pauseMessage"
-                                _lastSimulationError.value = detail
-                                _simulationCompetitionName.value = "Simulação pausada"
-                                _simulationMatchInfo.value = pauseMessage
-                                _simulationLogs.value = (listOf("Simulação pausada: $detail") + _simulationLogs.value).take(25)
-                                break
-                            }
 
                             // Fail closed instead of silently playing with fewer than eleven
                             // eligible persisted athletes. This guard is read-only.

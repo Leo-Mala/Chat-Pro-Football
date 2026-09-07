@@ -38,35 +38,6 @@ class RosterCollapseAndAvailabilityRegressionTest {
     fun tearDown() = db.close()
 
     @Test
-    fun `season simulation contract guard is read only and ignores loaned expiry`() = runTest {
-        val user = Team(
-            id = 1L,
-            name = "Usuário",
-            city = "BH",
-            state = "MG",
-            division = 1,
-            isPlayerControlled = true
-        )
-        val owner = Team(id = 2L, name = "Proprietário", city = "SP", state = "SP", division = 1)
-        repository.saveTeams(listOf(user, owner))
-        repository.savePlayers(
-            listOf(
-                Player(id = 101L, teamId = user.id, name = "Expira", age = 25, position = "ZAG", force = 80, contractDurationWeeks = 1),
-                Player(id = 102L, teamId = user.id, name = "Seguro", age = 25, position = "MEI", force = 80, contractDurationWeeks = 2),
-                Player(id = 103L, teamId = user.id, name = "Emprestado", age = 25, position = "ATA", force = 80, contractDurationWeeks = 1, isOnLoan = true, originalTeamId = owner.id)
-            )
-        )
-
-        val before = repository.getPlayersByTeam(user.id).associateBy { it.id }
-        val expiring = repository.getControlledRosterExpiringContractCount(user.id)
-
-        assertEquals(1, expiring)
-        assertTrue(shouldPauseSeasonSimulationForExpiringContracts(expiring))
-        assertFalse(shouldPauseSeasonSimulationForExpiringContracts(0))
-        assertEquals(before, repository.getPlayersByTeam(user.id).associateBy { it.id })
-    }
-
-    @Test
     fun `season simulation pauses instead of playing with five eligible athletes`() {
         val roster = (1L..22L).map { id ->
             Player(
