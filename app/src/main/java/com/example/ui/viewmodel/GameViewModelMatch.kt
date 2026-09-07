@@ -14,6 +14,15 @@ import kotlinx.coroutines.launch
 
 private class StaleWeeklyMonthlyEvolutionRollback : RuntimeException()
 
+/**
+ * Match events are persisted before the canonical end-of-week recovery tick. A newly created
+ * absence therefore carries one extra counter step so that the same week's tick cannot consume it.
+ */
+internal fun persistedAbsenceCounterForNewMatchStatus(servedWeeks: Int): Int {
+    require(servedWeeks > 0)
+    return servedWeeks + 1
+}
+
 internal class LiveMatchFinalizationGate {
     private val _finalizing = MutableStateFlow(false)
     val finalizing: StateFlow<Boolean> = _finalizing.asStateFlow()
@@ -461,14 +470,14 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
                     yellow += 1
                     if (yellow >= 3) {
                         yellow = 0
-                        isSuspended = 1
+                        isSuspended = maxOf(isSuspended, persistedAbsenceCounterForNewMatchStatus(1))
                     }
                 }
                 "CARD_RED" -> {
-                    isSuspended = 1
+                    isSuspended = maxOf(isSuspended, persistedAbsenceCounterForNewMatchStatus(1))
                 }
                 "INJURY" -> {
-                    injury = (1..4).random()
+                    injury = maxOf(injury, persistedAbsenceCounterForNewMatchStatus((1..4).random()))
                 }
             }
         }
@@ -567,6 +576,15 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(
 ) {
     val totalStartedAtNs = System.nanoTime()
     val requestedSave = targetRepo.getGameSave() ?: return
+
+    // Avoid the world-scale monthly preparation until this week is actually closable. The same
+    // invariant remains rechecked inside the write transaction for concurrency safety.
+    val requestedWeekFixtures = targetRepo.getFixturesForWeek(
+        requestedSave.currentSeason,
+        requestedSave.currentWeek
+    )
+    if (requestedWeekFixtures.any { !it.isPlayed }) return
+
     val monthlyPeriod = if (requestedSave.currentWeek % 4 == 0) {
         "S${requestedSave.currentSeason}_W${requestedSave.currentWeek}"
     } else {
@@ -616,7 +634,16 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(
             cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
             tContractsMillis += (System.nanoTime() - stageStartedAtNs) / 1_000_000L
 
-            val userPlayers = targetRepo.getPlayersByTeam(save.playerTeamId)
+            val userPlayersBeforeRecovery = targetRepo.getPlayersByTeam(save.playerTeamId)
+            val trainingCenterLevel = targetRepo.getTeam(save.playerTeamId)?.trainingCenterLevel ?: 1
+            val userPlayers = com.example.usecase.PlayerEvolutionUseCase(targetRepo)
+                .processPostMatchRecovery(
+                    save = save,
+                    userPlayers = userPlayersBeforeRecovery,
+                    trainingCenterLevel = trainingCenterLevel,
+                    infiniteStamina =
+                        activeSaveSession.value?.repository === targetRepo && _infiniteStaminaEnabled.value
+                )
             stageStartedAtNs = System.nanoTime()
             val updatedSave = com.example.usecase.FinanceUseCase(targetRepo)
                 .processWeeklyFinances(save, isHomeMatch, userPlayers)
@@ -679,6 +706,9 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(
     }
 
     if (weeklyCloseCommitted) {
+        val totalWeekCloseMillis = (System.nanoTime() - totalStartedAtNs) / 1_000_000L
+        val monthlyPlayersCount = preparedMonthlyPlan?.expectedPlayerCount ?: 0
+        val playersUpdatedCount = preparedMonthlyPlan?.updatedPlayerStates?.size ?: 0
         metricsSink(
             WeekClosePerformanceMetrics(
                 season = requestedSave.currentSeason,
@@ -691,11 +721,22 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution(
                 tMonthlyCommitMillis = tMonthlyCommitMillis,
                 tCupsMillis = tCupsMillis,
                 tWeekAdvanceMillis = tWeekAdvanceMillis,
-                tTotalWeekCloseMillis = (System.nanoTime() - totalStartedAtNs) / 1_000_000L,
-                monthlyPlayersCount = preparedMonthlyPlan?.expectedPlayerCount ?: 0,
-                playersUpdatedCount = preparedMonthlyPlan?.updatedPlayers?.size ?: 0
+                tTotalWeekCloseMillis = totalWeekCloseMillis,
+                monthlyPlayersCount = monthlyPlayersCount,
+                playersUpdatedCount = playersUpdatedCount
             )
         )
+        if (monthlyPeriod != null) {
+            android.util.Log.i(
+                "WeekClosePerf",
+                "MONTHLY_CLOSE season=${requestedSave.currentSeason} week=${requestedSave.currentWeek} " +
+                    "prepare=${tMonthlyPrepareMillis}ms commit=${tMonthlyCommitMillis}ms " +
+                    "finance=${tWeekFinanceMillis}ms contracts=${tContractsMillis}ms " +
+                    "cpu=${tCpuSquadMillis}ms transfers=${tTransfersMillis}ms " +
+                    "cups=${tCupsMillis}ms advance=${tWeekAdvanceMillis}ms total=${totalWeekCloseMillis}ms " +
+                    "players=$monthlyPlayersCount changed=$playersUpdatedCount"
+            )
+        }
     }
 
     if (weeklyCloseCommitted && activeSaveSession.value?.repository === targetRepo) {
