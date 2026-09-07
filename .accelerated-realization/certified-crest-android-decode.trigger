@@ -1,4 +1,4 @@
 certified-crest-android-decode exact-candidate gate
-candidate-parent=b2a029c046decd05daa29b697afcaf32ed18968d
-candidate-reason=persistent-season-simulation-error-diagnostics
-candidate-sequence=20260906-persistent-season-simulation-error
+candidate-parent=639cdbb554055da454458bfd63a8fb6dfb4f9333
+candidate-reason=roster-collapse-suspension-monthly-latency-fix
+candidate-sequence=20260907-roster-availability-certification
