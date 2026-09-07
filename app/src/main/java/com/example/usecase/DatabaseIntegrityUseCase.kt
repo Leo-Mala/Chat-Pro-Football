@@ -16,7 +16,8 @@ import kotlinx.coroutines.sync.withLock
  *
  * Desde V21, constraints do próprio banco são a primeira defesa. O preflight rotineiro evita
  * materializar toda a tabela Player: usa apenas agregados escalares por clube e uma contagem SQL de
- * órfãos. A leitura completa fica restrita ao caminho raro em que um reparo realmente é necessário.
+ * órfãos. Reparos direcionados consultam somente os IDs afetados; a leitura completa fica restrita
+ * ao caminho raro em que um reparo estrutural realmente é necessário.
  */
 class DatabaseIntegrityUseCase(private val repository: GameRepository) {
 
@@ -38,6 +39,8 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
         // simultaneamente. Coalescemos apenas essa janela curta de abertura; validações posteriores
         // continuam executando normalmente e os WeakHashMap não prolongam a vida de repositories.
         private const val REPAIR_REUSE_WINDOW_NS = 2_000_000_000L
+        private const val LEGACY_SYNTHETIC_PROSPECT_NAME = "Novo Prospecto"
+        private const val PLAYER_ID_BATCH_SIZE = 800
         private val repairLocks = WeakHashMap<GameRepository, Mutex>()
         private val recentRepairs = WeakHashMap<GameRepository, RecentRepair>()
 
@@ -61,6 +64,9 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
 
     private fun Team.requiresDomesticRosterIntegrity(): Boolean =
         !country.equals("Mundial", ignoreCase = true)
+
+    private fun String.isLegacySyntheticProspectName(): Boolean =
+        this == LEGACY_SYNTHETIC_PROSPECT_NAME || startsWith("$LEGACY_SYNTHETIC_PROSPECT_NAME ")
 
     suspend fun validateDatabase(): IntegrityCheckReport {
         val teams = repository.getAllTeams()
@@ -128,6 +134,11 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
                 issuesFound = emptyList()
             )
         }
+
+        // Builds antigos gravavam aposentadorias substitutas como "Novo Prospecto ...". A correção
+        // é deliberadamente estreita: consulta apenas os IDs com esse prefixo, carrega somente essas
+        // linhas e altera exclusivamente `name`. Nenhum atleta factual ou estado esportivo é tocado.
+        repairLegacySyntheticProspectNames()
 
         val preflight = validateDatabase()
         if (preflight.issuesFound.isEmpty()) return preflight
@@ -247,6 +258,40 @@ class DatabaseIntegrityUseCase(private val repository: GameRepository) {
                 issuesFound = issues
             )
         }
+    }
+
+    private suspend fun repairLegacySyntheticProspectNames(): Int = repository.withTransaction {
+        val playerIds = ArrayList<Long>()
+        repository.db.openHelper.writableDatabase.query(
+            "SELECT id FROM players WHERE name = ? OR name LIKE ? ORDER BY id",
+            arrayOf<Any?>(
+                LEGACY_SYNTHETIC_PROSPECT_NAME,
+                "$LEGACY_SYNTHETIC_PROSPECT_NAME %"
+            )
+        ).use { cursor ->
+            while (cursor.moveToNext()) playerIds.add(cursor.getLong(0))
+        }
+
+        if (playerIds.isEmpty()) return@withTransaction 0
+
+        val replacements = ArrayList<Player>(playerIds.size)
+        playerIds.chunked(PLAYER_ID_BATCH_SIZE).forEach { chunk ->
+            repository.db.playerBatchDao().getPlayersByIds(chunk)
+                .filter { it.name.isLegacySyntheticProspectName() }
+                .forEach { player ->
+                    replacements.add(
+                        player.copy(
+                            name = SyntheticPlayerNameGenerator.forStableIdentity(
+                                country = player.nationality,
+                                stableKey = player.id
+                            )
+                        )
+                    )
+                }
+        }
+
+        if (replacements.isNotEmpty()) repository.updatePlayers(replacements)
+        replacements.size
     }
 
     suspend fun validateAndRepairDatabase(): IntegrityCheckReport = repairDatabase()
