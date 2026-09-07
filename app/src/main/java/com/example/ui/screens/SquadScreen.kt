@@ -176,7 +176,7 @@ fun SquadTab(viewModel: GameViewModel) {
                 }
 
                 items(startersList, key = { it.id }) { player ->
-                    PlayerCard(player = player) { selectedPlayerForDialog = player }
+                    SquadPlayerContractCard(player = player) { selectedPlayerForDialog = player }
                 }
 
                 if (reservesList.isNotEmpty()) {
@@ -191,7 +191,7 @@ fun SquadTab(viewModel: GameViewModel) {
                     }
 
                     items(reservesList, key = { it.id }) { player ->
-                        PlayerCard(player = player) { selectedPlayerForDialog = player }
+                        SquadPlayerContractCard(player = player) { selectedPlayerForDialog = player }
                     }
                 }
             }
@@ -402,3 +402,72 @@ fun SquadTab(viewModel: GameViewModel) {
     }
 }
 
+@Composable
+private fun SquadPlayerContractCard(
+    player: Player,
+    onClick: () -> Unit
+) {
+    val contract = contractPresentation(player.contractDurationWeeks)
+    val highlightColor = when (contract.attention) {
+        ContractAttention.REGULAR -> Color.White.copy(alpha = 0.5f)
+        ContractAttention.LAST_YEAR -> Color(0xFFFF9800)
+        ContractAttention.EXPIRING_THIS_WEEK -> Color(0xFFE53935)
+    }
+    val needsAttention = contract.attention != ContractAttention.REGULAR
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("squad_player_contract_${player.id}"),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        PlayerCard(player = player, onClick = onClick)
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .testTag("squad_contract_weeks_${player.id}"),
+            color = if (needsAttention) {
+                highlightColor.copy(alpha = 0.16f)
+            } else {
+                CardSurfaceDark
+            },
+            shape = RoundedCornerShape(
+                topStart = 0.dp,
+                topEnd = 0.dp,
+                bottomStart = 14.dp,
+                bottomEnd = 14.dp
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Contrato: ${player.contractDurationWeeks.coerceAtLeast(0)} sem.",
+                    color = highlightColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                contract.badgeText?.let { badgeText ->
+                    Surface(
+                        color = highlightColor.copy(alpha = 0.18f),
+                        shape = RoundedCornerShape(5.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = highlightColor,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
