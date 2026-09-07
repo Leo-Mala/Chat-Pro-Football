@@ -1,0 +1,54 @@
+name: Diagnostic roster collapse investigation
+
+on:
+  push:
+    branches:
+      - diagnostics/roster-collapse-monthly-latency-43497e24
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-runtime-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: diagnostics/roster-collapse-monthly-latency-43497e24
+          fetch-depth: 0
+
+      - name: Record exact source
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          git log -3 --oneline
+
+      - name: Trace player contract expiry path
+        run: |
+          set -euo pipefail
+          echo '=== processWeeklyContractsAndLoans ==='
+          git grep -n -C 5 'processWeeklyContractsAndLoans' -- 'app/src/main/**/*.kt' || true
+          echo '=== processWeeklyPlayerContractTick ==='
+          git grep -n -C 8 'processWeeklyPlayerContractTick' -- 'app/src/main/**/*.kt' || true
+          echo '=== expireNonLoanContractsAtOneWeek ==='
+          git grep -n -C 10 'expireNonLoanContractsAtOneWeek' -- 'app/src/main/**/*.kt' || true
+          echo '=== CPU renewal exclusion ==='
+          git grep -n -C 6 'isManagedCpuClub' -- 'app/src/main/**/*.kt' || true
+
+      - name: Trace suspension and injury lifecycle
+        run: |
+          set -euo pipefail
+          echo '=== suspensionWeeksRemaining all production usages ==='
+          git grep -n 'suspensionWeeksRemaining' -- 'app/src/main/**/*.kt' || true
+          echo '=== injuryWeeksRemaining all production usages ==='
+          git grep -n 'injuryWeeksRemaining' -- 'app/src/main/**/*.kt' || true
+          echo '=== candidate weekly decrement operations ==='
+          git grep -n -E 'suspensionWeeksRemaining[[:space:]]*[-=]|injuryWeeksRemaining[[:space:]]*[-=]|suspensionWeeksRemaining.*- 1|injuryWeeksRemaining.*- 1' -- 'app/src/main/**/*.kt' || true
+
+      - name: Trace monthly close stages
+        run: |
+          set -euo pipefail
+          git grep -n -C 8 'monthlyPeriod' -- 'app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt' || true
+          git grep -n -C 8 'tMonthlyPrepareMillis' -- 'app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt' || true
+          git grep -n -C 8 'tMonthlyCommitMillis' -- 'app/src/main/java/com/example/ui/viewmodel/GameViewModelMatch.kt' || true
