@@ -159,7 +159,7 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 val persistedFixture = txRepo.getFixture(updatedFixture.id)
                 if (persistedFixture?.isPlayed != true) {
                     txRepo.updateFixture(updatedFixture)
-                    processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+                    processMatchEventsAndStats(updatedFixture, currentMatchEvents, txRepo)
                 }
             }
         }
