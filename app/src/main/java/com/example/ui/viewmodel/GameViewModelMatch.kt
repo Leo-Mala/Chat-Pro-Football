@@ -154,12 +154,12 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 awayPenalties = awayPenalties,
                 isPlayed = true
             )
-            val txRepo = getActiveRepository() ?: return@launch
-            txRepo.withTransaction {
-                val persistedFixture = txRepo.getFixture(updatedFixture.id)
+            val txRepo2 = getActiveRepository() ?: return@launch
+            txRepo2.withTransaction {
+                val persistedFixture = txRepo2.getFixture(updatedFixture.id)
                 if (persistedFixture?.isPlayed != true) {
-                    txRepo.updateFixture(updatedFixture)
-                    processMatchEventsAndStats(updatedFixture, currentMatchEvents, txRepo)
+                    txRepo2.updateFixture(updatedFixture)
+                    processMatchEventsAndStats(updatedFixture, currentMatchEvents, txRepo2)
                 }
             }
         }
