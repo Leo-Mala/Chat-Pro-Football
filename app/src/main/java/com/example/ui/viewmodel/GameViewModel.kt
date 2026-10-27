@@ -901,7 +901,7 @@ class GameViewModel @Inject constructor(
                 val persistedFixture = txRepo.getFixture(updatedFixture.id)
                 if (persistedFixture?.isPlayed != true) {
                     txRepo.updateFixture(updatedFixture)
-                    processMatchEventsAndStats(updatedFixture, matchEvents)
+                    processMatchEventsAndStats(updatedFixture, matchEvents, txRepo)
                 }
             }
         }

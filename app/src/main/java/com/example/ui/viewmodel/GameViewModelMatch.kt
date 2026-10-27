@@ -257,7 +257,7 @@ private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
             return@withTransaction
         }
         txRepo.updateFixture(updatedFixture)
-        processMatchEventsAndStats(updatedFixture, matchEvents)
+        processMatchEventsAndStats(updatedFixture, matchEvents, txRepo)
         committedFixture = txRepo.getFixture(updatedFixture.id) ?: updatedFixture
     }
     return committedFixture
@@ -298,10 +298,10 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
     }
 }
 
-suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: List<Any>) {
+suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: List<Any>, repoParam: GameRepository? = null) {
     @Suppress("UNCHECKED_CAST")
     val detailEvents = events as? List<GameEngine.MatchEventDetail> ?: return
-    val currentRepository = getActiveRepository() ?: return
+    val currentRepository = repoParam ?: getActiveRepository() ?: return
 
     val home = currentRepository.getTeam(fixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.homeTeamId)
     val away = currentRepository.getTeam(fixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.awayTeamId)
