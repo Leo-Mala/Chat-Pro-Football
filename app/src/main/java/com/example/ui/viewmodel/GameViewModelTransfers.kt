@@ -18,7 +18,8 @@ import kotlinx.coroutines.withContext
 
 fun GameViewModel.acceptCoachOffer(offer: CoachOffer) {
     viewModelScope.launch(Dispatchers.IO) {
-        when (val result = CoachCareerUseCase(repo).acceptOffer(offer)) {
+        val currentRepository = getActiveRepository() ?: return@launch
+        when (val result = CoachCareerUseCase(currentRepository).acceptOffer(offer)) {
             is CoachCareerUseCase.AcceptOfferResult.Success -> _selectedTeamId.value = result.teamId
             CoachCareerUseCase.AcceptOfferResult.Rejected -> Unit
         }
@@ -37,7 +38,8 @@ fun GameViewModel.declineIncomingOffer(offer: IncomingOffer) {
 
 fun GameViewModel.acceptIncomingOffer(offer: IncomingOffer) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val currentRepository = getActiveRepository() ?: return@launch
+        val save = currentRepository.getGameSave() ?: return@launch
         val result = processTransfersUseCase.acceptIncomingOffer(save, offer)
         if (result is ProcessTransfersUseCase.TransferResult.Success) {
             _incomingOffers.update { list -> list.filterNot { it.id == offer.id } }
@@ -50,7 +52,8 @@ fun GameViewModel.acceptIncomingOffer(offer: IncomingOffer) {
 
 fun GameViewModel.executeInstantBuy(player: Player, onResult: (Boolean) -> Unit = {}) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave()
+        val currentRepository = getActiveRepository()
+        val save = currentRepository?.getGameSave()
         if (save == null) {
             onResult(false)
             return@launch
@@ -73,7 +76,8 @@ fun GameViewModel.submitPurchaseOffer(
     onResult: (GameViewModel.IAOfferResult) -> Unit
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave()
+        val currentRepository = getActiveRepository()
+        val save = currentRepository?.getGameSave()
         if (save == null) {
             withContext(Dispatchers.Main) {
                 onResult(GameViewModel.IAOfferResult("declined", 0L, "Carreira indisponível para negociação."))
@@ -108,11 +112,12 @@ fun GameViewModel.buyPlayerAdvanced(
     onResult: (ProcessTransfersUseCase.TransferResult) -> Unit = {}
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave()
-        val result = if (save == null) {
+        val currentRepository = getActiveRepository()
+        val save = currentRepository?.getGameSave()
+        val result = if (save == null || currentRepository == null) {
             ProcessTransfersUseCase.TransferResult.Error("Carreira indisponível para concluir a contratação.")
         } else {
-            val freshPlayer = repo.getPlayer(player.id)
+            val freshPlayer = currentRepository.getPlayer(player.id)
             if (freshPlayer != null && freshPlayer.teamId == save.playerTeamId && !freshPlayer.isOnLoan) {
                 // A negociação aceita já pode ter efetivado a compra dentro do use case. Tratar a
                 // confirmação subsequente como idempotente evita uma segunda cobrança e permite que
@@ -174,11 +179,12 @@ fun GameViewModel.sellPlayer(
     paymentType: String = "VISTA"
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val currentRepository = getActiveRepository() ?: return@launch
+        val save = currentRepository.getGameSave() ?: return@launch
         val salePrice = if (price > 0L) price else getDynamicPlayerPrice(player)
         val result = if (paymentType == "PARCELADO") {
-            val otherTeams = repo.getAllTeams().filter { it.id != save.playerTeamId }
-            val buyer = otherTeams.shuffled().find { repo.getPlayerCountByTeam(it.id) < 30 }
+            val otherTeams = currentRepository.getAllTeams().filter { it.id != save.playerTeamId }
+            val buyer = otherTeams.shuffled().find { currentRepository.getPlayerCountByTeam(it.id) < 30 }
             if (buyer != null) {
                 processTransfersUseCase.executeInstallmentSale(
                     save = save,

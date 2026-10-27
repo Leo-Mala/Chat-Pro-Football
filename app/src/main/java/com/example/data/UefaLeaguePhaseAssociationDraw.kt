@@ -105,9 +105,10 @@ object UefaLeaguePhaseAssociationDraw {
                 val assignedNeighbours = adjacency[position].count { assigned[it] != null }
                 if (
                     bestCandidates == null ||
-                    candidates.size < bestCandidates!!.size ||
-                    (candidates.size == bestCandidates!!.size && assignedNeighbours > bestAssignedNeighbours) ||
-                    (candidates.size == bestCandidates!!.size && assignedNeighbours == bestAssignedNeighbours && position < bestPosition)
+                    (bestCandidates == null) ||
+                    candidates.size < bestCandidates.size ||
+                    (candidates.size == bestCandidates.size && assignedNeighbours > bestAssignedNeighbours) ||
+                    (candidates.size == bestCandidates.size && assignedNeighbours == bestAssignedNeighbours && position < bestPosition)
                 ) {
                     bestPosition = position
                     bestCandidates = candidates
