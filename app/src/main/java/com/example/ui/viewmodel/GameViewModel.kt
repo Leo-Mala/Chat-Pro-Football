@@ -1056,11 +1056,18 @@ class GameViewModel @Inject constructor(
                             }
                             
                             if (!_isSimulatingSeason.value) break
-                            
+                            // Os dois passos abaixo resolvem o repositório ativo internamente;
+                            // sem esta checagem a semana poderia ser fechada no save novo.
+                            if (_currentSaveId.value != simulationSaveId) {
+                                _simulationLogs.value = listOf("Simulação interrompida: save ativo alterado.") + _simulationLogs.value
+                                _isSimulatingSeason.value = false
+                                break
+                            }
+
                             simulateCpuMatchesForCurrentWeek()
                             processWeekEndEconomicAndEvolution()
                             
-                            val updatedSaveSim = getActiveRepository()?.getGameSave() ?: break
+                            val updatedSaveSim = currentRepository.getGameSave() ?: break
                             if (updatedSaveSim.currentWeek == 1 && currentWeekNum >= GameCalendar.WEEKS_PER_SEASON) {
                                 val nextLog = "🏆 Temporada ${save.currentSeason} finalizada com sucesso! Iniciando Temporada ${updatedSaveSim.currentSeason}..."
                                 _simulationLogs.value = (listOf(nextLog) + _simulationLogs.value).take(25)

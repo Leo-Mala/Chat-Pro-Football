@@ -25,7 +25,10 @@ fun GameViewModel.scoutPlayer(player: com.example.data.Player, level: Int = 1) {
     viewModelScope.launch(Dispatchers.IO) {
         val currentRepository = getActiveRepository() ?: return@launch
         val save = currentRepository.getGameSave() ?: return@launch
-        scoutingUseCase.buyScoutReport(save, level)
+        when (val result = scoutingUseCase.buyScoutReport(save, player.id, level)) {
+            is com.example.usecase.ScoutingUseCase.ScoutingResult.Success -> _toastMessage.emit(result.message)
+            is com.example.usecase.ScoutingUseCase.ScoutingResult.Error -> _toastMessage.emit(result.reason)
+        }
     }
 }
 

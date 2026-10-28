@@ -64,44 +64,45 @@ class ScoutingUseCaseTest {
     }
 
     @Test
-    fun buyScoutReport_charges_the_price_advertised_for_each_level() = runTest {
+    fun buyScoutReport_charges_advertised_price_and_marks_the_selected_player() = runTest {
         val save = GameSave(id = 1, bankBalance = 1_000_000L, globalScoutRevealWeeksRemaining = 0)
         repository.saveGameSave(save)
-
-        val level1 = useCase.buyScoutReport(save, level = 1)
-        assertTrue(level1 is ScoutingUseCase.ScoutingResult.Success)
-        assertEquals(
-            1_000_000L - 50_000L,
-            (level1 as ScoutingUseCase.ScoutingResult.Success).updatedSave.bankBalance
-        )
-        assertEquals(1, level1.updatedSave.globalScoutRevealWeeksRemaining)
-
-        val afterLevel1 = level1.updatedSave
-        val level3 = useCase.buyScoutReport(afterLevel1, level = 3)
-        assertTrue(level3 is ScoutingUseCase.ScoutingResult.Success)
-        assertEquals(
-            afterLevel1.bankBalance - 150_000L,
-            (level3 as ScoutingUseCase.ScoutingResult.Success).updatedSave.bankBalance
+        repository.savePlayers(
+            listOf(
+                Player(id = 10, teamId = 1, name = "Alvo 1", age = 22, position = "ATA", force = 78, scoutedLevel = 0)
+            )
         )
 
-        val afterLevel3 = level3.updatedSave
-        val level5 = useCase.buyScoutReport(afterLevel3, level = 5)
-        assertTrue(level5 is ScoutingUseCase.ScoutingResult.Success)
-        assertEquals(
-            afterLevel3.bankBalance - 400_000L,
-            (level5 as ScoutingUseCase.ScoutingResult.Success).updatedSave.bankBalance
-        )
-        assertEquals(3, level5.updatedSave.globalScoutRevealWeeksRemaining)
+        val level1Result = useCase.buyScoutReport(save, playerId = 10, level = 1)
+
+        assertTrue(level1Result is ScoutingUseCase.ScoutingResult.Success)
+        val level1 = level1Result as ScoutingUseCase.ScoutingResult.Success
+        assertEquals(1_000_000L - 50_000L, level1.updatedSave.bankBalance)
+        assertEquals(1, repository.getPlayer(10)?.scoutedLevel ?: -1)
+        assertEquals(0, level1.updatedSave.globalScoutRevealWeeksRemaining)
+
+        val level5Result = useCase.buyScoutReport(level1.updatedSave, playerId = 10, level = 5)
+
+        assertTrue(level5Result is ScoutingUseCase.ScoutingResult.Success)
+        val level5 = level5Result as ScoutingUseCase.ScoutingResult.Success
+        assertEquals(1_000_000L - 50_000L - 400_000L, level5.updatedSave.bankBalance)
+        assertEquals(5, repository.getPlayer(10)?.scoutedLevel ?: -1)
     }
 
     @Test
     fun buyScoutReport_fails_when_insufficient_funds() = runTest {
         val save = GameSave(id = 1, bankBalance = 40_000L, globalScoutRevealWeeksRemaining = 0)
         repository.saveGameSave(save)
+        repository.savePlayers(
+            listOf(
+                Player(id = 11, teamId = 1, name = "Alvo 2", age = 24, position = "ZAG", force = 70, scoutedLevel = 0)
+            )
+        )
 
-        val result = useCase.buyScoutReport(save, level = 1)
+        val result = useCase.buyScoutReport(save, playerId = 11, level = 1)
 
         assertTrue(result is ScoutingUseCase.ScoutingResult.Error)
+        assertEquals(40_000L, repository.getGameSave()?.bankBalance ?: -1L)
     }
 
     @Test
