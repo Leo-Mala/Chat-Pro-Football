@@ -51,9 +51,61 @@ class ScoutingUseCase(private val repository: GameRepository) {
     }
 
     /**
+     * Compra um relatório de olheiros para a rodada atual.
+     *
+     * O preço cobrado é exatamente o anunciado na UI para cada nível
+     * (R$ 50.000 / R$ 150.000 / R$ 400.000 nos níveis 1 / 3 / 5) e o
+     * relatório concede uma rodada de revelação, como descrito ao jogador.
+     */
+    suspend fun buyScoutReport(save: GameSave, level: Int): ScoutingResult = repository.withTransaction {
+        val normalizedLevel = level.coerceIn(1, 5)
+        val cost = scoutReportCost(normalizedLevel)
+        val currentSave = repository.getGameSave() ?: save
+        if (currentSave.bankBalance < cost) {
+            return@withTransaction ScoutingResult.Error(
+                "Saldo insuficiente para contratar olheiros. Custo: R$ %,d.".format(cost)
+            )
+        }
+
+        val updatedSave = currentSave.copy(
+            globalScoutRevealWeeksRemaining = currentSave.globalScoutRevealWeeksRemaining + 1,
+            bankBalance = currentSave.bankBalance - cost
+        )
+
+        repository.saveGameSave(updatedSave)
+        repository.saveTransaction(
+            TransactionRecord(
+                week = currentSave.currentWeek,
+                season = currentSave.currentSeason,
+                type = "MELHORIA_OLHEIROS",
+                description = "Relatório de Olheiros Nível %d".format(normalizedLevel),
+                amount = cost,
+                isIncome = false
+            )
+        )
+
+        ScoutingResult.Success(
+            updatedSave,
+            "Relatório de olheiros nível %d contratado!".format(normalizedLevel)
+        )
+    }
+
+    /**
      * Retorna a força observada de um atleta considerando o nível de olheiros.
      */
     fun getObservedForceRange(player: Player, isRevealed: Boolean): String {
         return player.getObservedForce(isRevealed)
+    }
+
+    companion object {
+        private val SCOUT_REPORT_COSTS = mapOf(
+            1 to 50_000L,
+            2 to 100_000L,
+            3 to 150_000L,
+            4 to 275_000L,
+            5 to 400_000L
+        )
+
+        fun scoutReportCost(level: Int): Long = SCOUT_REPORT_COSTS.getValue(level.coerceIn(1, 5))
     }
 }

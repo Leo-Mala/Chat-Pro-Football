@@ -988,11 +988,19 @@ class GameViewModel @Inject constructor(
                 simulationMutex.withLock {
                     try {
                         val currentRepository = getActiveRepository() ?: return@withLock
+                        val simulationSaveId = _currentSaveId.value
                         val initialSave = currentRepository.getGameSave()
                         if (initialSave != null) {
                             cleanupDuplicateUnplayedFixtures(initialSave.currentSeason)
                         }
                         while (_isSimulatingSeason.value) {
+                            // Aborta se o jogador trocou de save: os use cases abaixo
+                            // resolvem o repositório ativo e não podem gravar em outro slot.
+                            if (_currentSaveId.value != simulationSaveId) {
+                                _simulationLogs.value = listOf("Simulação interrompida: save ativo alterado.") + _simulationLogs.value
+                                _isSimulatingSeason.value = false
+                                break
+                            }
                             val save = currentRepository.getGameSave()
                             if (save == null) {
                                 _isSimulatingSeason.value = false
@@ -1018,6 +1026,10 @@ class GameViewModel @Inject constructor(
                             if (userUnplayedFixtures.isNotEmpty()) {
                                 for (uf in userUnplayedFixtures) {
                                     if (!_isSimulatingSeason.value) break
+                                    if (_currentSaveId.value != simulationSaveId) {
+                                        _isSimulatingSeason.value = false
+                                        break
+                                    }
                                     
                                     val compName = DefaultData.getCompetitionName(uf.competitionType, _selectedCountry.value)
                                     _simulationCompetitionName.value = compName

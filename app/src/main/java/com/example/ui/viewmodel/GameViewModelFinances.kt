@@ -25,8 +25,7 @@ fun GameViewModel.scoutPlayer(player: com.example.data.Player, level: Int = 1) {
     viewModelScope.launch(Dispatchers.IO) {
         val currentRepository = getActiveRepository() ?: return@launch
         val save = currentRepository.getGameSave() ?: return@launch
-        val count = if (level < 1) 1 else if (level > 5) 5 else level
-        scoutingUseCase.buyGlobalScoutReveal(save, count)
+        scoutingUseCase.buyScoutReport(save, level)
     }
 }
 
