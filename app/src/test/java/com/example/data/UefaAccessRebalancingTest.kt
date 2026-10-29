@@ -207,6 +207,17 @@ class UefaAccessRebalancingTest {
         )
 
         assertEquals(
+            UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.NON_UEFA_ASSOCIATION),
+            UefaEuropeanPerformanceSpotAllocator.award(
+                listOf(
+                    association("Inglaterra", 30_000L),
+                    association("Espanha", 28_000L),
+                    association("Brasil", 90_000L)
+                )
+            )
+        )
+
+        assertEquals(
             UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.INVALID_COEFFICIENT),
             UefaEuropeanPerformanceSpotAllocator.award(
                 listOf(
@@ -242,6 +253,64 @@ class UefaAccessRebalancingTest {
 
         val invalid = runCatching { UefaEuropeanPerformanceSpotAllocator.berthPosition(0) }.isFailure
         assertTrue(invalid)
+    }
+
+    @Test
+    fun `vacancy resolution only promotes clubs entered in the champions league`() {
+        val entrants = listOf(
+            champion(960L, "Ucrânia", UefaQualificationStage.Q2, 40_000L),
+            // Caminho CHAMPIONS existe também na UEL/UECL: não pode virar vaga da Champions.
+            UefaQualifyingEntrant(
+                teamId = 961L,
+                country = "Áustria",
+                entryPoint = UefaEntryPoint(
+                    UefaCompetitionCode.UECL,
+                    UefaQualificationStage.Q3,
+                    UefaQualificationPath.CHAMPIONS
+                ),
+                clubCoefficientMilli = 90_000L
+            )
+        )
+
+        val resolution = UefaAccessRebalancer.resolveVacantTitleholderBerth(
+            CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE,
+            entrants
+        )
+
+        assertTrue(resolution is UefaVacancyResolution.Promoted)
+        assertEquals(960L, (resolution as UefaVacancyResolution.Promoted).teamId)
+    }
+
+    @Test
+    fun `explicit eligibility filter falls through to the next coefficient ranked club`() {
+        val entrants = listOf(
+            // Melhor coeficiente, mas não é o clube elegível pela ordem doméstica.
+            leaguePath(970L, "Portugal", UefaQualificationStage.Q3, 80_000L),
+            leaguePath(971L, "Portugal", UefaQualificationStage.Q2, 30_000L)
+        )
+
+        val unrestricted = UefaAccessRebalancer.resolveVacantTitleholderBerth(
+            CompetitionIdentity.UEFA_EUROPA_LEAGUE,
+            entrants
+        )
+        assertEquals(970L, (unrestricted as UefaVacancyResolution.Promoted).teamId)
+
+        val restricted = UefaAccessRebalancer.resolveVacantTitleholderBerth(
+            CompetitionIdentity.UEFA_EUROPA_LEAGUE,
+            entrants,
+            eligibleTeamIds = setOf(971L)
+        )
+        assertTrue(restricted is UefaVacancyResolution.Promoted)
+        assertEquals(971L, (restricted as UefaVacancyResolution.Promoted).teamId)
+
+        assertEquals(
+            UefaVacancyResolution.Rejected(UefaVacancyRejection.NO_ELIGIBLE_CANDIDATE),
+            UefaAccessRebalancer.resolveVacantTitleholderBerth(
+                CompetitionIdentity.UEFA_EUROPA_LEAGUE,
+                entrants,
+                eligibleTeamIds = emptySet()
+            )
+        )
     }
 
     private fun champion(

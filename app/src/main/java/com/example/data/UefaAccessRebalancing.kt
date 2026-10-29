@@ -106,7 +106,14 @@ object UefaAccessRebalancer {
      * Resolve quem ocupa a vaga vaga de um titleholder.
      *
      * [alreadyInLeaguePhase] impede que um clube ocupe duas vagas. Clubes que já entram na league
-     * phase também são descartados por [UefaEntryPoint.stage].
+     * phase também são descartados por [UefaEntryPoint.stage], e só entradas da própria Champions
+     * são consideradas: UEL e UECL também usam caminhos `CHAMPIONS`, então filtrar apenas por
+     * caminho promoveria indevidamente um clube de outra competição.
+     *
+     * [eligibleTeamIds], quando informado, restringe os candidatos àqueles elegíveis pela ordem
+     * doméstica exigida pelo Art. 3.04(2). Essa elegibilidade não pode ser derivada aqui porque
+     * [UefaQualifyingEntrant] não carrega posição doméstica; quando o filtro é aplicado, a seleção
+     * por coeficiente recai naturalmente no próximo clube ranqueado.
      *
      * [UefaQualifyingEntrant.country] é informativo e não é validado contra
      * [CountryFootballRulesRegistry]: a vaga é decidida pelo coeficiente de clube, e o registry de
@@ -116,7 +123,8 @@ object UefaAccessRebalancer {
     fun resolveVacantTitleholderBerth(
         vacatedCompetition: CompetitionIdentity,
         entrants: List<UefaQualifyingEntrant>,
-        alreadyInLeaguePhase: Set<Long> = emptySet()
+        alreadyInLeaguePhase: Set<Long> = emptySet(),
+        eligibleTeamIds: Set<Long>? = null
     ): UefaVacancyResolution {
         val pool = candidatePoolForVacancy(vacatedCompetition)
         if (entrants.any { it.clubCoefficientMilli < 0L }) {
@@ -124,6 +132,8 @@ object UefaAccessRebalancer {
         }
         val candidates = entrants.filter { entrant ->
             entrant.teamId !in alreadyInLeaguePhase &&
+                (eligibleTeamIds == null || entrant.teamId in eligibleTeamIds) &&
+                entrant.entryPoint.competition == UefaCompetitionCode.UCL &&
                 entrant.entryPoint.stage != UefaQualificationStage.LEAGUE_PHASE &&
                 pool.accepts(entrant.entryPoint.path)
         }
@@ -155,7 +165,8 @@ enum class UefaPerformanceSpotRejection {
     INSUFFICIENT_ASSOCIATIONS,
     AMBIGUOUS_RANKING,
     INVALID_COEFFICIENT,
-    UNKNOWN_ASSOCIATION
+    UNKNOWN_ASSOCIATION,
+    NON_UEFA_ASSOCIATION
 }
 
 sealed class UefaPerformanceSpotResolution {
@@ -185,12 +196,19 @@ object UefaEuropeanPerformanceSpotAllocator {
         }
         val canonical = mutableListOf<UefaAssociationSeasonCoefficient>()
         coefficients.forEach { entry ->
-            val country = CountryFootballRulesRegistry
-                .resolve(entry.country)
-                ?.canonicalCountry
+            val rules = CountryFootballRulesRegistry.resolve(entry.country)
                 ?: return UefaPerformanceSpotResolution.Rejected(
                     UefaPerformanceSpotRejection.UNKNOWN_ASSOCIATION
                 )
+            // Uma associação de outra confederação nunca disputa European Performance Spots.
+            if (rules.confederation != FootballConfederation.UEFA ||
+                rules.kind != CountryRuleKind.NATIONAL_ASSOCIATION
+            ) {
+                return UefaPerformanceSpotResolution.Rejected(
+                    UefaPerformanceSpotRejection.NON_UEFA_ASSOCIATION
+                )
+            }
+            val country = rules.canonicalCountry
             val previous = canonical.singleOrNull { it.country == country }
             if (previous != null && previous.coefficientMilli != entry.coefficientMilli) {
                 return UefaPerformanceSpotResolution.Rejected(

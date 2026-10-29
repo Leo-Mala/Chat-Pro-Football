@@ -123,11 +123,18 @@ desfecho oficial da access list:
 - a assimetria entre os dois pools é o ponto central: `UefaVacancyCandidatePool.CHAMPIONS_PATH_ONLY`
   versus `ALL_QUALIFYING_PATHS`. Um clube do League Path nunca ocupa a vaga vaga do titleholder da
   Champions, mesmo com coeficiente maior;
-- um clube que já está na league phase nunca ocupa uma segunda vaga.
+- um clube que já está na league phase nunca ocupa uma segunda vaga;
+- só entradas da própria Champions são candidatas. UEL e UECL também usam caminho `CHAMPIONS`, então
+  filtrar apenas por caminho promoveria indevidamente um clube de outra competição;
+- `eligibleTeamIds` permite impor a elegibilidade pela ordem doméstica do Art. 3.04(2). O motor não a
+  deriva sozinho porque `UefaQualifyingEntrant` não carrega posição doméstica; quando o filtro é
+  aplicado, a seleção por coeficiente recai no próximo clube ranqueado.
 
 European Performance Spots (`UefaEuropeanPerformanceSpotAllocator`):
 
 - as duas associações com melhor coeficiente da época anterior recebem uma vaga extra;
+- somente associações nacionais da UEFA entram no ranking; associação de outra confederação é
+  rejeitada com `NON_UEFA_ASSOCIATION` em vez de receber uma vaga europeia;
 - a vaga cai imediatamente abaixo das vagas domésticas diretas da associação
   (`berthPosition(directLeagueSlots)`); em 2026/27, com quatro vagas diretas, Inglaterra e Espanha
   receberam o EPS na 5ª posição;
