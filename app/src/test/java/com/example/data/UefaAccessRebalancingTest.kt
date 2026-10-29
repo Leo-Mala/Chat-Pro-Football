@@ -313,6 +313,74 @@ class UefaAccessRebalancingTest {
         )
     }
 
+    @Test
+    fun `performance spot ties are broken by the most recent season per Annex D 8`() {
+        // Ranking oficial: Chequia e Polonia empatam em 45.725 e a Chequia fica a frente
+        // porque tem 3.900 contra 3.600 na epoca mais recente.
+        val czechia = UefaAssociationSeasonCoefficient(
+            country = "Tchéquia",
+            coefficientMilli = 45_725L,
+            tiebreakSeasonCoefficientsMilli = listOf(3_900L, 11_025L, 10_550L, 13_500L, 6_750L)
+        )
+        val poland = UefaAssociationSeasonCoefficient(
+            country = "Polônia",
+            coefficientMilli = 45_725L,
+            tiebreakSeasonCoefficientsMilli = listOf(3_600L, 15_750L, 11_750L, 6_875L, 7_750L)
+        )
+        assertEquals(
+            UefaPerformanceSpotResolution.Awarded(listOf("Inglaterra", "Tchéquia")),
+            UefaEuropeanPerformanceSpotAllocator.award(
+                listOf(association("Inglaterra", 50_000L), poland, czechia)
+            )
+        )
+
+        // A decisao nao depende da ordem de entrada.
+        assertEquals(
+            UefaPerformanceSpotResolution.Awarded(listOf("Inglaterra", "Tchéquia")),
+            UefaEuropeanPerformanceSpotAllocator.award(
+                listOf(association("Inglaterra", 50_000L), czechia, poland)
+            )
+        )
+
+        // Sem desempate possivel (quebras identicas) continua rejeitando.
+        assertEquals(
+            UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.AMBIGUOUS_RANKING),
+            UefaEuropeanPerformanceSpotAllocator.award(
+                listOf(
+                    association("Inglaterra", 30_000L),
+                    association("Espanha", 28_000L).copy(tiebreakSeasonCoefficientsMilli = listOf(19_000L)),
+                    association("Itália", 28_000L).copy(tiebreakSeasonCoefficientsMilli = listOf(19_000L))
+                )
+            )
+        )
+
+        // A epoca mais recente decide antes das anteriores.
+        assertEquals(
+            UefaPerformanceSpotResolution.Awarded(listOf("Inglaterra", "Espanha")),
+            UefaEuropeanPerformanceSpotAllocator.award(
+                listOf(
+                    association("Inglaterra", 30_000L),
+                    association("Espanha", 28_000L)
+                        .copy(tiebreakSeasonCoefficientsMilli = listOf(22_093L, 19_000L)),
+                    association("Itália", 28_000L)
+                        .copy(tiebreakSeasonCoefficientsMilli = listOf(19_000L, 21_875L))
+                )
+            )
+        )
+
+        assertEquals(
+            UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.INVALID_COEFFICIENT),
+            UefaEuropeanPerformanceSpotAllocator.award(
+                listOf(
+                    association("Inglaterra", 30_000L),
+                    association("Espanha", 28_000L)
+                        .copy(tiebreakSeasonCoefficientsMilli = listOf(-1L)),
+                    association("Itália", 27_000L)
+                )
+            )
+        )
+    }
+
     private fun champion(
         teamId: Long,
         country: String,

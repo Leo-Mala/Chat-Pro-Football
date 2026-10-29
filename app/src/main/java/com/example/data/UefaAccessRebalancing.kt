@@ -155,10 +155,17 @@ object UefaAccessRebalancer {
     }
 }
 
-/** Coeficiente de associação de uma única época, em milésimos de ponto. */
+/**
+ * Coeficiente de associação usado no ranking de European Performance Spots, em milésimos de ponto.
+ *
+ * [coefficientMilli] é o coeficiente de uma única época (o EPS usa a época mais recente).
+ * [tiebreakSeasonCoefficientsMilli] é opcional e existe só para o desempate do Annex D.8: as épocas
+ * da mais recente para a mais antiga, comparadas em ordem.
+ */
 data class UefaAssociationSeasonCoefficient(
     val country: String,
-    val coefficientMilli: Long
+    val coefficientMilli: Long,
+    val tiebreakSeasonCoefficientsMilli: List<Long> = emptyList()
 )
 
 enum class UefaPerformanceSpotRejection {
@@ -191,7 +198,10 @@ object UefaEuropeanPerformanceSpotAllocator {
         spots: Int = UefaAccessList2026_27.EUROPEAN_PERFORMANCE_SPOTS
     ): UefaPerformanceSpotResolution {
         require(spots > 0)
-        if (coefficients.any { it.coefficientMilli < 0L }) {
+        if (coefficients.any {
+                it.coefficientMilli < 0L || it.tiebreakSeasonCoefficientsMilli.any { season -> season < 0L }
+            }
+        ) {
             return UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.INVALID_COEFFICIENT)
         }
         val canonical = mutableListOf<UefaAssociationSeasonCoefficient>()
@@ -210,13 +220,20 @@ object UefaEuropeanPerformanceSpotAllocator {
             }
             val country = rules.canonicalCountry
             val previous = canonical.singleOrNull { it.country == country }
-            if (previous != null && previous.coefficientMilli != entry.coefficientMilli) {
+            if (previous != null &&
+                (previous.coefficientMilli != entry.coefficientMilli ||
+                    previous.tiebreakSeasonCoefficientsMilli != entry.tiebreakSeasonCoefficientsMilli)
+            ) {
                 return UefaPerformanceSpotResolution.Rejected(
                     UefaPerformanceSpotRejection.AMBIGUOUS_RANKING
                 )
             }
             if (previous == null) {
-                canonical += UefaAssociationSeasonCoefficient(country, entry.coefficientMilli)
+                canonical += UefaAssociationSeasonCoefficient(
+                    country = country,
+                    coefficientMilli = entry.coefficientMilli,
+                    tiebreakSeasonCoefficientsMilli = entry.tiebreakSeasonCoefficientsMilli
+                )
             }
         }
         if (canonical.size <= spots) {
@@ -224,8 +241,8 @@ object UefaEuropeanPerformanceSpotAllocator {
                 UefaPerformanceSpotRejection.INSUFFICIENT_ASSOCIATIONS
             )
         }
-        val ranked = canonical.sortedByDescending { it.coefficientMilli }
-        if (ranked[spots - 1].coefficientMilli == ranked[spots].coefficientMilli) {
+        val ranked = canonical.sortedWith(ranking)
+        if (ranking.compare(ranked[spots - 1], ranked[spots]) == 0) {
             return UefaPerformanceSpotResolution.Rejected(
                 UefaPerformanceSpotRejection.AMBIGUOUS_RANKING
             )
@@ -233,6 +250,36 @@ object UefaEuropeanPerformanceSpotAllocator {
         return UefaPerformanceSpotResolution.Awarded(
             ranked.take(spots).map { it.country }
         )
+    }
+
+    /**
+     * Coeficiente decrescente e, em empate, Annex D.8: maior coeficiente na época mais recente, depois
+     * na anterior, e assim por diante.
+     *
+     * A ordenação por época mais recente é observável na classificação oficial: Chéquia e Polônia
+     * empatam em 45.725 e a Chéquia aparece à frente por 3.900 contra 3.600 na época em curso. Quando
+     * o desempate não pode ser decidido com os dados recebidos, [award] rejeita - sorteio da UEFA não
+     * é reproduzível pelo motor.
+     */
+    private val ranking: Comparator<UefaAssociationSeasonCoefficient> = Comparator { a, b ->
+        val byCoefficient = b.coefficientMilli.compareTo(a.coefficientMilli)
+        if (byCoefficient != 0) byCoefficient else compareTiebreak(a, b)
+    }
+
+    private fun compareTiebreak(
+        a: UefaAssociationSeasonCoefficient,
+        b: UefaAssociationSeasonCoefficient
+    ): Int {
+        val size = minOf(
+            a.tiebreakSeasonCoefficientsMilli.size,
+            b.tiebreakSeasonCoefficientsMilli.size
+        )
+        for (index in 0 until size) {
+            val comparison = b.tiebreakSeasonCoefficientsMilli[index]
+                .compareTo(a.tiebreakSeasonCoefficientsMilli[index])
+            if (comparison != 0) return comparison
+        }
+        return 0
     }
 
     /**

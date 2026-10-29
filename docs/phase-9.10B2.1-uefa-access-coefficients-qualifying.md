@@ -139,7 +139,13 @@ European Performance Spots (`UefaEuropeanPerformanceSpotAllocator`):
   (`berthPosition(directLeagueSlots)`); em 2026/27, com quatro vagas diretas, Inglaterra e Espanha
   receberam o EPS na 5ª posição;
 - um clube que já entrou por outra vaga (titleholder) não pode receber o EPS, por isso
-  `unavailablePositions` é explícito.
+  `unavailablePositions` é explícito;
+- empate de coeficiente é desempatado pelo Annex D.8: maior coeficiente na época mais recente, depois
+  na anterior, e assim por diante (`tiebreakSeasonCoefficientsMilli`). A ordenação por época mais
+  recente é observável no ranking oficial — Chéquia e Polônia empatam em 45.725 e a Chéquia aparece à
+  frente por 3.900 contra 3.600 na época em curso. Se o desempate não puder ser decidido com os dados
+  recebidos, o resultado continua sendo `AMBIGUOUS_RANKING`: sorteio da UEFA não é reproduzível pelo
+  motor.
 
 O motor **não inventa desempate**. Coeficiente máximo empatado, associação desconhecida, coeficiente
 inválido ou ausência de candidato retornam `Rejected` com motivo tipado. O chamador precisa de
