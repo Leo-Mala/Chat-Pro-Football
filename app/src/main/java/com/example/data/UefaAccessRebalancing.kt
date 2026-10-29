@@ -198,10 +198,10 @@ object UefaEuropeanPerformanceSpotAllocator {
         spots: Int = UefaAccessList2026_27.EUROPEAN_PERFORMANCE_SPOTS
     ): UefaPerformanceSpotResolution {
         require(spots > 0)
-        if (coefficients.any {
-                it.coefficientMilli < 0L || it.tiebreakSeasonCoefficientsMilli.any { season -> season < 0L }
-            }
-        ) {
+        val hasInvalidCoefficient = coefficients.any {
+            it.coefficientMilli < 0L || it.tiebreakSeasonCoefficientsMilli.any { season -> season < 0L }
+        }
+        if (hasInvalidCoefficient) {
             return UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.INVALID_COEFFICIENT)
         }
         val canonical = mutableListOf<UefaAssociationSeasonCoefficient>()
