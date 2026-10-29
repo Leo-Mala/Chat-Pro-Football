@@ -56,9 +56,10 @@ internal fun hasPendingUserFixtures(
 fun GameViewModel.startLiveMatch(fixture: Fixture) {
     liveMatchJob?.cancel()
     liveMatchJob = viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
-        val home = repo.getTeam(fixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.homeTeamId)
-        val away = repo.getTeam(fixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.awayTeamId)
+        val currentRepository = getActiveRepository() ?: return@launch
+        val save = currentRepository.getGameSave() ?: return@launch
+        val home = currentRepository.getTeam(fixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.homeTeamId)
+        val away = currentRepository.getTeam(fixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.awayTeamId)
 
         if (_autoLineupEnabled.value) {
             autoLineup(save.playerTeamId).join()
@@ -66,8 +67,8 @@ fun GameViewModel.startLiveMatch(fixture: Fixture) {
             autoReplaceSuspendedAndInjuredPlayers(save.playerTeamId).join()
         }
 
-        val homePls = repo.getPlayersByTeam(home.id)
-        val awayPls = repo.getPlayersByTeam(away.id)
+        val homePls = currentRepository.getPlayersByTeam(home.id)
+        val awayPls = currentRepository.getPlayersByTeam(away.id)
         val homeStarters = getStartingXIForTeam(homePls, home.id, home.rating, home.name, home.country)
         val awayStarters = getStartingXIForTeam(awayPls, away.id, away.rating, away.name, away.country)
         val homeReserves = homePls.filter { it !in homeStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
@@ -153,11 +154,14 @@ suspend fun GameViewModel.runMatchSimulationLoop() {
                 awayPenalties = awayPenalties,
                 isPlayed = true
             )
-            repo.withTransaction {
-                val persistedFixture = repo.getFixture(updatedFixture.id)
-                if (persistedFixture?.isPlayed != true) {
-                    repo.updateFixture(updatedFixture)
-                    processMatchEventsAndStats(updatedFixture, currentMatchEvents)
+            val txRepo2 = getActiveRepository()
+            if (txRepo2 != null) {
+                txRepo2.withTransaction {
+                    val persistedFixture = txRepo2.getFixture(updatedFixture.id)
+                    if (persistedFixture?.isPlayed != true) {
+                        txRepo2.updateFixture(updatedFixture)
+                        processMatchEventsAndStats(updatedFixture, currentMatchEvents, txRepo2)
+                    }
                 }
             }
         }
@@ -209,8 +213,9 @@ private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
     userFixture: Fixture,
     save: GameSave
 ): Fixture {
-    val home = repo.getTeam(userFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.homeTeamId)
-    val away = repo.getTeam(userFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.awayTeamId)
+    val currentRepository = getActiveRepository() ?: return userFixture
+    val home = currentRepository.getTeam(userFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.homeTeamId)
+    val away = currentRepository.getTeam(userFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.awayTeamId)
 
     if (_autoLineupEnabled.value) {
         autoLineup(save.playerTeamId).join()
@@ -218,8 +223,8 @@ private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
         autoReplaceSuspendedAndInjuredPlayers(save.playerTeamId).join()
     }
 
-    val homePls = repo.getPlayersByTeam(home.id)
-    val awayPls = repo.getPlayersByTeam(away.id)
+    val homePls = currentRepository.getPlayersByTeam(home.id)
+    val awayPls = currentRepository.getPlayersByTeam(away.id)
     val homeStarters = getStartingXIForTeam(homePls, home.id, home.rating, home.name, home.country)
     val awayStarters = getStartingXIForTeam(awayPls, away.id, away.rating, away.name, away.country)
     val homeReserves = homePls.filter { it !in homeStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
@@ -246,15 +251,16 @@ private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
     val updatedFixture = userFixture.copy(homeScore = hGoals, awayScore = aGoals, isPlayed = true)
 
     var committedFixture = updatedFixture
-    repo.withTransaction {
-        val persistedFixture = repo.getFixture(updatedFixture.id)
+    val txRepo = currentRepository
+    txRepo.withTransaction {
+        val persistedFixture = txRepo.getFixture(updatedFixture.id)
         if (persistedFixture?.isPlayed == true) {
             committedFixture = persistedFixture
             return@withTransaction
         }
-        repo.updateFixture(updatedFixture)
-        processMatchEventsAndStats(updatedFixture, matchEvents)
-        committedFixture = repo.getFixture(updatedFixture.id) ?: updatedFixture
+        txRepo.updateFixture(updatedFixture)
+        processMatchEventsAndStats(updatedFixture, matchEvents, txRepo)
+        committedFixture = txRepo.getFixture(updatedFixture.id) ?: updatedFixture
     }
     return committedFixture
 }
@@ -262,19 +268,20 @@ private suspend fun GameViewModel.simulateSingleUserFixtureSafely(
 fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
     liveMatchJob?.cancel()
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val currentRepository = getActiveRepository() ?: return@launch
+        val save = currentRepository.getGameSave() ?: return@launch
         val targetFixture = fixture ?: liveMatchFixture ?: run {
-            val weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+            val weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
             weekFixtures.find { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
         }
 
         if (targetFixture != null && !targetFixture.isPlayed) {
             val simulated = simulateSingleUserFixtureSafely(targetFixture, save)
-            var updated = repo.getFixture(targetFixture.id) ?: simulated
+            var updated = currentRepository.getFixture(targetFixture.id) ?: simulated
             val decided = CompetitionRules.ensureKnockoutDecision(updated)
             if (decided != updated) {
-                repo.updateFixture(decided)
-                updated = repo.getFixture(decided.id) ?: decided
+                currentRepository.updateFixture(decided)
+                updated = currentRepository.getFixture(decided.id) ?: decided
             }
             _matchHomeScore.value = updated.homeScore ?: 0
             _matchAwayScore.value = updated.awayScore ?: 0
@@ -286,21 +293,22 @@ fun GameViewModel.skipLiveMatch(fixture: Fixture? = null) {
 
         simulateCpuMatchesForCurrentWeek()
 
-        val refreshedWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+        val refreshedWeekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
         if (!hasPendingUserFixtures(refreshedWeekFixtures, save.playerTeamId)) {
             processWeekEndEconomicAndEvolution()
         }
     }
 }
 
-suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: List<Any>) {
+suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: List<Any>, repoParam: GameRepository? = null) {
     @Suppress("UNCHECKED_CAST")
     val detailEvents = events as? List<GameEngine.MatchEventDetail> ?: return
+    val currentRepository = repoParam ?: getActiveRepository() ?: return
 
-    val home = repo.getTeam(fixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.homeTeamId)
-    val away = repo.getTeam(fixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.awayTeamId)
-    val homePlayers = repo.getPlayersByTeam(fixture.homeTeamId)
-    val awayPlayers = repo.getPlayersByTeam(fixture.awayTeamId)
+    val home = currentRepository.getTeam(fixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.homeTeamId)
+    val away = currentRepository.getTeam(fixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(fixture.awayTeamId)
+    val homePlayers = currentRepository.getPlayersByTeam(fixture.homeTeamId)
+    val awayPlayers = currentRepository.getPlayersByTeam(fixture.awayTeamId)
     val homeStarters = getStartingXIForTeam(homePlayers, home.id, home.rating, home.name, home.country)
     val awayStarters = getStartingXIForTeam(awayPlayers, away.id, away.rating, away.name, away.country)
 
@@ -313,7 +321,7 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
 
     val playersToUpdate = mutableListOf<Player>()
     for (pid in playerIds) {
-        val p = repo.getPlayer(pid) ?: continue
+        val p = currentRepository.getPlayer(pid) ?: continue
         var careerGoals = p.careerGoals
         var seasonGoals = p.gols
         var yellow = p.yellowCardsAccumulated
@@ -356,12 +364,13 @@ suspend fun GameViewModel.processMatchEventsAndStats(fixture: Fixture, events: L
         )
     }
     if (playersToUpdate.isNotEmpty()) {
-        repo.updatePlayers(playersToUpdate)
+        currentRepository.updatePlayers(playersToUpdate)
     }
 }
 
 suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
-    val save = repo.getGameSave() ?: return
+    val currentRepository = getActiveRepository() ?: return
+    val save = currentRepository.getGameSave() ?: return
     simulateWeekUseCase.simulateCpuMatchesForWeek(
         season = save.currentSeason,
         week = save.currentWeek,
@@ -370,12 +379,13 @@ suspend fun GameViewModel.simulateCpuMatchesForCurrentWeek() {
 }
 
 private suspend fun GameViewModel.prepareWeeklyIncomingOffer(): IncomingOffer? {
-    val save = repo.getGameSave() ?: return null
-    val userRoster = repo.getPlayersByTeam(save.playerTeamId)
+    val currentRepository = getActiveRepository() ?: return null
+    val save = currentRepository.getGameSave() ?: return null
+    val userRoster = currentRepository.getPlayersByTeam(save.playerTeamId)
     if (userRoster.size <= 16) return null
     val ownedCandidates = userRoster.filterNot { it.isOnLoan }
     if (ownedCandidates.isEmpty()) return null
-    val otherTeams = repo.getAllTeams().filter { it.id != save.playerTeamId }
+    val otherTeams = currentRepository.getAllTeams().filter { it.id != save.playerTeamId }
     if (otherTeams.isEmpty()) return null
 
     val seed = (save.currentSeason * 1000L + save.currentWeek * 10L + save.playerTeamId)
@@ -432,7 +442,8 @@ suspend fun GameViewModel.generateWeeklyIncomingOffers() {
  * Falhas inesperadas continuam propagando normalmente.
  */
 suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
-    val requestedSave = repo.getGameSave() ?: return
+    val currentRepository = getActiveRepository() ?: return
+    val requestedSave = currentRepository.getGameSave() ?: return
     val monthlyPeriod = if (requestedSave.currentWeek % 4 == 0) {
         "S${requestedSave.currentSeason}_W${requestedSave.currentWeek}"
     } else {
@@ -445,8 +456,8 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
     var weeklyCloseCommitted = false
 
     try {
-        repo.withTransaction {
-            val save = repo.getGameSave() ?: return@withTransaction
+        currentRepository.withTransaction {
+            val save = currentRepository.getGameSave() ?: return@withTransaction
             if (save.currentSeason != requestedSave.currentSeason ||
                 save.currentWeek != requestedSave.currentWeek ||
                 save.playerTeamId != requestedSave.playerTeamId
@@ -454,7 +465,7 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
                 return@withTransaction
             }
 
-            val currentWeekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+            val currentWeekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
             if (currentWeekFixtures.any { !it.isPlayed }) {
                 return@withTransaction
             }
@@ -466,10 +477,10 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
             // Snapshot loans use the main contract as their only trusted expiry signal. CPU owners
             // must make their normal sporting retention decision while that ownership relation is
             // still active, before FinanceUseCase closes a one-week contract as free agency.
-            val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(repo)
+            val cpuSquadManagement = com.example.usecase.CpuSquadManagementUseCase(currentRepository)
             cpuSquadManagement.renewCpuContractsBeforeWeeklyTick()
 
-            val userPlayers = repo.getPlayersByTeam(save.playerTeamId)
+            val userPlayers = currentRepository.getPlayersByTeam(save.playerTeamId)
             val updatedSave = financeUseCase.processWeeklyFinances(save, isHomeMatch, userPlayers)
 
             processTransfersUseCase.processWeeklyContractsAndLoans()
@@ -489,14 +500,14 @@ suspend fun GameViewModel.processWeekEndEconomicAndEvolution() {
                 }
             }
 
-            CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, repo)
-            SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, repo)
+            CupCompetitionSystem.processProgression(save.currentSeason, save.currentWeek, currentRepository)
+            SuperMundialSystem.processProgression(save.currentSeason, save.currentWeek, currentRepository)
 
             if (updatedSave.currentWeek >= GameCalendar.WEEKS_PER_SEASON) {
                 advanceToNextSeason(updatedSave)
             } else {
                 val nextWeekSave = updatedSave.copy(currentWeek = updatedSave.currentWeek + 1)
-                repo.saveGameSave(nextWeekSave)
+                currentRepository.saveGameSave(nextWeekSave)
             }
             weeklyCloseCommitted = true
         }
@@ -526,10 +537,11 @@ data class SeasonStandingRow(
 }
 
 suspend fun GameViewModel.advanceToNextSeason(save: GameSave) {
+    val currentRepository = getActiveRepository() ?: return
     val transitionUseCase = com.example.usecase.SeasonTransitionUseCase(
-        repository = repo,
+        repository = currentRepository,
         generateCalendarUseCase = generateCalendarUseCase,
-        databaseIntegrityUseCase = com.example.usecase.DatabaseIntegrityUseCase(repo)
+        databaseIntegrityUseCase = com.example.usecase.DatabaseIntegrityUseCase(currentRepository)
     )
     transitionUseCase.advanceToNextSeason(save)
 }
@@ -596,9 +608,10 @@ private fun calculateSeasonStandings(teams: List<Team>, fixtures: List<Fixture>,
 }
 
 suspend fun GameViewModel.generateFixturesForSeason(season: Int, teams: List<Team>, userTeamId: Long): List<Fixture> {
+    val currentRepository = getActiveRepository()
     val userCountry = _selectedCountry.value ?: "BRASIL"
-    val qualificationStandings = if (season > 2026) {
-        repo.getGlobalStandingsForSeason(season - 1)
+    val qualificationStandings = if (season > 2026 && currentRepository != null) {
+        currentRepository.getGlobalStandingsForSeason(season - 1)
     } else {
         emptyList()
     }

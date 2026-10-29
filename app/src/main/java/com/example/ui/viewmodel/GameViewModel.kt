@@ -190,7 +190,8 @@ class GameViewModel @Inject constructor(
 
     fun autoReplaceSuspendedAndInjuredPlayers(teamId: Long): kotlinx.coroutines.Job {
         return viewModelScope.launch(Dispatchers.IO) {
-            val players = repo.getPlayersByTeam(teamId)
+            val currentRepository = getActiveRepository() ?: return@launch
+            val players = currentRepository.getPlayersByTeam(teamId)
             val starters = players.filter { it.isStarter }
             val reserves = players.filter { !it.isStarter }
             val updatedPlayers = mutableListOf<Player>()
@@ -222,7 +223,8 @@ class GameViewModel @Inject constructor(
             }
 
             if (updatedPlayers.isNotEmpty()) {
-                repo.updatePlayers(updatedPlayers)
+                val currentRepository = getActiveRepository() ?: return@launch
+                currentRepository.updatePlayers(updatedPlayers)
             }
         }
     }
@@ -458,23 +460,25 @@ class GameViewModel @Inject constructor(
 
     fun updatePlayerTrainingFocus(player: Player, focus: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val currentRepository = getActiveRepository() ?: return@launch
             val updated = player.copy(focoTreino = focus)
-            repo.updatePlayer(updated)
+            currentRepository.updatePlayer(updated)
             _toastMessage.emit("Foco de treino de ${player.name} alterado para $focus!")
         }
     }
 
     fun upgradeTrainingCenter() {
         viewModelScope.launch(Dispatchers.IO) {
-            val message = repo.withTransaction {
-                val save = repo.getGameSave() ?: return@withTransaction null
-                val team = repo.getTeam(save.playerTeamId) ?: return@withTransaction null
+            val currentRepository = getActiveRepository() ?: return@launch
+            val message = currentRepository.withTransaction {
+                val save = currentRepository.getGameSave() ?: return@withTransaction null
+                val team = currentRepository.getTeam(save.playerTeamId) ?: return@withTransaction null
                 val cost = 2_000_000L * team.trainingCenterLevel
                 if (save.bankBalance >= cost && team.trainingCenterLevel < 5) {
                     val updatedTeam = team.copy(trainingCenterLevel = team.trainingCenterLevel + 1)
                     val updatedSave = save.copy(bankBalance = save.bankBalance - cost)
-                    repo.updateTeam(updatedTeam)
-                    repo.saveGameSave(updatedSave)
+                    currentRepository.updateTeam(updatedTeam)
+                    currentRepository.saveGameSave(updatedSave)
                     "Centro de Treinamento evoluído para Nível ${updatedTeam.trainingCenterLevel}!"
                 } else {
                     "Saldo insuficiente ou nível máximo atingido."
@@ -488,7 +492,8 @@ class GameViewModel @Inject constructor(
 
     fun advanceMonthAndRunEvolution() {
     viewModelScope.launch(Dispatchers.IO) {
-        val save = repo.getGameSave() ?: return@launch
+        val currentRepository = getActiveRepository() ?: return@launch
+        val save = currentRepository.getGameSave() ?: return@launch
         val periodDate = "${save.currentSeason}-${save.currentWeek}"
         val outcome = playerEvolutionUseCase.executeMonthlyEvolutionDetailed(save, periodDate)
         if (!outcome.committed) {
@@ -580,8 +585,9 @@ class GameViewModel @Inject constructor(
         liveMatchHomePlayers = emptyList()
         liveMatchAwayPlayers = emptyList()
         viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
-            val weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+            val currentRepository = getActiveRepository() ?: return@launch
+            val save = currentRepository.getGameSave() ?: return@launch
+            val weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
             val userFixture = weekFixtures.find { it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId }
             if (userFixture == null || userFixture.isPlayed) {
                 simulateCpuMatchesForCurrentWeek()
@@ -725,8 +731,9 @@ class GameViewModel @Inject constructor(
 
     fun setTacticalRole(role: String, playerId: Long?) {
         viewModelScope.launch(Dispatchers.IO) {
-            repo.withTransaction {
-                val save = repo.getGameSave() ?: return@withTransaction
+            val currentRepository = getActiveRepository() ?: return@launch
+            currentRepository.withTransaction {
+                val save = currentRepository.getGameSave() ?: return@withTransaction
                 val updatedSave = when (role) {
                     "CAPTAIN" -> save.copy(captainPlayerId = playerId)
                     "PENALTY" -> save.copy(penaltyPlayerId = playerId)
@@ -734,7 +741,7 @@ class GameViewModel @Inject constructor(
                     "CORNER" -> save.copy(cornerPlayerId = playerId)
                     else -> save
                 }
-                repo.saveGameSave(updatedSave)
+                currentRepository.saveGameSave(updatedSave)
             }
         }
     }
@@ -751,12 +758,13 @@ class GameViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             preferencesRepo.setInfiniteStaminaEnabled(enabled)
             if (enabled) {
-                val save = repo.getGameSave()
-                if (save != null) {
-                    val myPlayers = repo.getPlayersByTeam(save.playerTeamId)
+                val currentRepository = getActiveRepository()
+                val save = currentRepository?.getGameSave()
+                if (save != null && currentRepository != null) {
+                    val myPlayers = currentRepository.getPlayersByTeam(save.playerTeamId)
                     if (myPlayers.isNotEmpty()) {
                         val fullyRestored = myPlayers.map { it.copy(energy = 100) }
-                        repo.updatePlayers(fullyRestored)
+                        currentRepository.updatePlayers(fullyRestored)
                     }
                 }
             }
@@ -776,9 +784,10 @@ class GameViewModel @Inject constructor(
 
     fun autoLineup(teamId: Long, showToast: Boolean = false): kotlinx.coroutines.Job {
         return viewModelScope.launch(Dispatchers.IO) {
-            val save = repo.getGameSave() ?: return@launch
+            val currentRepository = getActiveRepository() ?: return@launch
+            val save = currentRepository.getGameSave() ?: return@launch
             val formation = save.playerFormation
-            val roster = repo.getPlayersByTeam(teamId)
+            val roster = currentRepository.getPlayersByTeam(teamId)
             
             // Filter uninjured and unsuspended players
             val available = roster.filter { it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
@@ -838,7 +847,8 @@ class GameViewModel @Inject constructor(
             }
             
             if (updatedPlayers.isNotEmpty()) {
-                repo.updatePlayers(updatedPlayers)
+                val currentRepository = getActiveRepository() ?: return@launch
+                currentRepository.updatePlayers(updatedPlayers)
             }
             if (showToast) {
                 _toastMessage.emit("Escalação automática concluída com base na tática $formation!")
@@ -847,8 +857,9 @@ class GameViewModel @Inject constructor(
     }
 
     internal suspend fun simulateSingleUserFixture(userFixture: Fixture, save: GameSave): Fixture {
-        val home = repo.getTeam(userFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.homeTeamId)
-        val away = repo.getTeam(userFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.awayTeamId)
+        val currentRepository = getActiveRepository() ?: return userFixture
+        val home = currentRepository.getTeam(userFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.homeTeamId)
+        val away = currentRepository.getTeam(userFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(userFixture.awayTeamId)
         
         if (_autoLineupEnabled.value) {
             autoLineup(save.playerTeamId).join()
@@ -856,8 +867,8 @@ class GameViewModel @Inject constructor(
             autoReplaceSuspendedAndInjuredPlayers(save.playerTeamId).join()
         }
         
-        val homePls = repo.getPlayersByTeam(home.id)
-        val awayPls = repo.getPlayersByTeam(away.id)
+        val homePls = currentRepository.getPlayersByTeam(home.id)
+        val awayPls = currentRepository.getPlayersByTeam(away.id)
         val homeStarters = getStartingXIForTeam(homePls, home.id, home.rating, home.name, home.country)
         val awayStarters = getStartingXIForTeam(awayPls, away.id, away.rating, away.name, away.country)
         val homeReserves = homePls.filter { it !in homeStarters && it.injuryWeeksRemaining == 0 && it.suspensionWeeksRemaining == 0 }
@@ -884,11 +895,14 @@ class GameViewModel @Inject constructor(
         val aGoals = matchEvents.count { it.type == "GOAL" && !it.isHomeEvent }
         
         val updatedFixture = userFixture.copy(homeScore = hGoals, awayScore = aGoals, isPlayed = true)
-        repo.withTransaction {
-            val persistedFixture = repo.getFixture(updatedFixture.id)
-            if (persistedFixture?.isPlayed != true) {
-                repo.updateFixture(updatedFixture)
-                processMatchEventsAndStats(updatedFixture, matchEvents)
+        val txRepo = getActiveRepository()
+        if (txRepo != null) {
+            txRepo.withTransaction {
+                val persistedFixture = txRepo.getFixture(updatedFixture.id)
+                if (persistedFixture?.isPlayed != true) {
+                    txRepo.updateFixture(updatedFixture)
+                    processMatchEventsAndStats(updatedFixture, matchEvents, txRepo)
+                }
             }
         }
         return updatedFixture
@@ -896,7 +910,8 @@ class GameViewModel @Inject constructor(
 
     internal suspend fun cleanupDuplicateUnplayedFixtures(season: Int) {
         try {
-            val allFixtures = repo.getFixturesForSeason(season).filter { !it.isPlayed }
+            val currentRepository = getActiveRepository() ?: return
+            val allFixtures = currentRepository.getFixturesForSeason(season).filter { !it.isPlayed }
             val idsToDelete = mutableListOf<Long>()
             
             // 1. Exact duplicates (same week, homeTeamId, awayTeamId, competitionType)
@@ -931,7 +946,8 @@ class GameViewModel @Inject constructor(
             }
             
             if (idsToDelete.isNotEmpty()) {
-                repo.deleteFixturesByIds(idsToDelete.distinct())
+                val currentRepository = getActiveRepository() ?: return
+                currentRepository.deleteFixturesByIds(idsToDelete.distinct())
             }
         } catch (e: Exception) {
             Log.e("GameViewModel", "Erro ao limpar partidas duplicadas", e)
@@ -939,17 +955,25 @@ class GameViewModel @Inject constructor(
     }
 
     private suspend fun performSimulateOneWeekInternal() {
-        val save = repo.getGameSave() ?: return
+        val currentRepository = getActiveRepository() ?: return
+        val simulationSaveId = _currentSaveId.value
+        val save = currentRepository.getGameSave() ?: return
         cleanupDuplicateUnplayedFixtures(save.currentSeason)
-        var weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+        var weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
         var userFixture = weekFixtures.find { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
         
         while (userFixture != null) {
+            // simulateSingleUserFixture grava pelo repositório ativo: se o jogador trocou
+            // de slot, abortar evita gravar no save novo e repetir o fixture indefinidamente.
+            if (_currentSaveId.value != simulationSaveId) return
             simulateSingleUserFixture(userFixture, save)
-            weekFixtures = repo.getFixturesForWeek(save.currentSeason, save.currentWeek)
+            if (_currentSaveId.value != simulationSaveId) return
+            weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
             userFixture = weekFixtures.find { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
         }
         
+        // Os dois passos abaixo resolvem o repositório ativo internamente.
+        if (_currentSaveId.value != simulationSaveId) return
         simulateCpuMatchesForCurrentWeek()
         processWeekEndEconomicAndEvolution()
     }
@@ -970,44 +994,58 @@ class GameViewModel @Inject constructor(
             try {
                 simulationMutex.withLock {
                     try {
-                        val initialSave = repo.getGameSave()
+                        val currentRepository = getActiveRepository() ?: return@withLock
+                        val simulationSaveId = _currentSaveId.value
+                        val initialSave = currentRepository.getGameSave()
                         if (initialSave != null) {
                             cleanupDuplicateUnplayedFixtures(initialSave.currentSeason)
                         }
                         while (_isSimulatingSeason.value) {
-                            val save = repo.getGameSave()
+                            // Aborta se o jogador trocou de save: os use cases abaixo
+                            // resolvem o repositório ativo e não podem gravar em outro slot.
+                            if (_currentSaveId.value != simulationSaveId) {
+                                _simulationLogs.value = listOf("Simulação interrompida: save ativo alterado.") + _simulationLogs.value
+                                _isSimulatingSeason.value = false
+                                break
+                            }
+                            val save = currentRepository.getGameSave()
                             if (save == null) {
                                 _isSimulatingSeason.value = false
                                 break
                             }
                             
                             // Auto-generate season fixtures if missing
-                            val seasonFixtures = repo.getFixturesForSeason(save.currentSeason)
+                            val seasonFixtures = currentRepository.getFixturesForSeason(save.currentSeason)
                             if (seasonFixtures.isEmpty()) {
-                                val allTeams = repo.getAllTeams()
+                                val allTeams = currentRepository.getAllTeams()
                                 if (allTeams.isNotEmpty()) {
                                     val newFixtures = generateFixturesForSeason(save.currentSeason, allTeams, save.playerTeamId)
-                                    repo.saveFixtures(newFixtures)
+                                    currentRepository.saveFixtures(newFixtures)
                                 }
                             }
                             
                             val currentWeekNum = save.currentWeek
                             _simulationCurrentWeek.value = currentWeekNum
                             
-                            val weekFixtures = repo.getFixturesForWeek(save.currentSeason, currentWeekNum)
+                            val weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, currentWeekNum)
                             val userUnplayedFixtures = weekFixtures.filter { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
                             
                             if (userUnplayedFixtures.isNotEmpty()) {
                                 for (uf in userUnplayedFixtures) {
                                     if (!_isSimulatingSeason.value) break
+                                    if (_currentSaveId.value != simulationSaveId) {
+                                        _isSimulatingSeason.value = false
+                                        break
+                                    }
                                     
                                     val compName = DefaultData.getCompetitionName(uf.competitionType, _selectedCountry.value)
                                     _simulationCompetitionName.value = compName
                                     
                                     val updatedFixture = simulateSingleUserFixture(uf, save)
                                     
-                                    val homeTeam = repo.getTeam(updatedFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(updatedFixture.homeTeamId)
-                                    val awayTeam = repo.getTeam(updatedFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(updatedFixture.awayTeamId)
+                                    val currentRepository3 = getActiveRepository() ?: currentRepository
+                                    val homeTeam = currentRepository3.getTeam(updatedFixture.homeTeamId) ?: GlobalFootballSystem.getVirtualTeam(updatedFixture.homeTeamId)
+                                    val awayTeam = currentRepository3.getTeam(updatedFixture.awayTeamId) ?: GlobalFootballSystem.getVirtualTeam(updatedFixture.awayTeamId)
                                     val resText = "${homeTeam.name} ${updatedFixture.homeScore} - ${updatedFixture.awayScore} ${awayTeam.name}"
                                     
                                     _simulationMatchInfo.value = resText
@@ -1025,13 +1063,20 @@ class GameViewModel @Inject constructor(
                             }
                             
                             if (!_isSimulatingSeason.value) break
-                            
+                            // Os dois passos abaixo resolvem o repositório ativo internamente;
+                            // sem esta checagem a semana poderia ser fechada no save novo.
+                            if (_currentSaveId.value != simulationSaveId) {
+                                _simulationLogs.value = listOf("Simulação interrompida: save ativo alterado.") + _simulationLogs.value
+                                _isSimulatingSeason.value = false
+                                break
+                            }
+
                             simulateCpuMatchesForCurrentWeek()
                             processWeekEndEconomicAndEvolution()
                             
-                            val updatedSave = repo.getGameSave() ?: break
-                            if (updatedSave.currentWeek == 1 && currentWeekNum >= GameCalendar.WEEKS_PER_SEASON) {
-                                val nextLog = "🏆 Temporada ${save.currentSeason} finalizada com sucesso! Iniciando Temporada ${updatedSave.currentSeason}..."
+                            val updatedSaveSim = currentRepository.getGameSave() ?: break
+                            if (updatedSaveSim.currentWeek == 1 && currentWeekNum >= GameCalendar.WEEKS_PER_SEASON) {
+                                val nextLog = "🏆 Temporada ${save.currentSeason} finalizada com sucesso! Iniciando Temporada ${updatedSaveSim.currentSeason}..."
                                 _simulationLogs.value = (listOf(nextLog) + _simulationLogs.value).take(25)
                                 delay(1500)
                             }
@@ -1502,14 +1547,15 @@ class GameViewModel @Inject constructor(
         _isSimulatingSeason.value = false
         viewModelScope.launch(Dispatchers.IO) {
             simulationMutex.withLock {
-                val save = repo.getGameSave() ?: return@withLock
-                val currentTeams = repo.getAllTeams()
+                val currentRepository = getActiveRepository() ?: return@withLock
+                val save = currentRepository.getGameSave() ?: return@withLock
+                val currentTeams = currentRepository.getAllTeams()
                 val allGeneratedFixtures = generateFixturesForSeason(
                     save.currentSeason,
                     currentTeams,
                     save.playerTeamId
                 )
-                val restarted = repo.restartSeasonStateAtomically(
+                val restarted = currentRepository.restartSeasonStateAtomically(
                     expectedSeason = save.currentSeason,
                     expectedPlayerTeamId = save.playerTeamId,
                     replacementFixtures = allGeneratedFixtures
@@ -1546,9 +1592,10 @@ class GameViewModel @Inject constructor(
 
     fun setTactics(formation: String, style: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repo.withTransaction {
-                val save = repo.getGameSave() ?: return@withTransaction
-                repo.saveGameSave(save.copy(playerFormation = formation, playerStyle = style))
+            val currentRepository = getActiveRepository() ?: return@launch
+            currentRepository.withTransaction {
+                val save = currentRepository.getGameSave() ?: return@withTransaction
+                currentRepository.saveGameSave(save.copy(playerFormation = formation, playerStyle = style))
             }
         }
     }

@@ -311,11 +311,17 @@ object DefaultData {
     }
 
     fun getTeamsForCountry(country: String): List<TeamTemplate> {
-        return countriesMap[country]?.teams ?: countriesMap["Brasil"]!!.teams
+        val data = countriesMap[country] ?: countriesMap["Brasil"]
+        return data?.teams ?: emptyList()
     }
 
     fun getCountryInfo(country: String): CountryData {
-        return countriesMap[country] ?: countriesMap["Brasil"]!!
+        return countriesMap[country] ?: countriesMap["Brasil"] ?: CountryData(
+            continent = "Europa",
+            firstNames = listOf("Jogador"),
+            lastNames = listOf("Teste"),
+            teams = emptyList()
+        )
     }
 
     private fun Random.safeNextInt(fromInclusive: Int, toInclusive: Int): Int {
@@ -338,7 +344,12 @@ object DefaultData {
             "ATA", "ATA", "ATA", "ATA", "ATA", "ATA", "ATA", "ATA", "ATA"
         )
 
-        val countryData = countriesMap[country] ?: countriesMap["Brasil"]!!
+        val countryData = countriesMap[country] ?: countriesMap["Brasil"] ?: CountryData(
+            continent = "Europa",
+            firstNames = listOf("Jogador"),
+            lastNames = listOf("Teste"),
+            teams = emptyList()
+        )
         val firstNames = countryData.firstNames
         val lastNames = countryData.lastNames
 

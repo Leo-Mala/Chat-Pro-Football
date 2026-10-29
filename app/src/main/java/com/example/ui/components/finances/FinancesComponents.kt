@@ -157,7 +157,7 @@ fun ScoutSelectionDialog(
                             Text("Olheiro Nível 1", color = Color.White, fontWeight = FontWeight.Bold)
                             Text("R$ 50.000", color = AccentLime, fontWeight = FontWeight.Black)
                         }
-                        Text("Revela os atributos com margem de erro de ±5 após 1 rodada.", color = Color.Gray, fontSize = 11.sp)
+                        Text("Revela os atributos com margem de erro de ±5 imediatamente.", color = Color.Gray, fontSize = 11.sp)
                     }
                 }
 
@@ -175,7 +175,7 @@ fun ScoutSelectionDialog(
                             Text("Olheiro Nível 3", color = Color.White, fontWeight = FontWeight.Bold)
                             Text("R$ 150.000", color = AccentLime, fontWeight = FontWeight.Black)
                         }
-                        Text("Revela os atributos com margem de erro de ±2 após 1 rodada.", color = Color.Gray, fontSize = 11.sp)
+                        Text("Revela os atributos com margem de erro de ±2 imediatamente.", color = Color.Gray, fontSize = 11.sp)
                     }
                 }
 
@@ -193,7 +193,7 @@ fun ScoutSelectionDialog(
                             Text("Olheiro Nível 5 (Exato)", color = Color.White, fontWeight = FontWeight.Bold)
                             Text("R$ 400.000", color = AccentLime, fontWeight = FontWeight.Black)
                         }
-                        Text("Revela os atributos reais e exatos sem erros após 1 rodada.", color = Color.Gray, fontSize = 11.sp)
+                        Text("Revela os atributos reais e exatos sem erros imediatamente.", color = Color.Gray, fontSize = 11.sp)
                     }
                 }
 
