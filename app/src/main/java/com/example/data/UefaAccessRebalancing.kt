@@ -1,0 +1,301 @@
+package com.example.data
+
+/**
+ * Reequilíbrio determinístico da access list UEFA 2026/27 quando a vaga de titleholder não é usada.
+ *
+ * Regras oficiais (Regulamentos UEFA 2026/27, Art. 3, e comunicados da UEFA):
+ *
+ * - a vaga de titleholder só existe se o campeão europeu NÃO se classificou para a league phase da
+ *   Champions pela liga doméstica;
+ * - se o campeão da Champions já está classificado pela liga doméstica, a vaga passa ao clube com
+ *   maior coeficiente de clube entre os que entrariam no Champions Path (qualificatórias ou
+ *   play-off). Em 2026/27 isso colocou o Shakhtar Donetsk na league phase;
+ * - se o campeão da Europa League já está classificado pela liga doméstica, a vaga passa ao clube com
+ *   maior coeficiente de clube entre TODOS os que entrariam no Champions Path ou no League Path. Em
+ *   2026/27 isso colocou o Sporting CP na league phase.
+ *
+ * O motor não inventa desempate. Coeficiente máximo empatado é rejeitado, e o chamador precisa de
+ * evidência oficial antes de materializar o clube promovido.
+ *
+ * Esta fatia é puramente de domínio: não persiste nada, não agenda partidas e não altera a access
+ * list já confirmada em [UefaAccessList2026_27].
+ */
+
+/** Situação da vaga de titleholder de uma competição europeia. */
+enum class UefaTitleholderBerth {
+    /** O campeão não se classificou pela liga doméstica: a vaga é usada por ele mesmo. */
+    DEDICATED,
+
+    /** O campeão já se classificou pela liga doméstica: a vaga fica vaga e precisa de reequilíbrio. */
+    VACATED
+}
+
+/** Pools oficiais de onde sai o clube que ocupa uma vaga de titleholder vaga. */
+enum class UefaVacancyCandidatePool {
+    /** Vaga do titleholder da Champions: somente clubes que entrariam no Champions Path. */
+    CHAMPIONS_PATH_ONLY,
+
+    /** Vaga do titleholder da Europa League: Champions Path e League Path. */
+    ALL_QUALIFYING_PATHS;
+
+    fun accepts(path: UefaQualificationPath?): Boolean = when (this) {
+        CHAMPIONS_PATH_ONLY -> path == UefaQualificationPath.CHAMPIONS
+        ALL_QUALIFYING_PATHS -> path != null
+    }
+}
+
+/**
+ * Clube que entraria na fase qualificatória e pode ser promovido a uma vaga vaga.
+ *
+ * [entryPoint] é o ponto de entrada original; [clubCoefficientMilli] vem de
+ * [UefaCoefficientRules.clubFiveSeasonCoefficient], sempre em milésimos de ponto.
+ */
+data class UefaQualifyingEntrant(
+    val teamId: Long,
+    val country: String,
+    val entryPoint: UefaEntryPoint,
+    val clubCoefficientMilli: Long
+)
+
+/** Motivos de rejeição explícita, em vez de promoção inventada. */
+enum class UefaVacancyRejection {
+    NO_ELIGIBLE_CANDIDATE,
+    AMBIGUOUS_HIGHEST_COEFFICIENT,
+    INVALID_COEFFICIENT
+}
+
+sealed class UefaVacancyResolution {
+    data class Promoted(
+        val teamId: Long,
+        val country: String,
+        val from: UefaEntryPoint,
+        val to: UefaEntryPoint,
+        val candidatePool: UefaVacancyCandidatePool,
+        val clubCoefficientMilli: Long
+    ) : UefaVacancyResolution()
+
+    data class Rejected(val reason: UefaVacancyRejection) : UefaVacancyResolution()
+}
+
+object UefaAccessRebalancer {
+
+    /**
+     * Pool que o regulamento usa para preencher a vaga de cada titleholder.
+     *
+     * A Conference League não é modelada aqui: o campeão da Conference entra na Europa League, e a
+     * vaga vaga correspondente pertence a outro fluxo ainda não implementado.
+     */
+    fun candidatePoolForVacancy(vacatedCompetition: CompetitionIdentity): UefaVacancyCandidatePool =
+        when (vacatedCompetition) {
+            CompetitionIdentity.UEFA_CHAMPIONS_LEAGUE -> UefaVacancyCandidatePool.CHAMPIONS_PATH_ONLY
+            CompetitionIdentity.UEFA_EUROPA_LEAGUE -> UefaVacancyCandidatePool.ALL_QUALIFYING_PATHS
+            else -> throw IllegalArgumentException(
+                "Reequilíbrio de titleholder não modelado para $vacatedCompetition."
+            )
+        }
+
+    fun berthForTitleholder(
+        qualifiedThroughDomesticLeague: Boolean
+    ): UefaTitleholderBerth = if (qualifiedThroughDomesticLeague) {
+        UefaTitleholderBerth.VACATED
+    } else {
+        UefaTitleholderBerth.DEDICATED
+    }
+
+    /**
+     * Resolve quem ocupa a vaga vaga de um titleholder.
+     *
+     * [alreadyInLeaguePhase] impede que um clube ocupe duas vagas. Clubes que já entram na league
+     * phase também são descartados por [UefaEntryPoint.stage], e só entradas da própria Champions
+     * são consideradas: UEL e UECL também usam caminhos `CHAMPIONS`, então filtrar apenas por
+     * caminho promoveria indevidamente um clube de outra competição.
+     *
+     * [eligibleTeamIds], quando informado, restringe os candidatos àqueles elegíveis pela ordem
+     * doméstica exigida pelo Art. 3.04(2). Essa elegibilidade não pode ser derivada aqui porque
+     * [UefaQualifyingEntrant] não carrega posição doméstica; quando o filtro é aplicado, a seleção
+     * por coeficiente recai naturalmente no próximo clube ranqueado.
+     *
+     * [UefaQualifyingEntrant.country] é informativo e não é validado contra
+     * [CountryFootballRulesRegistry]: a vaga é decidida pelo coeficiente de clube, e o registry de
+     * 9.10B1 ainda não cobre todas as associações UEFA presentes na access list real (por exemplo,
+     * a Ucrânia, cujo campeão foi o promovido em 2026/27). Validar aqui produziria falso negativo.
+     */
+    fun resolveVacantTitleholderBerth(
+        vacatedCompetition: CompetitionIdentity,
+        entrants: List<UefaQualifyingEntrant>,
+        alreadyInLeaguePhase: Set<Long> = emptySet(),
+        eligibleTeamIds: Set<Long>? = null
+    ): UefaVacancyResolution {
+        val pool = candidatePoolForVacancy(vacatedCompetition)
+        if (entrants.any { it.clubCoefficientMilli < 0L }) {
+            return UefaVacancyResolution.Rejected(UefaVacancyRejection.INVALID_COEFFICIENT)
+        }
+        val candidates = entrants.filter { entrant ->
+            entrant.teamId !in alreadyInLeaguePhase &&
+                (eligibleTeamIds == null || entrant.teamId in eligibleTeamIds) &&
+                entrant.entryPoint.competition == UefaCompetitionCode.UCL &&
+                entrant.entryPoint.stage != UefaQualificationStage.LEAGUE_PHASE &&
+                pool.accepts(entrant.entryPoint.path)
+        }
+        val best = candidates.maxOfOrNull { it.clubCoefficientMilli }
+            ?: return UefaVacancyResolution.Rejected(UefaVacancyRejection.NO_ELIGIBLE_CANDIDATE)
+        val winner = candidates.filter { it.clubCoefficientMilli == best }.singleOrNull()
+            ?: return UefaVacancyResolution.Rejected(UefaVacancyRejection.AMBIGUOUS_HIGHEST_COEFFICIENT)
+        return UefaVacancyResolution.Promoted(
+            teamId = winner.teamId,
+            country = winner.country,
+            from = winner.entryPoint,
+            to = UefaEntryPoint(
+                competition = UefaCompetitionCode.UCL,
+                stage = UefaQualificationStage.LEAGUE_PHASE
+            ),
+            candidatePool = pool,
+            clubCoefficientMilli = winner.clubCoefficientMilli
+        )
+    }
+}
+
+/**
+ * Coeficiente de associação usado no ranking de European Performance Spots, em milésimos de ponto.
+ *
+ * [coefficientMilli] é o coeficiente de uma única época (o EPS usa a época mais recente).
+ * [tiebreakSeasonCoefficientsMilli] é opcional e existe só para o desempate do Annex D.8: as épocas
+ * da mais recente para a mais antiga, comparadas em ordem.
+ */
+data class UefaAssociationSeasonCoefficient(
+    val country: String,
+    val coefficientMilli: Long,
+    val tiebreakSeasonCoefficientsMilli: List<Long> = emptyList()
+)
+
+enum class UefaPerformanceSpotRejection {
+    INSUFFICIENT_ASSOCIATIONS,
+    AMBIGUOUS_RANKING,
+    INVALID_COEFFICIENT,
+    UNKNOWN_ASSOCIATION,
+    NON_UEFA_ASSOCIATION
+}
+
+sealed class UefaPerformanceSpotResolution {
+    /** Associações premiadas, na ordem do ranking. */
+    data class Awarded(val countries: List<String>) : UefaPerformanceSpotResolution()
+
+    data class Rejected(val reason: UefaPerformanceSpotRejection) : UefaPerformanceSpotResolution()
+}
+
+/**
+ * European Performance Spots: as duas associações com melhor coeficiente da época anterior ganham
+ * uma vaga extra na league phase da Champions.
+ *
+ * Ordem é sempre coeficiente decrescente. Empate exatamente na fronteira da segunda vaga é
+ * rejeitado, porque o regulamento não define um desempate de associação que o motor possa aplicar
+ * sozinho.
+ */
+object UefaEuropeanPerformanceSpotAllocator {
+
+    fun award(
+        coefficients: List<UefaAssociationSeasonCoefficient>,
+        spots: Int = UefaAccessList2026_27.EUROPEAN_PERFORMANCE_SPOTS
+    ): UefaPerformanceSpotResolution {
+        require(spots > 0)
+        val hasInvalidCoefficient = coefficients.any {
+            it.coefficientMilli < 0L || it.tiebreakSeasonCoefficientsMilli.any { season -> season < 0L }
+        }
+        if (hasInvalidCoefficient) {
+            return UefaPerformanceSpotResolution.Rejected(UefaPerformanceSpotRejection.INVALID_COEFFICIENT)
+        }
+        val canonical = mutableListOf<UefaAssociationSeasonCoefficient>()
+        coefficients.forEach { entry ->
+            val rules = CountryFootballRulesRegistry.resolve(entry.country)
+                ?: return UefaPerformanceSpotResolution.Rejected(
+                    UefaPerformanceSpotRejection.UNKNOWN_ASSOCIATION
+                )
+            // Uma associação de outra confederação nunca disputa European Performance Spots.
+            if (rules.confederation != FootballConfederation.UEFA ||
+                rules.kind != CountryRuleKind.NATIONAL_ASSOCIATION
+            ) {
+                return UefaPerformanceSpotResolution.Rejected(
+                    UefaPerformanceSpotRejection.NON_UEFA_ASSOCIATION
+                )
+            }
+            val country = rules.canonicalCountry
+            val previous = canonical.singleOrNull { it.country == country }
+            if (previous != null &&
+                (previous.coefficientMilli != entry.coefficientMilli ||
+                    previous.tiebreakSeasonCoefficientsMilli != entry.tiebreakSeasonCoefficientsMilli)
+            ) {
+                return UefaPerformanceSpotResolution.Rejected(
+                    UefaPerformanceSpotRejection.AMBIGUOUS_RANKING
+                )
+            }
+            if (previous == null) {
+                canonical += UefaAssociationSeasonCoefficient(
+                    country = country,
+                    coefficientMilli = entry.coefficientMilli,
+                    tiebreakSeasonCoefficientsMilli = entry.tiebreakSeasonCoefficientsMilli
+                )
+            }
+        }
+        if (canonical.size <= spots) {
+            return UefaPerformanceSpotResolution.Rejected(
+                UefaPerformanceSpotRejection.INSUFFICIENT_ASSOCIATIONS
+            )
+        }
+        val ranked = canonical.sortedWith(ranking)
+        if (ranking.compare(ranked[spots - 1], ranked[spots]) == 0) {
+            return UefaPerformanceSpotResolution.Rejected(
+                UefaPerformanceSpotRejection.AMBIGUOUS_RANKING
+            )
+        }
+        return UefaPerformanceSpotResolution.Awarded(
+            ranked.take(spots).map { it.country }
+        )
+    }
+
+    /**
+     * Coeficiente decrescente e, em empate, Annex D.8: maior coeficiente na época mais recente, depois
+     * na anterior, e assim por diante.
+     *
+     * A ordenação por época mais recente é observável na classificação oficial: Chéquia e Polônia
+     * empatam em 45.725 e a Chéquia aparece à frente por 3.900 contra 3.600 na época em curso. Quando
+     * o desempate não pode ser decidido com os dados recebidos, [award] rejeita - sorteio da UEFA não
+     * é reproduzível pelo motor.
+     */
+    private val ranking: Comparator<UefaAssociationSeasonCoefficient> = Comparator { a, b ->
+        val byCoefficient = b.coefficientMilli.compareTo(a.coefficientMilli)
+        if (byCoefficient != 0) byCoefficient else compareTiebreak(a, b)
+    }
+
+    private fun compareTiebreak(
+        a: UefaAssociationSeasonCoefficient,
+        b: UefaAssociationSeasonCoefficient
+    ): Int {
+        val size = minOf(
+            a.tiebreakSeasonCoefficientsMilli.size,
+            b.tiebreakSeasonCoefficientsMilli.size
+        )
+        for (index in 0 until size) {
+            val comparison = b.tiebreakSeasonCoefficientsMilli[index]
+                .compareTo(a.tiebreakSeasonCoefficientsMilli[index])
+            if (comparison != 0) return comparison
+        }
+        return 0
+    }
+
+    /**
+     * Posição doméstica que recebe o European Performance Spot.
+     *
+     * A vaga fica imediatamente abaixo das vagas domésticas diretas. [unavailablePositions] contém
+     * posições que não podem receber o EPS - na prática, clubes que já entraram por outra vaga
+     * (titleholder), porque um clube nunca ocupa duas vagas.
+     */
+    fun berthPosition(
+        directLeagueSlots: Int,
+        unavailablePositions: Set<Int> = emptySet()
+    ): Int {
+        require(directLeagueSlots > 0)
+        var position = directLeagueSlots + 1
+        while (position in unavailablePositions) position++
+        return position
+    }
+}
