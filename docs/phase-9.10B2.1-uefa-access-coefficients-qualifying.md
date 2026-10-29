@@ -27,6 +27,11 @@ Regulamentos UEFA 2026/27, edição em vigor a partir de 1 de março de 2026:
 - Annex D.5: bônus por posição/etapa;
 - Annex D.7: milésimos, sem arredondamento para cima, e shoot-out fora do cálculo.
 
+Desfecho oficial do reequilíbrio 2026/27 usado como evidência da fatia 2:
+
+- UEFA.com, 11/05/2026 — Shakhtar Donetsk entra na league phase pelo reequilíbrio da Champions;
+- UEFA.com, 25/05/2026 — Sporting CP entra na league phase após o título europeu do Aston Villa.
+
 A confirmação oficial da UEFA para a Champions 2026/27 fecha as 36 vagas da league phase da seguinte forma: titleholder UCL (1), titleholder UEL (1), Inglaterra 4, Itália 4, Espanha 4, Alemanha 4, França 3, Países Baixos 2, Portugal 1, Bélgica 1, Tchéquia 1, Turquia 1, dois European Performance Spots, cinco classificadas pelo Champions Path e duas pelo League Path. Os EPS 2026/27 pertencem a Inglaterra e Espanha.
 
 ## Contratos adicionados nesta fatia
@@ -100,6 +105,42 @@ Liga as futuras vagas UEFA aos dados já persistidos no save:
 
 Titleholders mantêm a associação nacional real do clube; não existe país virtual `UEFA`.
 
+## Fatia 2 — Reequilíbrio por titleholders e European Performance Spots
+
+Implementada em `UefaAccessRebalancing.kt`, sem Room e sem alterar a alocação já confirmada.
+
+Regra de reequilíbrio, transcrita do Art. 3 do Regulamento da Champions 2026/27 e conferida com o
+desfecho oficial da access list:
+
+- a vaga de titleholder só existe se o campeão europeu **não** se classificou pela liga doméstica
+  (`UefaTitleholderBerth.DEDICATED`);
+- se o campeão da Champions já se classificou pela liga doméstica, a vaga passa ao clube de maior
+  coeficiente entre os que entrariam no **Champions Path** (qualificatórias ou play-off). Em 2026/27
+  isso colocou o Shakhtar Donetsk diretamente na league phase;
+- se o campeão da Europa League já se classificou pela liga doméstica, a vaga passa ao clube de maior
+  coeficiente entre **todos** os que entrariam no Champions Path **ou** no League Path. Em 2026/27
+  isso colocou o Sporting CP diretamente na league phase;
+- a assimetria entre os dois pools é o ponto central: `UefaVacancyCandidatePool.CHAMPIONS_PATH_ONLY`
+  versus `ALL_QUALIFYING_PATHS`. Um clube do League Path nunca ocupa a vaga vaga do titleholder da
+  Champions, mesmo com coeficiente maior;
+- um clube que já está na league phase nunca ocupa uma segunda vaga.
+
+European Performance Spots (`UefaEuropeanPerformanceSpotAllocator`):
+
+- as duas associações com melhor coeficiente da época anterior recebem uma vaga extra;
+- a vaga cai imediatamente abaixo das vagas domésticas diretas da associação
+  (`berthPosition(directLeagueSlots)`); em 2026/27, com quatro vagas diretas, Inglaterra e Espanha
+  receberam o EPS na 5ª posição;
+- um clube que já entrou por outra vaga (titleholder) não pode receber o EPS, por isso
+  `unavailablePositions` é explícito.
+
+O motor **não inventa desempate**. Coeficiente máximo empatado, associação desconhecida, coeficiente
+inválido ou ausência de candidato retornam `Rejected` com motivo tipado. O chamador precisa de
+evidência oficial antes de materializar o clube promovido.
+
+Ainda não implementado nesta fatia: a cascata de vagas nas rondas qualificatórias (quantos clubes
+sobem de Q1 para Q2 e assim por diante). Essa contagem depende do Annex A completo, que é o item 1.
+
 ## Por que não existe Room V22 nesta fatia
 
 `GlobalLeagueStanding` já guarda a posição da primeira divisão por temporada e foi criada com uso explícito de qualificação continental, portanto vagas domésticas podem ser derivadas sem migration.
@@ -118,7 +159,7 @@ Só depois desse contrato estar fechado deve ser avaliada migration 21 -> 22. N�
 ## Próximas fatias da 9.10B2.1
 
 1. Transcrever e testar a access list completa do Annex A para todas as associações presentes no dataset.
-2. Implementar reequilíbrio por titleholders e European Performance Spots.
+2. ~~Implementar reequilíbrio por titleholders e European Performance Spots.~~ **Concluído** (fatia 2).
 3. Introduzir ranking de associações e ranking de clubes como entrada do solver, sem `Team.rating`.
 4. Implementar seeded/unseeded das qualificatórias e proibição de confronto entre clubes da mesma associação.
 5. Gerar Q1/Q2/Q3/Play-off no calendário interno e transferir eliminados entre UCL -> UEL -> UECL.
