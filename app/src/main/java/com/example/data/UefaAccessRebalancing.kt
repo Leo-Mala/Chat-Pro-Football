@@ -107,6 +107,11 @@ object UefaAccessRebalancer {
      *
      * [alreadyInLeaguePhase] impede que um clube ocupe duas vagas. Clubes que já entram na league
      * phase também são descartados por [UefaEntryPoint.stage].
+     *
+     * [UefaQualifyingEntrant.country] é informativo e não é validado contra
+     * [CountryFootballRulesRegistry]: a vaga é decidida pelo coeficiente de clube, e o registry de
+     * 9.10B1 ainda não cobre todas as associações UEFA presentes na access list real (por exemplo,
+     * a Ucrânia, cujo campeão foi o promovido em 2026/27). Validar aqui produziria falso negativo.
      */
     fun resolveVacantTitleholderBerth(
         vacatedCompetition: CompetitionIdentity,
