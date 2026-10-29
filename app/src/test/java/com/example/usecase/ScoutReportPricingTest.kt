@@ -54,7 +54,7 @@ class ScoutReportPricingTest {
             listOf(
                 Player(
                     id = 10,
-                    teamId = 1,
+                    teamId = null,
                     name = "Alvo 1",
                     age = 22,
                     position = "ATA",
@@ -95,7 +95,7 @@ class ScoutReportPricingTest {
             listOf(
                 Player(
                     id = 11,
-                    teamId = 1,
+                    teamId = null,
                     name = "Alvo 2",
                     age = 24,
                     position = "ZAG",
