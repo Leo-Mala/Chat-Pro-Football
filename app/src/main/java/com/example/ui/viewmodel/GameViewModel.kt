@@ -956,17 +956,24 @@ class GameViewModel @Inject constructor(
 
     private suspend fun performSimulateOneWeekInternal() {
         val currentRepository = getActiveRepository() ?: return
+        val simulationSaveId = _currentSaveId.value
         val save = currentRepository.getGameSave() ?: return
         cleanupDuplicateUnplayedFixtures(save.currentSeason)
         var weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
         var userFixture = weekFixtures.find { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
         
         while (userFixture != null) {
+            // simulateSingleUserFixture grava pelo repositório ativo: se o jogador trocou
+            // de slot, abortar evita gravar no save novo e repetir o fixture indefinidamente.
+            if (_currentSaveId.value != simulationSaveId) return
             simulateSingleUserFixture(userFixture, save)
+            if (_currentSaveId.value != simulationSaveId) return
             weekFixtures = currentRepository.getFixturesForWeek(save.currentSeason, save.currentWeek)
             userFixture = weekFixtures.find { !it.isPlayed && (it.homeTeamId == save.playerTeamId || it.awayTeamId == save.playerTeamId) }
         }
         
+        // Os dois passos abaixo resolvem o repositório ativo internamente.
+        if (_currentSaveId.value != simulationSaveId) return
         simulateCpuMatchesForCurrentWeek()
         processWeekEndEconomicAndEvolution()
     }
